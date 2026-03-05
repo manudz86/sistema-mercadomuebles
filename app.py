@@ -13,70 +13,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from dotenv import load_dotenv
 import pymysql
+
 ML_SELLER_ID = 29563319
-
-from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-from werkzeug.security import generate_password_hash, check_password_hash
-from functools import wraps
-
-# ============================================================================
-# FLASK-LOGIN SETUP
-# ============================================================================
-login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = 'login'
-login_manager.login_message = '⚠️ Debés iniciar sesión para acceder'
-login_manager.login_message_category = 'warning'
-
-class User(UserMixin):
-    def __init__(self, id, username, rol, activo):
-        self.id = id
-        self.username = username
-        self.rol = rol
-        self.activo = activo
-
-@login_manager.user_loader
-def load_user(user_id):
-    row = query_one('SELECT * FROM usuarios WHERE id = %s AND activo = TRUE', (user_id,))
-    if row:
-        return User(row['id'], row['username'], row['rol'], row['activo'])
-    return None
-
-def admin_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not current_user.is_authenticated or current_user.rol != 'admin':
-            flash('❌ No tenés permisos para realizar esta acción', 'danger')
-            return redirect(url_for('dashboard'))
-        return f(*args, **kwargs)
-    return decorated
-
-# ============================================================================
-# RUTAS DE LOGIN / LOGOUT
-# ============================================================================
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
-    if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '')
-        user_row = query_one('SELECT * FROM usuarios WHERE username = %s AND activo = TRUE', (username,))
-        if user_row and check_password_hash(user_row['password_hash'], password):
-            user = User(user_row['id'], user_row['username'], user_row['rol'], user_row['activo'])
-            login_user(user, remember=True)
-            next_page = request.args.get('next')
-            return redirect(next_page or url_for('dashboard'))
-        flash('❌ Usuario o contraseña incorrectos', 'danger')
-    return render_template('login.html')
-
-@app.route('/logout')
-@login_required
-def logout():
-    logout_user()
-    flash('✅ Sesión cerrada', 'success')
-    return redirect(url_for('login'))
-
 
 # Cargar configuración
 load_dotenv('config/.env')
@@ -84,6 +22,12 @@ load_dotenv('config/.env')
 # Configurar Flask
 app = Flask(__name__, template_folder='templates')
 app.secret_key = os.getenv('SECRET_KEY', 'cambiar-en-produccion-123456')
+
+# Filtro personalizado para dashboard visual
+@app.template_filter('zero_dash')
+def zero_dash(value):
+    """Convierte 0 en '-' para el dashboard visual"""
+    return '-' if value == 0 or value is None else value
 
 # ============================================================================
 # FLASK-LOGIN SETUP
@@ -116,12 +60,6 @@ def admin_required(f):
             return redirect(url_for('index'))
         return f(*args, **kwargs)
     return decorated
-
-# Filtro personalizado para dashboard visual
-@app.template_filter('zero_dash')
-def zero_dash(value):
-    """Convierte 0 en '-' para el dashboard visual"""
-    return '-' if value == 0 or value is None else value
 
 # Configuración de base de datos
 DB_CONFIG = {
@@ -171,6 +109,33 @@ def execute_db(query, params=None):
 # ============================================================================
 # RUTAS - PÁGINAS
 # ============================================================================
+
+# ============================================================================
+# RUTAS DE LOGIN / LOGOUT
+# ============================================================================
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        user_row = query_one('SELECT * FROM usuarios WHERE username = %s AND activo = TRUE', (username,))
+        if user_row and check_password_hash(user_row['password_hash'], password):
+            user = User(user_row['id'], user_row['username'], user_row['rol'], user_row['activo'])
+            login_user(user, remember=True)
+            next_page = request.args.get('next')
+            return redirect(next_page or url_for('index'))
+        flash('❌ Usuario o contraseña incorrectos', 'danger')
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('✅ Sesión cerrada', 'success')
+    return redirect(url_for('login'))
+
 
 @app.route('/')
 @login_required
