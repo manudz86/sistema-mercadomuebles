@@ -1,0 +1,73 @@
+<!-- 
+═══════════════════════════════════════════════════════════════
+MODIFICACIÓN DE editar_venta.html - AGREGAR BOTÓN ELIMINAR
+═══════════════════════════════════════════════════════════════
+
+INSTRUCCIONES:
+1. Abrí tu archivo editar_venta.html
+2. Buscá la línea ~248-256 donde dice "BOTONES"
+3. REEMPLAZÁ desde "<!-- BOTONES -->" hasta "</form>" con el código de abajo
+-->
+
+    <!-- BOTONES -->
+    <div class="d-flex justify-content-between align-items-center">
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('ventas_activas') }}" class="btn btn-secondary btn-lg">
+                <i class="bi bi-x-circle"></i> Cancelar
+            </a>
+            <button type="button" class="btn btn-danger btn-lg" data-bs-toggle="modal" data-bs-target="#modalEliminarVenta">
+                <i class="bi bi-trash"></i> Eliminar Venta
+            </button>
+        </div>
+        <button type="submit" class="btn btn-success btn-lg">
+            <i class="bi bi-check-circle"></i> Guardar Cambios
+        </button>
+    </div>
+</form>
+
+<!-- MODAL DE CONFIRMACIÓN - ELIMINAR VENTA -->
+<div class="modal fade" id="modalEliminarVenta" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-danger">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-exclamation-triangle-fill"></i> ⚠️ Eliminar Venta
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    <strong>⚠️ ADVERTENCIA:</strong> Esta acción NO se puede deshacer.
+                </div>
+                
+                <p>¿Estás seguro que querés <strong>ELIMINAR COMPLETAMENTE</strong> la venta <strong>{{ venta.numero_venta }}</strong>?</p>
+                
+                <div class="alert alert-info mb-0">
+                    <i class="bi bi-info-circle"></i> 
+                    La venta se borrará de la base de datos y <strong>NO se descontará stock</strong>.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i> Cancelar
+                </button>
+                <form method="POST" action="{{ url_for('eliminar_venta', venta_id=venta.id) }}" style="display: inline;">
+                    <button type="submit" class="btn btn-danger">
+                        <i class="bi bi-trash-fill"></i> SÍ, Eliminar Venta
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 
+═══════════════════════════════════════════════════════════════
+FIN DE MODIFICACIÓN
+═══════════════════════════════════════════════════════════════
+
+RESULTADO:
+- Botón "Eliminar Venta" en rojo junto al botón "Cancelar"
+- Modal de confirmación con advertencia
+- Al confirmar, elimina la venta completamente de la BD
+-->

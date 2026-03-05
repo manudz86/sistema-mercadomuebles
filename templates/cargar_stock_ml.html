@@ -1,0 +1,482 @@
+{% extends "base.html" %}
+
+{% block title %}Modificar Publicaciones ML{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h2 class="mb-2">
+                <i class="bi bi-pencil-square"></i> Modificar Publicaciones en ML
+            </h2>
+            <p class="text-muted">Cargar/bajar stock, quitar o poner demora en publicaciones de ML</p>
+        </div>
+    </div>
+
+    <!-- BUSCADOR -->
+    <div class="card mb-4 shadow-sm">
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('buscar_sku_ml') }}">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-9">
+                        <label for="sku_buscar" class="form-label">
+                            <i class="bi bi-upc-scan"></i> Buscar por SKU
+                        </label>
+                        <input type="text" 
+                               class="form-control form-control-lg" 
+                               id="sku_buscar" 
+                               name="sku_buscar" 
+                               placeholder="Ej: CEX80, SDOP140Z"
+                               value="{% if sku_buscado %}{{ sku_buscado }}{% endif %}"
+                               autofocus
+                               required>
+                    </div>
+                    <div class="col-md-3">
+                        <button type="submit" class="btn btn-primary btn-lg w-100">
+                            <i class="bi bi-search"></i> Buscar Publicaciones
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- RESULTADOS -->
+    {% if sku_buscado %}
+    <div class="card shadow-sm">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">
+                <i class="bi bi-tag"></i> Resultados para: <strong>{{ sku_buscado }}</strong>
+            </h5>
+        </div>
+        <div class="card-body">
+            
+            <!-- INFO DEL SKU -->
+            <div class="alert {% if es_sku_con_z %}alert-warning{% else %}alert-success{% endif %} d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="bi bi-info-circle"></i> <strong>Tipo de SKU:</strong>
+                    {% if es_sku_con_z %}
+                        <span class="badge bg-warning text-dark">Con Z (Demora)</span>
+                    {% else %}
+                        <span class="badge bg-success">Sin Z (Stock Normal)</span>
+                    {% endif %}
+                </div>
+                <div>
+                    <i class="bi bi-box"></i> <strong>Publicaciones encontradas:</strong>
+                    <span class="badge bg-primary">{{ publicaciones|length }}</span>
+                </div>
+            </div>
+
+            {% if publicaciones %}
+            <!-- TABLA DE PUBLICACIONES -->
+            <div class="table-responsive">
+                <table class="table table-hover table-bordered">
+                    <thead class="table-dark">
+                        <tr>
+                            <th width="12%">MLA</th>
+                            <th width="25%">Título</th>
+                            <th width="7%">Stock</th>
+                            {% if es_sku_con_z %}
+                            <th width="8%">Demora</th>
+                            {% endif %}
+                            <th width="9%">Precio</th>
+                            <th width="9%">Tipo publi</th>
+                            <th width="8%">Estado</th>
+                            <th width="22%">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for pub in publicaciones %}
+                        <tr>
+                            <td class="text-center">
+                                <a href="https://articulo.mercadolibre.com.ar/{{ pub.mla | replace('MLA', 'MLA-') }}" 
+                                   target="_blank" 
+                                   class="text-decoration-none">
+                                    {{ pub.mla }}
+                                    <i class="bi bi-box-arrow-up-right"></i>
+                                </a>
+                            </td>
+                            <td>{{ pub.titulo }}</td>
+                            <td class="text-center">
+                                <strong>{{ pub.stock_actual }}</strong>
+                            </td>
+                            {% if es_sku_con_z %}
+                            <td class="text-center">
+                                {% if pub.demora %}
+                                    <span class="badge bg-warning text-dark">
+                                        <i class="bi bi-clock"></i> {{ pub.demora }}
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-success">
+                                        <i class="bi bi-check-circle"></i> Sin demora
+                                    </span>
+                                {% endif %}
+                            </td>
+                            {% endif %}
+                            <td class="text-center">
+                                {% if pub.precio %}
+                                    <span class="fw-bold text-success" style="font-size:.9rem">
+                                        ${{ "{:,.0f}".format(pub.precio) }}
+                                    </span>
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if pub.listing_type %}
+                                    <span class="badge" style="font-size:.75rem; background:#e8f0fe; color:#1a56db">
+                                        {{ pub.listing_type }}
+                                    </span>
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if pub.status_raw == 'active' %}
+                                    <span class="badge bg-success">Activa</span>
+                                {% elif pub.status_raw == 'paused' %}
+                                    <span class="badge bg-warning text-dark">Pausada</span>
+                                {% elif pub.status_raw == 'closed' %}
+                                    <span class="badge bg-danger">Cerrada</span>
+                                {% elif pub.status_raw == 'inactive' %}
+                                    <span class="badge bg-secondary">Inactiva</span>
+                                {% elif pub.status_raw == 'under_review' %}
+                                    <span class="badge bg-info">En revisión</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ pub.estado }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <!-- ACCIONES PARA SKU CON Z -->
+                                {% if es_sku_con_z %}
+                                <div class="d-flex gap-2 flex-column">
+                                    <!-- Fila 1: Cargar stock + Bajar a 0 -->
+                                    <div class="d-flex gap-1">
+                                        <form method="POST" action="{{ url_for('cargar_stock_mla') }}"
+                                              class="d-flex gap-1 flex-fill"
+                                              onsubmit="return confirmarCargaStock(event, '{{ pub.mla }}')">
+                                            <input type="hidden" name="mla" value="{{ pub.mla }}">
+                                            <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                                            <input type="number" name="stock_nuevo"
+                                                   class="form-control form-control-sm" placeholder="Stock"
+                                                   min="0" max="99" required style="width:60px">
+                                            <button type="submit" class="btn btn-sm btn-primary">
+                                                <i class="bi bi-upload"></i>
+                                            </button>
+                                        </form>
+                                        <button type="button" class="btn btn-sm btn-danger"
+                                                onclick="confirmarBajarCero('{{ pub.mla }}', '{{ sku_buscado }}')"
+                                                title="Bajar stock a 0">
+                                            <i class="bi bi-arrow-down-circle"></i> 0
+                                        </button>
+                                    </div>
+                                    <!-- Fila 2: Quitar demora + Cargar demora -->
+                                    <div class="d-flex gap-1">
+                                        <button type="button" class="btn btn-sm btn-warning flex-fill"
+                                                onclick="confirmarReducirDemora('{{ pub.mla }}', '{{ sku_buscado }}')">
+                                            <i class="bi bi-x-circle"></i> Quitar demora
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-warning"
+                                                onclick="mostrarModalDemora('{{ pub.mla }}', '{{ sku_buscado }}')"
+                                                title="Poner demora">
+                                            <i class="bi bi-clock-history"></i>
+                                        </button>
+                                    </div>
+                                    <!-- Fila 3: Cambiar precio -->
+                                    <div class="d-flex gap-1">
+                                        <input type="number" class="form-control form-control-sm"
+                                               id="precio_{{ pub.mla }}" placeholder="Precio"
+                                               min="0" step="1" style="width:80px"
+                                               value="{{ pub.precio|int if pub.precio else '' }}">
+                                        <button type="button" class="btn btn-sm btn-outline-success flex-fill"
+                                                onclick="confirmarCambiarPrecio('{{ pub.mla }}', '{{ sku_buscado }}')">
+                                            <i class="bi bi-tag"></i> Precio
+                                        </button>
+                                    </div>
+                                </div>
+                                {% else %}
+                                <!-- ACCIONES PARA SKU SIN Z -->
+                                <div class="d-flex gap-1">
+                                    <form method="POST" action="{{ url_for('cargar_stock_mla') }}"
+                                          class="d-flex gap-1 flex-fill"
+                                          onsubmit="return confirmarCargaStock(event, '{{ pub.mla }}')">
+                                        <input type="hidden" name="mla" value="{{ pub.mla }}">
+                                        <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                                        <input type="number" name="stock_nuevo"
+                                               class="form-control form-control-sm" placeholder="Stock"
+                                               min="0" max="99" required style="width:60px">
+                                        <button type="submit" class="btn btn-sm btn-primary">
+                                            <i class="bi bi-upload"></i>
+                                        </button>
+                                    </form>
+                                    <button type="button" class="btn btn-sm btn-danger"
+                                            onclick="confirmarBajarCero('{{ pub.mla }}', '{{ sku_buscado }}')"
+                                            title="Bajar stock a 0">
+                                        <i class="bi bi-arrow-down-circle"></i> 0
+                                    </button>
+                                </div>
+                                <div class="d-flex gap-1 mt-1">
+                                    <input type="number" class="form-control form-control-sm"
+                                           id="precio_{{ pub.mla }}" placeholder="Precio"
+                                           min="0" step="1" style="width:80px"
+                                           value="{{ pub.precio|int if pub.precio else '' }}">
+                                    <button type="button" class="btn btn-sm btn-outline-success flex-fill"
+                                            onclick="confirmarCambiarPrecio('{{ pub.mla }}', '{{ sku_buscado }}')">
+                                        <i class="bi bi-tag"></i> Precio
+                                    </button>
+                                </div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- ACCIÓN MASIVA -->
+            <div class="mt-4 p-3 bg-light border rounded">
+                <h6 class="mb-3"><i class="bi bi-lightning"></i> Acción Masiva</h6>
+                
+                <!-- ACCIONES MASIVAS PARA SKU CON Z -->
+                {% if es_sku_con_z %}
+                <div class="row g-3">
+                    <!-- Cargar stock masivo -->
+                    <div class="col-md-3">
+                        <form method="POST" action="{{ url_for('cargar_stock_masivo') }}"
+                              class="d-flex gap-2 align-items-end"
+                              onsubmit="return confirmarCargaStockMasiva(event, {{ publicaciones|length }})">
+                            <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <div class="flex-fill">
+                                <label class="form-label small mb-1">Cargar stock a todas:</label>
+                                <input type="number" name="stock_nuevo" class="form-control"
+                                       placeholder="Ej: 5" min="0" max="99" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-upload"></i>
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Bajar a 0 masivo -->
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Bajar stock a 0 en todas:</label>
+                        <form method="POST" action="{{ url_for('bajar_stock_cero_masivo') }}"
+                              onsubmit="return confirmarAccionMasiva('bajar stock a 0', {{ publicaciones|length }})">
+                            <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <button type="submit" class="btn btn-danger w-100">
+                                <i class="bi bi-arrow-down-circle"></i> Stock 0 en Todas
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Quitar demora masivo -->
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Demora en todas:</label>
+                        <form method="POST" action="{{ url_for('quitar_demora_masivo') }}"
+                              onsubmit="return confirmarAccionMasiva('quitar la demora', {{ publicaciones|length }})">
+                            <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <button type="submit" class="btn btn-warning w-100">
+                                <i class="bi bi-x-circle"></i> Quitar Demora
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Cargar demora masivo -->
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Poner demora en todas:</label>
+                        <div class="d-flex gap-1">
+                            <input type="number" id="dias_masivo" class="form-control"
+                                   placeholder="días" min="1" max="365" style="width:70px">
+                            <button type="button" class="btn btn-outline-warning flex-fill"
+                                    onclick="confirmarCargarDemoraMasivo('{{ sku_buscado }}')">
+                                <i class="bi bi-clock-history"></i> Poner Demora
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Fila 2 masivo: Cambiar precio -->
+                <div class="row g-3 mt-1">
+                    <div class="col-md-4">
+                        <label class="form-label small mb-1">Cambiar precio en todas:</label>
+                        <div class="d-flex gap-1">
+                            <input type="number" id="precio_masivo" class="form-control"
+                                   placeholder="Nuevo precio" min="0" step="1">
+                            <button type="button" class="btn btn-outline-success"
+                                    onclick="confirmarCambiarPrecioMasivo('{{ sku_buscado }}')">
+                                <i class="bi bi-tag"></i> Cambiar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- ACCIONES MASIVAS PARA SKU SIN Z -->
+                {% else %}
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-5">
+                        <form method="POST" action="{{ url_for('cargar_stock_masivo') }}"
+                              class="d-flex gap-2"
+                              onsubmit="return confirmarCargaStockMasiva(event, {{ publicaciones|length }})">
+                            <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <div class="flex-fill">
+                                <label class="form-label">Stock a cargar en todas:</label>
+                                <input type="number" name="stock_nuevo" class="form-control form-control-lg"
+                                       placeholder="Ej: 5" min="0" max="99" required>
+                            </div>
+                            <div class="d-flex align-items-end">
+                                <button type="submit" class="btn btn-primary btn-lg">
+                                    <i class="bi bi-upload"></i> Cargar en Todas
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="col-md-3">
+                        <form method="POST" action="{{ url_for('bajar_stock_cero_masivo') }}"
+                              onsubmit="return confirmarAccionMasiva('bajar stock a 0', {{ publicaciones|length }})">
+                            <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <button type="submit" class="btn btn-danger btn-lg w-100">
+                                <i class="bi bi-arrow-down-circle"></i> Bajar Stock a 0 en Todas
+                            </button>
+                        </form>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Cambiar precio en todas:</label>
+                        <div class="d-flex gap-1">
+                            <input type="number" id="precio_masivo" class="form-control form-control-lg"
+                                   placeholder="Nuevo precio" min="0" step="1">
+                            <button type="button" class="btn btn-outline-success btn-lg"
+                                    onclick="confirmarCambiarPrecioMasivo('{{ sku_buscado }}')">
+                                <i class="bi bi-tag"></i> Cambiar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            {% else %}
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle"></i>
+                No se encontraron publicaciones activas para el SKU <strong>{{ sku_buscado }}</strong>
+            </div>
+            {% endif %}
+            
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+
+<!-- MODAL: Cargar demora individual -->
+<div class="modal fade" id="modalDemora" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title"><i class="bi bi-clock-history me-2"></i>Poner demora</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted mb-2" id="modal_mla_texto"></p>
+                <label class="form-label small fw-bold">Días de demora:</label>
+                <input type="number" id="modal_dias" class="form-control" placeholder="Ej: 10" min="1" max="365">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-warning btn-sm" onclick="ejecutarCargarDemora()">
+                    <i class="bi bi-check-circle"></i> Confirmar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SCRIPTS -->
+<script>
+let modalMla = '', modalSku = '';
+
+// ── Quitar demora individual ──────────────────────────────────────
+function confirmarReducirDemora(mla, sku) {
+    if (confirm(`¿Quitar la demora completamente en ${mla}?`)) {
+        submitForm('{{ url_for("quitar_demora_mla") }}', { mla, sku });
+    }
+}
+
+// ── Bajar stock a 0 individual ───────────────────────────────────
+function confirmarBajarCero(mla, sku) {
+    if (confirm(`¿Bajar stock a 0 en la publicación ${mla}?`)) {
+        submitForm('{{ url_for("bajar_stock_mla_cero") }}', { mla, sku });
+    }
+}
+
+// ── Cargar demora individual (abre modal) ────────────────────────
+function mostrarModalDemora(mla, sku) {
+    modalMla = mla; modalSku = sku;
+    document.getElementById('modal_mla_texto').textContent = `Publicación: ${mla}`;
+    document.getElementById('modal_dias').value = '';
+    new bootstrap.Modal(document.getElementById('modalDemora')).show();
+}
+
+function ejecutarCargarDemora() {
+    const dias = document.getElementById('modal_dias').value;
+    if (!dias || dias < 1) { alert('Ingresá una cantidad válida de días'); return; }
+    bootstrap.Modal.getInstance(document.getElementById('modalDemora')).hide();
+    submitForm('{{ url_for("cargar_demora_mla") }}', { mla: modalMla, sku: modalSku, dias });
+}
+
+// ── Cargar demora masivo ─────────────────────────────────────────
+function confirmarCargarDemoraMasivo(sku) {
+    const dias = document.getElementById('dias_masivo').value;
+    if (!dias || dias < 1) { alert('Ingresá los días antes de confirmar'); return; }
+    if (confirm(`¿Poner ${dias} días de demora en todas las publicaciones?`)) {
+        submitForm('{{ url_for("cargar_demora_masivo") }}', { sku, dias });
+    }
+}
+
+// ── Stock individual ─────────────────────────────────────────────
+function confirmarCargaStock(event, mla) {
+    const stock = event.target.stock_nuevo.value;
+    return confirm(`¿Cargar ${stock} unidades en ${mla}?`);
+}
+
+// ── Acciones masivas ─────────────────────────────────────────────
+function confirmarAccionMasiva(accion, cantidad) {
+    return confirm(`¿Estás seguro de ${accion} en ${cantidad} publicaciones?`);
+}
+
+function confirmarCargaStockMasiva(event, cantidad) {
+    const stock = event.target.stock_nuevo.value;
+    return confirm(`¿Cargar ${stock} unidades en ${cantidad} publicaciones?`);
+}
+
+// ── Helper: crear y enviar form dinámico ─────────────────────────
+function submitForm(action, fields) {
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = action;
+    Object.entries(fields).forEach(([k, v]) => {
+        const inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = k; inp.value = v;
+        form.appendChild(inp);
+    });
+    document.body.appendChild(form);
+    form.submit();
+}
+
+// ── Cambiar precio individual ────────────────────────────────────
+function confirmarCambiarPrecio(mla, sku) {
+    const precio = document.getElementById(`precio_${mla}`).value;
+    if (!precio || precio <= 0) { alert('Ingresá un precio válido'); return; }
+    if (confirm(`¿Cambiar precio a $${Number(precio).toLocaleString('es-AR')} en ${mla}?`)) {
+        submitForm('{{ url_for("cambiar_precio_mla") }}', { mla, sku, precio });
+    }
+}
+
+// ── Cambiar precio masivo ─────────────────────────────────────────
+function confirmarCambiarPrecioMasivo(sku) {
+    const precio = document.getElementById('precio_masivo').value;
+    if (!precio || precio <= 0) { alert('Ingresá un precio válido'); return; }
+    if (confirm(`¿Cambiar precio a $${Number(precio).toLocaleString('es-AR')} en todas las publicaciones?`)) {
+        submitForm('{{ url_for("cambiar_precio_masivo") }}', { sku, precio });
+    }
+}
+</script>
+{% endblock %}

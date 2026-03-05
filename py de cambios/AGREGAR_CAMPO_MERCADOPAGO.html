@@ -1,0 +1,86 @@
+<!-- 
+═══════════════════════════════════════════════════════════════
+MODIFICACIÓN: Agregar campo de Mercadopago al importar
+═══════════════════════════════════════════════════════════════
+
+En nueva_venta_ml.html, BUSCAR la sección de PAGO (línea ~220)
+REEMPLAZAR toda la card de "Información de Pago" con esto:
+-->
+
+<!-- PAGO -->
+<div class="card mb-3">
+    <div class="card-header bg-light">
+        <strong><i class="bi bi-cash-coin"></i> Información de Pago</strong>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3">
+                <label class="form-label">Canal de Venta</label>
+                <select class="form-select" name="canal" required>
+                    <option value="Mercado Libre" selected>Mercado Libre</option>
+                    <option value="Fuera de ML">Fuera de ML</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Método de Pago</label>
+                <select class="form-select" name="metodo_pago" required>
+                    <option value="Mercadopago" selected>Mercadopago</option>
+                    <option value="Efectivo">Efectivo</option>
+                    <option value="Transferencia">Transferencia</option>
+                    <option value="Mixto">Mixto</option>
+                </select>
+            </div>
+            
+            <!-- 🆕 NUEVO: Agregar campo de monto pagado por MP -->
+            <div class="col-md-2">
+                <label class="form-label">Total Venta</label>
+                <input type="text" 
+                       class="form-control" 
+                       id="total-display"
+                       value="${{ "{:,.0f}".format(total_calculado.value) }}"
+                       readonly
+                       style="background-color: #e9ecef; font-weight: bold;">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Pagado MP *</label>
+                <input type="number" 
+                       class="form-control" 
+                       name="pago_mercadopago" 
+                       id="pago_mercadopago"
+                       value="{{ total_calculado.value }}"
+                       min="0"
+                       required
+                       placeholder="0">
+                <small class="text-muted">Precargado con total</small>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Efectivo</label>
+                <input type="number" 
+                       class="form-control" 
+                       name="pago_efectivo" 
+                       value="0" 
+                       min="0">
+            </div>
+        </div>
+        
+        <!-- 🆕 NUEVO: Mensaje informativo -->
+        <div class="row mt-2">
+            <div class="col-12">
+                <div class="alert alert-info mb-0">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>Nota:</strong> El pago por Mercadopago se precarga automáticamente con el total de la venta. 
+                    Ajustá el monto si fue diferente o si hubo pago mixto.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 
+═══════════════════════════════════════════════════════════════
+RESULTADO:
+- Campo "Pagado MP" precargado con el total de la venta
+- Usuario puede ajustar si fue diferente
+- Mensaje informativo para guiar al usuario
+═══════════════════════════════════════════════════════════════
+-->

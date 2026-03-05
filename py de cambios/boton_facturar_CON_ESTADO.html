@@ -1,0 +1,40 @@
+<!-- ============================================ -->
+<!-- REEMPLAZAR LA COLUMNA "ACCIONES" EN ventas_historicas.html -->
+<!-- Este botón cambia de color y texto cuando ya se facturó -->
+<!-- ============================================ -->
+
+<!-- ACCIONES -->
+<td class="text-center">
+    <!-- Botón Facturar (solo para entregadas) -->
+    {% if venta.estado_entrega == 'entregada' %}
+        {% if venta.factura_generada %}
+            {# Ya se facturó - Botón secundario #}
+            <a href="{{ url_for('generar_factura_txt', venta_id=venta.id) }}" 
+               class="btn btn-sm btn-secondary mb-1"
+               title="Factura ya generada. Click para descargar nuevamente.">
+                <i class="bi bi-check-circle-fill"></i> Re-facturar
+            </a>
+            <br>
+            <small class="text-muted" style="font-size: 0.75em;">
+                {{ venta.factura_fecha_generacion.strftime('%d/%m %H:%M') }}
+            </small>
+        {% else %}
+            {# NO se facturó - Botón verde #}
+            <a href="{{ url_for('generar_factura_txt', venta_id=venta.id) }}" 
+               class="btn btn-sm btn-success mb-1"
+               title="Generar archivo de facturación">
+                <i class="bi bi-file-earmark-text"></i> Facturar
+            </a>
+        {% endif %}
+        <br>
+    {% endif %}
+    
+    <!-- Botón Volver a Activas -->
+    <form method="POST" action="{{ url_for('historicas_volver_activas', venta_id=venta.id) }}" style="display: inline;">
+        <button type="submit" 
+                class="btn btn-sm {% if venta.estado_entrega == 'entregada' %}btn-warning{% else %}btn-secondary{% endif %}" 
+                onclick="return confirm('¿Volver esta venta a Ventas Activas?\n\n{% if venta.estado_entrega == 'entregada' %}Se devolverá el stock descontado.{% else %}No se modificará el stock.{% endif %}')">
+            <i class="bi bi-arrow-counterclockwise"></i> Volver Activa
+        </button>
+    </form>
+</td>

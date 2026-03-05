@@ -1,0 +1,68 @@
+<!-- ============================================ -->
+<!-- CAMBIO EN templates/ventas_historicas.html -->
+<!-- Para que refresque automáticamente después de factura individual -->
+<!-- ============================================ -->
+
+<!-- BUSCAR los 2 botones de facturar (verde y gris) -->
+<!-- Y REEMPLAZAR con estas versiones que usan JavaScript -->
+
+<!-- ============================================ -->
+<!-- BOTÓN VERDE "Facturar" (NO facturada) -->
+<!-- ============================================ -->
+
+<!-- ANTES: -->
+<a href="{{ url_for('generar_factura_excel', venta_id=venta.id) }}" 
+   class="btn btn-sm btn-success mb-1"
+   title="Generar archivo de facturación">
+    <i class="bi bi-file-earmark-text"></i> Facturar
+</a>
+
+<!-- DESPUÉS: -->
+<button type="button"
+        class="btn btn-sm btn-success mb-1"
+        onclick="facturarIndividual('{{ venta.id }}')"
+        title="Generar archivo de facturación">
+    <i class="bi bi-file-earmark-text"></i> Facturar
+</button>
+
+
+<!-- ============================================ -->
+<!-- BOTÓN GRIS "Re-facturar" (YA facturada) -->
+<!-- ============================================ -->
+
+<!-- ANTES: -->
+<a href="{{ url_for('generar_factura_excel', venta_id=venta.id) }}" 
+   class="btn btn-sm btn-secondary mb-1"
+   title="Factura ya generada. Click para descargar nuevamente.">
+    <i class="bi bi-check-circle-fill"></i> Re-facturar
+</a>
+
+<!-- DESPUÉS: -->
+<button type="button"
+        class="btn btn-sm btn-secondary mb-1"
+        onclick="facturarIndividual('{{ venta.id }}')"
+        title="Factura ya generada. Click para descargar nuevamente.">
+    <i class="bi bi-check-circle-fill"></i> Re-facturar
+</button>
+
+
+<!-- ============================================ -->
+<!-- AGREGAR NUEVA FUNCIÓN JAVASCRIPT -->
+<!-- Agregar al final del <script> junto con las otras funciones -->
+<!-- ============================================ -->
+
+// Facturar individual con auto-refresh
+function facturarIndividual(ventaId) {
+    const url = `/ventas/historicas/${ventaId}/generar-factura-excel`;
+    
+    // Abrir en iframe oculto para descargar sin cambiar página
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = url;
+    document.body.appendChild(iframe);
+    
+    // Refrescar después de 2 segundos
+    setTimeout(() => {
+        window.location.reload();
+    }, 2000);
+}

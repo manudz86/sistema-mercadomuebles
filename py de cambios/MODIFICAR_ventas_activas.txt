@@ -1,0 +1,38 @@
+<!-- 
+═══════════════════════════════════════════════════════════════
+MODIFICACIÓN DE ventas_activas.html
+═══════════════════════════════════════════════════════════════
+
+INSTRUCCIONES:
+1. Abrí tu archivo ventas_activas.html
+2. Buscá la línea 10-15 donde está el badge con cantidad de ventas
+3. Reemplazá SOLO esa sección por el código de abajo
+-->
+
+<!-- REEMPLAZÁ DESDE LA LÍNEA ~10 HASTA ~15 POR ESTO: -->
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2><i class="bi bi-clock-history"></i> Ventas Activas (Pendientes)</h2>
+        <p class="text-muted mb-0">Ventas registradas que aún no están en proceso de entrega</p>
+    </div>
+    <div class="d-flex gap-2 align-items-center">
+        <!-- BOTÓN IMPORTAR DE ML - NUEVO -->
+        <a href="{{ url_for('ml_importar_ordenes') }}" class="btn btn-primary">
+            <i class="bi bi-download"></i> Importar de ML
+        </a>
+        
+        <span class="badge bg-primary" style="font-size: 1.1em; padding: 0.6em 1em;">
+            {{ ventas|length }} venta{% if ventas|length != 1 %}s{% endif %}
+        </span>
+    </div>
+</div>
+
+<!-- 
+═══════════════════════════════════════════════════════════════
+FIN DE MODIFICACIÓN
+═══════════════════════════════════════════════════════════════
+
+RESULTADO: Ahora vas a tener un botón "Importar de ML" en la esquina 
+superior derecha de Ventas Activas, junto al badge de cantidad de ventas.
+-->

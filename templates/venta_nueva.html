@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+
+{% block title %}Nueva Venta - Sistema Cannon{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <h2><i class="bi bi-plus-circle"></i> Registrar Nueva Venta</h2>
+    <p class="text-muted">Complete el formulario para registrar una venta. El stock NO se descuenta hasta que la venta pase a "En Proceso".</p>
+</div>
+
+<form method="POST" id="formVenta">
+    <div class="row">
+        <!-- Columna izquierda: Datos de la venta -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-receipt"></i> Datos de la Venta
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Número de Venta / MLA *</label>
+                        <input type="text" class="form-control" name="numero_venta" required 
+                               placeholder="Ej: VENTA-001 o MLA1234567890">
+                        <small class="text-muted">Si viene de ML, poner el código MLA</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">MLA (opcional)</label>
+                        <input type="text" class="form-control" name="mla_code" 
+                               placeholder="MLA1234567890">
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Canal *</label>
+                            <select class="form-select" name="canal" required>
+                                <option value="ml">Mercado Libre</option>
+                                <option value="web">Web</option>
+                                <option value="mostrador" selected>Mostrador</option>
+                                <option value="whatsapp">WhatsApp</option>
+                                <option value="telefono">Teléfono</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Fecha Entrega Estimada</label>
+                            <input type="date" class="form-control" name="fecha_entrega_estimada">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card mt-3">
+                <div class="card-header">
+                    <i class="bi bi-person"></i> Datos del Cliente
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Nombre *</label>
+                        <input type="text" class="form-control" name="nombre_cliente" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Teléfono *</label>
+                        <input type="text" class="form-control" name="telefono_cliente" required
+                               placeholder="11-1234-5678">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card mt-3">
+                <div class="card-header">
+                    <i class="bi bi-cash-stack"></i> Datos de Pago
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Importe Total *</label>
+                            <input type="number" class="form-control" name="importe_total" required step="0.01"
+                                   placeholder="0.00">
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Importe Abonado *</label>
+                            <input type="number" class="form-control" name="importe_abonado" required step="0.01"
+                                   placeholder="0.00">
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Método de Pago</label>
+                            <select class="form-select" name="metodo_pago">
+                                <option value="Efectivo">Efectivo</option>
+                                <option value="Transferencia">Transferencia</option>
+                                <option value="Tarjeta">Tarjeta</option>
+                                <option value="Mercado Pago">Mercado Pago</option>
+                                <option value="Otro">Otro</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Estado de Pago *</label>
+                            <select class="form-select" name="estado_pago" required>
+                                <option value="pendiente">Pendiente</option>
+                                <option value="parcial">Parcial</option>
+                                <option value="pagado">Pagado</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Columna derecha: Entrega y Productos -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-truck"></i> Datos de Entrega
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Tipo de Entrega *</label>
+                        <select class="form-select" name="tipo_entrega" id="tipoEntrega" required>
+                            <option value="envio">Envío</option>
+                            <option value="retiro">Retiro en Local</option>
+                        </select>
+                    </div>
+                    
+                    <div id="datosEnvio">
+                        <div class="mb-3">
+                            <label class="form-label">Método de Envío</label>
+                            <select class="form-select" name="metodo_envio" id="metodoEnvio">
+                                <option value="">Seleccionar...</option>
+                                <option value="mercadoenvios">Mercadoenvios</option>
+                                <option value="flex">Flex</option>
+                                <option value="zippin">Zippin</option>
+                                <option value="delega">Delega</option>
+                                <option value="propio">Propio</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3" id="zonaEnvioDiv" style="display: none;">
+                            <label class="form-label">Zona (solo para envío propio)</label>
+                            <select class="form-select" name="zona_envio">
+                                <option value="">Seleccionar...</option>
+                                <option value="sur">Sur</option>
+                                <option value="norte-noroeste">Norte-Noroeste</option>
+                                <option value="oeste">Oeste</option>
+                                <option value="capital">Capital</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Dirección de Entrega</label>
+                            <textarea class="form-control" name="direccion_entrega" rows="2"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card mt-3">
+                <div class="card-header">
+                    <i class="bi bi-box-seam"></i> Productos
+                </div>
+                <div class="card-body">
+                    <div id="productosContainer">
+                        <div class="row producto-item mb-2">
+                            <div class="col-md-6">
+                                <label class="form-label">SKU *</label>
+                                <select class="form-select sku-select" name="sku[]" required>
+                                    <option value="">Seleccionar producto...</option>
+                                    {% for producto in productos %}
+                                    <option value="{{ producto.sku }}">{{ producto.sku }} - {{ producto.nombre }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">Cantidad *</label>
+                                <input type="number" class="form-control" name="cantidad[]" value="1" min="1" required>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Precio Unit. *</label>
+                                <input type="number" class="form-control" name="precio_unitario[]" step="0.01" required>
+                            </div>
+                            <div class="col-md-1 d-flex align-items-end">
+                                <button type="button" class="btn btn-outline-danger btn-sm" onclick="eliminarProducto(this)" style="display: none;">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button type="button" class="btn btn-outline-primary btn-sm mt-2" onclick="agregarProducto()">
+                        <i class="bi bi-plus-circle"></i> Agregar otro producto
+                    </button>
+                </div>
+            </div>
+            
+            <div class="card mt-3">
+                <div class="card-header">
+                    <i class="bi bi-chat-text"></i> Notas (opcional)
+                </div>
+                <div class="card-body">
+                    <textarea class="form-control" name="notas" rows="3" placeholder="Observaciones adicionales..."></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-lg">
+                    <i class="bi bi-check-circle"></i> Registrar Venta
+                </button>
+                <a href="{{ url_for('ventas_activas') }}" class="btn btn-outline-secondary btn-lg">
+                    <i class="bi bi-x-circle"></i> Cancelar
+                </a>
+            </div>
+        </div>
+    </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Mostrar/ocultar campos según tipo de entrega
+document.getElementById('tipoEntrega').addEventListener('change', function() {
+    const datosEnvio = document.getElementById('datosEnvio');
+    datosEnvio.style.display = this.value === 'envio' ? 'block' : 'none';
+});
+
+// Mostrar zona solo si es envío propio
+document.getElementById('metodoEnvio').addEventListener('change', function() {
+    const zonaDiv = document.getElementById('zonaEnvioDiv');
+    zonaDiv.style.display = this.value === 'propio' ? 'block' : 'none';
+});
+
+// Agregar nuevo producto
+function agregarProducto() {
+    const container = document.getElementById('productosContainer');
+    const primerItem = container.querySelector('.producto-item');
+    const nuevoItem = primerItem.cloneNode(true);
+    
+    // Limpiar valores
+    nuevoItem.querySelectorAll('input, select').forEach(input => {
+        if (input.type === 'number') {
+            input.value = input.name === 'cantidad[]' ? 1 : '';
+        } else {
+            input.value = '';
+        }
+    });
+    
+    // Mostrar botón de eliminar
+    nuevoItem.querySelector('.btn-outline-danger').style.display = 'block';
+    
+    container.appendChild(nuevoItem);
+}
+
+// Eliminar producto
+function eliminarProducto(btn) {
+    btn.closest('.producto-item').remove();
+}
+
+// Validación del formulario
+document.getElementById('formVenta').addEventListener('submit', function(e) {
+    const skus = document.querySelectorAll('[name="sku[]"]');
+    let hayProducto = false;
+    
+    skus.forEach(sku => {
+        if (sku.value) hayProducto = true;
+    });
+    
+    if (!hayProducto) {
+        e.preventDefault();
+        alert('Debe agregar al menos un producto');
+    }
+});
+</script>
+{% endblock %}

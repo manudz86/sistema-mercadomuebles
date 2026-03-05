@@ -1,0 +1,42 @@
+# ============================================================================
+# DASHBOARD VISUAL - ACTUALIZAR QUERY DE VENTAS ACTIVAS
+# ============================================================================
+
+# Buscar en dashboard_visual() esta línea (aproximadamente línea 495):
+
+# ANTES:
+query_ventas_activas = """
+    SELECT 
+        iv.sku, 
+        SUM(iv.cantidad) as cantidad_vendida
+    FROM items_venta iv
+    JOIN ventas v ON iv.venta_id = v.id
+    WHERE v.estado_entrega = 'pendiente'
+    GROUP BY iv.sku
+"""
+
+# REEMPLAZAR CON:
+query_ventas_activas = """
+    SELECT 
+        COALESCE(c.sku_componente, iv.sku) as sku,
+        SUM(iv.cantidad * COALESCE(c.cantidad, 1)) as cantidad_vendida
+    FROM items_venta iv
+    JOIN ventas v ON iv.venta_id = v.id
+    LEFT JOIN componentes c ON iv.sku = c.sku_combo
+    WHERE v.estado_entrega = 'pendiente'
+    GROUP BY sku
+"""
+
+# ============================================================================
+# ESTO HACE QUE:
+# ============================================================================
+# 
+# Si vendes: SEXP140 x 2
+# La query devuelve:
+#   - CEXP140: cantidad_vendida = 2
+#   - BASE_CHOC140: cantidad_vendida = 2
+#
+# En lugar de:
+#   - SEXP140: cantidad_vendida = 2 (que no existe físicamente)
+#
+# ============================================================================

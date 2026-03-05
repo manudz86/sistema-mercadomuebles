@@ -1,0 +1,137 @@
+<!-- ============================================ -->
+<!-- MODIFICACIONES PARA ventas_activas.html -->
+<!-- ============================================ -->
+
+<!-- 1. AGREGAR BOTÓN EDITAR EN LA COLUMNA DE ACCIONES -->
+<!-- Buscar la sección donde están los botones Proceso/Entregada/Cancelar -->
+<!-- Agregar ANTES de esos botones: -->
+
+<a href="{{ url_for('editar_venta', venta_id=venta.id) }}" 
+   class="btn btn-sm btn-warning" 
+   title="Editar venta">
+    <i class="bi bi-pencil"></i> Editar
+</a>
+
+<!-- ============================================ -->
+
+<!-- 2. BOTONES DE DIRECCIÓN (Copiar + Google Maps) -->
+<!-- Buscar donde se muestra la dirección de entrega -->
+<!-- REEMPLAZAR la línea de dirección por esto: -->
+
+<!-- ANTES (probablemente algo así): -->
+<!-- <td>{{ venta.direccion_entrega }}</td> -->
+
+<!-- DESPUÉS: -->
+<td>
+    {% if venta.direccion_entrega %}
+        <div class="d-flex align-items-center gap-2">
+            <span class="flex-grow-1">{{ venta.direccion_entrega }}</span>
+            
+            <!-- Botón copiar -->
+            <button type="button" 
+                    class="btn btn-sm btn-outline-secondary" 
+                    onclick="copiarDireccion('{{ venta.direccion_entrega }}')"
+                    title="Copiar dirección">
+                <i class="bi bi-clipboard"></i>
+            </button>
+            
+            <!-- Botón Google Maps -->
+            <a href="https://www.google.com/maps/search/?api=1&query={{ venta.direccion_entrega|urlencode }}" 
+               target="_blank" 
+               class="btn btn-sm btn-outline-primary"
+               title="Abrir en Google Maps">
+                <i class="bi bi-geo-alt-fill"></i>
+            </a>
+        </div>
+    {% else %}
+        <span class="text-muted">Sin dirección</span>
+    {% endif %}
+</td>
+
+<!-- ============================================ -->
+
+<!-- 3. AGREGAR JAVASCRIPT AL FINAL (antes de {% endblock %}) -->
+
+<script>
+// Función para copiar dirección al portapapeles
+function copiarDireccion(direccion) {
+    // Crear elemento temporal
+    const textArea = document.createElement('textarea');
+    textArea.value = direccion;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    document.body.appendChild(textArea);
+    
+    // Seleccionar y copiar
+    textArea.select();
+    
+    try {
+        document.execCommand('copy');
+        
+        // Mostrar notificación
+        mostrarNotificacion('✅ Dirección copiada al portapapeles', 'success');
+    } catch (err) {
+        mostrarNotificacion('❌ Error al copiar dirección', 'error');
+    }
+    
+    // Eliminar elemento temporal
+    document.body.removeChild(textArea);
+}
+
+// Función para mostrar notificación temporal
+function mostrarNotificacion(mensaje, tipo) {
+    // Crear elemento
+    const notif = document.createElement('div');
+    notif.className = `alert alert-${tipo} position-fixed`;
+    notif.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    notif.innerHTML = mensaje;
+    
+    // Agregar al DOM
+    document.body.appendChild(notif);
+    
+    // Eliminar después de 3 segundos
+    setTimeout(() => {
+        notif.remove();
+    }, 3000);
+}
+</script>
+
+<!-- ============================================ -->
+<!-- EJEMPLO DE CÓMO QUEDARÍA LA COLUMNA COMPLETA DE ACCIONES: -->
+<!-- ============================================ -->
+
+<td class="text-center">
+    <!-- Botón Editar -->
+    <a href="{{ url_for('editar_venta', venta_id=venta.id) }}" 
+       class="btn btn-sm btn-warning mb-1" 
+       title="Editar venta">
+        <i class="bi bi-pencil"></i> Editar
+    </a>
+    
+    <!-- Botón Proceso -->
+    <form method="POST" action="{{ url_for('procesar_venta', venta_id=venta.id) }}" 
+          style="display: inline;" 
+          onsubmit="return confirm('¿Marcar como en proceso?')">
+        <button type="submit" class="btn btn-sm btn-primary mb-1" title="Marcar en proceso">
+            <i class="bi bi-arrow-right-circle"></i> Proceso
+        </button>
+    </form>
+    
+    <!-- Botón Entregada -->
+    <form method="POST" action="{{ url_for('entregar_venta', venta_id=venta.id) }}" 
+          style="display: inline;" 
+          onsubmit="return confirm('¿Marcar como entregada?')">
+        <button type="submit" class="btn btn-sm btn-success mb-1" title="Marcar como entregada">
+            <i class="bi bi-check-circle"></i> Entregada
+        </button>
+    </form>
+    
+    <!-- Botón Cancelar -->
+    <form method="POST" action="{{ url_for('cancelar_venta', venta_id=venta.id) }}" 
+          style="display: inline;" 
+          onsubmit="return confirm('¿Cancelar esta venta?')">
+        <button type="submit" class="btn btn-sm btn-danger mb-1" title="Cancelar venta">
+            <i class="bi bi-x-circle"></i> Cancelar
+        </button>
+    </form>
+</td>

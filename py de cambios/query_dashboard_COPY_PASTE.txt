@@ -1,0 +1,26 @@
+"""
+REEMPLAZAR EN dashboard_visual() - Línea ~495
+
+Buscar:
+    query_ventas_activas = """
+        SELECT 
+            iv.sku, 
+            SUM(iv.cantidad) as cantidad_vendida
+        ...
+    """
+
+Reemplazar con:
+"""
+
+query_ventas_activas = """
+    SELECT 
+        COALESCE(pb_comp.sku, iv.sku) as sku,
+        SUM(iv.cantidad * COALESCE(c.cantidad_necesaria, 1)) as cantidad_vendida
+    FROM items_venta iv
+    JOIN ventas v ON iv.venta_id = v.id
+    LEFT JOIN productos_compuestos pc ON iv.sku = pc.sku
+    LEFT JOIN componentes c ON pc.id = c.producto_compuesto_id
+    LEFT JOIN productos_base pb_comp ON c.producto_base_id = pb_comp.id
+    WHERE v.estado_entrega = 'pendiente'
+    GROUP BY sku
+"""

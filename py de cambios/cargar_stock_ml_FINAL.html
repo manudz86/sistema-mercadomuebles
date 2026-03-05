@@ -1,0 +1,316 @@
+{% extends "base.html" %}
+
+{% block title %}Cargar Stock ML{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h2 class="mb-2">
+                <i class="bi bi-box-seam"></i> Cargar Stock en Mercado Libre
+            </h2>
+            <p class="text-muted">Buscar por SKU y cargar stock o reducir demoras en publicaciones de ML</p>
+        </div>
+    </div>
+
+    <!-- BUSCADOR -->
+    <div class="card mb-4 shadow-sm">
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('buscar_sku_ml') }}">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-9">
+                        <label for="sku_buscar" class="form-label">
+                            <i class="bi bi-upc-scan"></i> Buscar por SKU
+                        </label>
+                        <input type="text" 
+                               class="form-control form-control-lg" 
+                               id="sku_buscar" 
+                               name="sku_buscar" 
+                               placeholder="Ej: CEX80, SDOP140Z"
+                               value="{% if sku_buscado %}{{ sku_buscado }}{% endif %}"
+                               autofocus
+                               required>
+                    </div>
+                    <div class="col-md-3">
+                        <button type="submit" class="btn btn-primary btn-lg w-100">
+                            <i class="bi bi-search"></i> Buscar Publicaciones
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- RESULTADOS -->
+    {% if sku_buscado %}
+    <div class="card shadow-sm">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">
+                <i class="bi bi-tag"></i> Resultados para: <strong>{{ sku_buscado }}</strong>
+            </h5>
+        </div>
+        <div class="card-body">
+            
+            <!-- INFO DEL SKU -->
+            <div class="alert {% if es_sku_con_z %}alert-warning{% else %}alert-success{% endif %} d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="bi bi-info-circle"></i> <strong>Tipo de SKU:</strong>
+                    {% if es_sku_con_z %}
+                        <span class="badge bg-warning text-dark">Con Z (Demora)</span>
+                    {% else %}
+                        <span class="badge bg-success">Sin Z (Stock Normal)</span>
+                    {% endif %}
+                </div>
+                <div>
+                    <i class="bi bi-box"></i> <strong>Publicaciones encontradas:</strong>
+                    <span class="badge bg-primary">{{ publicaciones|length }}</span>
+                </div>
+            </div>
+
+            {% if publicaciones %}
+            <!-- TABLA DE PUBLICACIONES -->
+            <div class="table-responsive">
+                <table class="table table-hover table-bordered">
+                    <thead class="table-dark">
+                        <tr>
+                            <th width="15%">MLA</th>
+                            <th width="35%">Título</th>
+                            <th width="8%">Stock Actual</th>
+                            {% if es_sku_con_z %}
+                            <th width="10%">Demora</th>
+                            {% endif %}
+                            <th width="10%">Estado</th>
+                            <th width="{% if es_sku_con_z %}22%{% else %}22%{% endif %}">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for pub in publicaciones %}
+                        <tr>
+                            <td class="text-center">
+                                <a href="https://articulo.mercadolibre.com.ar/{{ pub.mla }}" 
+                                   target="_blank" 
+                                   class="text-decoration-none">
+                                    {{ pub.mla }}
+                                    <i class="bi bi-box-arrow-up-right"></i>
+                                </a>
+                            </td>
+                            <td>{{ pub.titulo }}</td>
+                            <td class="text-center">
+                                <strong>{{ pub.stock_actual }}</strong>
+                            </td>
+                            {% if es_sku_con_z %}
+                            <td class="text-center">
+                                {% if pub.demora %}
+                                    <span class="badge bg-warning text-dark">
+                                        <i class="bi bi-clock"></i> {{ pub.demora }}
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-success">
+                                        <i class="bi bi-check-circle"></i> Sin demora
+                                    </span>
+                                {% endif %}
+                            </td>
+                            {% endif %}
+                            <td class="text-center">
+                                {% if pub.status_raw == 'active' %}
+                                    <span class="badge bg-success">Activa</span>
+                                {% elif pub.status_raw == 'paused' %}
+                                    <span class="badge bg-warning text-dark">Pausada</span>
+                                {% elif pub.status_raw == 'closed' %}
+                                    <span class="badge bg-danger">Cerrada</span>
+                                {% elif pub.status_raw == 'inactive' %}
+                                    <span class="badge bg-secondary">Inactiva</span>
+                                {% elif pub.status_raw == 'under_review' %}
+                                    <span class="badge bg-info">En revisión</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ pub.estado }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <!-- ACCIONES PARA SKU CON Z -->
+                                {% if es_sku_con_z %}
+                                <div class="d-flex gap-2 flex-column">
+                                    <!-- Cargar stock -->
+                                    <form method="POST" 
+                                          action="{{ url_for('cargar_stock_mla') }}" 
+                                          class="d-flex gap-2"
+                                          onsubmit="return confirmarCargaStock(event, '{{ pub.mla }}')">
+                                        <input type="hidden" name="mla" value="{{ pub.mla }}">
+                                        <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                                        <input type="number" 
+                                               name="stock_nuevo" 
+                                               class="form-control form-control-sm" 
+                                               placeholder="Stock"
+                                               min="0"
+                                               max="99"
+                                               required>
+                                        <button type="submit" class="btn btn-sm btn-primary">
+                                            <i class="bi bi-upload"></i> Cargar
+                                        </button>
+                                    </form>
+                                    <!-- Reducir demora -->
+                                    <button type="button" 
+                                            class="btn btn-sm btn-warning"
+                                            onclick="confirmarReducirDemora('{{ pub.mla }}', '{{ sku_buscado }}')">
+                                        <i class="bi bi-clock"></i> Reducir a 1 día
+                                    </button>
+                                </div>
+                                {% else %}
+                                <!-- ACCIONES PARA SKU SIN Z -->
+                                <form method="POST" 
+                                      action="{{ url_for('cargar_stock_mla') }}" 
+                                      class="d-flex gap-2"
+                                      onsubmit="return confirmarCargaStock(event, '{{ pub.mla }}')">
+                                    <input type="hidden" name="mla" value="{{ pub.mla }}">
+                                    <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                                    <input type="number" 
+                                           name="stock_nuevo" 
+                                           class="form-control form-control-sm" 
+                                           placeholder="Stock"
+                                           min="0"
+                                           max="99"
+                                           required>
+                                    <button type="submit" class="btn btn-sm btn-primary">
+                                        <i class="bi bi-upload"></i> Cargar
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- ACCIÓN MASIVA -->
+            <div class="mt-4 p-3 bg-light border rounded">
+                <h6 class="mb-3"><i class="bi bi-lightning"></i> Acción Masiva</h6>
+                
+                <!-- ACCIONES MASIVAS PARA SKU CON Z -->
+                {% if es_sku_con_z %}
+                <div class="row g-3">
+                    <!-- Cargar stock masivo -->
+                    <div class="col-md-6">
+                        <form method="POST" 
+                              action="{{ url_for('cargar_stock_masivo') }}"
+                              class="d-flex gap-2 align-items-end"
+                              onsubmit="return confirmarCargaStockMasiva(event, {{ publicaciones|length }})">
+                            <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <div class="flex-fill">
+                                <label class="form-label small mb-1">Stock a cargar:</label>
+                                <input type="number" 
+                                       name="stock_nuevo" 
+                                       class="form-control" 
+                                       placeholder="Ej: 5"
+                                       min="0"
+                                       max="99"
+                                       required>
+                            </div>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-upload"></i> Cargar Stock a Todas
+                            </button>
+                        </form>
+                    </div>
+                    
+                    <!-- Reducir demora masivo -->
+                    <div class="col-md-6">
+                        <form method="POST" 
+                              action="{{ url_for('quitar_demora_masivo') }}"
+                              onsubmit="return confirmarAccionMasiva('reducir demora a 1 día', {{ publicaciones|length }})">
+                            <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <label class="form-label small mb-1 invisible">Acción</label>
+                            <button type="submit" class="btn btn-warning w-100">
+                                <i class="bi bi-clock"></i> Reducir a 1 Día en Todas
+                            </button>
+                            <small class="text-muted d-block mt-1">
+                                <i class="bi bi-info-circle"></i> ML no permite quitar demora completamente
+                            </small>
+                        </form>
+                    </div>
+                </div>
+                
+                <!-- ACCIONES MASIVAS PARA SKU SIN Z -->
+                {% else %}
+                <form method="POST" 
+                      action="{{ url_for('cargar_stock_masivo') }}"
+                      class="row g-3"
+                      onsubmit="return confirmarCargaStockMasiva(event, {{ publicaciones|length }})">
+                    <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                    <div class="col-md-3">
+                        <label class="form-label">Stock a cargar en todas:</label>
+                        <input type="number" 
+                               name="stock_nuevo" 
+                               class="form-control form-control-lg" 
+                               placeholder="Ej: 5"
+                               min="0"
+                               max="99"
+                               required>
+                    </div>
+                    <div class="col-md-9 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary btn-lg w-100">
+                            <i class="bi bi-upload"></i> Cargar Stock a Todas ({{ publicaciones|length }} publicaciones)
+                        </button>
+                    </div>
+                </form>
+                {% endif %}
+            </div>
+
+            {% else %}
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle"></i>
+                No se encontraron publicaciones activas para el SKU <strong>{{ sku_buscado }}</strong>
+            </div>
+            {% endif %}
+            
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+
+<!-- SCRIPTS -->
+<script>
+// Confirmar reducir demora individual
+function confirmarReducirDemora(mla, sku) {
+    if (confirm(`¿Reducir demora a 1 día en la publicación ${mla}?`)) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("quitar_demora_mla") }}';
+        
+        const inputMla = document.createElement('input');
+        inputMla.type = 'hidden';
+        inputMla.name = 'mla';
+        inputMla.value = mla;
+        
+        const inputSku = document.createElement('input');
+        inputSku.type = 'hidden';
+        inputSku.name = 'sku';
+        inputSku.value = sku;
+        
+        form.appendChild(inputMla);
+        form.appendChild(inputSku);
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+// Confirmar carga de stock individual
+function confirmarCargaStock(event, mla) {
+    const form = event.target;
+    const stock = form.stock_nuevo.value;
+    return confirm(`¿Cargar ${stock} unidades de stock en ${mla}?`);
+}
+
+// Confirmar acción masiva
+function confirmarAccionMasiva(accion, cantidad) {
+    return confirm(`¿Estás seguro de ${accion} en ${cantidad} publicaciones?`);
+}
+
+// Confirmar carga masiva de stock
+function confirmarCargaStockMasiva(event, cantidad) {
+    const form = event.target;
+    const stock = form.stock_nuevo.value;
+    return confirm(`¿Cargar ${stock} unidades de stock en ${cantidad} publicaciones?`);
+}
+</script>
+{% endblock %}

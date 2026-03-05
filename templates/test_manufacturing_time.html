@@ -1,0 +1,279 @@
+{% extends 'base.html' %}
+{% block title %}Test Manufacturing Time{% endblock %}
+
+{% block content %}
+<style>
+    .mt-card {
+        background: white;
+        border-radius: 10px;
+        border: 1px solid #dee2e6;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+    .mt-card h5 {
+        font-weight: 700;
+        color: #1F4E79;
+        border-bottom: 2px solid #DEEAF1;
+        padding-bottom: .5rem;
+        margin-bottom: 1rem;
+    }
+    .resultado {
+        display: none;
+        margin-top: 1rem;
+    }
+    .dato-row {
+        display: flex;
+        gap: 10px;
+        align-items: baseline;
+        padding: 4px 0;
+        border-bottom: 1px solid #f5f5f5;
+    }
+    .dato-label { font-size: .8rem; color: #888; width: 160px; flex-shrink: 0; font-weight: 600; text-transform: uppercase; }
+    .dato-valor { font-size: .95rem; font-weight: 500; }
+    .badge-sin-demora { background: #d4edda; color: #155724; padding: 3px 10px; border-radius: 20px; font-size: .8rem; font-weight: 700; }
+    .badge-con-demora { background: #fff3cd; color: #856404; padding: 3px 10px; border-radius: 20px; font-size: .8rem; font-weight: 700; }
+    .aviso-test {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        border-radius: 8px;
+        padding: .8rem 1rem;
+        margin-bottom: 1.5rem;
+        font-size: .88rem;
+    }
+</style>
+
+<div class="container-fluid px-3 py-3">
+
+    <div class="d-flex align-items-center gap-3 mb-3">
+        <h4 class="mb-0" style="color: #1F4E79; font-weight: 700;">
+            <i class="bi bi-clock-history me-2"></i>Test: Eliminar Demora de Publicación ML
+        </h4>
+        <span class="badge bg-warning text-dark">MODO TEST</span>
+    </div>
+
+    <div class="aviso-test">
+        <i class="bi bi-info-circle-fill me-2 text-warning"></i>
+        <strong>Página de prueba aislada.</strong> Solo afecta a la publicación que ingreses. Podés revertir el cambio en cualquier momento desde esta misma página.
+        La API de ML permite eliminar el <code>MANUFACTURING_TIME</code> enviando <code>null</code> — la publicación queda sin demora y aparece como stock inmediato.
+    </div>
+
+    <div class="row g-3">
+
+        <!-- PASO 1: Consultar -->
+        <div class="col-md-6">
+            <div class="mt-card">
+                <h5><i class="bi bi-search me-2"></i>Paso 1 — Ver estado actual</h5>
+                <p class="text-muted" style="font-size:.87rem;">Ingresá el ID de la publicación (ej: MLA1234567890) para ver su demora actual.</p>
+
+                <div class="input-group">
+                    <input type="text" id="item_id_ver" class="form-control" placeholder="MLA1234567890"
+                           style="text-transform: uppercase; font-family: monospace;">
+                    <button class="btn btn-primary" onclick="verEstado()">
+                        <i class="bi bi-search me-1"></i>Consultar
+                    </button>
+                </div>
+
+                <div id="resultado_ver" class="resultado">
+                    <div id="datos_publi"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PASO 2: Modificar -->
+        <div class="col-md-6">
+            <div class="mt-card">
+                <h5><i class="bi bi-lightning-charge me-2"></i>Paso 2 — Modificar demora</h5>
+                <p class="text-muted" style="font-size:.87rem;">Una vez consultada la publicación, podés eliminar la demora o restaurarla.</p>
+
+                <div id="panel_modificar" style="display:none;">
+
+                    <div class="dato-row mb-3">
+                        <span class="dato-label">Publicación</span>
+                        <span class="dato-valor" id="mod_titulo" style="font-size:.85rem;"></span>
+                    </div>
+                    <div class="dato-row mb-3">
+                        <span class="dato-label">Demora actual</span>
+                        <span class="dato-valor" id="mod_mt_badge"></span>
+                    </div>
+
+                    <div class="d-grid gap-2 mt-3">
+                        <button class="btn btn-success" onclick="quitarDemora()" id="btn_quitar">
+                            <i class="bi bi-check-circle me-1"></i>Quitar demora completamente
+                        </button>
+                    </div>
+
+                    <hr>
+
+                    <p class="text-muted" style="font-size:.82rem;"><i class="bi bi-arrow-counterclockwise me-1"></i>Restaurar demora si algo sale mal:</p>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text">Días</span>
+                        <input type="number" id="dias_restaurar" class="form-control" placeholder="ej: 15" min="1" max="365">
+                        <button class="btn btn-outline-warning" onclick="restaurarDemora()">
+                            Restaurar
+                        </button>
+                    </div>
+                </div>
+
+                <div id="resultado_modificar" class="resultado"></div>
+
+                <div id="panel_espera" style="display:none; text-align: center; padding: 2rem; color: #aaa;">
+                    <i class="bi bi-arrow-left-circle me-2"></i>Primero consultá una publicación
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- LOG de operaciones -->
+    <div class="mt-card">
+        <h5><i class="bi bi-terminal me-2"></i>Log de operaciones</h5>
+        <div id="log" style="font-family: monospace; font-size: .82rem; background: #1e1e1e; color: #d4d4d4;
+             padding: 1rem; border-radius: 6px; min-height: 80px; max-height: 300px; overflow-y: auto;">
+            <span style="color:#888;">// Las operaciones aparecerán acá...</span>
+        </div>
+    </div>
+
+</div>
+
+<script>
+let itemIdActual = '';
+let mtActual = null;
+
+function log(msg, tipo = 'info') {
+    const colores = { info: '#9cdcfe', ok: '#4ec9b0', error: '#f44747', warn: '#dcdcaa' };
+    const ts = new Date().toLocaleTimeString();
+    const div = document.getElementById('log');
+    div.innerHTML += `\n<span style="color:${colores[tipo]}">[${ts}] ${msg}</span>`;
+    div.scrollTop = div.scrollHeight;
+}
+
+async function verEstado() {
+    const itemId = document.getElementById('item_id_ver').value.trim().toUpperCase();
+    if (!itemId) { alert('Ingresá un ID de publicación'); return; }
+
+    log(`Consultando ${itemId}...`);
+
+    const fd = new FormData();
+    fd.append('item_id', itemId);
+
+    const r = await fetch('/test/manufacturing-time/ver', { method: 'POST', body: fd });
+    const data = await r.json();
+
+    const div = document.getElementById('resultado_ver');
+    const datos = document.getElementById('datos_publi');
+    div.style.display = 'block';
+
+    if (!data.ok) {
+        datos.innerHTML = `<div class="alert alert-danger mt-2">${data.error}</div>`;
+        log(`ERROR: ${data.error}`, 'error');
+        return;
+    }
+
+    itemIdActual = data.item_id;
+    mtActual = data.manufacturing_time;
+
+    const mtBadge = mtActual
+        ? `<span class="badge-con-demora">⏳ ${mtActual}</span>`
+        : `<span class="badge-sin-demora">✅ Sin demora</span>`;
+
+    datos.innerHTML = `
+        <div class="mt-2">
+            <div class="dato-row"><span class="dato-label">ID</span><span class="dato-valor" style="font-family:monospace">${data.item_id}</span></div>
+            <div class="dato-row"><span class="dato-label">Título</span><span class="dato-valor" style="font-size:.85rem">${data.title}</span></div>
+            <div class="dato-row"><span class="dato-label">Estado</span><span class="dato-valor">${data.status}</span></div>
+            <div class="dato-row"><span class="dato-label">Stock ML</span><span class="dato-valor">${data.available_quantity}</span></div>
+            <div class="dato-row"><span class="dato-label">Demora actual</span><span class="dato-valor">${mtBadge}</span></div>
+            <div class="mt-2">
+                <a href="${data.permalink}" target="_blank" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-box-arrow-up-right me-1"></i>Ver en ML
+                </a>
+            </div>
+        </div>
+    `;
+
+    log(`${data.item_id} — "${data.title}" — Demora: ${mtActual || 'ninguna'}`, 'ok');
+
+    // Activar panel de modificación
+    document.getElementById('panel_modificar').style.display = 'block';
+    document.getElementById('mod_titulo').textContent = data.title;
+    document.getElementById('mod_mt_badge').innerHTML = mtBadge;
+    document.getElementById('btn_quitar').disabled = !mtActual;
+    if (!mtActual) {
+        document.getElementById('btn_quitar').textContent = '✅ Esta publicación ya no tiene demora';
+    } else {
+        document.getElementById('btn_quitar').innerHTML = '<i class="bi bi-check-circle me-1"></i>Quitar demora completamente';
+    }
+}
+
+async function quitarDemora() {
+    if (!itemIdActual) return;
+    if (!confirm(`¿Eliminar la demora de "${itemIdActual}"?\n\nEsto va a hacer que ML la muestre como disponible de inmediato.\nPodés revertirlo desde esta misma página.`)) return;
+
+    log(`Eliminando MANUFACTURING_TIME de ${itemIdActual}...`, 'warn');
+
+    const fd = new FormData();
+    fd.append('item_id', itemIdActual);
+    fd.append('mt_anterior', mtActual || '');
+
+    const r = await fetch('/test/manufacturing-time/quitar', { method: 'POST', body: fd });
+    const data = await r.json();
+
+    const div = document.getElementById('resultado_modificar');
+    div.style.display = 'block';
+
+    if (data.ok) {
+        const nuevo = data.manufacturing_time_nuevo;
+        div.innerHTML = `
+            <div class="alert alert-success mt-2">
+                <strong>${data.mensaje}</strong><br>
+                <small>Antes: <em>${data.manufacturing_time_anterior || 'sin demora'}</em> → Ahora: <em>${nuevo || 'sin demora ✅'}</em></small>
+            </div>
+        `;
+        log(`✅ Demora eliminada de ${itemIdActual}. Resultado: ${nuevo || 'sin demora'}`, 'ok');
+        mtActual = nuevo;
+        document.getElementById('btn_quitar').disabled = true;
+        document.getElementById('btn_quitar').textContent = '✅ Demora ya eliminada';
+        document.getElementById('mod_mt_badge').innerHTML = `<span class="badge-sin-demora">✅ Sin demora</span>`;
+    } else {
+        div.innerHTML = `
+            <div class="alert alert-danger mt-2">
+                <strong>Error:</strong> ${data.error}<br>
+                <small>${JSON.stringify(data.detalle)}</small>
+            </div>
+        `;
+        log(`ERROR al quitar demora: ${data.error} — ${JSON.stringify(data.detalle)}`, 'error');
+    }
+}
+
+async function restaurarDemora() {
+    if (!itemIdActual) return;
+    const dias = document.getElementById('dias_restaurar').value.trim();
+    if (!dias || isNaN(dias) || dias < 1) { alert('Ingresá una cantidad válida de días'); return; }
+
+    if (!confirm(`¿Restaurar demora de ${dias} días en ${itemIdActual}?`)) return;
+
+    log(`Restaurando ${dias} días de demora en ${itemIdActual}...`, 'warn');
+
+    const fd = new FormData();
+    fd.append('item_id', itemIdActual);
+    fd.append('dias', dias);
+
+    const r = await fetch('/test/manufacturing-time/poner', { method: 'POST', body: fd });
+    const data = await r.json();
+
+    const div = document.getElementById('resultado_modificar');
+    div.style.display = 'block';
+
+    if (data.ok) {
+        div.innerHTML = `<div class="alert alert-warning mt-2"><strong>${data.mensaje}</strong></div>`;
+        log(`✅ Demora restaurada a ${dias} días en ${itemIdActual}`, 'ok');
+        document.getElementById('mod_mt_badge').innerHTML = `<span class="badge-con-demora">⏳ ${data.manufacturing_time_nuevo}</span>`;
+        document.getElementById('btn_quitar').disabled = false;
+        document.getElementById('btn_quitar').innerHTML = '<i class="bi bi-check-circle me-1"></i>Quitar demora completamente';
+    } else {
+        div.innerHTML = `<div class="alert alert-danger mt-2"><strong>Error:</strong> ${data.error}</div>`;
+        log(`ERROR al restaurar: ${data.error}`, 'error');
+    }
+}
+</script>
+{% endblock %}

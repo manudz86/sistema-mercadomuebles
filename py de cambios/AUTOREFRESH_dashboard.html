@@ -1,0 +1,108 @@
+<!-- ============================================ -->
+<!-- AUTO-REFRESH DASHBOARD VISUAL -->
+<!-- Agregar al final de dashboard_visual.html, antes de {% endblock %} -->
+<!-- ============================================ -->
+
+<script>
+// Auto-refresh cada 5 minutos (300,000 ms)
+const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutos
+
+// Contador visual
+let segundosRestantes = 300; // 5 minutos = 300 segundos
+
+// Función para actualizar la página
+function autoRefresh() {
+    console.log('🔄 Auto-refrescando dashboard...');
+    location.reload();
+}
+
+// Función para actualizar contador visual
+function actualizarContador() {
+    segundosRestantes--;
+    
+    if (segundosRestantes <= 0) {
+        segundosRestantes = 300;
+    }
+    
+    // Mostrar en formato mm:ss
+    const minutos = Math.floor(segundosRestantes / 60);
+    const segundos = segundosRestantes % 60;
+    const textoContador = `${minutos}:${segundos.toString().padStart(2, '0')}`;
+    
+    // Actualizar elemento si existe
+    const elemento = document.getElementById('contador-refresh');
+    if (elemento) {
+        elemento.textContent = textoContador;
+    }
+}
+
+// Iniciar auto-refresh
+setInterval(autoRefresh, AUTO_REFRESH_INTERVAL);
+
+// Actualizar contador cada segundo
+setInterval(actualizarContador, 1000);
+
+// Mensaje en consola
+console.log('✅ Auto-refresh activado: cada 5 minutos');
+</script>
+
+<!-- ============================================ -->
+<!-- INDICADOR VISUAL (OPCIONAL) -->
+<!-- Agregar en el header del dashboard para mostrar cuándo se actualiza -->
+<!-- ============================================ -->
+
+<!-- AGREGAR en el título del dashboard (cerca del <h2>) -->
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2><i class="bi bi-grid-3x3"></i> Dashboard Visual - Stock Cannon</h2>
+        <p class="text-muted mb-0">Actualización automática cada 5 minutos</p>
+    </div>
+    
+    <!-- Indicador de próxima actualización -->
+    <div class="text-end">
+        <small class="text-muted">
+            <i class="bi bi-clock"></i> Próxima actualización en: 
+            <strong id="contador-refresh">5:00</strong>
+        </small>
+    </div>
+</div>
+
+<!-- ============================================ -->
+<!-- VERSIÓN CON BOTÓN MANUAL (OPCIONAL) -->
+<!-- Si querés también un botón para refrescar manualmente -->
+<!-- ============================================ -->
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2><i class="bi bi-grid-3x3"></i> Dashboard Visual - Stock Cannon</h2>
+        <p class="text-muted mb-0">Actualización automática cada 5 minutos</p>
+    </div>
+    
+    <div class="d-flex align-items-center gap-3">
+        <!-- Botón refresh manual -->
+        <button onclick="location.reload()" class="btn btn-sm btn-primary">
+            <i class="bi bi-arrow-clockwise"></i> Actualizar ahora
+        </button>
+        
+        <!-- Contador -->
+        <small class="text-muted">
+            <i class="bi bi-clock"></i> Auto-refresh: 
+            <strong id="contador-refresh">5:00</strong>
+        </small>
+    </div>
+</div>
+
+<!-- ============================================ -->
+<!-- VERSIÓN SIMPLE (Solo auto-refresh, sin indicador visual) -->
+<!-- Si NO querés el contador, solo usar esto: -->
+<!-- ============================================ -->
+
+<script>
+// Auto-refresh cada 5 minutos
+setInterval(function() {
+    location.reload();
+}, 5 * 60 * 1000);
+
+console.log('✅ Dashboard se actualizará automáticamente cada 5 minutos');
+</script>

@@ -1,0 +1,20 @@
+<!-- ============================================ -->
+<!-- AGREGAR EN nueva_venta_ml.html -->
+<!-- Después del cálculo del total (línea ~48 aprox) -->
+<!-- ============================================ -->
+
+{# Calcular costo de flete para guardarlo en la BD #}
+{% set ml_ship = ml_shipping or session.get('ml_shipping', {}) %}
+{% set metodo = ml_ship.get('metodo_envio', '') %}
+{% set costo_envio = ml_ship.get('costo_envio', 0) %}
+
+{# Campo hidden para guardar el costo de flete en la BD #}
+{% if metodo in ['Flete Propio', 'Flex'] and costo_envio > 0 %}
+    <input type="hidden" name="costo_flete" value="{{ costo_envio }}">
+{% else %}
+    <input type="hidden" name="costo_flete" value="0">
+{% endif %}
+
+<!-- ============================================ -->
+<!-- Esto hace que se guarde en ventas.costo_flete -->
+<!-- ============================================ -->

@@ -1,0 +1,29 @@
+<!-- ============================================ -->
+<!-- REEMPLAZAR LA COLUMNA "ACCIONES" EN ventas_historicas.html -->
+<!-- Buscar: <td class="text-center"> en la última columna -->
+<!-- ============================================ -->
+
+<!-- ACCIONES -->
+<td class="text-center">
+    <!-- Botón Facturar (solo para entregadas) -->
+    {% if venta.estado_entrega == 'entregada' %}
+        <a href="{{ url_for('generar_factura_txt', venta_id=venta.id) }}" 
+           class="btn btn-sm btn-success mb-1"
+           title="Generar archivo de facturación">
+            <i class="bi bi-file-earmark-text"></i> Facturar
+            {% if venta.factura_generada %}
+                <i class="bi bi-check-circle-fill text-white"></i>
+            {% endif %}
+        </a>
+        <br>
+    {% endif %}
+    
+    <!-- Botón Volver a Activas -->
+    <form method="POST" action="{{ url_for('historicas_volver_activas', venta_id=venta.id) }}" style="display: inline;">
+        <button type="submit" 
+                class="btn btn-sm {% if venta.estado_entrega == 'entregada' %}btn-warning{% else %}btn-secondary{% endif %}" 
+                onclick="return confirm('¿Volver esta venta a Ventas Activas?\n\n{% if venta.estado_entrega == 'entregada' %}Se devolverá el stock descontado.{% else %}No se modificará el stock.{% endif %}')">
+            <i class="bi bi-arrow-counterclockwise"></i> Volver Activa
+        </button>
+    </form>
+</td>

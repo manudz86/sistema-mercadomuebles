@@ -1,0 +1,249 @@
+<!-- 
+═══════════════════════════════════════════════════════════════
+BUSCADOR MEJORADO - ESTILO CARGAR_STOCK
+Para: nueva_venta_ml.html y ml_mapear_productos.html
+═══════════════════════════════════════════════════════════════
+
+PASO 1: Reemplazar los <select> de productos con este código
+-->
+
+<!-- En lugar del select tradicional, usar este HTML -->
+<div class="position-relative">
+    <label class="form-label">Producto</label>
+    
+    <!-- Input de búsqueda -->
+    <input type="text" 
+           class="form-control buscar-producto" 
+           placeholder="Buscar por SKU o nombre..."
+           autocomplete="off"
+           data-index="{{ loop.index0 }}">
+    
+    <!-- Input oculto con el SKU seleccionado -->
+    <input type="hidden" 
+           name="productos[{{ loop.index0 }}][sku]" 
+           class="sku-seleccionado"
+           value="{{ item['sku_bd'] }}"
+           required>
+    
+    <!-- Resultados de búsqueda -->
+    <div class="resultados-busqueda list-group position-absolute w-100" 
+         style="max-height: 300px; overflow-y: auto; z-index: 1000; display: none;"></div>
+    
+    <!-- Producto seleccionado (mostrar cuando hay uno) -->
+    <div class="producto-seleccionado mt-2" style="{% if not item['sku_bd'] %}display: none;{% endif %}">
+        <div class="alert alert-success mb-0 d-flex justify-content-between align-items-center">
+            <div>
+                <strong class="producto-sku">{{ item['sku_bd'] }}</strong> - 
+                <span class="producto-nombre">{{ item['nombre_bd'] }}</span>
+            </div>
+            <button type="button" class="btn btn-sm btn-danger limpiar-seleccion">
+                <i class="bi bi-x"></i>
+            </button>
+        </div>
+    </div>
+    
+    <small class="text-muted">De ML: {{ item['titulo'][:40] }}...</small>
+</div>
+
+<!-- 
+═══════════════════════════════════════════════════════════════
+PASO 2: Agregar este JavaScript al final del template
+═══════════════════════════════════════════════════════════════
+-->
+
+<script>
+// ============================================
+// BUSCADOR DE PRODUCTOS - ESTILO CARGAR_STOCK
+// ============================================
+
+// Cargar productos al iniciar
+let todosProductos = [];
+
+document.addEventListener('DOMContentLoaded', async function() {
+    // Cargar productos desde el servidor
+    try {
+        const response = await fetch('/api/productos');
+        todosProductos = await response.json();
+        console.log(`✅ ${todosProductos.length} productos cargados`);
+    } catch (error) {
+        console.error('Error cargando productos:', error);
+        // Fallback: usar productos del template si la API falla
+        cargarProductosDelTemplate();
+    }
+    
+    // Inicializar buscadores
+    inicializarBuscadores();
+});
+
+function cargarProductosDelTemplate() {
+    // Extraer productos de los selects existentes (fallback)
+    const selects = document.querySelectorAll('.producto-select');
+    const productosSet = new Set();
+    
+    selects.forEach(select => {
+        Array.from(select.options).forEach(option => {
+            if (option.value) {
+                productosSet.add(JSON.stringify({
+                    sku: option.value,
+                    nombre: option.textContent.trim(),
+                    tipo: option.dataset.tipo || 'producto'
+                }));
+            }
+        });
+    });
+    
+    todosProductos = Array.from(productosSet).map(p => JSON.parse(p));
+}
+
+function inicializarBuscadores() {
+    const inputs = document.querySelectorAll('.buscar-producto');
+    
+    inputs.forEach(input => {
+        // Evento de búsqueda
+        input.addEventListener('input', function(e) {
+            const busqueda = e.target.value.toLowerCase();
+            const resultadosDiv = e.target.nextElementSibling.nextElementSibling; // El div de resultados
+            
+            if (busqueda.length < 2) {
+                resultadosDiv.style.display = 'none';
+                resultadosDiv.innerHTML = '';
+                return;
+            }
+            
+            // Filtrar productos
+            const filtrados = todosProductos.filter(p => 
+                p.sku.toLowerCase().includes(busqueda) || 
+                p.nombre.toLowerCase().includes(busqueda)
+            );
+            
+            if (filtrados.length === 0) {
+                resultadosDiv.innerHTML = '<div class="list-group-item text-muted">No se encontraron productos</div>';
+                resultadosDiv.style.display = 'block';
+                return;
+            }
+            
+            // Mostrar resultados
+            resultadosDiv.innerHTML = filtrados.slice(0, 10).map(p => `
+                <button type="button" 
+                        class="list-group-item list-group-item-action seleccionar-producto" 
+                        data-sku="${p.sku}"
+                        data-nombre="${p.nombre}"
+                        data-tipo="${p.tipo || 'producto'}">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>${p.sku}</strong> - ${p.nombre}
+                            ${p.stock_actual ? `<br><small class="text-muted">Stock: ${p.stock_actual}</small>` : ''}
+                        </div>
+                        <i class="bi bi-chevron-right"></i>
+                    </div>
+                </button>
+            `).join('');
+            
+            resultadosDiv.style.display = 'block';
+            
+            // Agregar eventos a los botones de selección
+            resultadosDiv.querySelectorAll('.seleccionar-producto').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    seleccionarProducto(input, this.dataset.sku, this.dataset.nombre);
+                });
+            });
+        });
+        
+        // Cerrar resultados al hacer click fuera
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.position-relative')) {
+                document.querySelectorAll('.resultados-busqueda').forEach(div => {
+                    div.style.display = 'none';
+                });
+            }
+        });
+    });
+    
+    // Botón limpiar selección
+    document.querySelectorAll('.limpiar-seleccion').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const container = this.closest('.position-relative');
+            const input = container.querySelector('.buscar-producto');
+            const hiddenInput = container.querySelector('.sku-seleccionado');
+            const selectedDiv = container.querySelector('.producto-seleccionado');
+            
+            // Limpiar
+            input.value = '';
+            hiddenInput.value = '';
+            selectedDiv.style.display = 'none';
+            
+            // Focus en input
+            input.focus();
+        });
+    });
+}
+
+function seleccionarProducto(inputBusqueda, sku, nombre) {
+    const container = inputBusqueda.closest('.position-relative');
+    const hiddenInput = container.querySelector('.sku-seleccionado');
+    const resultadosDiv = container.querySelector('.resultados-busqueda');
+    const selectedDiv = container.querySelector('.producto-seleccionado');
+    
+    // Setear valores
+    hiddenInput.value = sku;
+    
+    // Mostrar selección
+    selectedDiv.querySelector('.producto-sku').textContent = sku;
+    selectedDiv.querySelector('.producto-nombre').textContent = nombre;
+    selectedDiv.style.display = 'block';
+    
+    // Limpiar búsqueda
+    inputBusqueda.value = '';
+    resultadosDiv.style.display = 'none';
+    resultadosDiv.innerHTML = '';
+}
+</script>
+
+<!-- 
+═══════════════════════════════════════════════════════════════
+PASO 3: Agregar este endpoint en app.py para cargar productos
+═══════════════════════════════════════════════════════════════
+-->
+
+"""
+@app.route('/api/productos')
+def api_productos():
+    # Obtener productos base
+    productos_base = query_db('SELECT sku, nombre, tipo, stock_actual FROM productos_base ORDER BY nombre')
+    
+    # Obtener combos
+    combos = query_db('SELECT sku, nombre FROM productos_compuestos ORDER BY nombre')
+    
+    # Combinar ambos
+    todos = []
+    
+    for p in productos_base:
+        todos.append({
+            'sku': p['sku'],
+            'nombre': p['nombre'],
+            'tipo': p['tipo'],
+            'stock_actual': p['stock_actual']
+        })
+    
+    for c in combos:
+        todos.append({
+            'sku': c['sku'],
+            'nombre': c['nombre'],
+            'tipo': 'combo',
+            'stock_actual': 0
+        })
+    
+    return jsonify(todos)
+"""
+
+<!-- 
+═══════════════════════════════════════════════════════════════
+RESULTADO:
+✅ Buscador en vivo mientras escribís
+✅ Muestra resultados filtrados instantáneamente
+✅ Click para seleccionar
+✅ Muestra el producto seleccionado
+✅ Botón para limpiar selección
+✅ Funciona igual que cargar_stock
+═══════════════════════════════════════════════════════════════
+-->

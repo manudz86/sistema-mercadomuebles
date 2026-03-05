@@ -1,0 +1,84 @@
+<!-- ============================================ -->
+<!-- CAMBIOS EN templates/ventas_historicas.html -->
+<!-- ============================================ -->
+
+<!-- ============================================ -->
+<!-- CAMBIO 1: Botón Facturar (NO facturada) -->
+<!-- BUSCAR: -->
+<!-- ============================================ -->
+
+<a href="{{ url_for('generar_factura_txt', venta_id=venta.id) }}" 
+   class="btn btn-sm btn-success mb-1"
+   title="Generar archivo de facturación">
+    <i class="bi bi-file-earmark-text"></i> Facturar
+</a>
+
+<!-- REEMPLAZAR CON: -->
+
+<a href="{{ url_for('generar_factura_excel', venta_id=venta.id) }}" 
+   class="btn btn-sm btn-success mb-1"
+   title="Generar archivo de facturación">
+    <i class="bi bi-file-earmark-text"></i> Facturar
+</a>
+
+
+<!-- ============================================ -->
+<!-- CAMBIO 2: Botón Re-facturar (YA facturada) -->
+<!-- BUSCAR: -->
+<!-- ============================================ -->
+
+<a href="{{ url_for('generar_factura_txt', venta_id=venta.id) }}" 
+   class="btn btn-sm btn-secondary mb-1"
+   title="Factura ya generada. Click para descargar nuevamente.">
+    <i class="bi bi-check-circle-fill"></i> Re-facturar
+</a>
+
+<!-- REEMPLAZAR CON: -->
+
+<a href="{{ url_for('generar_factura_excel', venta_id=venta.id) }}" 
+   class="btn btn-sm btn-secondary mb-1"
+   title="Factura ya generada. Click para descargar nuevamente.">
+    <i class="bi bi-check-circle-fill"></i> Re-facturar
+</a>
+
+
+<!-- ============================================ -->
+<!-- CAMBIO 3: JavaScript facturación múltiple -->
+<!-- BUSCAR la función completa: -->
+<!-- ============================================ -->
+
+function facturarMultiple() {
+    const ids = Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value);
+    
+    if (ids.length === 0) {
+        alert('Seleccioná al menos una venta');
+        return;
+    }
+    
+    // Redirigir a ruta de facturación múltiple
+    const idsStr = ids.join(',');
+    const url = `/ventas/historicas/facturar-multiple?ids=${idsStr}`;  // ← CAMBIAR ESTA LÍNEA
+    
+    // Abrir en iframe oculto para descargar sin cambiar página
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = url;
+    document.body.appendChild(iframe);
+    
+    // Refrescar la página después de 2 segundos (dar tiempo a la descarga)
+    setTimeout(() => {
+        window.location.reload();
+    }, 2000);
+}
+
+<!-- CAMBIAR LA LÍNEA DEL URL POR: -->
+
+const url = `/ventas/historicas/facturar-multiple-excel?ids=${idsStr}`;
+
+<!-- ============================================ -->
+<!-- RESUMEN DE CAMBIOS EN EL TEMPLATE: -->
+<!-- ============================================ -->
+<!-- 
+1. generar_factura_txt → generar_factura_excel (2 veces)
+2. facturar-multiple → facturar-multiple-excel (1 vez en JS)
+-->

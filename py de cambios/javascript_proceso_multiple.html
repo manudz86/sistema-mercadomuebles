@@ -1,0 +1,161 @@
+<!-- ============================================================================ -->
+<!-- JAVASCRIPT PARA SELECCIÓN MÚLTIPLE EN VENTAS EN PROCESO -->
+<!-- Agregar al final del template ventas_en_proceso.html -->
+<!-- ============================================================================ -->
+
+<script>
+// Seleccionar/deseleccionar todas
+function toggleSelectAll(checkbox) {
+    const checkboxes = document.querySelectorAll('.venta-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = checkbox.checked;
+    });
+    actualizarContador();
+}
+
+// Actualizar contador y mostrar/ocultar barra de acciones
+function actualizarContador() {
+    const checkboxes = document.querySelectorAll('.venta-checkbox:checked');
+    const count = checkboxes.length;
+    
+    document.getElementById('contadorSeleccionadas').textContent = count;
+    document.getElementById('accionesMultiples').style.display = count > 0 ? 'block' : 'none';
+    
+    // Actualizar checkbox "select all"
+    const allCheckboxes = document.querySelectorAll('.venta-checkbox');
+    document.getElementById('selectAll').checked = count === allCheckboxes.length && count > 0;
+}
+
+// Limpiar selección
+function limpiarSeleccion() {
+    document.querySelectorAll('.venta-checkbox').forEach(cb => cb.checked = false);
+    document.getElementById('selectAll').checked = false;
+    actualizarContador();
+}
+
+// Volver a activas (múltiple)
+function volverActivasMultiple() {
+    const ids = Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value);
+    
+    if (ids.length === 0) {
+        alert('Seleccioná al menos una venta');
+        return;
+    }
+    
+    if (!confirm(`¿Volver ${ids.length} venta(s) a Ventas Activas?\n\nSe devolverá el stock descontado.`)) {
+        return;
+    }
+    
+    // Crear form y enviar
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/ventas/proceso/volver-activas-multiple';
+    
+    // Agregar IDs
+    ids.forEach(id => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'venta_ids';
+        input.value = id;
+        form.appendChild(input);
+    });
+    
+    // Mantener filtros
+    agregarFiltrosAlForm(form);
+    
+    document.body.appendChild(form);
+    form.submit();
+}
+
+// Marcar entregadas (múltiple)
+function marcarEntregadasMultiple() {
+    const ids = Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value);
+    
+    if (ids.length === 0) {
+        alert('Seleccioná al menos una venta');
+        return;
+    }
+    
+    if (!confirm(`¿Marcar ${ids.length} venta(s) como Entregadas?`)) {
+        return;
+    }
+    
+    // Crear form y enviar
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/ventas/proceso/marcar-entregadas-multiple';
+    
+    // Agregar IDs
+    ids.forEach(id => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'venta_ids';
+        input.value = id;
+        form.appendChild(input);
+    });
+    
+    // Mantener filtros
+    agregarFiltrosAlForm(form);
+    
+    document.body.appendChild(form);
+    form.submit();
+}
+
+// Cancelar (múltiple) con motivo opcional
+function cancelarMultiple() {
+    const ids = Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value);
+    
+    if (ids.length === 0) {
+        alert('Seleccioná al menos una venta');
+        return;
+    }
+    
+    const motivo = prompt(`¿Cancelar ${ids.length} venta(s) y devolver stock?\n\nMotivo de cancelación (opcional):`);
+    
+    // Si cancela el prompt, no hacer nada
+    if (motivo === null) {
+        return;
+    }
+    
+    // Crear form y enviar
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/ventas/proceso/cancelar-multiple';
+    
+    // Agregar IDs
+    ids.forEach(id => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'venta_ids';
+        input.value = id;
+        form.appendChild(input);
+    });
+    
+    // Agregar motivo si existe
+    if (motivo.trim()) {
+        const inputMotivo = document.createElement('input');
+        inputMotivo.type = 'hidden';
+        inputMotivo.name = 'motivo_cancelacion';
+        inputMotivo.value = motivo.trim();
+        form.appendChild(inputMotivo);
+    }
+    
+    // Mantener filtros
+    agregarFiltrosAlForm(form);
+    
+    document.body.appendChild(form);
+    form.submit();
+}
+
+// Mantener filtros en form
+function agregarFiltrosAlForm(form) {
+    const filtros = new URLSearchParams(window.location.search);
+    filtros.forEach((value, key) => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = key;
+        input.value = value;
+        form.appendChild(input);
+    });
+}
+</script>

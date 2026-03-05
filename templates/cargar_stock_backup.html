@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cargar Stock - Cannon</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: #f0f2f5;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .main-header {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            padding: 25px;
+            margin-bottom: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+        
+        .productos-table {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .table thead th {
+            background: #f8f9fa;
+            font-weight: 600;
+            border-bottom: 2px solid #dee2e6;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        .tipo-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        
+        .tipo-colchon {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        
+        .tipo-base {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+        
+        .tipo-almohada {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+        
+        .stock-actual {
+            font-weight: 700;
+            color: #059669;
+            font-size: 1.2em;
+        }
+        
+        .input-agregar {
+            width: 100px;
+            text-align: center;
+            font-weight: 600;
+            border: 2px solid #10b981;
+        }
+        
+        .input-agregar:focus {
+            border-color: #059669;
+            box-shadow: 0 0 0 0.2rem rgba(16, 185, 129, 0.25);
+        }
+        
+        .btn-guardar {
+            padding: 12px 40px;
+            font-size: 1.1em;
+            font-weight: 600;
+        }
+        
+        .alert-info-custom {
+            background: #dbeafe;
+            border-left: 4px solid #3b82f6;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        
+        .filtros-section {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <!-- Header -->
+        <div class="main-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="mb-0">📦 Cargar Stock</h2>
+                    <p class="mb-0 mt-2 opacity-75">Agregar inventario nuevo (suma al stock actual)</p>
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="{{ url_for('index') }}" class="btn btn-light">🏠 Dashboard</a>
+                    <a href="{{ url_for('dashboard_visual') }}" class="btn btn-info">📊 Dashboard Visual</a>
+                    <a href="{{ url_for('bajar_stock') }}" class="btn btn-danger">📉 Bajar Stock</a>
+                    <a href="{{ url_for('transferir_stock') }}" class="btn btn-primary">🔄 Transferir Stock</a>
+                    <a href="{{ url_for('historial_stock') }}" class="btn btn-secondary">📜 Historial</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mensajes Flash -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <!-- Información -->
+        <div class="alert-info-custom">
+            <strong>ℹ️ Cómo funciona:</strong> 
+            Ingresá la cantidad que querés AGREGAR al stock actual. 
+            Por ejemplo, si tenés 3 unidades y cargás 5, quedarás con 8 unidades (3 + 5).
+        </div>
+
+        <!-- Filtros y Buscador -->
+        <div class="filtros-section mb-3">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">🔍 Buscar Producto</label>
+                    <input type="text" 
+                           id="buscarProducto" 
+                           class="form-control" 
+                           placeholder="Buscar por SKU o nombre..."
+                           autocomplete="off">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">Tipo</label>
+                    <select id="filtroTipo" class="form-select">
+                        <option value="">Todos</option>
+                        <option value="colchon">Colchones</option>
+                        <option value="base">Bases</option>
+                        <option value="almohada">Almohadas</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">Total productos</label>
+                    <input type="text" class="form-control" id="contadorProductos" value="{{ productos|length }}" readonly>
+                </div>
+            </div>
+        </div>
+
+        <!-- Formulario -->
+        <form method="POST" action="{{ url_for('guardar_stock') }}" id="formCargarStock">
+            <div class="productos-table">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">Productos Disponibles</h5>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="location.reload()">
+                        🔄 Refrescar
+                    </button>
+                </div>
+
+                <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th style="width: 15%;">SKU</th>
+                                <th style="width: 35%;">Nombre</th>
+                                <th style="width: 12%;">Tipo</th>
+                                <th style="width: 12%;" class="text-center">Stock Actual</th>
+                                <th style="width: 13%;" class="text-center">Cantidad a Agregar</th>
+                                <th style="width: 13%;" class="text-center">Stock Resultante</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for prod in productos %}
+                            <tr>
+                                <td><strong>{{ prod.sku }}</strong></td>
+                                <td>{{ prod.nombre }}</td>
+                                <td>
+                                    <span class="tipo-badge tipo-{{ prod.tipo }}">
+                                        {{ prod.tipo|capitalize }}
+                                    </span>
+                                </td>
+                                <td class="text-center">
+                                    <span class="stock-actual">{{ prod.stock_actual }}</span>
+                                </td>
+                                <td class="text-center">
+                                    <input type="number" 
+                                           class="form-control input-agregar" 
+                                           name="agregar_{{ prod.sku }}"
+                                           min="0" 
+                                           value="0"
+                                           data-stock="{{ prod.stock_actual }}"
+                                           data-sku="{{ prod.sku }}">
+                                </td>
+                                <td class="text-center">
+                                    <strong class="stock-resultante" id="result_{{ prod.sku }}">
+                                        {{ prod.stock_actual }}
+                                    </strong>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Botones -->
+            <div class="text-center mt-4">
+                <button type="submit" class="btn btn-success btn-guardar">
+                    ✅ Guardar Carga de Stock
+                </button>
+                <a href="{{ url_for('index') }}" class="btn btn-secondary btn-guardar">
+                    Cancelar
+                </a>
+            </div>
+        </form>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Calcular stock resultante en tiempo real
+        document.querySelectorAll('.input-agregar').forEach(input => {
+            input.addEventListener('input', function() {
+                const stockActual = parseInt(this.dataset.stock);
+                const cantidadAgregar = parseInt(this.value) || 0;
+                const stockResultante = stockActual + cantidadAgregar;
+                
+                const sku = this.dataset.sku;
+                const resultadoSpan = document.getElementById('result_' + sku);
+                resultadoSpan.textContent = stockResultante;
+                
+                // Resaltar si se está agregando
+                if (cantidadAgregar > 0) {
+                    resultadoSpan.style.color = '#10b981';
+                    resultadoSpan.style.fontWeight = 'bold';
+                } else {
+                    resultadoSpan.style.color = '#000';
+                    resultadoSpan.style.fontWeight = 'normal';
+                }
+            });
+        });
+
+        // Buscador y filtros en tiempo real
+        document.getElementById('buscarProducto').addEventListener('input', filtrarProductos);
+        document.getElementById('filtroTipo').addEventListener('change', filtrarProductos);
+
+        function filtrarProductos() {
+            const busqueda = document.getElementById('buscarProducto').value.toLowerCase();
+            const tipoFiltro = document.getElementById('filtroTipo').value.toLowerCase();
+            const filas = document.querySelectorAll('tbody tr');
+            let contador = 0;
+
+            filas.forEach(fila => {
+                const sku = fila.cells[0].textContent.toLowerCase();
+                const nombre = fila.cells[1].textContent.toLowerCase();
+                const tipoBadge = fila.querySelector('.tipo-badge');
+                const tipo = tipoBadge ? tipoBadge.className.toLowerCase() : '';
+                
+                const coincideBusqueda = sku.includes(busqueda) || nombre.includes(busqueda);
+                const coincideTipo = !tipoFiltro || tipo.includes('tipo-' + tipoFiltro);
+                
+                if (coincideBusqueda && coincideTipo) {
+                    fila.style.display = '';
+                    contador++;
+                } else {
+                    fila.style.display = 'none';
+                }
+            });
+
+            document.getElementById('contadorProductos').value = contador;
+        }
+
+        // Validación antes de enviar
+        document.getElementById('formCargarStock').addEventListener('submit', function(e) {
+            const inputs = document.querySelectorAll('.input-agregar');
+            let hayCarga = false;
+
+            inputs.forEach(input => {
+                if (parseInt(input.value) > 0) {
+                    hayCarga = true;
+                }
+            });
+
+            if (!hayCarga) {
+                e.preventDefault();
+                alert('⚠️ Debe indicar al menos una cantidad mayor a 0 para cargar');
+                return false;
+            }
+        });
+    </script>
+</body>
+</html>

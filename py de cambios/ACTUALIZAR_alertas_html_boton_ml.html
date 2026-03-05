@@ -1,0 +1,85 @@
+<!-- 
+═══════════════════════════════════════════════════════════════
+ACTUALIZACIÓN DE alertas.html
+Agregar botón para sincronizar stock con ML
+═══════════════════════════════════════════════════════════════
+
+INSTRUCCIONES:
+1. Abrí templates/alertas.html
+2. Buscá la sección donde se muestran las acciones de cada alerta
+3. Agregá este código junto al botón de "Marcar como procesada"
+-->
+
+<!-- En la columna de Acciones de cada alerta, agregar: -->
+
+{% if alerta.tiene_ml %}
+    <!-- Botón para sincronizar stock con ML -->
+    <form method="POST" 
+          action="{{ url_for('sincronizar_ml_desde_alerta', alerta_id=alerta.id) }}" 
+          style="display: inline;"
+          onsubmit="return confirm('¿Poner stock en 0 en las {{ alerta.publicaciones_ml|length }} publicación(es) de ML asociadas a {{ alerta.sku }}?');">
+        <button type="submit" class="btn btn-warning btn-sm" title="Poner stock en 0 en ML">
+            <i class="bi bi-arrow-down-circle"></i> Stock 0 en ML
+        </button>
+    </form>
+    
+    <!-- Info de publicaciones ML (opcional, para debug) -->
+    <br>
+    <small class="text-muted">
+        ML: 
+        {% for pub in alerta.publicaciones_ml %}
+            <a href="https://articulo.mercadolibre.com.ar/{{ pub.mla_id }}" target="_blank">{{ pub.mla_id }}</a>{% if not loop.last %}, {% endif %}
+        {% endfor %}
+    </small>
+{% endif %}
+
+<!-- 
+═══════════════════════════════════════════════════════════════
+EJEMPLO DE CÓMO DEBERÍA QUEDAR LA SECCIÓN COMPLETA:
+═══════════════════════════════════════════════════════════════
+-->
+
+<!-- Columna de Acciones -->
+<td>
+    <!-- Botón marcar como procesada (ya existe) -->
+    <form method="POST" 
+          action="{{ url_for('marcar_alerta_procesada', alerta_id=alerta.id) }}" 
+          style="display: inline;">
+        <button type="submit" class="btn btn-success btn-sm">
+            <i class="bi bi-check-circle"></i> Procesada
+        </button>
+    </form>
+    
+    <!-- NUEVO: Botón sincronizar con ML -->
+    {% if alerta.tiene_ml %}
+        <form method="POST" 
+              action="{{ url_for('sincronizar_ml_desde_alerta', alerta_id=alerta.id) }}" 
+              style="display: inline;"
+              onsubmit="return confirm('¿Poner stock en 0 en ML para {{ alerta.sku }}?');">
+            <button type="submit" class="btn btn-warning btn-sm">
+                <i class="bi bi-arrow-down-circle"></i> Stock 0 ML
+            </button>
+        </form>
+        
+        <br>
+        <small class="text-muted">
+            {% for pub in alerta.publicaciones_ml %}
+                <a href="https://articulo.mercadolibre.com.ar/{{ pub.mla_id }}" 
+                   target="_blank" 
+                   class="text-decoration-none">
+                    {{ pub.mla_id }}
+                </a>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+        </small>
+    {% endif %}
+</td>
+
+<!-- 
+═══════════════════════════════════════════════════════════════
+RESULTADO:
+- Si el SKU tiene publicaciones de ML mapeadas → muestra botón "Stock 0 ML"
+- Click → pone stock en 0 en todas las publicaciones de ese SKU
+- Marca la alerta como procesada automáticamente
+- Muestra links a las publicaciones de ML
+═══════════════════════════════════════════════════════════════
+-->

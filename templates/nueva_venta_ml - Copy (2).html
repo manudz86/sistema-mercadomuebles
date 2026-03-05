@@ -1,0 +1,405 @@
+{% extends "base.html" %}
+
+{% block title %}Nueva Venta desde ML - Sistema Cannon{% endblock %}
+
+{% block content %}
+<div class="alert alert-info">
+    <i class="bi bi-download"></i> 
+    <strong>Importando desde Mercado Libre</strong>
+    <br>Orden: <code>{{ ml_orden_id }}</code>
+    <br><small class="text-muted">Los datos están precargados. Verificá y ajustá lo necesario antes de guardar.</small>
+</div>
+
+<div class="card">
+    <div class="card-header bg-primary text-white">
+        <h4 class="mb-0"><i class="bi bi-cart-plus"></i> Nueva Venta desde Mercado Libre</h4>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('guardar_venta') }}">
+            
+            <!-- CAMPOS OCULTOS REQUERIDOS -->
+            <input type="hidden" name="numero_venta" value="ML-{{ ml_orden_id }}">
+            <input type="hidden" name="fecha_venta" id="fecha_venta">
+            <input type="hidden" name="canal" value="Mercado Libre">
+            
+            <script>
+                // Setear fecha actual
+                document.getElementById('fecha_venta').value = new Date().toISOString().split('T')[0];
+            </script>
+            
+            {% set total_calculado = namespace(value=0) %}
+            {% for item in ml_items %}
+                {% set total_calculado.value = total_calculado.value + (item['cantidad'] * item['precio']) %}
+            {% endfor %}
+            <input type="hidden" name="importe_total" value="{{ total_calculado.value }}">
+            
+            <!-- DATOS DEL CLIENTE -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <strong><i class="bi bi-person"></i> Datos del Cliente</strong>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <label class="form-label">MLA Code / Apodo</label>
+                            <input type="text" 
+                                   class="form-control" 
+                                   name="mla_code" 
+                                   value="{{ session.get('ml_comprador_nickname', '') }}"
+                                   placeholder="@nickname">
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">Nombre Completo</label>
+                            <input type="text" 
+                                   class="form-control" 
+                                   name="nombre_cliente" 
+                                   value="{{ session.get('ml_comprador_nombre', '') }}"
+                                   placeholder="Nombre del cliente"
+                                   required>
+                        </div>
+                    </div>
+                    <div class="row mt-2">
+                        <div class="col-md-6">
+                            <label class="form-label">Teléfono</label>
+                            <input type="text" 
+                                   class="form-control" 
+                                   name="telefono_cliente" 
+                                   placeholder="1145678901">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Email</label>
+                            <input type="email" 
+                                   class="form-control" 
+                                   name="email_cliente" 
+                                   placeholder="cliente@email.com">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- PRODUCTOS -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <strong><i class="bi bi-box"></i> Productos</strong>
+                </div>
+                <div class="card-body">
+                    <div id="productos-container">
+                        {% for item in ml_items %}
+                        <div class="producto-item card mb-2">
+                            <div class="card-body">
+                                <div class="row align-items-center">
+                                    <div class="col-md-1">
+                                        <strong>{{ loop.index }}</strong>
+                                    </div>
+                                    <div class="col-md-5">
+                                        <label class="form-label">Producto</label>
+                                        <select class="form-select producto-select" 
+                                                name="productos[{{ loop.index0 }}][sku]" 
+                                                required>
+                                            <option value="">-- Seleccionar --</option>
+                                            <optgroup label="Productos Base">
+                                                {% for prod in productos %}
+                                                <option value="{{ prod['sku'] }}" 
+                                                        data-tipo="{{ prod['tipo'] }}"
+                                                        {% if prod['sku'] == item['sku_bd'] %}selected{% endif %}>
+                                                    {{ prod['sku'] }} - {{ prod['nombre'] }}
+                                                </option>
+                                                {% endfor %}
+                                            </optgroup>
+                                            <optgroup label="Combos">
+                                                {% for combo in combos %}
+                                                <option value="{{ combo['sku'] }}" 
+                                                        data-tipo="combo"
+                                                        {% if combo['sku'] == item['sku_bd'] %}selected{% endif %}>
+                                                    {{ combo['sku'] }} - {{ combo['nombre'] }}
+                                                </option>
+                                                {% endfor %}
+                                            </optgroup>
+                                        </select>
+                                        <small class="text-muted">De ML: {{ item['titulo'][:40] }}...</small>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Cantidad</label>
+                                        <input type="number" 
+                                               class="form-control" 
+                                               name="productos[{{ loop.index0 }}][cantidad]" 
+                                               value="{{ item['cantidad'] }}" 
+                                               min="1" 
+                                               required>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Precio Unitario</label>
+                                        <input type="number" 
+                                               class="form-control" 
+                                               name="productos[{{ loop.index0 }}][precio]" 
+                                               value="{{ item['precio'] }}" 
+                                               min="0" 
+                                               required>
+                                    </div>
+                                    <div class="col-md-1">
+                                        {% if loop.index > 1 %}
+                                        <button type="button" 
+                                                class="btn btn-danger btn-sm" 
+                                                onclick="eliminarProducto(this)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    
+                    <button type="button" 
+                            class="btn btn-secondary btn-sm" 
+                            onclick="agregarProducto()">
+                        <i class="bi bi-plus-circle"></i> Agregar otro producto
+                    </button>
+                </div>
+            </div>
+            
+                        <!-- ENTREGA -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <strong><i class="bi bi-truck"></i> Datos de Entrega</strong>
+                </div>
+                <div class="card-body">
+                    {% set shipping = session.get('ml_shipping', {}) %}
+                    {% set tiene_envio = shipping.get('tiene_envio', False) %}
+                    
+                    <div class="row">
+                        <div class="col-md-3">
+                            <label class="form-label">Tipo de Entrega</label>
+                            <select class="form-select" 
+                                    name="tipo_entrega" 
+                                    id="tipo_entrega" 
+                                    required>
+                                <option value="Envío" {% if tiene_envio %}selected{% endif %}>Envío</option>
+                                <option value="Retiro" {% if not tiene_envio %}selected{% endif %}>Retiro en Depósito</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3" id="metodo_envio_container">
+                            <label class="form-label">Método de Envío</label>
+                            <select class="form-select" name="metodo_envio" id="metodo_envio">
+                                <option value="Mercadoenvios" {% if shipping.get('metodo_envio') == 'Mercadoenvios' %}selected{% endif %}>Mercadoenvios</option>
+                                <option value="Flex" {% if shipping.get('metodo_envio') == 'Flex' %}selected{% endif %}>Flex</option>
+                                <option value="Full" {% if shipping.get('metodo_envio') == 'Full' %}selected{% endif %}>Full</option>
+                                <option value="Flete Propio">Flete Propio</option>
+                                <option value="Delega">Delega</option>
+                                <option value="Zippin">Zippin</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3" id="ubicacion_despacho_container">
+                            <label class="form-label">Ubicación Despacho</label>
+                            <select class="form-select" name="ubicacion_despacho" id="ubicacion_despacho">
+                                <option value="DEP" {% if shipping.get('metodo_envio') != 'Full' %}selected{% endif %}>Depósito</option>
+                                <option value="FULL" {% if shipping.get('metodo_envio') == 'Full' %}selected{% endif %}>Full</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3" id="costo_flete_container" style="display: none;">
+                            <label class="form-label">Costo Flete</label>
+                            <input type="number" 
+                                   class="form-control" 
+                                   name="costo_flete" 
+                                   value="0" 
+                                   min="0">
+                        </div>
+                    </div>
+                    
+                    <div class="row mt-2" id="direccion_container">
+                        <div class="col-md-8">
+                            <label class="form-label">Dirección</label>
+                            <input type="text" 
+                                   class="form-control" 
+                                   name="direccion_entrega" 
+                                   value="{{ shipping.get('direccion', '') }}"
+                                   placeholder="Calle 1234, CABA">
+                            {% if shipping.get('ciudad') or shipping.get('provincia') %}
+                            <small class="text-muted">
+                                De ML: {{ shipping.get('ciudad', '') }}{% if shipping.get('provincia') %}, {{ shipping.get('provincia') }}{% endif %}{% if shipping.get('codigo_postal') %} (CP: {{ shipping.get('codigo_postal') }}){% endif %}
+                            </small>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Zona</label>
+                            <select class="form-select" name="zona_envio">
+                                <option value="">-- Seleccionar --</option>
+                                <option value="Capital" {% if shipping.get('zona') == 'Capital' %}selected{% endif %}>Capital</option>
+                                <option value="Sur" {% if shipping.get('zona') == 'Sur' %}selected{% endif %}>Sur</option>
+                                <option value="Norte-Noroeste" {% if shipping.get('zona') == 'Norte-Noroeste' %}selected{% endif %}>Norte-Noroeste</option>
+                                <option value="Oeste" {% if shipping.get('zona') == 'Oeste' %}selected{% endif %}>Oeste</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            
+<!-- PAGO -->
+<div class="card mb-3">
+    <div class="card-header bg-light">
+        <strong><i class="bi bi-cash-coin"></i> Información de Pago</strong>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3">
+                <label class="form-label">Canal de Venta</label>
+                <select class="form-select" name="canal" required>
+                    <option value="Mercado Libre" selected>Mercado Libre</option>
+                    <option value="Fuera de ML">Fuera de ML</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Método de Pago</label>
+                <select class="form-select" name="metodo_pago" required>
+                    <option value="Mercadopago" selected>Mercadopago</option>
+                    <option value="Efectivo">Efectivo</option>
+                    <option value="Transferencia">Transferencia</option>
+                    <option value="Mixto">Mixto</option>
+                </select>
+            </div>
+            
+            <!-- 🆕 NUEVO: Agregar campo de monto pagado por MP -->
+            <div class="col-md-2">
+                <label class="form-label">Total Venta</label>
+                <input type="text" 
+                       class="form-control" 
+                       id="total-display"
+                       value="${{ "{:,.0f}".format(total_calculado.value) }}"
+                       readonly
+                       style="background-color: #e9ecef; font-weight: bold;">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Pagado MP *</label>
+                <input type="number" 
+                       class="form-control" 
+                       name="pago_mercadopago" 
+                       id="pago_mercadopago"
+                       value="{{ total_calculado.value }}"
+                       min="0"
+                       required
+                       placeholder="0">
+                <small class="text-muted">Precargado con total</small>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Efectivo</label>
+                <input type="number" 
+                       class="form-control" 
+                       name="pago_efectivo" 
+                       value="0" 
+                       min="0">
+            </div>
+        </div>
+        
+        <!-- 🆕 NUEVO: Mensaje informativo -->
+        <div class="row mt-2">
+            <div class="col-12">
+                <div class="alert alert-info mb-0">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>Nota:</strong> El pago por Mercadopago se precarga automáticamente con el total de la venta. 
+                    Ajustá el monto si fue diferente o si hubo pago mixto.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+            
+            <!-- OBSERVACIONES -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <strong><i class="bi bi-chat-text"></i> Observaciones</strong>
+                </div>
+                <div class="card-body">
+                    <textarea class="form-control" 
+                              name="notas" 
+                              rows="3" 
+                              placeholder="Observaciones adicionales...">Importado desde ML - Orden: {{ ml_orden_id }}</textarea>
+                </div>
+            </div>
+            
+            <!-- BOTONES -->
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-save"></i> Guardar Venta
+                </button>
+                <a href="{{ url_for('ventas_activas') }}" class="btn btn-secondary">
+                    <i class="bi bi-x-circle"></i> Cancelar
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+// Manejar cambios en tipo de entrega
+document.getElementById('tipo_entrega').addEventListener('change', function() {
+    const tipoEntrega = this.value;
+    const metodoEnvioContainer = document.getElementById('metodo_envio_container');
+    const ubicacionDespachoContainer = document.getElementById('ubicacion_despacho_container');
+    const direccionContainer = document.getElementById('direccion_container');
+    
+    if (tipoEntrega === 'Retiro') {
+        metodoEnvioContainer.style.display = 'none';
+        ubicacionDespachoContainer.style.display = 'none';
+        direccionContainer.style.display = 'none';
+    } else {
+        metodoEnvioContainer.style.display = 'block';
+        ubicacionDespachoContainer.style.display = 'block';
+        direccionContainer.style.display = 'block';
+    }
+});
+
+// Manejar cambios en método de envío
+document.getElementById('metodo_envio').addEventListener('change', function() {
+    const metodoEnvio = this.value;
+    const costoFleteContainer = document.getElementById('costo_flete_container');
+    const ubicacionDespacho = document.getElementById('ubicacion_despacho');
+    
+    if (metodoEnvio === 'Flete Propio') {
+        costoFleteContainer.style.display = 'block';
+    } else {
+        costoFleteContainer.style.display = 'none';
+    }
+    
+    // Si es Full, forzar ubicación FULL
+    if (metodoEnvio === 'Full') {
+        ubicacionDespacho.value = 'FULL';
+    }
+});
+
+// Función para eliminar producto
+function eliminarProducto(button) {
+    button.closest('.producto-item').remove();
+}
+
+// Función para agregar producto (opcional)
+let contadorProductos = {{ ml_items|length }};
+function agregarProducto() {
+    const container = document.getElementById('productos-container');
+    // Código para agregar producto...
+    alert('Funcionalidad opcional - podés agregarla si necesitás');
+}
+</script>
+
+
+<script>
+$(document).ready(function() {
+    // Aplicar Select2 a todos los selects de productos
+    $('.form-select[name^="mapeo_"], .producto-select').select2({
+        placeholder: "Buscar producto...",
+        allowClear: true,
+        width: '100%',
+        language: {
+            noResults: function() {
+                return "No se encontraron productos";
+            },
+            searching: function() {
+                return "Buscando...";
+            }
+        }
+    });
+});
+</script>
+
+{% endblock %}

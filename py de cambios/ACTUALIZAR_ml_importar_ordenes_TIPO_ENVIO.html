@@ -1,0 +1,87 @@
+<!-- 
+═══════════════════════════════════════════════════════════════
+ACTUALIZACIÓN DE ml_importar_ordenes.html
+Agregar indicador de tipo de envío
+═══════════════════════════════════════════════════════════════
+
+INSTRUCCIONES:
+1. Abrí tu archivo ml_importar_ordenes.html
+2. Buscá la sección donde muestra los productos (línea ~56-90)
+3. AGREGÁ este código DESPUÉS de la sección de productos
+-->
+
+                <!-- PRODUCTOS -->
+                <div class="mb-2">
+                    <strong><i class="bi bi-box"></i> Productos:</strong>
+                    {% for item in orden['items'] %}
+                        <div class="mt-2 p-2 {% if item['existe_en_bd'] %}bg-success{% else %}bg-warning{% endif %} bg-opacity-10 rounded">
+                            <div class="d-flex justify-content-between">
+                                <div>
+                                    <strong>{{ item['cantidad'] }}x</strong> {{ item['titulo'][:50] }}{% if item['titulo']|length > 50 %}...{% endif %}
+                                    <br>
+                                    {% if item['sku'] %}
+                                        <small class="text-muted">SKU ML: <code>{{ item['sku'] }}</code></small>
+                                        <br>
+                                        {% if item['existe_en_bd'] %}
+                                            <small class="text-success">
+                                                <i class="bi bi-check-circle"></i> 
+                                                Existe en BD: {{ item['nombre_bd'] }}
+                                            </small>
+                                        {% else %}
+                                            <small class="text-warning">
+                                                <i class="bi bi-exclamation-triangle"></i> 
+                                                No encontrado en BD (necesita mapeo)
+                                            </small>
+                                        {% endif %}
+                                    {% else %}
+                                        <small class="text-danger">
+                                            <i class="bi bi-x-circle"></i> Sin SKU en ML
+                                        </small>
+                                    {% endif %}
+                                </div>
+                                <div class="text-end">
+                                    <strong>${{ "{:,.0f}".format(item['precio']) }}</strong>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+                
+                <!-- 🆕 NUEVO: MOSTRAR TIPO DE ENVÍO (SI TIENE) -->
+                {% if orden['shipping']['tiene_envio'] %}
+                <hr>
+                <div class="mb-2">
+                    <strong><i class="bi bi-truck"></i> Envío:</strong>
+                    <br>
+                    <small class="text-muted">
+                        {% if orden['shipping']['metodo_envio'] %}
+                            <span class="badge bg-info">{{ orden['shipping']['metodo_envio'] }}</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Sin detectar</span>
+                        {% endif %}
+                        
+                        {% if orden['shipping']['direccion'] %}
+                            <br>{{ orden['shipping']['direccion'][:50] }}{% if orden['shipping']['direccion']|length > 50 %}...{% endif %}
+                        {% endif %}
+                    </small>
+                </div>
+                {% endif %}
+                <!-- FIN NUEVO -->
+                
+                <hr>
+                
+                <!-- TOTAL -->
+                <div class="d-flex justify-content-between align-items-center">
+                    <strong>TOTAL:</strong>
+                    <h4 class="mb-0 text-primary">${{ "{:,.0f}".format(orden['total']) }}</h4>
+                </div>
+
+<!-- 
+═══════════════════════════════════════════════════════════════
+RESULTADO:
+Ahora cada orden mostrará el tipo de envío detectado:
+- Full (badge azul)
+- Flex (badge azul)
+- Mercadoenvios (badge azul)
+═══════════════════════════════════════════════════════════════
+-->
