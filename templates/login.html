@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Mercadomuebles</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        body { background: #2c3e50; min-height: 100vh; display: flex; align-items: center; }
+        .login-card { background: #34495e; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; }
+        .form-control { background: #2c3e50; border-color: rgba(255,255,255,0.2); color: #fff; }
+        .form-control:focus { background: #2c3e50; border-color: #3498db; color: #fff; box-shadow: none; }
+        .form-control::placeholder { color: rgba(255,255,255,0.3); }
+        .form-label { color: rgba(255,255,255,0.7); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-md-4 col-sm-8">
+                <div class="login-card p-4 shadow-lg">
+                    <div class="text-center mb-4">
+                        <h4 style="color:#fff; font-weight:700">
+                            <i class="bi bi-box-seam"></i> MERCADOMUEBLES
+                        </h4>
+                        <small style="color:rgba(255,255,255,0.5)">Gestión de ventas e inventario</small>
+                    </div>
+                    {% with messages = get_flashed_messages(with_categories=true) %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }} py-2 small">{{ message }}</div>
+                        {% endfor %}
+                    {% endwith %}
+                    <form method="POST">
+                        <div class="mb-3">
+                            <label class="form-label">Usuario</label>
+                            <input type="text" name="username" class="form-control" placeholder="Tu usuario" required autofocus>
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label">Contraseña</label>
+                            <input type="password" name="password" class="form-control" placeholder="Tu contraseña" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-box-arrow-in-right"></i> Ingresar
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

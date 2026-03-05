@@ -8,9 +8,74 @@ import json
 import requests  # pip install requests
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 from dotenv import load_dotenv
 import pymysql
 ML_SELLER_ID = 29563319
+
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
+
+# ============================================================================
+# FLASK-LOGIN SETUP
+# ============================================================================
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+login_manager.login_message = '⚠️ Debés iniciar sesión para acceder'
+login_manager.login_message_category = 'warning'
+
+class User(UserMixin):
+    def __init__(self, id, username, rol, activo):
+        self.id = id
+        self.username = username
+        self.rol = rol
+        self.activo = activo
+
+@login_manager.user_loader
+def load_user(user_id):
+    row = query_one('SELECT * FROM usuarios WHERE id = %s AND activo = TRUE', (user_id,))
+    if row:
+        return User(row['id'], row['username'], row['rol'], row['activo'])
+    return None
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated or current_user.rol != 'admin':
+            flash('❌ No tenés permisos para realizar esta acción', 'danger')
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return decorated
+
+# ============================================================================
+# RUTAS DE LOGIN / LOGOUT
+# ============================================================================
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        user_row = query_one('SELECT * FROM usuarios WHERE username = %s AND activo = TRUE', (username,))
+        if user_row and check_password_hash(user_row['password_hash'], password):
+            user = User(user_row['id'], user_row['username'], user_row['rol'], user_row['activo'])
+            login_user(user, remember=True)
+            next_page = request.args.get('next')
+            return redirect(next_page or url_for('dashboard'))
+        flash('❌ Usuario o contraseña incorrectos', 'danger')
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('✅ Sesión cerrada', 'success')
+    return redirect(url_for('login'))
 
 
 # Cargar configuración
@@ -19,6 +84,38 @@ load_dotenv('config/.env')
 # Configurar Flask
 app = Flask(__name__, template_folder='templates')
 app.secret_key = os.getenv('SECRET_KEY', 'cambiar-en-produccion-123456')
+
+# ============================================================================
+# FLASK-LOGIN SETUP
+# ============================================================================
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+login_manager.login_message = '⚠️ Debés iniciar sesión para acceder'
+login_manager.login_message_category = 'warning'
+
+class User(UserMixin):
+    def __init__(self, id, username, rol, activo):
+        self.id = id
+        self.username = username
+        self.rol = rol
+        self.activo = activo
+
+@login_manager.user_loader
+def load_user(user_id):
+    row = query_one('SELECT * FROM usuarios WHERE id = %s AND activo = TRUE', (user_id,))
+    if row:
+        return User(row['id'], row['username'], row['rol'], row['activo'])
+    return None
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated or current_user.rol != 'admin':
+            flash('❌ No tenés permisos para realizar esta acción', 'danger')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated
 
 # Filtro personalizado para dashboard visual
 @app.template_filter('zero_dash')
@@ -76,6 +173,7 @@ def execute_db(query, params=None):
 # ============================================================================
 
 @app.route('/')
+@login_required
 def index():
     """Dashboard principal"""
     stats = {'ventas_activas': 0, 'ventas_en_proceso': 0, 'alertas_pendientes': 0}
@@ -457,6 +555,7 @@ def detectar_alertas_stock_bajo(cursor, items_vendidos, venta_id_actual=None):
 
 
 @app.route('/ventas/activas')
+@login_required
 def ventas_activas():
     """Lista de ventas activas con filtros de búsqueda"""
     try:
@@ -570,6 +669,7 @@ metodo_pago, importe_total, importe_abonado,
         return redirect(url_for('index'))
 
 @app.route('/ventas/activas/<int:venta_id>/proceso', methods=['POST'])
+@login_required
 def pasar_a_proceso(venta_id):
     """Pasar venta a proceso de envío (descuenta stock con verificación)"""
     conn = get_db_connection()
@@ -643,6 +743,7 @@ def pasar_a_proceso(venta_id):
 
 
 @app.route('/ventas/activas/<int:venta_id>/entregada', methods=['POST'])
+@login_required
 def marcar_entregada(venta_id):
     """Marcar venta como entregada (descuenta stock si no se descontó, con verificación)"""
     conn = get_db_connection()
@@ -716,6 +817,7 @@ def marcar_entregada(venta_id):
 
 
 @app.route('/ventas/activas/<int:venta_id>/cancelar', methods=['POST'])
+@login_required
 def cancelar_venta(venta_id):
     """Cancelar venta (NO descuenta stock)"""
     conn = get_db_connection()
@@ -751,6 +853,7 @@ def cancelar_venta(venta_id):
     return redirect(url_for('ventas_activas'))
 
 @app.route('/ventas/activas/<int:venta_id>/eliminar', methods=['POST'])
+@login_required
 def eliminar_venta(venta_id):
     """
     Eliminar venta completamente de la base de datos
@@ -799,6 +902,7 @@ def eliminar_venta(venta_id):
 # ============================================================================
 
 @app.route('/ventas/activas/pasar-proceso-multiple', methods=['POST'])
+@login_required
 def pasar_a_proceso_multiple():
     """
     Pasar múltiples ventas a proceso de envío
@@ -899,6 +1003,7 @@ def pasar_a_proceso_multiple():
 
 
 @app.route('/ventas/activas/marcar-entregadas-multiple', methods=['POST'])
+@login_required
 def marcar_entregadas_multiple():
     """
     Marcar múltiples ventas como entregadas
@@ -1000,6 +1105,7 @@ def marcar_entregadas_multiple():
 
 
 @app.route('/ventas/activas/cancelar-multiple', methods=['POST'])
+@login_required
 def cancelar_ventas_multiple():
     """
     Cancelar múltiples ventas
@@ -1075,6 +1181,7 @@ def cancelar_ventas_multiple():
 # ============================================================================
 
 @app.route('/ventas/proceso')
+@login_required
 def ventas_proceso():
     """Lista de ventas en proceso de envío con filtros"""
     try:
@@ -1189,6 +1296,7 @@ metodo_pago, importe_total, importe_abonado,
 
 
 @app.route('/ventas/proceso/<int:venta_id>/volver_activas', methods=['POST'])
+@login_required
 def proceso_volver_activas(venta_id):
     """Volver venta de proceso a activas (devuelve stock)"""
     conn = get_db_connection()
@@ -1239,6 +1347,7 @@ def proceso_volver_activas(venta_id):
 
 
 @app.route('/ventas/proceso/<int:venta_id>/entregada', methods=['POST'])
+@login_required
 def proceso_marcar_entregada(venta_id):
     """Marcar venta en proceso como entregada (stock ya descontado)"""
     conn = get_db_connection()
@@ -1282,6 +1391,7 @@ def proceso_marcar_entregada(venta_id):
 
 
 @app.route('/ventas/proceso/<int:venta_id>/cancelar', methods=['POST'])
+@login_required
 def proceso_cancelar_devolver(venta_id):
     """Cancelar venta en proceso y DEVOLVER stock descontado (con motivo opcional)"""
     conn = get_db_connection()
@@ -1357,6 +1467,7 @@ def proceso_cancelar_devolver(venta_id):
 # ============================================================================
 
 @app.route('/ventas/proceso/volver-activas-multiple', methods=['POST'])
+@login_required
 def proceso_volver_activas_multiple():
     """
     Volver múltiples ventas en proceso a activas
@@ -1436,6 +1547,7 @@ def proceso_volver_activas_multiple():
 
 
 @app.route('/ventas/proceso/marcar-entregadas-multiple', methods=['POST'])
+@login_required
 def proceso_marcar_entregadas_multiple():
     """
     Marcar múltiples ventas en proceso como entregadas
@@ -1508,6 +1620,7 @@ def proceso_marcar_entregadas_multiple():
 
 
 @app.route('/ventas/proceso/cancelar-multiple', methods=['POST'])
+@login_required
 def proceso_cancelar_multiple():
     """
     Cancelar múltiples ventas en proceso y DEVOLVER stock
@@ -1602,6 +1715,7 @@ def proceso_cancelar_multiple():
 
 
 @app.route('/ventas/editar/<int:venta_id>', methods=['GET', 'POST'])
+@login_required
 def editar_venta(venta_id):
     """Editar una venta activa"""
     
@@ -2130,6 +2244,7 @@ def pausar_publicacion_ml(mla_id, access_token):
 
 # ─── RUTA NUEVA: Sincronizar stock con ML desde alertas ───
 @app.route('/alertas/<int:alerta_id>/sincronizar-ml', methods=['POST'])
+@login_required
 def sincronizar_ml_desde_alerta(alerta_id):
     """
     Poner stock en 0 en las publicaciones NORMALES (sin Z)
@@ -2223,6 +2338,7 @@ def sincronizar_ml_desde_alerta(alerta_id):
 
 # ─── RUTA ACTUALIZADA: alertas_ml con info de publicaciones ───
 @app.route('/alertas')
+@login_required
 def alertas_ml():
     """Ver alertas de stock pendientes con info de publicaciones ML (normales y con Z)"""
     alertas = []
@@ -2264,6 +2380,7 @@ def alertas_ml():
 
 
 @app.route('/alertas/<int:alerta_id>/procesar', methods=['POST'])
+@login_required
 def marcar_alerta_procesada(alerta_id):
     """Marcar una alerta como procesada"""
     try:
@@ -2279,6 +2396,7 @@ def marcar_alerta_procesada(alerta_id):
 
 
 @app.route('/alertas/marcar-todas-procesadas', methods=['POST'])
+@login_required
 def marcar_todas_procesadas():
     """Marcar TODAS las alertas pendientes como procesadas"""
     try:
@@ -2292,6 +2410,7 @@ def marcar_todas_procesadas():
     return redirect(url_for('alertas_ml'))
 
 @app.route('/stock')
+@login_required
 def ver_stock():
     """Ver stock disponible con filtros - PRODUCTOS BASE + COMBOS"""
     productos = []
@@ -2498,6 +2617,7 @@ def ver_stock():
 
 
 @app.route('/ventas/historicas')
+@login_required
 def ventas_historicas():
     """Lista de ventas históricas (entregadas y canceladas) con filtros"""
     try:
@@ -2646,6 +2766,7 @@ metodo_pago, importe_total, importe_abonado,
         return redirect(url_for('index'))
 
 @app.route('/ventas/historicas/<int:venta_id>/volver_activas', methods=['POST'])
+@login_required
 def historicas_volver_activas(venta_id):
     """Volver venta histórica (entregada o cancelada) a ventas activas"""
     conn = get_db_connection()
@@ -2719,6 +2840,7 @@ def historicas_volver_activas(venta_id):
     return redirect(url_for('ventas_historicas'))
 
 @app.route('/ventas/historicas/volver-activas-multiple', methods=['POST'])
+@login_required
 def historicas_volver_activas_multiple():
     """
     Volver múltiples ventas históricas a ventas activas
@@ -2910,6 +3032,7 @@ def provincia_a_codigo(provincia_str):
 
 
 @app.route('/ventas/historicas/<int:venta_id>/generar-factura-excel')
+@login_required
 def generar_factura_excel(venta_id):
     from flask import make_response
     from datetime import datetime
@@ -3042,6 +3165,7 @@ def generar_factura_excel(venta_id):
 # ============================================================================
 
 @app.route('/ventas/historicas/facturar-multiple-excel')
+@login_required
 def facturar_multiple_excel():
     from flask import make_response
     from datetime import datetime
@@ -3223,6 +3347,7 @@ def facturar_multiple_excel():
 
 
 @app.route('/ventas/historicas/facturar-multiple')
+@login_required
 def facturar_multiple():
     """
     Generar UN SOLO archivo .txt con TODAS las ventas seleccionadas
@@ -3429,6 +3554,7 @@ def facturar_multiple():
 # ============================================================================
 
 @app.route('/api/productos')
+@login_required
 def api_productos():
     """API para el buscador de productos en templates"""
     from flask import jsonify
@@ -3460,6 +3586,7 @@ def api_productos():
     return jsonify(todos)
 
 @app.route('/cargar-stock', methods=['GET', 'POST'])
+@login_required
 def cargar_stock():
     """Formulario para cargar/agregar stock de productos"""
     from flask import jsonify
@@ -3542,6 +3669,7 @@ def cargar_stock():
     return render_template('cargar_stock.html', productos=productos)
 
 @app.route('/cargar-stock/guardar', methods=['POST'])
+@login_required
 def guardar_stock():
     """Agregar stock (SUMA al stock actual) y registrar movimientos"""
     conn = get_db_connection()
@@ -3599,6 +3727,7 @@ def guardar_stock():
 
 
 @app.route('/bajar-stock')
+@login_required
 def bajar_stock():
     """Formulario para dar de baja stock"""
     productos = []
@@ -3623,6 +3752,7 @@ def bajar_stock():
 
 
 @app.route('/bajar-stock/guardar', methods=['POST'])
+@login_required
 def bajar_stock_guardar():
     """Guardar bajas de stock y registrar movimientos"""
     conn = get_db_connection()
@@ -3677,6 +3807,7 @@ def bajar_stock_guardar():
 
 
 @app.route('/historial-stock')
+@login_required
 def historial_stock():
     """Ver historial de movimientos de stock"""
     from datetime import datetime, timedelta
@@ -3752,6 +3883,7 @@ def historial_stock():
 
 
 @app.route('/transferir-stock')
+@login_required
 def transferir_stock():
     """Formulario para transferir stock de Depósito a Full (Compac y Almohadas)"""
     productos_compac = []
@@ -3786,6 +3918,7 @@ def transferir_stock():
 
 
 @app.route('/transferir-stock/guardar', methods=['POST'])
+@login_required
 def transferir_stock_guardar():
     """Procesar transferencia de stock de Depósito a Full (Compac y Almohadas)"""
     conn = get_db_connection()
@@ -3937,6 +4070,7 @@ def decimal_to_float(obj):
 # ============================================================================
 
 @app.route('/nueva-venta')
+@login_required
 def nueva_venta():
     """Formulario para registrar venta con stock disponible y ubicaciones"""
     from datetime import date
@@ -4139,6 +4273,7 @@ def nueva_venta():
 
 
 @app.route('/nueva-venta/guardar', methods=['POST'])
+@login_required
 def guardar_venta():
     """Guardar venta SIN descontar stock (solo registra la venta)"""
     conn = get_db_connection()
@@ -4407,6 +4542,7 @@ def guardar_venta():
 # ============================================================================
 
 @app.route('/dashboard-visual')
+@login_required
 def dashboard_visual():
     """Dashboard visual - Stock Físico y Ventas Activas con lógica de bases grandes"""
     
@@ -4594,12 +4730,14 @@ def dashboard_visual():
 # ============================================================================
 
 @app.route('/configuracion/resetear')
+@login_required
 def resetear_sistema():
     """Página para resetear el sistema (requiere contraseña)"""
     return render_template('resetear_sistema.html')
 
 
 @app.route('/configuracion/resetear/ejecutar', methods=['POST'])
+@login_required
 def ejecutar_reseteo():
     """Ejecutar reseteo completo del sistema"""
     from flask import jsonify
@@ -5267,6 +5405,7 @@ def quitar_handling_time_ml(mla_id, access_token):
 
 # ─── FUNCIÓN 2: Sincronizar variantes con Z (demora) ───
 @app.route('/alertas/<int:alerta_id>/configurar-demora-ml', methods=['POST'])
+@login_required
 def configurar_demora_ml_desde_alerta(alerta_id):
     """
     Configurar días de demora en las publicaciones CON Z
@@ -5365,6 +5504,7 @@ def configurar_demora_ml_desde_alerta(alerta_id):
     return redirect(url_for('alertas_ml'))
 
 @app.route('/ventas/ml/configurar_token', methods=['GET', 'POST'])
+@login_required
 def ml_configurar_token():
     """
     Página para configurar/actualizar el token de ML
@@ -5488,6 +5628,7 @@ def ml_configurar_token():
 
 
 @app.route('/ventas/ml/importar')
+@login_required
 def ml_importar_ordenes():
     """
     Traer órdenes de ML - FILTRO ARREGLADO
@@ -5586,6 +5727,7 @@ def ml_importar_ordenes():
 
 
 @app.route('/ventas/ml/seleccionar/<orden_id>')
+@login_required
 def ml_seleccionar_orden(orden_id):
     """
     Seleccionar orden - Con normalización automática de SKU (quita Z)
@@ -5706,6 +5848,7 @@ def ml_seleccionar_orden(orden_id):
 
 
 @app.route('/ventas/ml/mapear', methods=['POST'])
+@login_required
 def ml_guardar_mapeo():
     """
     Guardar mapeo - Obtiene shipping completo y billing info
@@ -5804,6 +5947,7 @@ def ml_guardar_mapeo():
 
 
 @app.route('/ventas/nueva/ml')
+@login_required
 def nueva_venta_desde_ml():
     """
     Crear nueva venta con datos precargados desde ML
@@ -6185,6 +6329,7 @@ def extraer_billing_info_ml(billing_data):
 # ============================================================================
 
 @app.route('/debug/ml/<orden_id>')
+@login_required
 def debug_ml_orden(orden_id):
     """Ver qué datos trae ML de una orden"""
     access_token = cargar_ml_token()
@@ -6340,6 +6485,7 @@ def obtener_datos_ml(mla_id, access_token):
 # ============================================================================
 
 @app.route('/cargar-stock-ml', methods=['GET'])
+@login_required
 def cargar_stock_ml():
     """Mostrar página para cargar stock en ML"""
     return render_template('cargar_stock_ml.html',
@@ -6355,6 +6501,7 @@ def cargar_stock_ml():
 # ============================================================================
 
 @app.route('/buscar-sku-ml', methods=['POST'])
+@login_required
 def buscar_sku_ml():
     sku_buscado = request.form.get('sku_buscar', '').strip().upper()
 
@@ -6440,6 +6587,7 @@ def buscar_sku_ml():
 # ============================================================================
 
 @app.route('/cambiar-precio-mla', methods=['POST'])
+@login_required
 def cambiar_precio_mla():
     """Cambiar el precio de una publicación específica"""
     mla    = request.form.get('mla')
@@ -6489,6 +6637,7 @@ def cambiar_precio_mla():
 # ============================================================================
 
 @app.route('/cambiar-precio-masivo', methods=['POST'])
+@login_required
 def cambiar_precio_masivo():
     """Cambiar el precio de todas las publicaciones de un SKU"""
     sku    = request.form.get('sku')
@@ -6585,6 +6734,7 @@ def _recargar_publicaciones(sku, access_token):
 # ─── Bajar stock a 0 — INDIVIDUAL ────────────────────────────────────────────
 
 @app.route('/bajar-stock-mla-cero', methods=['POST'])
+@login_required
 def bajar_stock_mla_cero():
     """Poner stock en 0 en una publicación específica"""
     mla = request.form.get('mla')
@@ -6615,6 +6765,7 @@ def bajar_stock_mla_cero():
 # ─── Bajar stock a 0 — MASIVO ────────────────────────────────────────────────
 
 @app.route('/bajar-stock-cero-masivo', methods=['POST'])
+@login_required
 def bajar_stock_cero_masivo():
     """Poner stock en 0 en todas las publicaciones de un SKU"""
     sku = request.form.get('sku')
@@ -6653,6 +6804,7 @@ def bajar_stock_cero_masivo():
 # ─── Cargar demora — INDIVIDUAL ──────────────────────────────────────────────
 
 @app.route('/cargar-demora-mla', methods=['POST'])
+@login_required
 def cargar_demora_mla():
     """Poner X días de MANUFACTURING_TIME en una publicación"""
     mla  = request.form.get('mla')
@@ -6692,6 +6844,7 @@ def cargar_demora_mla():
 # ─── Cargar demora — MASIVO ───────────────────────────────────────────────────
 
 @app.route('/cargar-demora-masivo', methods=['POST'])
+@login_required
 def cargar_demora_masivo():
     """Poner X días de MANUFACTURING_TIME en todas las publicaciones de un SKU"""
     sku  = request.form.get('sku')
@@ -6802,6 +6955,7 @@ def quitar_manufacturing_time_ml(mla_id, access_token):
 # ============================================================================
 
 @app.route('/quitar-demora-mla', methods=['POST'])
+@login_required
 def quitar_demora_mla():
     """Eliminar MANUFACTURING_TIME de una publicación específica"""
 
@@ -6870,6 +7024,7 @@ def quitar_demora_mla():
 # ============================================================================
 
 @app.route('/quitar-demora-masivo', methods=['POST'])
+@login_required
 def quitar_demora_masivo():
     """Eliminar MANUFACTURING_TIME de todas las publicaciones de un SKU"""
 
@@ -6954,6 +7109,7 @@ def quitar_demora_masivo():
 # ============================================================================
 
 @app.route('/cargar-stock-mla', methods=['POST'])
+@login_required
 def cargar_stock_mla():
     """Cargar stock en una publicación específica"""
     
@@ -7040,6 +7196,7 @@ def cargar_stock_mla():
 
 
 @app.route('/cargar-stock-masivo', methods=['POST'])
+@login_required
 def cargar_stock_masivo():
     """Cargar el mismo stock en todas las publicaciones de un SKU"""
     
@@ -7264,6 +7421,7 @@ def calcular_stock_por_sku():
 # ============================================================================
 
 @app.route('/auditoria-ml', methods=['GET'])
+@login_required
 def auditoria_ml():
     """Renderiza la página de auditoría. Los datos se cargan vía AJAX por sección."""
     return render_template('auditoria_ml.html')
@@ -7276,6 +7434,7 @@ def auditoria_ml():
 # ============================================================================
 
 @app.route('/auditoria-ml/run/<tipo>', methods=['GET'])
+@login_required
 def auditoria_ml_run(tipo):
     """
     Ejecuta un tipo específico de auditoría y devuelve JSON con los resultados.
@@ -7378,6 +7537,7 @@ def auditoria_ml_run(tipo):
 # ============================================================================
 
 @app.route('/auditoria-ml/activar', methods=['POST'])
+@login_required
 def auditoria_activar_publicaciones():
     """Activar (despausar) publicaciones seleccionadas. Devuelve JSON."""
     
@@ -7412,6 +7572,7 @@ def auditoria_activar_publicaciones():
 
 
 @app.route('/auditoria-ml/cargar-stock', methods=['POST'])
+@login_required
 def auditoria_cargar_stock():
     """Cargar stock en publicaciones seleccionadas. Devuelve JSON."""
     
@@ -7448,6 +7609,7 @@ def auditoria_cargar_stock():
 
 
 @app.route('/auditoria-ml/reducir-demora', methods=['POST'])
+@login_required
 def auditoria_reducir_demora():
     """Quitar demora completamente en publicaciones seleccionadas. Devuelve JSON."""
     
@@ -7479,6 +7641,7 @@ def auditoria_reducir_demora():
 # ============================================================================
 
 @app.route('/estadisticas')
+@login_required
 def estadisticas():
     from datetime import datetime, timedelta
 
@@ -7629,6 +7792,7 @@ def estadisticas():
 # ============================================================================
 
 @app.route('/estadisticas/exportar-reposicion')
+@login_required
 def exportar_reposicion():
     from flask import make_response
     from datetime import datetime, timedelta
@@ -7792,6 +7956,7 @@ def exportar_reposicion():
 # ============================================================================
 
 @app.route('/test/manufacturing-time', methods=['GET'])
+@login_required
 def test_manufacturing_time():
     """
     Página de prueba para ver y modificar el MANUFACTURING_TIME
@@ -7801,6 +7966,7 @@ def test_manufacturing_time():
 
 
 @app.route('/test/manufacturing-time/ver', methods=['POST'])
+@login_required
 def ver_manufacturing_time():
     """
     Consulta el estado actual de una publicación:
@@ -7849,6 +8015,7 @@ def ver_manufacturing_time():
 
 
 @app.route('/test/manufacturing-time/quitar', methods=['POST'])
+@login_required
 def quitar_manufacturing_time():
     """
     Elimina el MANUFACTURING_TIME de una publicación enviando null.
@@ -7917,6 +8084,7 @@ def quitar_manufacturing_time():
 
 
 @app.route('/test/manufacturing-time/poner', methods=['POST'])
+@login_required
 def poner_manufacturing_time():
     """
     Pone o restaura el MANUFACTURING_TIME a un valor específico.
@@ -7981,6 +8149,7 @@ def poner_manufacturing_time():
 
 
 @app.route('/debug-mla')
+@login_required
 def debug_mla():
     import requests
     access_token = cargar_ml_token()
