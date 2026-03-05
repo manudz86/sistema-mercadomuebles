@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}Mapear Productos - Mercadomuebles{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2><i class="bi bi-diagram-3"></i> Mapear Productos de Mercado Libre</h2>
+        <p class="text-muted mb-0">Algunos productos no coinciden con tu BD. Seleccioná a cuál corresponde cada uno.</p>
+    </div>
+</div>
+
+<div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle"></i> 
+    <strong>Orden: {{ orden_id }}</strong>
+    <br>Cliente: {{ orden_data['comprador_nombre'] }} ({{ orden_data['comprador_nickname'] }})
+</div>
+
+<form method="POST" action="{{ url_for('ml_guardar_mapeo') }}">
+    <input type="hidden" name="orden_id" value="{{ orden_id }}">
+    <input type="hidden" name="items_mapeados" value="{{ items_mapeados|tojson }}">
+    
+    <!-- ITEMS YA MAPEADOS -->
+    {% if items_mapeados %}
+    <div class="card mb-3">
+        <div class="card-header bg-success text-white">
+            <i class="bi bi-check-circle"></i> Productos ya mapeados ({{ items_mapeados|length }})
+        </div>
+        <div class="card-body">
+            {% for item in items_mapeados %}
+            <div class="d-flex justify-content-between align-items-center mb-2 p-2 bg-success bg-opacity-10 rounded">
+                <div>
+                    <strong>{{ item['cantidad'] }}x</strong> {{ item['titulo'][:60] }}
+                    <br>
+                    <small class="text-muted">SKU: <code>{{ item['sku_bd'] }}</code> → {{ item['nombre_bd'] }}</small>
+                </div>
+                <span class="badge bg-success"><i class="bi bi-check"></i> OK</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- ITEMS SIN MAPEAR -->
+    <div class="card mb-3">
+        <div class="card-header bg-warning text-dark">
+            <i class="bi bi-exclamation-triangle"></i> Productos que necesitan mapeo ({{ items_sin_mapear|length }})
+        </div>
+        <div class="card-body">
+            {% for item in items_sin_mapear %}
+            <div class="card mb-3">
+                <div class="card-header">
+                    <strong>{{ item['cantidad'] }}x</strong> {{ item['titulo'] }}
+                    <br>
+                    <small class="text-muted">
+                        SKU ML: <code>{{ item['sku'] if item['sku'] else 'Sin SKU' }}</code> | 
+                        Precio: ${{ "{:,.0f}".format(item['precio']) }}
+                    </small>
+                </div>
+                <div class="card-body">
+                    <input type="hidden" name="item_sku_ml" value="{{ item['sku'] }}">
+                    <input type="hidden" name="titulo_{{ loop.index0 }}" value="{{ item['titulo'] }}">
+                    <input type="hidden" name="cantidad_{{ loop.index0 }}" value="{{ item['cantidad'] }}">
+                    <input type="hidden" name="precio_{{ loop.index0 }}" value="{{ item['precio'] }}">
+                    
+                    <label class="form-label"><strong>¿A qué producto de tu BD corresponde?</strong></label>
+                    
+                    <!-- BUSCADOR MEJORADO -->
+                    <div class="buscador-mapeo-container position-relative">
+                        <input type="text"
+                               class="form-control buscar-producto-mapeo mb-1"
+                               placeholder="Buscar por SKU o nombre..."
+                               autocomplete="off">
+                        <div class="resultados-busqueda-mapeo list-group" style="max-height: 250px; overflow-y: auto; display: none; position: absolute; z-index: 1000; width: 100%;"></div>
+                        
+                        <!-- Input oculto con el valor real -->
+                        <input type="hidden"
+                               name="mapeo_{{ loop.index0 }}"
+                               class="sku-hidden-mapeo"
+                               value=""
+                               required>
+                        
+                        <!-- Muestra el producto seleccionado -->
+                        <div class="producto-elegido-mapeo alert alert-success py-1 px-2 mb-0 d-flex justify-content-between align-items-center d-none">
+                            <small><strong class="sku-label"></strong> - <span class="nombre-label"></span></small>
+                            <button type="button" class="btn-close btn-close-sm ms-2 limpiar-mapeo" style="font-size: 0.6em;"></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-circle"></i> Confirmar Mapeo y Continuar
+        </button>
+        <a href="{{ url_for('ml_importar_ordenes') }}" class="btn btn-secondary">
+            <i class="bi bi-arrow-left"></i> Cancelar
+        </a>
+    </div>
+</form>
+
+<script>
+// ============================================
+// BUSCADOR DE PRODUCTOS - igual que cargar_stock
+// ============================================
+let todosProductos = [];
+
+document.addEventListener('DOMContentLoaded', async function() {
+    try {
+        const response = await fetch('/api/productos');
+        todosProductos = await response.json();
+    } catch (error) {
+        console.error('Error cargando productos:', error);
+    }
+    inicializarBuscadoresMapeo();
+});
+
+function inicializarBuscadoresMapeo() {
+    document.querySelectorAll('.buscar-producto-mapeo').forEach(function(input) {
+        const container = input.closest('.buscador-mapeo-container');
+        const resultadosDiv = container.querySelector('.resultados-busqueda-mapeo');
+        const hiddenInput = container.querySelector('.sku-hidden-mapeo');
+        const elegidoDiv = container.querySelector('.producto-elegido-mapeo');
+
+        input.addEventListener('input', function() {
+            const busqueda = this.value.toLowerCase();
+            
+            if (busqueda.length < 2) {
+                resultadosDiv.style.display = 'none';
+                resultadosDiv.innerHTML = '';
+                return;
+            }
+            
+            const filtrados = todosProductos.filter(p =>
+                p.sku.toLowerCase().includes(busqueda) ||
+                p.nombre.toLowerCase().includes(busqueda)
+            );
+            
+            if (filtrados.length === 0) {
+                resultadosDiv.innerHTML = '<div class="list-group-item text-muted small">No se encontraron productos</div>';
+                resultadosDiv.style.display = 'block';
+                return;
+            }
+            
+            resultadosDiv.innerHTML = filtrados.slice(0, 10).map(p => `
+                <button type="button"
+                        class="list-group-item list-group-item-action py-2"
+                        data-sku="${p.sku}"
+                        data-nombre="${p.nombre}">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>${p.sku}</strong> - ${p.nombre}
+                        </div>
+                        <i class="bi bi-chevron-right text-muted"></i>
+                    </div>
+                </button>
+            `).join('');
+            
+            resultadosDiv.style.display = 'block';
+            
+            resultadosDiv.querySelectorAll('button').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    hiddenInput.value = this.dataset.sku;
+                    elegidoDiv.querySelector('.sku-label').textContent = this.dataset.sku;
+                    elegidoDiv.querySelector('.nombre-label').textContent = this.dataset.nombre;
+                    elegidoDiv.classList.remove('d-none');
+                    input.value = '';
+                    resultadosDiv.style.display = 'none';
+                    resultadosDiv.innerHTML = '';
+                });
+            });
+        });
+
+        // Botón limpiar
+        container.querySelector('.limpiar-mapeo').addEventListener('click', function() {
+            hiddenInput.value = '';
+            elegidoDiv.classList.add('d-none');
+            input.value = '';
+            input.focus();
+        });
+    });
+    
+    // Cerrar resultados al click fuera
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.buscador-mapeo-container')) {
+            document.querySelectorAll('.resultados-busqueda-mapeo').forEach(d => d.style.display = 'none');
+        }
+    });
+}
+</script>
+
+
+{% endblock %}

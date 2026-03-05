@@ -1,0 +1,23 @@
+<!-- ============================================ -->
+<!-- REEMPLAZAR LÍNEAS 29-33 en nueva_venta_ml.html -->
+<!-- ============================================ -->
+
+{% set total_calculado = namespace(value=0) %}
+{% for item in ml_items %}
+    {% set total_calculado.value = total_calculado.value + (item['cantidad'] * item['precio']) %}
+{% endfor %}
+
+{# ✅ NUEVO: Sumar costo de envío si es Flete Propio o Flex #}
+{% set ml_ship = ml_shipping or session.get('ml_shipping', {}) %}
+{% set metodo = ml_ship.get('metodo_envio', '') %}
+{% set costo_envio = ml_ship.get('costo_envio', 0) %}
+
+{% if metodo in ['Flete Propio', 'Flex'] and costo_envio > 0 %}
+    {% set total_calculado.value = total_calculado.value + costo_envio %}
+{% endif %}
+
+<input type="hidden" name="importe_total" value="{{ total_calculado.value }}">
+
+<!-- ============================================ -->
+<!-- FIN DEL REEMPLAZO -->
+<!-- ============================================ -->

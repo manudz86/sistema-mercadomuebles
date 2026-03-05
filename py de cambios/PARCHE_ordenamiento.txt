@@ -1,0 +1,51 @@
+# ============================================================================
+# CAMBIAR ORDENAMIENTO: MÁS RECIENTES ARRIBA
+# Actualizar estas 3 rutas en app.py
+# ============================================================================
+
+# ==================================================
+# RUTA 1: ventas_activas() - Línea ~101
+# ==================================================
+
+# BUSCAR esta línea (al final de la función, antes del return):
+query += ' ORDER BY fecha_venta ASC, id ASC'
+
+# CAMBIAR POR:
+query += ' ORDER BY fecha_venta DESC, id DESC'
+
+
+# ==================================================
+# RUTA 2: ventas_proceso() - Línea ~400 aprox
+# ==================================================
+
+# BUSCAR:
+query += ' ORDER BY fecha_venta ASC, id ASC'
+
+# CAMBIAR POR:
+query += ' ORDER BY fecha_venta DESC, id DESC'
+
+
+# ==================================================
+# RUTA 3: ventas_historicas() - Línea ~500 aprox
+# ==================================================
+
+# BUSCAR:
+query += ' ORDER BY COALESCE(fecha_entrega, fecha_modificacion) DESC, id DESC LIMIT 100'
+
+# DEJAR ASÍ (ya está correcto, DESC = más recientes arriba)
+# No cambiar nada aquí
+
+
+# ============================================================================
+# RESUMEN:
+# ============================================================================
+# 
+# ASC = Ascendente = Más antiguas arriba (❌ ya no queremos esto)
+# DESC = Descendente = Más recientes arriba (✅ lo que queremos)
+# 
+# Cambios:
+# - Ventas Activas: ASC → DESC
+# - Proceso Envío: ASC → DESC  
+# - Históricas: Ya está en DESC (correcto)
+# 
+# ============================================================================

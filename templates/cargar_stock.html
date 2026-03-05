@@ -1,0 +1,428 @@
+{% extends "base.html" %}
+
+{% block title %}Cargar Stock - Sistema Cannon{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h4><i class="bi bi-arrow-up-circle"></i> Cargar Stock</h4>
+            </div>
+            <div class="card-body">
+                <!-- Buscador de Productos -->
+                <div class="mb-4">
+                    <label class="form-label"><strong>Buscar Producto:</strong></label>
+                    <input type="text" 
+                           class="form-control form-control-lg" 
+                           id="buscarProducto" 
+                           placeholder="Buscar por SKU o nombre..."
+                           autocomplete="off">
+                    
+                    <!-- Resultados de búsqueda -->
+                    <div id="resultadosBusqueda" class="list-group mt-2" style="max-height: 400px; overflow-y: auto;"></div>
+                </div>
+
+                <!-- Formulario de carga individual (oculto inicialmente) -->
+                <div id="formularioCarga" style="display: none;">
+                    <div class="card border-primary">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start mb-3">
+                                <div>
+                                    <h5 id="productoNombre" class="mb-1"></h5>
+                                    <p class="text-muted mb-0">
+                                        <strong>SKU:</strong> <span id="productoSku"></span> | 
+                                        <strong>Stock actual:</strong> <span id="productoStockActual"></span>
+                                    </p>
+                                </div>
+                                <button type="button" class="btn-close" onclick="cerrarFormulario()"></button>
+                            </div>
+                            
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label"><strong>Cantidad a cargar:</strong></label>
+                                    <input type="number" 
+                                           class="form-control form-control-lg" 
+                                           id="cantidadCargar" 
+                                           min="1" 
+                                           value="1"
+                                           placeholder="Ej: 10">
+                                </div>
+                                
+                                <div class="col-md-6">
+                                    <label class="form-label"><strong>Ubicación:</strong></label>
+                                    <select class="form-select form-select-lg" id="ubicacionCargar">
+                                        <option value="stock_actual">Stock General (DEP)</option>
+                                        <option value="stock_full">Stock FULL ML</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="col-12">
+                                    <label class="form-label"><strong>Motivo:</strong></label>
+                                    <textarea class="form-control" 
+                                              id="motivoCargar" 
+                                              rows="2" 
+                                              placeholder="Ej: Compra proveedor, Devolución cliente, etc."></textarea>
+                                </div>
+                                
+                                <div class="col-12">
+                                    <button type="button" 
+                                            class="btn btn-primary btn-lg w-100" 
+                                            onclick="agregarAlCarrito()">
+                                        <i class="bi bi-cart-plus"></i> Agregar al Carrito
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CARRITO DE CARGA -->
+    <div class="col-md-4">
+        <div class="card sticky-top" style="top: 20px;">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">
+                    <i class="bi bi-cart3"></i> Carrito de Carga
+                    <span class="badge bg-light text-dark float-end" id="carritoCount">0</span>
+                </h5>
+            </div>
+            <div class="card-body" style="max-height: 500px; overflow-y: auto;">
+                <!-- Lista de items en el carrito -->
+                <div id="carritoItems">
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-cart-x" style="font-size: 3em;"></i>
+                        <p class="mt-2">El carrito está vacío</p>
+                        <small>Busca y agrega productos para cargar stock</small>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer">
+                <div class="d-grid gap-2">
+                    <button type="button" 
+                            class="btn btn-success btn-lg" 
+                            id="btnConfirmarCarga"
+                            onclick="confirmarCarga()"
+                            disabled>
+                        <i class="bi bi-check-circle"></i> Confirmar Carga
+                        <span id="totalUnidades" class="badge bg-light text-dark ms-2">0 unidades</span>
+                    </button>
+                    <button type="button" 
+                            class="btn btn-outline-secondary" 
+                            onclick="limpiarCarrito()">
+                        <i class="bi bi-trash"></i> Limpiar Todo
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Confirmación Final -->
+<div class="modal fade" id="modalConfirmacionFinal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-check-circle"></i> Confirmar Carga de Stock
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p><strong>¿Confirmar la carga de los siguientes productos?</strong></p>
+                
+                <div class="table-responsive">
+                    <table class="table table-bordered">
+                        <thead class="table-light">
+                            <tr>
+                                <th>SKU</th>
+                                <th>Producto</th>
+                                <th>Cantidad</th>
+                                <th>Ubicación</th>
+                                <th>Motivo</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tablaResumenCarga"></tbody>
+                    </table>
+                </div>
+                
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> 
+                    Total: <strong id="resumenTotal">0</strong> unidades en <strong id="resumenProductos">0</strong> productos
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-success" onclick="ejecutarCarga()">
+                    <i class="bi bi-check-circle"></i> Confirmar y Cargar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ============================================
+// VARIABLES GLOBALES
+// ============================================
+let carrito = [];
+let productos = [];
+let productoSeleccionado = null;
+
+// ============================================
+// CARGAR PRODUCTOS AL INICIAR
+// ============================================
+document.addEventListener('DOMContentLoaded', function() {
+    cargarProductos();
+});
+
+async function cargarProductos() {
+    try {
+        const response = await fetch('/api/productos');
+        productos = await response.json();
+    } catch (error) {
+        console.error('Error cargando productos:', error);
+    }
+}
+
+// ============================================
+// BUSCADOR DE PRODUCTOS
+// ============================================
+document.getElementById('buscarProducto').addEventListener('input', function(e) {
+    const busqueda = e.target.value.toLowerCase();
+    const resultados = document.getElementById('resultadosBusqueda');
+    
+    if (busqueda.length < 2) {
+        resultados.innerHTML = '';
+        return;
+    }
+    
+    const filtrados = productos.filter(p => 
+        p.sku.toLowerCase().includes(busqueda) || 
+        p.nombre.toLowerCase().includes(busqueda)
+    );
+    
+    resultados.innerHTML = filtrados.map(p => `
+        <button type="button" 
+                class="list-group-item list-group-item-action" 
+                onclick="seleccionarProducto('${p.sku}')">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>${p.sku}</strong> - ${p.nombre}
+                    <br><small class="text-muted">Stock actual: ${p.stock_actual}</small>
+                </div>
+                <i class="bi bi-chevron-right"></i>
+            </div>
+        </button>
+    `).join('');
+});
+
+function seleccionarProducto(sku) {
+    productoSeleccionado = productos.find(p => p.sku === sku);
+    
+    if (productoSeleccionado) {
+        // Mostrar formulario
+        document.getElementById('formularioCarga').style.display = 'block';
+        document.getElementById('productoNombre').textContent = productoSeleccionado.nombre;
+        document.getElementById('productoSku').textContent = productoSeleccionado.sku;
+        document.getElementById('productoStockActual').textContent = productoSeleccionado.stock_actual;
+        
+        // Limpiar campos
+        document.getElementById('cantidadCargar').value = 1;
+        document.getElementById('motivoCargar').value = '';
+        
+        // Limpiar búsqueda
+        document.getElementById('buscarProducto').value = '';
+        document.getElementById('resultadosBusqueda').innerHTML = '';
+        
+        // Focus en cantidad
+        document.getElementById('cantidadCargar').focus();
+    }
+}
+
+function cerrarFormulario() {
+    document.getElementById('formularioCarga').style.display = 'none';
+    productoSeleccionado = null;
+}
+
+// ============================================
+// CARRITO DE CARGA
+// ============================================
+function agregarAlCarrito() {
+    if (!productoSeleccionado) return;
+    
+    const cantidad = parseInt(document.getElementById('cantidadCargar').value);
+    const ubicacion = document.getElementById('ubicacionCargar').value;
+    const motivo = document.getElementById('motivoCargar').value.trim();
+    
+    if (cantidad <= 0) {
+        alert('La cantidad debe ser mayor a 0');
+        return;
+    }
+    
+    // Verificar si ya existe en el carrito
+    const existe = carrito.findIndex(item => 
+        item.sku === productoSeleccionado.sku && item.ubicacion === ubicacion
+    );
+    
+    if (existe >= 0) {
+        // Actualizar cantidad
+        carrito[existe].cantidad += cantidad;
+        if (motivo) {
+            carrito[existe].motivo = motivo;
+        }
+    } else {
+        // Agregar nuevo
+        carrito.push({
+            sku: productoSeleccionado.sku,
+            nombre: productoSeleccionado.nombre,
+            cantidad: cantidad,
+            ubicacion: ubicacion,
+            motivo: motivo || 'Carga de stock'
+        });
+    }
+    
+    actualizarCarrito();
+    cerrarFormulario();
+}
+
+function actualizarCarrito() {
+    const carritoItems = document.getElementById('carritoItems');
+    const carritoCount = document.getElementById('carritoCount');
+    const btnConfirmar = document.getElementById('btnConfirmarCarga');
+    const totalUnidades = document.getElementById('totalUnidades');
+    
+    if (carrito.length === 0) {
+        carritoItems.innerHTML = `
+            <div class="text-center text-muted py-4">
+                <i class="bi bi-cart-x" style="font-size: 3em;"></i>
+                <p class="mt-2">El carrito está vacío</p>
+                <small>Busca y agrega productos para cargar stock</small>
+            </div>
+        `;
+        carritoCount.textContent = '0';
+        btnConfirmar.disabled = true;
+        totalUnidades.textContent = '0 unidades';
+    } else {
+        carritoItems.innerHTML = carrito.map((item, index) => `
+            <div class="card mb-2 border-success">
+                <div class="card-body p-2">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <strong>${item.sku}</strong>
+                            <br><small class="text-muted">${item.nombre}</small>
+                            <br><span class="badge bg-success">+${item.cantidad} unidades</span>
+                            <span class="badge bg-secondary">${item.ubicacion === 'stock_actual' ? 'DEP' : 'FULL'}</span>
+                            ${item.motivo ? `<br><small class="text-muted"><i class="bi bi-chat-text"></i> ${item.motivo}</small>` : ''}
+                        </div>
+                        <button type="button" 
+                                class="btn btn-sm btn-danger" 
+                                onclick="eliminarDelCarrito(${index})">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+        
+        const total = carrito.reduce((sum, item) => sum + item.cantidad, 0);
+        carritoCount.textContent = carrito.length;
+        btnConfirmar.disabled = false;
+        totalUnidades.textContent = `${total} unidades`;
+    }
+}
+
+function eliminarDelCarrito(index) {
+    carrito.splice(index, 1);
+    actualizarCarrito();
+}
+
+function limpiarCarrito() {
+    if (carrito.length === 0) return;
+    
+    if (confirm('¿Seguro que quieres vaciar el carrito?')) {
+        carrito = [];
+        actualizarCarrito();
+    }
+}
+
+// ============================================
+// CONFIRMACIÓN Y ENVÍO
+// ============================================
+function confirmarCarga() {
+    if (carrito.length === 0) return;
+    
+    // Llenar tabla de resumen
+    const tablaResumen = document.getElementById('tablaResumenCarga');
+    tablaResumen.innerHTML = carrito.map(item => `
+        <tr>
+            <td><strong>${item.sku}</strong></td>
+            <td>${item.nombre}</td>
+            <td class="text-center"><span class="badge bg-success">+${item.cantidad}</span></td>
+            <td class="text-center">${item.ubicacion === 'stock_actual' ? 'DEP' : 'FULL ML'}</td>
+            <td><small>${item.motivo}</small></td>
+        </tr>
+    `).join('');
+    
+    // Actualizar totales
+    const total = carrito.reduce((sum, item) => sum + item.cantidad, 0);
+    document.getElementById('resumenTotal').textContent = total;
+    document.getElementById('resumenProductos').textContent = carrito.length;
+    
+    // Mostrar modal
+    const modal = new bootstrap.Modal(document.getElementById('modalConfirmacionFinal'));
+    modal.show();
+}
+
+async function ejecutarCarga() {
+    try {
+        const response = await fetch('/cargar-stock', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ items: carrito })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert('✅ Stock cargado exitosamente');
+            carrito = [];
+            actualizarCarrito();
+            
+            // Cerrar modal
+            bootstrap.Modal.getInstance(document.getElementById('modalConfirmacionFinal')).hide();
+            
+            // Recargar productos
+            await cargarProductos();
+        } else {
+            alert('❌ Error: ' + result.error);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('❌ Error al cargar stock');
+    }
+}
+</script>
+
+<style>
+.sticky-top {
+    position: sticky;
+    z-index: 1020;
+}
+
+.list-group-item {
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.list-group-item:hover {
+    background-color: #f8f9fa;
+    transform: translateX(5px);
+}
+</style>
+
+{% endblock %}

@@ -1,0 +1,384 @@
+{% extends 'base.html' %}
+{% block title %}Estadísticas de Ventas{% endblock %}
+
+{% block content %}
+<style>
+    :root {
+        --azul: #1F4E79;
+        --azul-mid: #2E75B6;
+        --azul-light: #DEEAF1;
+        --verde: #1E7E34;
+        --gris: #F8F9FA;
+        --borde: #DEE2E6;
+    }
+
+    .stat-card {
+        background: white;
+        border-radius: 10px;
+        border: 1px solid var(--borde);
+        padding: 1.2rem 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        transition: box-shadow 0.2s;
+    }
+    .stat-card:hover { box-shadow: 0 4px 16px rgba(31,78,121,0.10); }
+    .stat-card .label { font-size: 0.78rem; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+    .stat-card .valor { font-size: 1.7rem; font-weight: 700; color: var(--azul); line-height: 1.1; }
+    .stat-card .sub { font-size: 0.82rem; color: #aaa; }
+
+    .chart-card {
+        background: white;
+        border-radius: 10px;
+        border: 1px solid var(--borde);
+        padding: 1.2rem 1.5rem;
+    }
+    .chart-card h6 {
+        font-size: 0.82rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .06em;
+        color: var(--azul);
+        margin-bottom: 1rem;
+        border-bottom: 2px solid var(--azul-light);
+        padding-bottom: 0.5rem;
+    }
+
+    .filtros-bar {
+        background: white;
+        border: 1px solid var(--borde);
+        border-radius: 10px;
+        padding: 1rem 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .top-producto-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 0;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .top-producto-row:last-child { border-bottom: none; }
+    .top-num { font-size: 0.75rem; font-weight: 700; color: #aaa; width: 18px; text-align: right; }
+    .top-nombre { flex: 1; font-size: 0.88rem; }
+    .top-sku { font-size: 0.75rem; color: #aaa; }
+    .top-bar-wrap { width: 120px; background: #f0f4f8; border-radius: 4px; height: 8px; }
+    .top-bar { height: 8px; border-radius: 4px; background: var(--azul-mid); }
+    .top-cant { font-size: 0.88rem; font-weight: 700; color: var(--azul); width: 36px; text-align: right; }
+    .top-monto { font-size: 0.78rem; color: #888; width: 80px; text-align: right; }
+</style>
+
+<div class="container-fluid px-3 py-3">
+
+    <!-- TÍTULO -->
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h4 class="mb-0" style="color: var(--azul); font-weight: 700;">
+                <i class="bi bi-bar-chart-line-fill me-2"></i>Estadísticas de Ventas
+            </h4>
+            <small class="text-muted">Excluye ventas canceladas · Fecha de la venta</small>
+        </div>
+        <a href="{{ url_for('exportar_reposicion', fecha_desde=fecha_desde, fecha_hasta=fecha_hasta, canal=filtro_canal, metodo_envio=filtro_metodo, zona=filtro_zona) }}"
+           class="btn btn-success btn-sm">
+            <i class="bi bi-file-earmark-excel me-1"></i> Exportar Reposición
+        </a>
+    </div>
+
+    <!-- FILTROS -->
+    <form method="GET" action="{{ url_for('estadisticas') }}" class="filtros-bar">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label fw-semibold" style="font-size:.8rem;">Desde</label>
+                <input type="date" name="fecha_desde" class="form-control form-control-sm" value="{{ fecha_desde }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-semibold" style="font-size:.8rem;">Hasta</label>
+                <input type="date" name="fecha_hasta" class="form-control form-control-sm" value="{{ fecha_hasta }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-semibold" style="font-size:.8rem;">Canal</label>
+                <select name="canal" class="form-select form-select-sm">
+                    <option value="">Todos</option>
+                    <option value="ML" {% if filtro_canal == 'ML' %}selected{% endif %}>MercadoLibre</option>
+                    <option value="no_ml" {% if filtro_canal == 'no_ml' %}selected{% endif %}>Venta Directa</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-semibold" style="font-size:.8rem;">Método Envío</label>
+                <select name="metodo_envio" class="form-select form-select-sm">
+                    <option value="">Todos</option>
+                    {% for m in metodos_disponibles %}
+                    <option value="{{ m.metodo_envio }}" {% if filtro_metodo == m.metodo_envio %}selected{% endif %}>
+                        {{ m.metodo_envio }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-semibold" style="font-size:.8rem;">Zona</label>
+                <select name="zona" class="form-select form-select-sm">
+                    <option value="">Todas</option>
+                    {% for z in zonas_disponibles %}
+                    <option value="{{ z.zona_envio }}" {% if filtro_zona == z.zona_envio %}selected{% endif %}>
+                        {{ z.zona_envio }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm flex-fill">
+                    <i class="bi bi-funnel-fill me-1"></i>Filtrar
+                </button>
+                <a href="{{ url_for('estadisticas') }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-x-circle"></i>
+                </a>
+            </div>
+        </div>
+        <!-- Atajos de período -->
+        <div class="mt-2 d-flex gap-2 flex-wrap">
+            <small class="text-muted me-1" style="line-height:2;">Período rápido:</small>
+            <a href="?periodo=7" class="btn btn-outline-secondary btn-sm py-0" style="font-size:.75rem;">7 días</a>
+            <a href="?periodo=30" class="btn btn-outline-secondary btn-sm py-0" style="font-size:.75rem;">30 días</a>
+            <a href="?periodo=90" class="btn btn-outline-secondary btn-sm py-0" style="font-size:.75rem;">90 días</a>
+            <a href="?periodo=mes_actual" class="btn btn-outline-secondary btn-sm py-0" style="font-size:.75rem;">Mes actual</a>
+            <a href="?periodo=anio_actual" class="btn btn-outline-secondary btn-sm py-0" style="font-size:.75rem;">Año actual</a>
+        </div>
+    </form>
+
+    <!-- MÉTRICAS RESUMEN -->
+    <div class="row g-3 mb-3">
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="label">Total Facturado</div>
+                <div class="valor">${{ "{:,.0f}".format(resumen.total_facturado or 0) }}</div>
+                <div class="sub">{{ fecha_desde }} → {{ fecha_hasta }}</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="label">Ventas</div>
+                <div class="valor">{{ resumen.total_ventas or 0 }}</div>
+                <div class="sub">órdenes</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="label">Ticket Promedio</div>
+                <div class="valor">${{ "{:,.0f}".format(resumen.ticket_promedio or 0) }}</div>
+                <div class="sub">por venta</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="label">Unidades Vendidas</div>
+                <div class="valor">{{ resumen.total_unidades or 0 }}</div>
+                <div class="sub">productos</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- GRÁFICOS FILA 1: Línea de tiempo + Tortas -->
+    <div class="row g-3 mb-3">
+
+        <!-- Ventas por día -->
+        <div class="col-md-7">
+            <div class="chart-card" style="height: 280px;">
+                <h6><i class="bi bi-graph-up me-1"></i>Ventas por Día</h6>
+                <canvas id="chartLinea" style="max-height: 200px;"></canvas>
+            </div>
+        </div>
+
+        <!-- Torta canal -->
+        <div class="col-md-2half col-md-3">
+            <div class="chart-card" style="height: 280px;">
+                <h6><i class="bi bi-pie-chart-fill me-1"></i>Por Canal</h6>
+                <canvas id="chartCanal" style="max-height: 190px;"></canvas>
+            </div>
+        </div>
+
+        <!-- Torta método envío -->
+        <div class="col-md-2">
+            <div class="chart-card" style="height: 280px;">
+                <h6><i class="bi bi-truck me-1"></i>Por Envío</h6>
+                <canvas id="chartMetodo" style="max-height: 190px;"></canvas>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- FILA 2: Top productos -->
+    <div class="row g-3">
+        <div class="col-12">
+            <div class="chart-card">
+                <h6><i class="bi bi-trophy me-1"></i>Top Productos más Vendidos</h6>
+                {% if top_productos %}
+                {% set max_unidades = top_productos[0].total_unidades %}
+                <div class="row">
+                    <div class="col-md-6">
+                        {% for p in top_productos[:8] %}
+                        <div class="top-producto-row">
+                            <div class="top-num">{{ loop.index }}</div>
+                            <div style="flex:1; min-width:0;">
+                                <div class="top-nombre text-truncate" title="{{ p.nombre }}">{{ p.nombre }}</div>
+                                <div class="top-sku">{{ p.sku }}</div>
+                            </div>
+                            <div class="top-bar-wrap">
+                                <div class="top-bar" style="width: {{ (p.total_unidades / max_unidades * 100)|int }}%;"></div>
+                            </div>
+                            <div class="top-cant">{{ p.total_unidades }}</div>
+                            <div class="top-monto">${{ "{:,.0f}".format(p.total_facturado) }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="col-md-6">
+                        {% for p in top_productos[8:] %}
+                        <div class="top-producto-row">
+                            <div class="top-num">{{ loop.index + 8 }}</div>
+                            <div style="flex:1; min-width:0;">
+                                <div class="top-nombre text-truncate" title="{{ p.nombre }}">{{ p.nombre }}</div>
+                                <div class="top-sku">{{ p.sku }}</div>
+                            </div>
+                            <div class="top-bar-wrap">
+                                <div class="top-bar" style="width: {{ (p.total_unidades / max_unidades * 100)|int }}%;"></div>
+                            </div>
+                            <div class="top-cant">{{ p.total_unidades }}</div>
+                            <div class="top-monto">${{ "{:,.0f}".format(p.total_facturado) }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                <p class="text-muted text-center py-3">No hay datos para el período seleccionado</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- CHART.JS -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+// ─── Datos desde Flask ───────────────────────────────────────────────
+const diasLabels = {{ ventas_por_dia | map(attribute='dia') | list | tojson }};
+const diasCantidad = {{ ventas_por_dia | map(attribute='cantidad') | list | tojson }};
+const diasTotal = {{ ventas_por_dia | map(attribute='total') | list | tojson }};
+
+const canalLabels = {{ por_canal | map(attribute='canal_label') | list | tojson }};
+const canalCantidad = {{ por_canal | map(attribute='cantidad') | list | tojson }};
+
+const metodoLabels = {{ por_metodo | map(attribute='metodo') | list | tojson }};
+const metodoCantidad = {{ por_metodo | map(attribute='cantidad') | list | tojson }};
+
+// ─── Paletas ─────────────────────────────────────────────────────────
+const paleta = ['#1F4E79','#2E75B6','#70AD47','#ED7D31','#FFC000','#A5A5A5','#5B9BD5','#43682B'];
+
+// ─── Gráfico de línea: ventas por día ────────────────────────────────
+new Chart(document.getElementById('chartLinea'), {
+    type: 'bar',
+    data: {
+        labels: diasLabels,
+        datasets: [
+            {
+                label: 'Ventas ($)',
+                data: diasTotal,
+                backgroundColor: 'rgba(46,117,182,0.15)',
+                borderColor: '#2E75B6',
+                borderWidth: 2,
+                type: 'line',
+                tension: 0.3,
+                fill: true,
+                yAxisID: 'y',
+                pointRadius: diasLabels.length > 20 ? 0 : 3,
+            },
+            {
+                label: 'Cantidad',
+                data: diasCantidad,
+                backgroundColor: 'rgba(31,78,121,0.7)',
+                borderRadius: 3,
+                yAxisID: 'y2',
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { labels: { font: { size: 11 } } } },
+        scales: {
+            y: {
+                position: 'left',
+                ticks: {
+                    font: { size: 10 },
+                    callback: v => '$' + (v >= 1000000 ? (v/1000000).toFixed(1)+'M' : v >= 1000 ? (v/1000).toFixed(0)+'k' : v)
+                },
+                grid: { color: '#f0f0f0' }
+            },
+            y2: {
+                position: 'right',
+                ticks: { font: { size: 10 } },
+                grid: { drawOnChartArea: false }
+            },
+            x: { ticks: { font: { size: 10 }, maxRotation: 45 } }
+        }
+    }
+});
+
+// ─── Torta canal ─────────────────────────────────────────────────────
+new Chart(document.getElementById('chartCanal'), {
+    type: 'doughnut',
+    data: {
+        labels: canalLabels,
+        datasets: [{ data: canalCantidad, backgroundColor: paleta, borderWidth: 2, borderColor: '#fff' }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'bottom', labels: { font: { size: 10 }, padding: 8 } }
+        }
+    }
+});
+
+// ─── Torta método envío ───────────────────────────────────────────────
+new Chart(document.getElementById('chartMetodo'), {
+    type: 'doughnut',
+    data: {
+        labels: metodoLabels,
+        datasets: [{ data: metodoCantidad, backgroundColor: paleta, borderWidth: 2, borderColor: '#fff' }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'bottom', labels: { font: { size: 9 }, padding: 6 } }
+        }
+    }
+});
+
+// ─── Atajos de período ────────────────────────────────────────────────
+document.querySelectorAll('[href^="?periodo"]').forEach(link => {
+    link.addEventListener('click', function(e) {
+        e.preventDefault();
+        const periodo = this.getAttribute('href').split('=')[1];
+        const hoy = new Date();
+        let desde, hasta = hoy.toISOString().split('T')[0];
+
+        if (periodo === '7') {
+            desde = new Date(hoy - 7*86400000).toISOString().split('T')[0];
+        } else if (periodo === '30') {
+            desde = new Date(hoy - 30*86400000).toISOString().split('T')[0];
+        } else if (periodo === '90') {
+            desde = new Date(hoy - 90*86400000).toISOString().split('T')[0];
+        } else if (periodo === 'mes_actual') {
+            desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0];
+        } else if (periodo === 'anio_actual') {
+            desde = new Date(hoy.getFullYear(), 0, 1).toISOString().split('T')[0];
+        }
+
+        window.location.href = `?fecha_desde=${desde}&fecha_hasta=${hasta}`;
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,49 @@
+# ============================================================================
+# AGREGAR AL FINAL DE ventas_activas.html (antes del {% endblock %})
+# ============================================================================
+
+<!-- MODAL DE ALERTA DE STOCK -->
+<div class="modal fade" id="modalAlertaStock" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-warning">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title">
+                    <i class="bi bi-exclamation-triangle-fill"></i> ⚠️ Alerta de Stock ML
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% for category, message in messages %}
+                        {% if category == 'alerta_stock' %}
+                            {{ message|safe }}
+                        {% endif %}
+                    {% endfor %}
+                {% endwith %}
+            </div>
+            <div class="modal-footer justify-content-between">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i> Cerrar
+                </button>
+                <a href="{{ url_for('alertas_ml') }}" class="btn btn-warning">
+                    <i class="bi bi-bell-fill"></i> Ir a Alertas ML
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- JavaScript para mostrar el modal -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Buscar si hay mensajes de tipo 'alerta_stock'
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            {% if category == 'alerta_stock' %}
+                const modal = new bootstrap.Modal(document.getElementById('modalAlertaStock'));
+                modal.show();
+            {% endif %}
+        {% endfor %}
+    {% endwith %}
+});
+</script>

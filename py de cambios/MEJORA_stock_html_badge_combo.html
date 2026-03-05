@@ -1,0 +1,43 @@
+<!-- ============================================ -->
+<!-- MEJORA OPCIONAL PARA stock.html -->
+<!-- Agregar badge para distinguir combos -->
+<!-- ============================================ -->
+
+<!-- En la columna de Producto, cambiar: -->
+
+<!-- ANTES: -->
+<td>{{ producto.nombre }}</td>
+
+<!-- DESPUÉS: -->
+<td>
+    {{ producto.nombre }}
+    {% if producto.es_combo %}
+        <br><span class="badge bg-secondary" style="font-size: 0.7em;">
+            <i class="bi bi-box-seam"></i> Combo
+        </span>
+    {% endif %}
+</td>
+
+<!-- ============================================ -->
+
+<!-- ALTERNATIVA - Badge junto al nombre en la misma línea: -->
+
+<td>
+    {{ producto.nombre }}
+    {% if producto.es_combo %}
+        <span class="badge bg-info ms-2" style="font-size: 0.75em;">
+            🔷 Combo
+        </span>
+    {% endif %}
+</td>
+
+<!-- ============================================ -->
+
+<!-- OTRA ALTERNATIVA - Icono pequeño: -->
+
+<td>
+    {% if producto.es_combo %}
+        <i class="bi bi-boxes text-primary" title="Combo"></i>
+    {% endif %}
+    {{ producto.nombre }}
+</td>

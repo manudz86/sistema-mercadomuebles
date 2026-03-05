@@ -1,0 +1,402 @@
+{% extends "base.html" %}
+
+{% block title %}Editar Venta - Sistema Cannon{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-pencil-square"></i> Editar Venta {{ venta.numero_venta }}</h2>
+    <a href="{{ url_for('ventas_activas') }}" class="btn btn-secondary">
+        <i class="bi bi-arrow-left"></i> Volver
+    </a>
+</div>
+
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i>
+    <strong>Importante:</strong> El total se calcula automáticamente de los productos. Si modificás los productos, se recalcularán las alertas de stock.
+</div>
+
+<form method="POST" action="{{ url_for('editar_venta', venta_id=venta.id) }}" id="formEditarVenta">
+    
+    <!-- DATOS GENERALES -->
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="bi bi-info-circle"></i> Datos Generales</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4">
+                    <label class="form-label">Número de Venta *</label>
+                    <input type="text" class="form-control" name="numero_venta" 
+                           value="{{ venta.numero_venta }}" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Fecha *</label>
+                    <input type="date" class="form-control" name="fecha_venta" 
+                           value="{{ venta.fecha_venta_str }}" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Canal *</label>
+                    <select class="form-select" name="canal" required>
+                        <option value="Mercado Libre" {% if venta.canal == 'Mercado Libre' %}selected{% endif %}>Mercado Libre</option>
+                        <option value="Instagram" {% if venta.canal == 'Instagram' %}selected{% endif %}>Instagram</option>
+                        <option value="Facebook" {% if venta.canal == 'Facebook' %}selected{% endif %}>Facebook</option>
+                        <option value="WhatsApp" {% if venta.canal == 'WhatsApp' %}selected{% endif %}>WhatsApp</option>
+                        <option value="Presencial" {% if venta.canal == 'Presencial' %}selected{% endif %}>Presencial</option>
+                        <option value="Otro" {% if venta.canal == 'Otro' %}selected{% endif %}>Otro</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-6">
+                    <label class="form-label">Código MLA (si aplica)</label>
+                    <input type="text" class="form-control" name="mla_code" 
+                           value="{{ venta.mla_code or '' }}" placeholder="Ej: MLA123456789">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CLIENTE -->
+    <div class="card mb-4">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0"><i class="bi bi-person"></i> Datos del Cliente</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <label class="form-label">Nombre del Cliente *</label>
+                    <input type="text" class="form-control" name="nombre_cliente" 
+                           value="{{ venta.nombre_cliente }}" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Teléfono</label>
+                    <input type="text" class="form-control" name="telefono_cliente" 
+                           value="{{ venta.telefono_cliente or '' }}" placeholder="Ej: 3512345678">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PRODUCTOS -->
+    <div class="card mb-4">
+        <div class="card-header bg-warning text-dark">
+            <h5 class="mb-0"><i class="bi bi-box-seam"></i> Productos</h5>
+        </div>
+        <div class="card-body">
+            <div id="productos-container">
+                {% for item in items %}
+                <div class="row mb-3 producto-row">
+                    <div class="col-md-5">
+                        <label class="form-label">Producto</label>
+                        <select class="form-select producto-select" name="productos[{{ loop.index0 }}][sku]" required>
+                            <option value="">Seleccionar...</option>
+                            {% for producto in productos %}
+                            <option value="{{ producto.sku }}" 
+                                    {% if producto.sku == item.sku %}selected{% endif %}>
+                                {{ producto.nombre }} ({{ producto.sku }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Cantidad</label>
+                        <input type="number" class="form-control cantidad-input" 
+                               name="productos[{{ loop.index0 }}][cantidad]" 
+                               value="{{ item.cantidad }}" min="1" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Precio Unitario</label>
+                        <input type="number" class="form-control precio-input" 
+                               name="productos[{{ loop.index0 }}][precio]" 
+                               value="{{ item.precio_unitario }}" min="0" step="0.01" required>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">&nbsp;</label>
+                        <button type="button" class="btn btn-danger w-100 btn-eliminar-producto">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            
+            <button type="button" class="btn btn-primary" id="btnAgregarProducto">
+                <i class="bi bi-plus-circle"></i> Agregar Producto
+            </button>
+        </div>
+    </div>
+
+    <!-- ENTREGA -->
+    <div class="card mb-4">
+        <div class="card-header bg-info text-white">
+            <h5 class="mb-0"><i class="bi bi-truck"></i> Entrega</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-4">
+                    <label class="form-label">Tipo de Entrega *</label>
+                    <select class="form-select" name="tipo_entrega" required>
+                        <option value="Envio" {% if venta.tipo_entrega == 'Envio' %}selected{% endif %}>Envío</option>
+                        <option value="Retiro" {% if venta.tipo_entrega == 'Retiro' %}selected{% endif %}>Retiro en local</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Método de Envío</label>
+                    <select class="form-select" name="metodo_envio">
+                        <option value="">No aplica</option>
+                        <option value="Full" {% if venta.metodo_envio == 'Full' %}selected{% endif %}>Full ML</option>
+                        <option value="Flete Propio" {% if venta.metodo_envio == 'Flete Propio' %}selected{% endif %}>Flete Propio</option>
+                        <option value="Correo" {% if venta.metodo_envio == 'Correo' %}selected{% endif %}>Correo</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Zona</label>
+                    <select class="form-select" name="zona_envio">
+                        <option value="">No aplica</option>
+                        <option value="Capital" {% if venta.zona_envio == 'Capital' %}selected{% endif %}>Capital</option>
+                        <option value="Gran Cba" {% if venta.zona_envio == 'Gran Cba' %}selected{% endif %}>Gran Córdoba</option>
+                        <option value="Interior" {% if venta.zona_envio == 'Interior' %}selected{% endif %}>Interior</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-8">
+                    <label class="form-label">Dirección de Entrega</label>
+                    <input type="text" class="form-control" name="direccion_entrega" 
+                           value="{{ venta.direccion_entrega or '' }}" 
+                           placeholder="Calle, Número, Barrio, Ciudad">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Costo Flete</label>
+                    <input type="number" class="form-control" name="costo_flete" 
+                           value="{{ venta.costo_flete or 0 }}" min="0" step="0.01">
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-6">
+                    <label class="form-label">Responsable de Entrega</label>
+                    <input type="text" class="form-control" name="responsable_entrega" 
+                           value="{{ venta.responsable_entrega or '' }}" 
+                           placeholder="Nombre de quien entrega">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PAGO -->
+    <div class="card mb-4">
+        <div class="card-header bg-danger text-white">
+            <h5 class="mb-0"><i class="bi bi-cash-coin"></i> Pago</h5>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle"></i>
+                <strong>Importante:</strong> El <strong>Importe Total</strong> se calcula automáticamente de los productos. Lo <strong>Abonado</strong> es independiente.
+            </div>
+            <div class="row">
+                <div class="col-md-3">
+                    <label class="form-label">Método de Pago *</label>
+                    <select class="form-select" name="metodo_pago" required>
+                        <option value="MercadoPago" {% if venta.metodo_pago == 'MercadoPago' %}selected{% endif %}>MercadoPago</option>
+                        <option value="Efectivo" {% if venta.metodo_pago == 'Efectivo' %}selected{% endif %}>Efectivo</option>
+                        <option value="Transferencia" {% if venta.metodo_pago == 'Transferencia' %}selected{% endif %}>Transferencia</option>
+                        <option value="Mixto" {% if venta.metodo_pago == 'Mixto' %}selected{% endif %}>Mixto</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Importe Total (calculado) *</label>
+                    <div class="input-group">
+                        <span class="input-group-text">$</span>
+                        <input type="text" class="form-control" id="total-display" 
+                               value="{{ '{:,.0f}'.format(venta.importe_total) }}" readonly 
+                               style="background-color: #e9ecef; font-weight: bold;">
+                    </div>
+                    <small class="text-muted">Se calcula de los productos</small>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Pago MercadoPago</label>
+                    <input type="number" class="form-control pago-input" name="pago_mercadopago" 
+                           value="{{ venta.pago_mercadopago or 0 }}" min="0" step="0.01">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Pago Efectivo</label>
+                    <input type="number" class="form-control pago-input" name="pago_efectivo" 
+                           value="{{ venta.pago_efectivo or 0 }}" min="0" step="0.01">
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-6">
+                    <div class="alert alert-info">
+                        Total Abonado: <strong>$<span id="abonado-display">{{ '{:,.0f}'.format((venta.pago_mercadopago or 0) + (venta.pago_efectivo or 0)) }}</span></strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- OBSERVACIONES -->
+    <div class="card mb-4">
+        <div class="card-header bg-secondary text-white">
+            <h5 class="mb-0"><i class="bi bi-chat-left-text"></i> Observaciones</h5>
+        </div>
+        <div class="card-body">
+            <textarea class="form-control" name="notas" rows="3" 
+                      placeholder="Notas adicionales sobre la venta">{{ venta.notas or '' }}</textarea>
+        </div>
+    </div>
+
+<!-- BOTONES -->
+    <div class="d-flex justify-content-between align-items-center">
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('ventas_activas') }}" class="btn btn-secondary btn-lg">
+                <i class="bi bi-x-circle"></i> Cancelar
+            </a>
+            <button type="button" class="btn btn-danger btn-lg" data-bs-toggle="modal" data-bs-target="#modalEliminarVenta">
+                <i class="bi bi-trash"></i> Eliminar Venta
+            </button>
+        </div>
+        <button type="submit" class="btn btn-success btn-lg">
+            <i class="bi bi-check-circle"></i> Guardar Cambios
+        </button>
+    </div>
+</form>
+
+<!-- MODAL DE CONFIRMACIÓN - ELIMINAR VENTA -->
+<div class="modal fade" id="modalEliminarVenta" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-danger">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-exclamation-triangle-fill"></i> ⚠️ Eliminar Venta
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    <strong>⚠️ ADVERTENCIA:</strong> Esta acción NO se puede deshacer.
+                </div>
+                
+                <p>¿Estás seguro que querés <strong>ELIMINAR COMPLETAMENTE</strong> la venta <strong>{{ venta.numero_venta }}</strong>?</p>
+                
+                <div class="alert alert-info mb-0">
+                    <i class="bi bi-info-circle"></i> 
+                    La venta se borrará de la base de datos y <strong>NO se descontará stock</strong>.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i> Cancelar
+                </button>
+                <form method="POST" action="{{ url_for('eliminar_venta', venta_id=venta.id) }}" style="display: inline;">
+                    <button type="submit" class="btn btn-danger">
+                        <i class="bi bi-trash-fill"></i> SÍ, Eliminar Venta
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+</form>
+
+<script>
+// Contador de productos
+let productoIndex = {{ items|length }};
+
+// Función para calcular total
+function calcularTotal() {
+    let total = 0;
+    
+    document.querySelectorAll('.producto-row').forEach(row => {
+        const cantidad = parseFloat(row.querySelector('.cantidad-input')?.value || 0);
+        const precio = parseFloat(row.querySelector('.precio-input')?.value || 0);
+        total += cantidad * precio;
+    });
+    
+    document.getElementById('total-display').value = total.toLocaleString('es-AR', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+}
+
+// Función para calcular abonado
+function calcularAbonado() {
+    const mp = parseFloat(document.querySelector('input[name="pago_mercadopago"]')?.value || 0);
+    const ef = parseFloat(document.querySelector('input[name="pago_efectivo"]')?.value || 0);
+    const abonado = mp + ef;
+    
+    document.getElementById('abonado-display').textContent = abonado.toLocaleString('es-AR', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+}
+
+// Calcular al cambiar cantidades o precios
+document.addEventListener('input', function(e) {
+    if (e.target.matches('.cantidad-input, .precio-input')) {
+        calcularTotal();
+    }
+    if (e.target.matches('.pago-input')) {
+        calcularAbonado();
+    }
+});
+
+// Agregar producto
+document.getElementById('btnAgregarProducto').addEventListener('click', function() {
+    const container = document.getElementById('productos-container');
+    const newRow = document.createElement('div');
+    newRow.className = 'row mb-3 producto-row';
+    newRow.innerHTML = `
+        <div class="col-md-5">
+            <label class="form-label">Producto</label>
+            <select class="form-select producto-select" name="productos[${productoIndex}][sku]" required>
+                <option value="">Seleccionar...</option>
+                {% for producto in productos %}
+                <option value="{{ producto.sku }}">{{ producto.nombre }} ({{ producto.sku }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">Cantidad</label>
+            <input type="number" class="form-control cantidad-input" name="productos[${productoIndex}][cantidad]" 
+                   value="1" min="1" required>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Precio Unitario</label>
+            <input type="number" class="form-control precio-input" name="productos[${productoIndex}][precio]" 
+                   value="0" min="0" step="0.01" required>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label">&nbsp;</label>
+            <button type="button" class="btn btn-danger w-100 btn-eliminar-producto">
+                <i class="bi bi-trash"></i>
+            </button>
+        </div>
+    `;
+    container.appendChild(newRow);
+    productoIndex++;
+});
+
+// Eliminar producto (delegación de eventos)
+document.getElementById('productos-container').addEventListener('click', function(e) {
+    if (e.target.closest('.btn-eliminar-producto')) {
+        const row = e.target.closest('.producto-row');
+        if (document.querySelectorAll('.producto-row').length > 1) {
+            row.remove();
+            calcularTotal();
+        } else {
+            alert('Debe haber al menos un producto en la venta');
+        }
+    }
+});
+
+// Validación antes de enviar
+document.getElementById('formEditarVenta').addEventListener('submit', function(e) {
+    const productos = document.querySelectorAll('.producto-row');
+    if (productos.length === 0) {
+        e.preventDefault();
+        alert('Debe agregar al menos un producto');
+        return false;
+    }
+});
+
+// Calcular total inicial
+calcularTotal();
+calcularAbonado();
+</script>
+
+{% endblock %}

@@ -1,0 +1,104 @@
+<!-- ============================================ -->
+<!-- AGREGAR AL FINAL del template de stock -->
+<!-- Justo antes de {% endblock %} -->
+<!-- ============================================ -->
+
+<script>
+// Búsqueda en vivo mientras tipeas
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.querySelector('input[name="buscar"]');
+    
+    if (searchInput) {
+        let searchTimeout;
+        
+        // Evento cuando el usuario tipea
+        searchInput.addEventListener('input', function() {
+            // Cancelar búsqueda anterior si está pendiente
+            clearTimeout(searchTimeout);
+            
+            // Esperar 300ms después de que deje de tipear
+            searchTimeout = setTimeout(function() {
+                filtrarTabla(searchInput.value.toLowerCase());
+            }, 300);
+        });
+        
+        // Limpiar filtro si borra todo o presiona ESC
+        searchInput.addEventListener('keyup', function(e) {
+            if (e.key === 'Escape' || this.value === '') {
+                this.value = '';
+                filtrarTabla('');
+            }
+        });
+    }
+});
+
+function filtrarTabla(termino) {
+    const tabla = document.querySelector('table tbody');
+    
+    if (!tabla) return;
+    
+    const filas = tabla.querySelectorAll('tr');
+    let filasMostradas = 0;
+    
+    filas.forEach(function(fila) {
+        // Obtener texto de todas las celdas (SKU, nombre, etc.)
+        const textoFila = fila.textContent.toLowerCase();
+        
+        if (textoFila.includes(termino) || termino === '') {
+            fila.style.display = '';
+            filasMostradas++;
+        } else {
+            fila.style.display = 'none';
+        }
+    });
+    
+    // Mostrar contador de resultados
+    mostrarContadorResultados(filasMostradas, termino);
+}
+
+function mostrarContadorResultados(cantidad, termino) {
+    // Eliminar contador anterior si existe
+    const contadorAnterior = document.getElementById('contador-resultados');
+    if (contadorAnterior) {
+        contadorAnterior.remove();
+    }
+    
+    if (termino !== '') {
+        const tabla = document.querySelector('table');
+        const contador = document.createElement('div');
+        contador.id = 'contador-resultados';
+        contador.className = 'alert ' + (cantidad === 0 ? 'alert-warning' : 'alert-info') + ' mt-3';
+        
+        if (cantidad === 0) {
+            contador.innerHTML = '<i class="bi bi-search"></i> No se encontraron productos con "<strong>' + termino + '</strong>"';
+        } else {
+            contador.innerHTML = '<i class="bi bi-check-circle"></i> Mostrando <strong>' + cantidad + '</strong> producto(s) que coinciden con "<strong>' + termino + '</strong>"';
+        }
+        
+        tabla.parentNode.insertBefore(contador, tabla);
+    }
+}
+</script>
+
+<style>
+/* Animación suave al filtrar */
+table tbody tr {
+    transition: all 0.2s ease;
+}
+
+/* Resaltar campo de búsqueda */
+input[name="buscar"]:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+/* Indicador visual del contador */
+#contador-resultados {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+</style>

@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Configurar Token ML - Sistema Cannon{% endblock %}
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">
+                        <i class="bi bi-key"></i> Token de Mercado Libre
+                    </h4>
+                </div>
+                <div class="card-body">
+
+                    <!-- ESTADO ACTUAL -->
+                    {% if token_actual %}
+                        {% if tiene_refresh %}
+                            <div class="alert alert-success">
+                                <i class="bi bi-check-circle-fill"></i> <strong>Token activo con auto-renovación</strong>
+                                <br><small>El sistema renueva el token automáticamente cuando vence.</small>
+                            </div>
+                        {% else %}
+                            <div class="alert alert-warning">
+                                <i class="bi bi-exclamation-triangle-fill"></i> <strong>Token activo sin auto-renovación</strong>
+                                {% if horas_restantes %}
+                                    <br><small>Vence en aproximadamente <strong>{{ horas_restantes }} horas</strong>.</small>
+                                {% else %}
+                                    <br><small>Puede que ya haya vencido. Renovalo con los pasos de abajo.</small>
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                    {% else %}
+                        <div class="alert alert-danger">
+                            <i class="bi bi-x-circle-fill"></i> <strong>No hay token configurado</strong>
+                        </div>
+                    {% endif %}
+
+                    <hr>
+
+                    <h5 class="mb-3"><i class="bi bi-arrow-repeat"></i> Renovar Token — 3 pasos</h5>
+
+                    <!-- PASO 1 -->
+                    <div class="card mb-3 border-primary">
+                        <div class="card-body">
+                            <h6 class="text-primary"><strong>PASO 1</strong> — Autorizá la app en Mercado Libre</h6>
+                            <p class="mb-2 text-muted small">Hacé click, autorizás en ML y te redirige a Google.</p>
+                            <a href="{{ url_autorizacion }}" target="_blank" class="btn btn-warning">
+                                <i class="bi bi-box-arrow-up-right"></i> Abrir Mercado Libre
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- PASO 2 -->
+                    <div class="card mb-3 border-primary">
+                        <div class="card-body">
+                            <h6 class="text-primary"><strong>PASO 2</strong> — Copiá el CODE de la URL de Google</h6>
+                            <p class="mb-0 text-muted small">
+                                La URL va a ser: <code>https://www.google.com/?code=<strong>TG-XXXXXXXXXX</strong>#_=_</code><br>
+                                Copiá solo <strong>TG-XXXXXXXXXX</strong>
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- PASO 3 -->
+                    <div class="card mb-3 border-primary">
+                        <div class="card-body">
+                            <h6 class="text-primary"><strong>PASO 3</strong> — Pegá el CODE acá</h6>
+                            <form method="POST">
+                                <input type="hidden" name="action" value="canjear_code">
+                                <div class="input-group">
+                                    <input type="text" 
+                                           class="form-control font-monospace" 
+                                           name="code"
+                                           placeholder="TG-69946d2af01a2800012..."
+                                           required>
+                                    <button type="submit" class="btn btn-success">
+                                        <i class="bi bi-check-circle"></i> Activar Token
+                                    </button>
+                                </div>
+                                <small class="text-muted">El sistema obtiene el token automáticamente.</small>
+                            </form>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <!-- OPCIÓN MANUAL (colapsable) -->
+                    <div class="accordion mb-3">
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed py-2" type="button" 
+                                        data-bs-toggle="collapse" data-bs-target="#collapseManual">
+                                    <small><i class="bi bi-pencil"></i> &nbsp; Tengo el ACCESS_TOKEN completo (opción manual)</small>
+                                </button>
+                            </h2>
+                            <div id="collapseManual" class="accordion-collapse collapse">
+                                <div class="accordion-body">
+                                    <form method="POST">
+                                        <input type="hidden" name="action" value="token_manual">
+                                        <div class="mb-3">
+                                            <textarea class="form-control font-monospace" 
+                                                      name="access_token" rows="3" 
+                                                      placeholder="APP_USR-2109946238600277-..."
+                                                      required></textarea>
+                                        </div>
+                                        <button type="submit" class="btn btn-secondary btn-sm">
+                                            <i class="bi bi-save"></i> Guardar Token Manual
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <a href="{{ url_for('ventas_activas') }}" class="btn btn-outline-secondary btn-sm">
+                        <i class="bi bi-arrow-left"></i> Volver
+                    </a>
+
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

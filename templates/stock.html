@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Disponible - Mercadomuebles{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-boxes"></i> Stock Disponible para ML</h2>
+</div>
+
+<!-- Filtros -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" action="/stock">
+            <div class="row g-3">
+                <!-- Búsqueda -->
+                <div class="col-md-3">
+                    <label class="form-label">Buscar por SKU o Producto</label>
+                    <input type="text" 
+                           name="buscar" 
+                           class="form-control" 
+                           placeholder="Ej: SDO140, Doral, Princess..."
+                           value="{{ buscar }}">
+                </div>
+                
+                <!-- Filtro por Tipo -->
+                <div class="col-md-2">
+                    <label class="form-label">Tipo</label>
+                    <select name="tipo" class="form-select">
+                        <option value="TODOS" {% if filtro_tipo == 'TODOS' %}selected{% endif %}>Todos</option>
+                        <option value="colchon" {% if filtro_tipo == 'colchon' %}selected{% endif %}>Colchón</option>
+                        <option value="sommier" {% if filtro_tipo == 'sommier' %}selected{% endif %}>Sommier</option>
+                        <option value="base" {% if filtro_tipo == 'base' %}selected{% endif %}>Base</option>
+                        <option value="almohada" {% if filtro_tipo == 'almohada' %}selected{% endif %}>Almohada</option>
+                    </select>
+                </div>
+                
+                <!-- Filtro por Medida -->
+                <div class="col-md-2">
+                    <label class="form-label">Medida</label>
+                    <select name="medida" class="form-select">
+                        <option value="TODAS" {% if filtro_medida == 'TODAS' %}selected{% endif %}>Todas</option>
+                        <option value="80x190" {% if filtro_medida == '80x190' %}selected{% endif %}>80x190</option>
+                        <option value="90x190" {% if filtro_medida == '90x190' %}selected{% endif %}>90x190</option>
+                        <option value="100x190" {% if filtro_medida == '100x190' %}selected{% endif %}>100x190</option>
+                        <option value="140x190" {% if filtro_medida == '140x190' %}selected{% endif %}>140x190</option>
+                        <option value="150x190" {% if filtro_medida == '150x190' %}selected{% endif %}>150x190</option>
+                        <option value="80x200" {% if filtro_medida == '80x200' %}selected{% endif %}>80x200</option>
+                        <option value="90x200" {% if filtro_medida == '90x200' %}selected{% endif %}>90x200</option>
+                        <option value="100x200" {% if filtro_medida == '100x200' %}selected{% endif %}>100x200</option>
+                        <option value="160x200" {% if filtro_medida == '160x200' %}selected{% endif %}>160x200</option>
+                        <option value="180x200" {% if filtro_medida == '180x200' %}selected{% endif %}>180x200</option>
+                        <option value="200x200" {% if filtro_medida == '200x200' %}selected{% endif %}>200x200</option>
+                    </select>
+                </div>
+                
+                <!-- Filtro por Modelo -->
+                <div class="col-md-2">
+                    <label class="form-label">Modelo</label>
+                    <select name="modelo" class="form-select">
+                        <option value="TODOS" {% if filtro_modelo == 'TODOS' %}selected{% endif %}>Todos</option>
+                        <option value="Tropical" {% if filtro_modelo == 'Tropical' %}selected{% endif %}>Tropical</option>
+                        <option value="Princess 20cm" {% if filtro_modelo == 'Princess 20cm' %}selected{% endif %}>Princess 20cm</option>
+                        <option value="Princess 23cm" {% if filtro_modelo == 'Princess 23cm' %}selected{% endif %}>Princess 23cm</option>
+                        <option value="Soñar" {% if filtro_modelo == 'Soñar' %}selected{% endif %}>Soñar</option>
+                        <option value="Exclusive" {% if filtro_modelo == 'Exclusive' %}selected{% endif %}>Exclusive</option>
+                        <option value="Exclusive Pillow" {% if filtro_modelo == 'Exclusive Pillow' %}selected{% endif %}>Exclusive Pillow</option>
+                        <option value="Doral" {% if filtro_modelo == 'Doral' %}selected{% endif %}>Doral</option>
+                        <option value="Doral Pillow" {% if filtro_modelo == 'Doral Pillow' %}selected{% endif %}>Doral Pillow</option>
+                        <option value="Renovation" {% if filtro_modelo == 'Renovation' %}selected{% endif %}>Renovation</option>
+                        <option value="Renovation Europillow" {% if filtro_modelo == 'Renovation Europillow' %}selected{% endif %}>Renovation Europillow</option>
+                        <option value="Sublime" {% if filtro_modelo == 'Sublime' %}selected{% endif %}>Sublime Europillow</option>
+                        <option value="Compac" {% if filtro_modelo == 'Compac' %}selected{% endif %}>Compac</option>
+                    </select>
+                </div>
+                
+                <!-- Filtro por Estado -->
+                <div class="col-md-2">
+                    <label class="form-label">Estado</label>
+                    <select name="estado" class="form-select">
+                        <option value="TODOS" {% if filtro_estado == 'TODOS' %}selected{% endif %}>Todos</option>
+                        <option value="DISPONIBLE" {% if filtro_estado == 'DISPONIBLE' %}selected{% endif %}>Disponible</option>
+                        <option value="SIN_STOCK" {% if filtro_estado == 'SIN_STOCK' %}selected{% endif %}>Sin Stock</option>
+                    </select>
+                </div>
+                
+                <!-- Botones -->
+                <div class="col-md-1 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary me-2">
+                        <i class="bi bi-search"></i>
+                    </button>
+                    <a href="/stock" class="btn btn-secondary">
+                        <i class="bi bi-x-circle"></i>
+                    </a>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Botón Cargar Stock -->
+<div class="mb-3 text-end">
+    <a href="/cargar-stock" class="btn btn-success">
+        <i class="bi bi-plus-circle"></i> Cargar Stock
+    </a>
+</div>
+
+<!-- Tabla de productos -->
+{% if productos %}
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>SKU</th>
+                        <th>Producto</th>
+                        <th>Medida</th>
+                        <th>Tipo</th>
+                        <th>Stock Físico</th>
+                        <th>Stock Disponible</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for prod in productos %}
+                    <tr>
+                        <td><strong>{{ prod.sku }}</strong></td>
+                        <td>
+                            {{ prod.nombre }}
+                            {% if prod.tipo_producto == 'COMPUESTO' and '+' in prod.sku %}
+                            <br><small class="text-muted">🎁 Con almohadas</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if prod.medida %}
+                                <span class="badge bg-light text-dark" style="font-size: 0.95rem; padding: 0.4rem 0.8rem;">{{ prod.medida }}</span>
+                            {% else %}
+                                <small class="text-muted">-</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if prod.tipo == 'colchon' %}
+                                <span class="badge bg-info">Colchón</span>
+                            {% elif prod.tipo == 'sommier' %}
+                                <span class="badge bg-primary">Sommier</span>
+                            {% elif prod.tipo == 'base' %}
+                                <span class="badge bg-secondary">Base</span>
+                            {% elif prod.tipo == 'almohada' %}
+                                <span class="badge bg-success">Almohada</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if prod.stock_fisico is not none %}
+                                {{ prod.stock_fisico }}
+                            {% else %}
+                                <small class="text-muted">-</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <strong>{{ prod.stock_disponible }}</strong>
+                        </td>
+                        <td>
+                            {% if prod.estado_stock == 'DISPONIBLE' %}
+                                <span class="badge bg-success">Disponible</span>
+                            {% elif prod.estado_stock == 'SIN_STOCK' %}
+                                <span class="badge bg-danger">Sin Stock</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card-footer text-muted">
+        Total: {{ productos|length }} productos
+    </div>
+</div>
+{% else %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> No hay productos que mostrar con los filtros seleccionados
+</div>
+{% endif %}
+
+<script>
+// Búsqueda en vivo mientras tipeas
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.querySelector('input[name="buscar"]');
+    
+    if (searchInput) {
+        let searchTimeout;
+        
+        // Evento cuando el usuario tipea
+        searchInput.addEventListener('input', function() {
+            // Cancelar búsqueda anterior si está pendiente
+            clearTimeout(searchTimeout);
+            
+            // Esperar 300ms después de que deje de tipear
+            searchTimeout = setTimeout(function() {
+                filtrarTabla(searchInput.value.toLowerCase());
+            }, 300);
+        });
+        
+        // Limpiar filtro si borra todo o presiona ESC
+        searchInput.addEventListener('keyup', function(e) {
+            if (e.key === 'Escape' || this.value === '') {
+                this.value = '';
+                filtrarTabla('');
+            }
+        });
+    }
+});
+
+function filtrarTabla(termino) {
+    const tabla = document.querySelector('table tbody');
+    
+    if (!tabla) return;
+    
+    const filas = tabla.querySelectorAll('tr');
+    let filasMostradas = 0;
+    
+    filas.forEach(function(fila) {
+        // Obtener texto de todas las celdas (SKU, nombre, etc.)
+        const textoFila = fila.textContent.toLowerCase();
+        
+        if (textoFila.includes(termino) || termino === '') {
+            fila.style.display = '';
+            filasMostradas++;
+        } else {
+            fila.style.display = 'none';
+        }
+    });
+    
+    // Mostrar contador de resultados
+    mostrarContadorResultados(filasMostradas, termino);
+}
+
+function mostrarContadorResultados(cantidad, termino) {
+    // Eliminar contador anterior si existe
+    const contadorAnterior = document.getElementById('contador-resultados');
+    if (contadorAnterior) {
+        contadorAnterior.remove();
+    }
+    
+    if (termino !== '') {
+        const tabla = document.querySelector('table');
+        const contador = document.createElement('div');
+        contador.id = 'contador-resultados';
+        contador.className = 'alert ' + (cantidad === 0 ? 'alert-warning' : 'alert-info') + ' mt-3';
+        
+        if (cantidad === 0) {
+            contador.innerHTML = '<i class="bi bi-search"></i> No se encontraron productos con "<strong>' + termino + '</strong>"';
+        } else {
+            contador.innerHTML = '<i class="bi bi-check-circle"></i> Mostrando <strong>' + cantidad + '</strong> producto(s) que coinciden con "<strong>' + termino + '</strong>"';
+        }
+        
+        tabla.parentNode.insertBefore(contador, tabla);
+    }
+}
+</script>
+
+<style>
+/* Animación suave al filtrar */
+table tbody tr {
+    transition: all 0.2s ease;
+}
+
+/* Resaltar campo de búsqueda */
+input[name="buscar"]:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+/* Indicador visual del contador */
+#contador-resultados {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+</style>
+
+
+{% endblock %}

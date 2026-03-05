@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block title %}Mapear Productos - Sistema Cannon{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2><i class="bi bi-diagram-3"></i> Mapear Productos de Mercado Libre</h2>
+        <p class="text-muted mb-0">Algunos productos no coinciden con tu BD. Seleccioná a cuál corresponde cada uno.</p>
+    </div>
+</div>
+
+<div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle"></i> 
+    <strong>Orden: {{ orden_id }}</strong>
+    <br>Cliente: {{ orden_data['comprador_nombre'] }} ({{ orden_data['comprador_nickname'] }})
+</div>
+
+<form method="POST" action="{{ url_for('ml_guardar_mapeo') }}">
+    <input type="hidden" name="orden_id" value="{{ orden_id }}">
+    <input type="hidden" name="items_mapeados" value="{{ items_mapeados|tojson }}">
+    
+    <!-- ITEMS YA MAPEADOS -->
+    {% if items_mapeados %}
+    <div class="card mb-3">
+        <div class="card-header bg-success text-white">
+            <i class="bi bi-check-circle"></i> Productos ya mapeados ({{ items_mapeados|length }})
+        </div>
+        <div class="card-body">
+            {% for item in items_mapeados %}
+            <div class="d-flex justify-content-between align-items-center mb-2 p-2 bg-success bg-opacity-10 rounded">
+                <div>
+                    <strong>{{ item['cantidad'] }}x</strong> {{ item['titulo'][:60] }}
+                    <br>
+                    <small class="text-muted">SKU: <code>{{ item['sku_bd'] }}</code> → {{ item['nombre_bd'] }}</small>
+                </div>
+                <span class="badge bg-success"><i class="bi bi-check"></i> OK</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- ITEMS SIN MAPEAR -->
+    <div class="card mb-3">
+        <div class="card-header bg-warning text-dark">
+            <i class="bi bi-exclamation-triangle"></i> Productos que necesitan mapeo ({{ items_sin_mapear|length }})
+        </div>
+        <div class="card-body">
+            {% for item in items_sin_mapear %}
+            <div class="card mb-3">
+                <div class="card-header">
+                    <strong>{{ item['cantidad'] }}x</strong> {{ item['titulo'] }}
+                    <br>
+                    <small class="text-muted">
+                        SKU ML: <code>{{ item['sku'] if item['sku'] else 'Sin SKU' }}</code> | 
+                        Precio: ${{ "{:,.0f}".format(item['precio']) }}
+                    </small>
+                </div>
+                <div class="card-body">
+                    <input type="hidden" name="item_sku_ml" value="{{ item['sku'] }}">
+                    <input type="hidden" name="titulo_{{ loop.index0 }}" value="{{ item['titulo'] }}">
+                    <input type="hidden" name="cantidad_{{ loop.index0 }}" value="{{ item['cantidad'] }}">
+                    <input type="hidden" name="precio_{{ loop.index0 }}" value="{{ item['precio'] }}">
+                    
+                    <label class="form-label"><strong>¿A qué producto de tu BD corresponde?</strong></label>
+                    <select class="form-select" name="mapeo_{{ loop.index0 }}" required>
+                        <option value="">-- Seleccionar --</option>
+                        
+                        <optgroup label="📦 Productos Base">
+                            {% for prod in productos_bd %}
+                            <option value="{{ prod['sku'] }}">
+                                {{ prod['sku'] }} - {{ prod['nombre'] }} ({{ prod['tipo'] }})
+                            </option>
+                            {% endfor %}
+                        </optgroup>
+                        
+                        <optgroup label="🎁 Combos">
+                            {% for combo in combos_bd %}
+                            <option value="{{ combo['sku'] }}">
+                                {{ combo['sku'] }} - {{ combo['nombre'] }}
+                            </option>
+                            {% endfor %}
+                        </optgroup>
+                    </select>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check-circle"></i> Confirmar Mapeo y Continuar
+        </button>
+        <a href="{{ url_for('ml_importar_ordenes') }}" class="btn btn-secondary">
+            <i class="bi bi-arrow-left"></i> Cancelar
+        </a>
+    </div>
+</form>
+
+<script>
+$(document).ready(function() {
+    // Aplicar Select2 a todos los selects de productos
+    $('.form-select[name^="mapeo_"], .producto-select').select2({
+        placeholder: "Buscar producto...",
+        allowClear: true,
+        width: '100%',
+        language: {
+            noResults: function() {
+                return "No se encontraron productos";
+            },
+            searching: function() {
+                return "Buscando...";
+            }
+        }
+    });
+});
+</script>
+
+
+{% endblock %}

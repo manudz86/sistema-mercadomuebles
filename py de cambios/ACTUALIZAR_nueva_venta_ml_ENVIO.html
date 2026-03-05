@@ -1,0 +1,100 @@
+<!-- 
+═══════════════════════════════════════════════════════════════
+ACTUALIZACIÓN DE nueva_venta_ml.html - PRECARGAR DATOS DE ENVÍO
+═══════════════════════════════════════════════════════════════
+
+INSTRUCCIONES:
+1. Abrí tu archivo nueva_venta_ml.html
+2. Buscá la sección "ENTREGA" (línea ~151-214)
+3. REEMPLAZÁ toda esa sección con el código de abajo
+-->
+
+            <!-- ENTREGA -->
+            <div class="card mb-3">
+                <div class="card-header bg-light">
+                    <strong><i class="bi bi-truck"></i> Datos de Entrega</strong>
+                </div>
+                <div class="card-body">
+                    {% set shipping = session.get('ml_shipping', {}) %}
+                    {% set tiene_envio = shipping.get('tiene_envio', False) %}
+                    
+                    <div class="row">
+                        <div class="col-md-3">
+                            <label class="form-label">Tipo de Entrega</label>
+                            <select class="form-select" 
+                                    name="tipo_entrega" 
+                                    id="tipo_entrega" 
+                                    required>
+                                <option value="Envío" {% if tiene_envio %}selected{% endif %}>Envío</option>
+                                <option value="Retiro" {% if not tiene_envio %}selected{% endif %}>Retiro en Depósito</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3" id="metodo_envio_container">
+                            <label class="form-label">Método de Envío</label>
+                            <select class="form-select" name="metodo_envio" id="metodo_envio">
+                                <option value="Mercadoenvios" {% if shipping.get('metodo_envio') == 'Mercadoenvios' %}selected{% endif %}>Mercadoenvios</option>
+                                <option value="Flex" {% if shipping.get('metodo_envio') == 'Flex' %}selected{% endif %}>Flex</option>
+                                <option value="Full" {% if shipping.get('metodo_envio') == 'Full' %}selected{% endif %}>Full</option>
+                                <option value="Flete Propio">Flete Propio</option>
+                                <option value="Delega">Delega</option>
+                                <option value="Zippin">Zippin</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3" id="ubicacion_despacho_container">
+                            <label class="form-label">Ubicación Despacho</label>
+                            <select class="form-select" name="ubicacion_despacho" id="ubicacion_despacho">
+                                <option value="DEP" {% if shipping.get('metodo_envio') != 'Full' %}selected{% endif %}>Depósito</option>
+                                <option value="FULL" {% if shipping.get('metodo_envio') == 'Full' %}selected{% endif %}>Full</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3" id="costo_flete_container" style="display: none;">
+                            <label class="form-label">Costo Flete</label>
+                            <input type="number" 
+                                   class="form-control" 
+                                   name="costo_flete" 
+                                   value="0" 
+                                   min="0">
+                        </div>
+                    </div>
+                    
+                    <div class="row mt-2" id="direccion_container">
+                        <div class="col-md-8">
+                            <label class="form-label">Dirección</label>
+                            <input type="text" 
+                                   class="form-control" 
+                                   name="direccion_entrega" 
+                                   value="{{ shipping.get('direccion', '') }}"
+                                   placeholder="Calle 1234, CABA">
+                            {% if shipping.get('ciudad') or shipping.get('provincia') %}
+                            <small class="text-muted">
+                                De ML: {{ shipping.get('ciudad', '') }}{% if shipping.get('provincia') %}, {{ shipping.get('provincia') }}{% endif %}{% if shipping.get('codigo_postal') %} (CP: {{ shipping.get('codigo_postal') }}){% endif %}
+                            </small>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Zona</label>
+                            <select class="form-select" name="zona_envio">
+                                <option value="">-- Seleccionar --</option>
+                                <option value="Capital" {% if shipping.get('zona') == 'Capital' %}selected{% endif %}>Capital</option>
+                                <option value="Sur" {% if shipping.get('zona') == 'Sur' %}selected{% endif %}>Sur</option>
+                                <option value="Norte-Noroeste" {% if shipping.get('zona') == 'Norte-Noroeste' %}selected{% endif %}>Norte-Noroeste</option>
+                                <option value="Oeste" {% if shipping.get('zona') == 'Oeste' %}selected{% endif %}>Oeste</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+<!-- 
+═══════════════════════════════════════════════════════════════
+FIN DE ACTUALIZACIÓN
+═══════════════════════════════════════════════════════════════
+
+RESULTADO:
+- Tipo de entrega precargado (Envío si tiene shipping, Retiro si no)
+- Método de envío precargado (Mercadoenvios/Flex/Full según ML)
+- Ubicación de despacho (FULL si es Full, DEP en otros casos)
+- Dirección precargada desde ML
+- Zona inferida automáticamente
+- Muestra info adicional (ciudad, provincia, CP) como referencia
+-->

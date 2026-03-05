@@ -1,0 +1,174 @@
+<!-- 
+═══════════════════════════════════════════════════════════════
+AGREGAR BUSCADOR AUTOCOMPLETADO EN SELECTS DE PRODUCTOS
+═══════════════════════════════════════════════════════════════
+
+OPCIÓN 1: Usar Select2 (Recomendado - más bonito y funcional)
+OPCIÓN 2: Usar filtro nativo con datalist
+
+Voy a darte las 2 opciones, elegí la que prefieras.
+-->
+
+<!-- ================================================================ -->
+<!-- OPCIÓN 1: SELECT2 (RECOMENDADO) -->
+<!-- ================================================================ -->
+
+<!-- 
+PASO 1: Agregar estas líneas en el <head> de tus templates:
+- ml_mapear_productos.html
+- nueva_venta_ml.html
+-->
+
+<!-- Select2 CSS -->
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+
+<!-- Select2 JS (después de jQuery) -->
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
+<!-- 
+PASO 2: Agregar este script AL FINAL del template (antes del {% endblock %})
+-->
+
+<script>
+$(document).ready(function() {
+    // Aplicar Select2 a todos los selects de productos
+    $('.form-select[name^="mapeo_"], .producto-select').select2({
+        placeholder: "Buscar producto...",
+        allowClear: true,
+        width: '100%',
+        language: {
+            noResults: function() {
+                return "No se encontraron productos";
+            },
+            searching: function() {
+                return "Buscando...";
+            }
+        }
+    });
+});
+</script>
+
+
+<!-- ================================================================ -->
+<!-- OPCIÓN 2: FILTRO NATIVO (Más simple, sin librerías) -->
+<!-- ================================================================ -->
+
+<!-- 
+AGREGAR este script AL FINAL del template (antes del {% endblock %})
+-->
+
+<script>
+// Función para filtrar opciones en tiempo real
+function setupProductSearch() {
+    // Obtener todos los selects de productos
+    const selects = document.querySelectorAll('.form-select[name^="mapeo_"], .producto-select');
+    
+    selects.forEach(select => {
+        // Crear input de búsqueda
+        const wrapper = document.createElement('div');
+        wrapper.style.position = 'relative';
+        wrapper.style.marginBottom = '0.5rem';
+        
+        const searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.className = 'form-control';
+        searchInput.placeholder = 'Buscar producto...';
+        searchInput.style.marginBottom = '0.5rem';
+        
+        // Insertar input antes del select
+        select.parentNode.insertBefore(searchInput, select);
+        
+        // Guardar todas las opciones originales
+        const allOptions = Array.from(select.options);
+        
+        // Evento de búsqueda
+        searchInput.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            
+            // Limpiar select
+            select.innerHTML = '';
+            
+            // Agregar opción vacía
+            const emptyOption = document.createElement('option');
+            emptyOption.value = '';
+            emptyOption.textContent = '-- Seleccionar --';
+            select.appendChild(emptyOption);
+            
+            // Filtrar y agregar opciones que coinciden
+            let foundCount = 0;
+            allOptions.forEach(option => {
+                if (option.value === '') return; // Saltar opción vacía
+                
+                const text = option.textContent.toLowerCase();
+                if (text.includes(searchTerm)) {
+                    select.appendChild(option.cloneNode(true));
+                    foundCount++;
+                }
+            });
+            
+            // Si no hay resultados, mostrar mensaje
+            if (foundCount === 0 && searchTerm !== '') {
+                const noResults = document.createElement('option');
+                noResults.disabled = true;
+                noResults.textContent = 'No se encontraron productos';
+                select.appendChild(noResults);
+            }
+        });
+        
+        // Limpiar búsqueda al seleccionar
+        select.addEventListener('change', function() {
+            searchInput.value = '';
+            searchInput.dispatchEvent(new Event('input'));
+        });
+    });
+}
+
+// Ejecutar al cargar
+document.addEventListener('DOMContentLoaded', setupProductSearch);
+</script>
+
+
+<!-- ================================================================ -->
+<!-- INSTRUCCIONES DE USO -->
+<!-- ================================================================ -->
+
+<!-- 
+PARA ml_mapear_productos.html:
+
+1. Si usás OPCIÓN 1 (Select2):
+   - Agregar CSS y JS de Select2 en el <head>
+   - Agregar el script de inicialización al final
+
+2. Si usás OPCIÓN 2 (Nativo):
+   - Agregar solo el script de setupProductSearch() al final
+
+El buscador se aplicará automáticamente a:
+- Todos los selects con name="mapeo_0", name="mapeo_1", etc.
+- Todos los selects con clase "producto-select"
+
+
+PARA nueva_venta_ml.html:
+
+1. Igual que arriba, agregar el código según la opción elegida
+2. El script detectará automáticamente los selects de productos
+
+-->
+
+
+<!-- ================================================================ -->
+<!-- RECOMENDACIÓN -->
+<!-- ================================================================ -->
+
+<!-- 
+OPCIÓN 1 (Select2) es mejor porque:
+✅ Más bonito visualmente
+✅ Permite buscar en múltiples campos (SKU + nombre)
+✅ Muestra resultados mientras escribís
+✅ Funcionalidad más robusta
+✅ Solo 2 líneas extra (CSS + JS)
+
+OPCIÓN 2 (Nativo) si preferís:
+✅ No necesita librerías externas
+✅ Más liviano
+✅ Funcional pero menos pulido
+-->

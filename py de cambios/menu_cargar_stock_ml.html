@@ -1,0 +1,66 @@
+<!-- ============================================================================
+   AGREGAR AL MENÚ EN base.html
+   Buscar la sección "Mercado Libre" en el navbar
+   ============================================================================ -->
+
+<!-- OPCIÓN 1: Si ya existe el dropdown de Mercado Libre -->
+
+<li class="nav-item dropdown">
+    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+        <i class="bi bi-globe"></i> Mercado Libre
+    </a>
+    <ul class="dropdown-menu">
+        <li><a class="dropdown-item" href="{{ url_for('ml_importar_ordenes') }}">
+            <i class="bi bi-download"></i> Importar Órdenes
+        </a></li>
+        <li><a class="dropdown-item" href="{{ url_for('alertas_stock') }}">
+            <i class="bi bi-exclamation-triangle"></i> Alertas de Stock
+        </a></li>
+        
+        <!-- ✅ AGREGAR ESTA LÍNEA -->
+        <li><a class="dropdown-item" href="{{ url_for('cargar_stock_ml') }}">
+            <i class="bi bi-box-seam"></i> Cargar Stock ML
+        </a></li>
+        <!-- FIN LÍNEA NUEVA -->
+        
+        <li><hr class="dropdown-divider"></li>
+        <li><a class="dropdown-item" href="{{ url_for('configuracion_ml') }}">
+            <i class="bi bi-gear"></i> Configuración ML
+        </a></li>
+    </ul>
+</li>
+
+
+<!-- ============================================================================ -->
+
+
+<!-- OPCIÓN 2: Si NO existe el dropdown, crear uno nuevo -->
+
+<li class="nav-item dropdown">
+    <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+        <i class="bi bi-globe"></i> Mercado Libre
+    </a>
+    <ul class="dropdown-menu">
+        <li><a class="dropdown-item" href="{{ url_for('ml_importar_ordenes') }}">
+            <i class="bi bi-download"></i> Importar Órdenes
+        </a></li>
+        <li><a class="dropdown-item" href="{{ url_for('alertas_stock') }}">
+            <i class="bi bi-exclamation-triangle"></i> Alertas
+        </a></li>
+        <li><a class="dropdown-item" href="{{ url_for('cargar_stock_ml') }}">
+            <i class="bi bi-box-seam"></i> Cargar Stock
+        </a></li>
+    </ul>
+</li>
+
+
+<!-- ============================================================================ -->
+
+
+<!-- OPCIÓN 3: Como item individual (sin dropdown) -->
+
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('cargar_stock_ml') }}">
+        <i class="bi bi-box-seam"></i> Cargar Stock ML
+    </a>
+</li>

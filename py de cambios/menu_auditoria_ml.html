@@ -1,0 +1,28 @@
+<!-- AGREGAR EN EL MENÚ DENTRO DE LA SECCIÓN "ALERTAS ML" -->
+
+<!-- En base.html, dentro del dropdown de "ALERTAS ML", agregar: -->
+
+<li class="nav-item dropdown">
+    <a class="nav-link dropdown-toggle" href="#" id="navbarDropdownAlertas" 
+       role="button" data-bs-toggle="dropdown" aria-expanded="false">
+        <i class="bi bi-exclamation-triangle"></i> ALERTAS ML
+    </a>
+    <ul class="dropdown-menu" aria-labelledby="navbarDropdownAlertas">
+        <li>
+            <a class="dropdown-item" href="{{ url_for('alertas_ml') }}">
+                <i class="bi bi-bell"></i> Alertas de Stock
+            </a>
+        </li>
+        <li>
+            <a class="dropdown-item" href="{{ url_for('cargar_stock_ml') }}">
+                <i class="bi bi-box-seam"></i> Cargar Stock
+            </a>
+        </li>
+        <li><hr class="dropdown-divider"></li>
+        <li>
+            <a class="dropdown-item" href="{{ url_for('auditoria_ml') }}">
+                <i class="bi bi-search"></i> Auditoría ML
+            </a>
+        </li>
+    </ul>
+</li>

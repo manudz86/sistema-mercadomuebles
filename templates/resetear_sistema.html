@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}Resetear Sistema{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <!-- ALERTA DE ADVERTENCIA -->
+            <div class="alert alert-danger d-flex align-items-center" role="alert">
+                <i class="bi bi-exclamation-triangle-fill me-3" style="font-size: 2rem;"></i>
+                <div>
+                    <h4 class="alert-heading mb-2">⚠️ ZONA DE PELIGRO</h4>
+                    <p class="mb-0">Esta acción <strong>NO se puede deshacer</strong>. Se eliminarán todos los datos del sistema.</p>
+                </div>
+            </div>
+
+            <!-- TARJETA PRINCIPAL -->
+            <div class="card shadow-sm border-danger">
+                <div class="card-header bg-danger text-white">
+                    <h3 class="mb-0">
+                        <i class="bi bi-arrow-clockwise"></i> Resetear Sistema Completo
+                    </h3>
+                </div>
+                <div class="card-body">
+                    <h5 class="text-danger mb-3">
+                        <i class="bi bi-info-circle"></i> ¿Qué se borrará?
+                    </h5>
+                    
+                    <ul class="list-group list-group-flush mb-4">
+                        <li class="list-group-item">
+                            <i class="bi bi-x-circle text-danger"></i>
+                            <strong>Todas las ventas</strong> (Activas, En Proceso, Históricas)
+                        </li>
+                        <li class="list-group-item">
+                            <i class="bi bi-x-circle text-danger"></i>
+                            <strong>Todos los items de ventas</strong>
+                        </li>
+                        <li class="list-group-item">
+                            <i class="bi bi-x-circle text-danger"></i>
+                            <strong>Todo el historial de movimientos de stock</strong>
+                        </li>
+                        <li class="list-group-item">
+                            <i class="bi bi-x-circle text-danger"></i>
+                            <strong>Stock reseteado a 0</strong> en todos los productos
+                        </li>
+                        <li class="list-group-item">
+                            <i class="bi bi-x-circle text-danger"></i>
+                            <strong>Todas las alertas de stock</strong>
+                        </li>
+                    </ul>
+
+                    <div class="alert alert-info">
+                        <i class="bi bi-shield-check"></i>
+                        <strong>NO se borrarán:</strong> Los productos base, combos ni la estructura de la base de datos.
+                    </div>
+
+                    <!-- FORMULARIO -->
+                    <form id="formReseteo" method="POST" action="{{ url_for('ejecutar_reseteo') }}">
+                        <div class="mb-3">
+                            <label for="password" class="form-label">
+                                <i class="bi bi-key-fill"></i> <strong>Contraseña de Administrador:</strong>
+                            </label>
+                            <input 
+                                type="password" 
+                                class="form-control form-control-lg" 
+                                id="password" 
+                                name="password" 
+                                placeholder="Ingresa la contraseña"
+                                required
+                            >
+                            <small class="text-muted">Contraseña configurada en el sistema</small>
+                        </div>
+
+                        <div class="mb-4">
+                            <label for="confirmar" class="form-label">
+                                <i class="bi bi-pencil-fill"></i> <strong>Escribe "RESETEAR" para confirmar:</strong>
+                            </label>
+                            <input 
+                                type="text" 
+                                class="form-control form-control-lg" 
+                                id="confirmar" 
+                                name="confirmar" 
+                                placeholder="Escribe RESETEAR en mayúsculas"
+                                required
+                            >
+                        </div>
+
+                        <div class="d-flex justify-content-between">
+                            <a href="{{ url_for('index') }}" class="btn btn-secondary btn-lg">
+                                <i class="bi bi-arrow-left"></i> Cancelar
+                            </a>
+                            <button type="button" class="btn btn-danger btn-lg" onclick="mostrarModalConfirmacion()">
+                                <i class="bi bi-exclamation-triangle"></i> Resetear Sistema
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL DE CONFIRMACIÓN FINAL -->
+<div class="modal fade" id="modalConfirmacionFinal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-danger">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-exclamation-octagon-fill"></i> ⚠️ ÚLTIMA CONFIRMACIÓN
+                </h5>
+            </div>
+            <div class="modal-body text-center">
+                <div class="mb-4">
+                    <i class="bi bi-exclamation-triangle-fill text-danger" style="font-size: 4rem;"></i>
+                </div>
+                <h4 class="text-danger mb-3">¿Estás completamente seguro?</h4>
+                <p class="lead mb-3">Esta acción es <strong>IRREVERSIBLE</strong>.</p>
+                <p class="mb-0">Se eliminarán <strong>TODOS</strong> los datos de ventas y stock.</p>
+            </div>
+            <div class="modal-footer justify-content-between">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i> No, cancelar
+                </button>
+                <button type="button" class="btn btn-danger" onclick="confirmarReseteo()">
+                    <i class="bi bi-check-circle"></i> Sí, RESETEAR TODO
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function mostrarModalConfirmacion() {
+    const password = document.getElementById('password').value;
+    const confirmar = document.getElementById('confirmar').value;
+    
+    // Validar que los campos estén llenos
+    if (!password) {
+        alert('❌ Debes ingresar la contraseña');
+        return;
+    }
+    
+    if (confirmar !== 'RESETEAR') {
+        alert('❌ Debes escribir "RESETEAR" exactamente en mayúsculas');
+        return;
+    }
+    
+    // Mostrar modal de confirmación final
+    const modal = new bootstrap.Modal(document.getElementById('modalConfirmacionFinal'));
+    modal.show();
+}
+
+function confirmarReseteo() {
+    // Enviar formulario
+    document.getElementById('formReseteo').submit();
+}
+</script>
+
+<style>
+.card {
+    margin-top: 2rem;
+}
+
+.list-group-item {
+    padding: 1rem;
+    font-size: 1.05rem;
+}
+
+.list-group-item i {
+    margin-right: 0.5rem;
+}
+
+.alert-danger {
+    border-left: 5px solid #dc3545;
+}
+</style>
+{% endblock %}

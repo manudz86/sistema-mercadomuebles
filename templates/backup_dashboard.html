@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Sistema Cannon{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="bi bi-speedometer2"></i> Dashboard</h2>
+    <div class="text-muted">
+        <i class="bi bi-calendar3"></i> {{ now().strftime('%d/%m/%Y %H:%M') }}
+    </div>
+</div>
+
+<!-- Accesos Rápidos -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+            <div class="card-body">
+                <h5 class="mb-3"><i class="bi bi-grid-3x3-gap"></i> Accesos Rápidos</h5>
+                <div class="d-flex gap-3 flex-wrap">
+                    <a href="{{ url_for('dashboard_visual') }}" class="btn btn-light btn-lg">
+                        <i class="bi bi-grid-fill"></i> Dashboard Visual (Pizarra)
+                    </a>
+                    <a href="{{ url_for('ver_stock') }}" class="btn btn-outline-light">
+                        <i class="bi bi-boxes"></i> Ver Stock ML
+                    </a>
+                    <a href="{{ url_for('cargar_stock') }}" class="btn btn-outline-light">
+                        <i class="bi bi-plus-circle"></i> Cargar Stock
+                    </a>
+                    <a href="{{ url_for('nueva_venta') }}" class="btn btn-outline-light">
+                        <i class="bi bi-cart-plus"></i> Nueva Venta
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tarjetas de estadísticas -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="text-muted mb-2">Ventas Activas</h6>
+                        <h2 class="mb-0">{{ stats.ventas_activas }}</h2>
+                        <small class="text-muted">Pendientes</small>
+                    </div>
+                    <div class="text-primary" style="font-size: 3em; opacity: 0.2;">
+                        <i class="bi bi-clock-history"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer bg-light">
+                <a href="{{ url_for('ventas_activas') }}" class="text-decoration-none small">
+                    Ver todas <i class="bi bi-arrow-right"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card stat-card {% if stats.alertas_pendientes > 0 %}danger{% else %}success{% endif %}">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="text-muted mb-2">Alertas ML</h6>
+                        <h2 class="mb-0">{{ stats.alertas_pendientes }}</h2>
+                        <small class="text-muted">
+                            {% if stats.alertas_pendientes > 0 %}
+                                Requieren atención
+                            {% else %}
+                                Todo OK
+                            {% endif %}
+                        </small>
+                    </div>
+                    <div class="{% if stats.alertas_pendientes > 0 %}text-danger{% else %}text-success{% endif %}" style="font-size: 3em; opacity: 0.2;">
+                        <i class="bi bi-exclamation-triangle"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer bg-light">
+                <a href="{{ url_for('alertas_ml') }}" class="text-decoration-none small">
+                    Ver alertas <i class="bi bi-arrow-right"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Stock Crítico -->
+{% if stock_critico %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-exclamation-circle text-danger"></i> Stock Sin Disponibilidad para ML</span>
+        <a href="{{ url_for('ver_stock') }}" class="btn btn-sm btn-outline-primary">Ver todo el stock</a>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>SKU</th>
+                        <th>Producto</th>
+                        <th>Stock Disponible</th>
+                        <th>Stock Mínimo Pausar</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for prod in stock_critico %}
+                    <tr>
+                        <td><strong>{{ prod.sku }}</strong></td>
+                        <td>{{ prod.nombre }}</td>
+                        <td>
+                            <span class="badge bg-danger">{{ prod.stock_disponible }}</span>
+                        </td>
+                        <td>{{ prod.stock_minimo_pausar }}</td>
+                        <td>
+                            <span class="badge bg-danger">Sin Stock</span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="card">
+    <div class="card-body text-center">
+        <i class="bi bi-check-circle text-success" style="font-size: 3em;"></i>
+        <h5 class="mt-3">Todo el stock está OK</h5>
+        <p class="text-muted">No hay productos con stock crítico en este momento</p>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
