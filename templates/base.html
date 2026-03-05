@@ -218,6 +218,22 @@
    			    </a>
 			</li>
                     </ul>
+
+                    <!-- Usuario y logout -->
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 1rem;">
+                        <div style="color: rgba(255,255,255,0.6); font-size: 0.8rem; margin-bottom: 0.5rem;">
+                            <i class="bi bi-person-circle"></i>
+                            {{ current_user.username if current_user.is_authenticated else '' }}
+                            {% if current_user.is_authenticated %}
+                                <span class="badge bg-{{ 'danger' if current_user.rol == 'admin' else 'secondary' }} ms-1" style="font-size:0.65rem">
+                                    {{ current_user.rol }}
+                                </span>
+                            {% endif %}
+                        </div>
+                        <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-light w-100" style="font-size:0.8rem">
+                            <i class="bi bi-box-arrow-right"></i> Cerrar sesión
+                        </a>
+                    </div>
                 </div>
             </nav>
 
