@@ -6465,9 +6465,6 @@ def cargar_stock_ml():
 # RUTA BUSCAR SKU - ACTUALIZADA CON STATUS REAL DE ML
 # ============================================================================
 
-@app.route('/buscar-sku-ml', methods=['POST'])
-@login_required
-
 def obtener_datos_ml_batch(mla_ids, access_token):
     """
     Consulta datos de múltiples publicaciones ML en UNA sola llamada (batch).
@@ -6558,6 +6555,8 @@ def obtener_datos_ml_batch(mla_ids, access_token):
 
     return resultado
 
+@app.route('/buscar-sku-ml', methods=['POST'])
+@login_required
 def buscar_sku_ml():
     sku_buscado = request.form.get('sku_buscar', '').strip().upper()
 
