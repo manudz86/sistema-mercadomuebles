@@ -4794,28 +4794,22 @@ def ejecutar_reseteo():
 import time  # Agregar este import si no lo tenés
 
 def refresh_ml_token():
-    """
-    Renovar el access_token usando el refresh_token
-    Retorna el nuevo access_token o None si falla
-    """
+    """Renovar el access_token usando el refresh_token guardado en DB"""
     try:
-        token_path = 'config/ml_token.json'
-        if not os.path.exists(token_path):
+        row = query_one("SELECT valor FROM configuracion WHERE clave = 'ml_token'")
+        if not row:
             return None
-        
-        with open(token_path, 'r') as f:
-            data = json.load(f)
-        
+        data = json.loads(row['valor'])
+
         refresh_token = data.get('refresh_token')
         client_id = data.get('client_id')
         client_secret = data.get('client_secret')
-        
+
         if not refresh_token or not client_id or not client_secret:
             print("⚠️  No hay refresh_token o credenciales guardadas")
             return None
-        
+
         print("🔄 Renovando access_token de ML...")
-        
         response = requests.post(
             "https://api.mercadolibre.com/oauth/token",
             data={
@@ -4825,90 +4819,67 @@ def refresh_ml_token():
                 "refresh_token": refresh_token
             }
         )
-        
+
         if response.status_code == 200:
             new_data = response.json()
-            
-            # Actualizar datos guardados
             data['access_token'] = new_data.get('access_token')
-            data['refresh_token'] = new_data.get('refresh_token', refresh_token)  # ML puede dar uno nuevo
+            data['refresh_token'] = new_data.get('refresh_token', refresh_token)
             data['expires_at'] = time.time() + new_data.get('expires_in', 21600) - 300
-            
-            with open(token_path, 'w') as f:
-                json.dump(data, f, indent=4)
-            
-            print(f"✅ Token renovado automáticamente!")
+            execute_db(
+                "INSERT INTO configuracion (clave, valor) VALUES ('ml_token', %s) "
+                "ON DUPLICATE KEY UPDATE valor = %s, actualizado_at = NOW()",
+                (json.dumps(data), json.dumps(data))
+            )
+            print("✅ Token renovado automáticamente!")
             return data['access_token']
         else:
             print(f"❌ Error renovando token: {response.status_code} - {response.json()}")
             return None
-    
     except Exception as e:
         print(f"Error en refresh_ml_token: {e}")
         return None
 
-
 def cargar_ml_token():
-    """
-    Cargar ACCESS_TOKEN desde config/ml_token.json
-    Si está vencido, lo renueva automáticamente con el refresh_token
-    """
+    """Cargar token ML desde la base de datos. Si está vencido, lo renueva."""
     try:
-        token_path = 'config/ml_token.json'
-        if not os.path.exists(token_path):
+        row = query_one("SELECT valor FROM configuracion WHERE clave = 'ml_token'")
+        if not row:
             return None
-        
-        with open(token_path, 'r') as f:
-            data = json.load(f)
-        
+        data = json.loads(row['valor'])
         access_token = data.get('access_token')
         expires_at = data.get('expires_at', 0)
-        
-        # Verificar si el token está vencido
         if expires_at and time.time() > expires_at:
             print("⚠️  Token ML vencido, renovando automáticamente...")
             access_token = refresh_ml_token()
-        
         return access_token
-    
     except Exception as e:
         print(f"Error cargando token ML: {e}")
         return None
 
 
 def guardar_ml_token(token_data):
-    """
-    Guardar datos del token en config/ml_token.json
-    Mantiene el refresh_token si ya existía
-    """
+    """Guardar token ML en la base de datos (persiste en Railway)"""
     try:
-        os.makedirs('config', exist_ok=True)
-        
-        token_path = 'config/ml_token.json'
-        
-        # Si ya hay un archivo, preservar refresh_token y credenciales
-        if os.path.exists(token_path):
-            with open(token_path, 'r') as f:
-                existing = json.load(f)
-            
-            # Preservar datos existentes que no vengan en el nuevo token_data
+        # Preservar refresh_token y credenciales si ya existen en DB
+        existing_json = query_one("SELECT valor FROM configuracion WHERE clave = 'ml_token'")
+        if existing_json:
+            existing = json.loads(existing_json['valor'])
             if 'refresh_token' not in token_data and 'refresh_token' in existing:
                 token_data['refresh_token'] = existing['refresh_token']
             if 'client_id' not in token_data and 'client_id' in existing:
                 token_data['client_id'] = existing['client_id']
             if 'client_secret' not in token_data and 'client_secret' in existing:
                 token_data['client_secret'] = existing['client_secret']
-        
-        # Si se guarda solo el access_token manual, no ponemos expires_at
-        # para que no intente auto-refresh sin refresh_token
+
         if 'refresh_token' not in token_data:
             token_data.pop('expires_at', None)
-        
-        with open(token_path, 'w') as f:
-            json.dump(token_data, f, indent=4)
-        
+
+        execute_db(
+            "INSERT INTO configuracion (clave, valor) VALUES ('ml_token', %s) "
+            "ON DUPLICATE KEY UPDATE valor = %s, actualizado_at = NOW()",
+            (json.dumps(token_data), json.dumps(token_data))
+        )
         return True
-    
     except Exception as e:
         print(f"Error guardando token ML: {e}")
         return False
@@ -5480,9 +5451,9 @@ def ml_configurar_token():
     """
     
     # Credenciales de la app ML
-    CLIENT_ID = "2109946238600277"
-    CLIENT_SECRET = "FLwEh7gcKUuc5DvqgaYtO8OyrMDB9R0Z"
-    REDIRECT_URI = "https://www.google.com"
+    CLIENT_ID = os.getenv('ML_APP_ID')
+    CLIENT_SECRET = os.getenv('ML_SECRET_KEY')
+    REDIRECT_URI = os.getenv('ML_REDIRECT_URI')
     
     # Generar URL de autorización
     url_autorizacion = (
@@ -8376,6 +8347,21 @@ def debug_mla():
     }
 
 
+@app.route('/admin/crear-tabla-config')
+@login_required
+@admin_required
+def crear_tabla_config():
+    try:
+        execute_db("""
+            CREATE TABLE IF NOT EXISTS configuracion (
+                clave VARCHAR(100) PRIMARY KEY,
+                valor TEXT,
+                actualizado_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        """)
+        return "✅ Tabla 'configuracion' creada correctamente"
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
 
 
 # ============================================================================
