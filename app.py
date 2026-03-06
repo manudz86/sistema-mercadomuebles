@@ -6467,6 +6467,97 @@ def cargar_stock_ml():
 
 @app.route('/buscar-sku-ml', methods=['POST'])
 @login_required
+
+def obtener_datos_ml_batch(mla_ids, access_token):
+    """
+    Consulta datos de múltiples publicaciones ML en UNA sola llamada (batch).
+    Devuelve dict: { mla_id: { titulo, stock, status, demora, precio, listing_type } }
+    """
+    import requests as req
+
+    if not mla_ids:
+        return {}
+
+    headers = {'Authorization': f'Bearer {access_token}'}
+    ids_str = ','.join(mla_ids)
+
+    CAMPAÑAS_CUOTAS = {
+        'pcj-co-funded': 'Cuota Simple',
+        '3x_campaign':   '3 cuotas s/interés',
+        '6x_campaign':   '6 cuotas s/interés',
+        '9x_campaign':   '9 cuotas s/interés',
+        '12x_campaign':  '12 cuotas s/interés',
+    }
+
+    resultado = {}
+    try:
+        r = req.get(
+            f'https://api.mercadolibre.com/items',
+            headers=headers,
+            params={'ids': ids_str}
+        )
+        if r.status_code != 200:
+            # fallback: devolver datos vacíos para cada MLA
+            for mla_id in mla_ids:
+                resultado[mla_id] = {
+                    'titulo': mla_id, 'stock': 0, 'status': 'unknown',
+                    'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
+                }
+            return resultado
+
+        items = r.json()  # lista de { code, body }
+        for item in items:
+            if item.get('code') != 200:
+                mla_id = item.get('body', {}).get('id', '')
+                resultado[mla_id] = {
+                    'titulo': mla_id, 'stock': 0, 'status': 'unknown',
+                    'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
+                }
+                continue
+
+            data = item['body']
+            mla_id = data.get('id', '')
+
+            # Demora
+            demora = None
+            for term in data.get('sale_terms', []):
+                if term.get('id') == 'MANUFACTURING_TIME':
+                    demora = term.get('value_name')
+                    break
+
+            # Financiación
+            listing_type_id = data.get('listing_type_id', '')
+            campaign = None
+            for term in data.get('sale_terms', []):
+                if term.get('id') == 'INSTALLMENTS_CAMPAIGN':
+                    campaign = (term.get('value_name') or '').split('|')[0].strip()
+                    break
+
+            if listing_type_id == 'gold_special':
+                financiacion = CAMPAÑAS_CUOTAS.get(campaign, 'Sin cuotas propias') if campaign else 'Sin cuotas propias'
+            elif listing_type_id == 'gold_pro':
+                financiacion = CAMPAÑAS_CUOTAS.get(campaign, '6 cuotas s/interés')
+            else:
+                financiacion = listing_type_id
+
+            resultado[mla_id] = {
+                'titulo':       data.get('title', mla_id),
+                'stock':        data.get('available_quantity', 0),
+                'status':       data.get('status', 'unknown'),
+                'status_raw':   data.get('status', 'unknown'),
+                'demora':       demora,
+                'precio':       data.get('price'),
+                'listing_type': financiacion
+            }
+    except Exception as e:
+        for mla_id in mla_ids:
+            resultado[mla_id] = {
+                'titulo': mla_id, 'stock': 0, 'status': 'unknown',
+                'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
+            }
+
+    return resultado
+
 def buscar_sku_ml():
     sku_buscado = request.form.get('sku_buscar', '').strip().upper()
 
@@ -6525,9 +6616,14 @@ def buscar_sku_ml():
         'under_review': 'En revisión', 'inactive': 'Inactiva'
     }
 
+    # Usar batch para traer todos los MLAs en UNA sola llamada
+    datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
     publicaciones = []
     for mla_id in mla_ids:
-        datos_ml = obtener_datos_ml(mla_id, access_token)
+        datos_ml = datos_batch.get(mla_id, {
+            'titulo': mla_id, 'stock': 0, 'status': 'unknown',
+            'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
+        })
         status_ml = datos_ml.get('status', 'unknown')
         publicaciones.append({
             'mla':          mla_id,
@@ -6730,21 +6826,27 @@ def _recargar_publicaciones(sku, access_token):
         'active': 'Activa', 'paused': 'Pausada', 'closed': 'Cerrada',
         'under_review': 'En revisión', 'inactive': 'Inactiva'
     }
-    for row in publicaciones:
-        if access_token:
-            datos_ml = obtener_datos_ml(row['mla_id'], access_token)
+    if access_token and publicaciones:
+        mla_ids = [row['mla_id'] for row in publicaciones]
+        datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
+        for row in publicaciones:
+            datos_ml = datos_batch.get(row['mla_id'], {
+                'titulo': row['mla_id'], 'stock': 0, 'status': 'unknown',
+                'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
+            })
             status_ml = datos_ml.get('status', 'unknown')
             pubs_lista.append({
                 'mla':          row['mla_id'],
                 'titulo':       datos_ml['titulo'],
                 'stock_actual': datos_ml['stock'],
                 'demora':       datos_ml.get('demora'),
-                'precio':       datos_ml.get('precio'),        # ← NUEVO
-                'listing_type': datos_ml.get('listing_type'),  # ← NUEVO
+                'precio':       datos_ml.get('precio'),
+                'listing_type': datos_ml.get('listing_type'),
                 'estado':       estado_map.get(status_ml, status_ml.capitalize()),
                 'status_raw':   status_ml
             })
-        else:
+    else:
+        for row in publicaciones:
             pubs_lista.append({
                 'mla':          row['mla_id'],
                 'titulo':       row['titulo_ml'] or 'Sin título',
