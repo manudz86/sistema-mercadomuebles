@@ -6735,7 +6735,7 @@ def cambiar_precio_masivo():
             exitos += 1
         else:
             errores.append(f'{row["mla_id"]}: {r.status_code}')
-        time.sleep(1)
+        time.sleep(2)
 
     if exitos:
         flash(f'✅ Precio actualizado a ${precio_float:,.0f} en {exitos} publicación{"es" if exitos > 1 else ""}', 'success')
@@ -6799,7 +6799,7 @@ def cambiar_precios_individuales():
             exitos += 1
         else:
             errores.append(f'{mla}: error {r.status_code}')
-        time.sleep(1)
+        time.sleep(2)
 
     if exitos:
         flash(f'✅ {exitos} precio{"s" if exitos > 1 else ""} actualizado{"s" if exitos > 1 else ""} correctamente', 'success')
@@ -6958,7 +6958,7 @@ def bajar_stock_cero_masivo():
             exitos += 1
         else:
             errores.append(msg)
-        time.sleep(1)
+        time.sleep(2)
 
     if exitos:
         flash(f'✅ Stock bajado a 0 en {exitos} publicación{"es" if exitos > 1 else ""}', 'success')
@@ -7044,7 +7044,7 @@ def cargar_demora_masivo():
             exitos += 1
         else:
             errores.append(f'{row["mla_id"]}: {r.status_code}')
-        time.sleep(1)
+        time.sleep(2)
 
     if exitos:
         flash(f'✅ {dias} días de demora cargados en {exitos} publicación{"es" if exitos > 1 else ""}', 'success')
@@ -7198,7 +7198,6 @@ def quitar_demora_mla():
 @login_required
 def quitar_demora_masivo():
     """Eliminar MANUFACTURING_TIME de todas las publicaciones de un SKU"""
-
     sku = request.form.get('sku')
     if not sku:
         flash('Falta el SKU', 'danger')
@@ -7210,13 +7209,10 @@ def quitar_demora_masivo():
         return redirect(url_for('cargar_stock_ml'))
 
     mlas = query_db(
-        "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE",
-        (sku,)
+        "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku,)
     )
 
-    exitos = 0
-    errores = 0
-    mensajes_error = []
+    exitos, errores, mensajes_error = 0, 0, []
 
     for row in mlas:
         success, message = quitar_manufacturing_time_ml(row['mla_id'], access_token)
@@ -7225,7 +7221,7 @@ def quitar_demora_masivo():
         else:
             errores += 1
             mensajes_error.append(message)
-        time.sleep(1)
+        time.sleep(2)
 
     if exitos > 0:
         flash(f'✅ Demora eliminada en {exitos} publicación{"es" if exitos > 1 else ""}', 'success')
@@ -7234,46 +7230,40 @@ def quitar_demora_masivo():
         for msg in mensajes_error[:3]:
             flash(msg, 'warning')
 
-    # Recargar publicaciones con datos actualizados de ML
+    # Recargar con UNA sola llamada batch
     publicaciones = query_db(
-        "SELECT mla_id, titulo_ml, activo FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE",
-        (sku,)
+        "SELECT mla_id, titulo_ml, activo FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku,)
     )
-
+    estado_map = {
+        'active': 'Activa', 'paused': 'Pausada', 'closed': 'Cerrada',
+        'under_review': 'En revisión', 'inactive': 'Inactiva'
+    }
     pubs_lista = []
-    access_token_refresh = cargar_ml_token()
-
-    for row in publicaciones:
-        if access_token_refresh:
-            datos_ml = obtener_datos_ml(row['mla_id'], access_token_refresh)
-            status_ml = datos_ml.get('status', 'unknown')
-            estado_map = {
-                'active': 'Activa', 'paused': 'Pausada', 'closed': 'Cerrada',
-                'under_review': 'En revisión', 'inactive': 'Inactiva'
-            }
-            pubs_lista.append({
-                'mla': row['mla_id'],
-                'titulo': datos_ml['titulo'],
-                'stock_actual': datos_ml['stock'],
-                'demora': datos_ml.get('demora'),
-                'estado': estado_map.get(status_ml, status_ml.capitalize()),
-                'status_raw': status_ml
+    if publicaciones:
+        mla_ids = [row['mla_id'] for row in publicaciones]
+        datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
+        for row in publicaciones:
+            datos_ml = datos_batch.get(row['mla_id'], {
+                'titulo': row['titulo_ml'] or row['mla_id'],
+                'stock': '-', 'status': 'unknown', 'demora': None,
+                'precio': None, 'listing_type': None
             })
-        else:
+            status_ml = datos_ml.get('status', 'unknown')
             pubs_lista.append({
-                'mla': row['mla_id'],
-                'titulo': row['titulo_ml'] or 'Sin título',
-                'stock_actual': '-',
-                'demora': None,
-                'estado': 'Activa' if row['activo'] else 'Pausada',
-                'status_raw': 'active' if row['activo'] else 'paused'
+                'mla':          row['mla_id'],
+                'titulo':       datos_ml.get('titulo', row['titulo_ml'] or row['mla_id']),
+                'stock_actual': datos_ml.get('stock', '-'),
+                'demora':       datos_ml.get('demora'),
+                'precio':       datos_ml.get('precio'),
+                'listing_type': datos_ml.get('listing_type'),
+                'estado':       estado_map.get(status_ml, status_ml.capitalize()),
+                'status_raw':   status_ml
             })
 
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku,
                            publicaciones=pubs_lista,
                            es_sku_con_z=sku.endswith('Z'))
-
 
 
 # ============================================================================
@@ -7410,7 +7400,7 @@ def cargar_stock_masivo():
             else:
                 errores += 1
                 mensajes_error.append(f"{mla}: {message}")
-            time.sleep(1)
+            time.sleep(2)
         
         if exitos > 0:
             flash(f'✅ Stock cargado en {exitos} publicaciones: {stock_nuevo} unidades', 'success')
@@ -7738,7 +7728,7 @@ def auditoria_activar_publicaciones():
                 exitos += 1
             else:
                 errores.append(f'{mla}: {response.status_code}')
-            time.sleep(1)
+            time.sleep(2)
         except Exception as e:
             errores.append(f'{mla}: {str(e)}')
     
@@ -7776,7 +7766,7 @@ def auditoria_cargar_stock():
                 exitos += 1
             else:
                 errores.append(f'{mla}: {message}')
-            time.sleep(1)
+            time.sleep(2)
         except Exception as e:
             errores.append(f'{item}: {str(e)}')
     
@@ -7807,7 +7797,7 @@ def auditoria_reducir_demora():
                 exitos += 1
             else:
                 errores.append(f'{mla}: {message}')
-            time.sleep(1)
+            time.sleep(2)
         except Exception as e:
             errores.append(f'{mla}: {str(e)}')
     
