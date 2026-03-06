@@ -87,7 +87,7 @@
                     </thead>
                     <tbody>
                         {% for pub in publicaciones %}
-                        <tr>
+                        <tr data-status-raw="{{ pub.status_raw }}" data-demora="{{ pub.demora or '' }}" data-listing-type="{{ pub.listing_type or '' }}">
                             <td class="text-center">
                                 <a href="https://articulo.mercadolibre.com.ar/{{ pub.mla }}" 
                                    target="_blank" 
@@ -157,6 +157,7 @@
                                               onsubmit="return confirmarCargaStock(event, '{{ pub.mla }}')">
                                             <input type="hidden" name="mla" value="{{ pub.mla }}">
                                             <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                                            <input type="hidden" name="pubs_json" class="pubs-json-field">
                                             <input type="number" name="stock_nuevo"
                                                    class="form-control form-control-sm" placeholder="Stock"
                                                    min="0" max="99" required style="width:60px">
@@ -202,6 +203,7 @@
                                           onsubmit="return confirmarCargaStock(event, '{{ pub.mla }}')">
                                         <input type="hidden" name="mla" value="{{ pub.mla }}">
                                         <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                                        <input type="hidden" name="pubs_json" class="pubs-json-field">
                                         <input type="number" name="stock_nuevo"
                                                class="form-control form-control-sm" placeholder="Stock"
                                                min="0" max="99" required style="width:60px">
@@ -246,6 +248,7 @@
                               class="d-flex gap-2 align-items-end"
                               onsubmit="return confirmarCargaStockMasiva(event, {{ publicaciones|length }})">
                             <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <input type="hidden" name="pubs_json" class="pubs-json-field">
                             <div class="flex-fill">
                                 <label class="form-label small mb-1">Cargar stock a todas:</label>
                                 <input type="number" name="stock_nuevo" class="form-control"
@@ -263,6 +266,7 @@
                         <form method="POST" action="{{ url_for('bajar_stock_cero_masivo') }}"
                               onsubmit="return confirmarAccionMasiva('bajar stock a 0', {{ publicaciones|length }})">
                             <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <input type="hidden" name="pubs_json" class="pubs-json-field">
                             <button type="submit" class="btn btn-danger w-100">
                                 <i class="bi bi-arrow-down-circle"></i> Stock 0 en Todas
                             </button>
@@ -324,6 +328,7 @@
                               class="d-flex gap-2"
                               onsubmit="return confirmarCargaStockMasiva(event, {{ publicaciones|length }})">
                             <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <input type="hidden" name="pubs_json" class="pubs-json-field">
                             <div class="flex-fill">
                                 <label class="form-label">Stock a cargar en todas:</label>
                                 <input type="number" name="stock_nuevo" class="form-control form-control-lg"
@@ -340,6 +345,7 @@
                         <form method="POST" action="{{ url_for('bajar_stock_cero_masivo') }}"
                               onsubmit="return confirmarAccionMasiva('bajar stock a 0', {{ publicaciones|length }})">
                             <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <input type="hidden" name="pubs_json" class="pubs-json-field">
                             <button type="submit" class="btn btn-danger btn-lg w-100">
                                 <i class="bi bi-arrow-down-circle"></i> Bajar Stock a 0 en Todas
                             </button>
@@ -461,11 +467,41 @@ function confirmarCargaStockMasiva(event, cantidad) {
     return confirm(`¿Cargar ${stock} unidades en ${cantidad} publicaciones?`);
 }
 
+// ── Helper: obtener publicaciones actuales como JSON ─────────────
+function getPubsJson() {
+    const rows = document.querySelectorAll('tbody tr');
+    const pubs = [];
+    rows.forEach(row => {
+        const mlaLink = row.querySelector('td:first-child a');
+        if (!mlaLink) return;
+        const mla = mlaLink.textContent.replace(/\s+/g, '').split('\n')[0].trim();
+        const stockEl = row.querySelector('td:nth-child(3) strong');
+        const precioInput = row.querySelector('input[id^="precio_"]');
+        // Recolectar datos del data attribute si existe
+        const pub = {
+            mla: mla,
+            titulo: row.querySelector('td:nth-child(2)')?.textContent?.trim() || '',
+            stock_actual: stockEl ? parseInt(stockEl.textContent) || 0 : 0,
+            precio: precioInput ? (parseFloat(precioInput.value) || null) : null,
+            estado: row.querySelector('.badge')?.textContent?.trim() || '',
+            status_raw: row.dataset.statusRaw || 'unknown',
+            demora: row.dataset.demora || null,
+            listing_type: row.dataset.listingType || null,
+        };
+        pubs.push(pub);
+    });
+    return JSON.stringify(pubs);
+}
+
 // ── Helper: crear y enviar form dinámico ─────────────────────────
 function submitForm(action, fields) {
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = action;
+    // Siempre incluir pubs_json
+    const pubsInp = document.createElement('input');
+    pubsInp.type = 'hidden'; pubsInp.name = 'pubs_json'; pubsInp.value = getPubsJson();
+    form.appendChild(pubsInp);
     Object.entries(fields).forEach(([k, v]) => {
         const inp = document.createElement('input');
         inp.type = 'hidden'; inp.name = k; inp.value = v;
@@ -511,10 +547,11 @@ function confirmarActualizarTodosPrecios(sku) {
         return;
     }
 
-    const resumen = precios.map(p => `${p.mla}: $${Number(p.precio).toLocaleString('es-AR')}`).join('\n');
-        if (confirm(`¿Actualizar los siguientes precios?\n\n${resumen}`)) {
+    const resumen = precios.map(p => `${p.mla}: $${Number(p.precio).toLocaleString('es-AR')}`).join('
+');
+    if (confirm(`¿Actualizar los siguientes precios?
 
-
+${resumen}`)) {
         // Serializar como JSON para enviar al servidor
         const form = document.createElement('form');
         form.method = 'POST';
@@ -536,5 +573,11 @@ function confirmarActualizarTodosPrecios(sku) {
         form.submit();
     }
 }
+// Poblar campos pubs_json en forms normales antes de submit
+document.addEventListener('submit', function(e) {
+    const form = e.target;
+    const field = form.querySelector('.pubs-json-field');
+    if (field) field.value = getPubsJson();
+});
 </script>
 {% endblock %}
