@@ -14,6 +14,12 @@ from functools import wraps
 from dotenv import load_dotenv
 import pymysql
 
+import threading
+
+_ml_rate_lock = threading.Lock()
+_ml_last_request = 0.0
+_ML_MIN_INTERVAL = 0.7  # ~1.4 requests/segundo máximo
+
 ML_SELLER_ID = 29563319
 
 # Cargar configuración
@@ -6362,11 +6368,17 @@ def obtener_datos_ml(mla_id, access_token):
     Consulta datos actuales de una publicación ML.
     Devuelve: titulo, stock, status, demora, precio, listing_type
     """
-    import requests as req
+    CAMPAÑAS_CUOTAS = {
+        'pcj-co-funded': 'Cuota Simple',
+        '3x_campaign':   '3 cuotas s/interés',
+        '6x_campaign':   '6 cuotas s/interés',
+        '9x_campaign':   '9 cuotas s/interés',
+        '12x_campaign':  '12 cuotas s/interés',
+    }
 
-    headers = {'Authorization': f'Bearer {access_token}'}
     try:
-        r = req.get(f'https://api.mercadolibre.com/items/{mla_id}', headers=headers)
+        r = ml_request('get', f'https://api.mercadolibre.com/items/{mla_id}', access_token)
+
         if r.status_code != 200:
             return {
                 'titulo': mla_id, 'stock': 0, 'status': 'unknown',
@@ -6375,26 +6387,17 @@ def obtener_datos_ml(mla_id, access_token):
 
         data = r.json()
 
-        # Demora
         demora = None
+        campaign = None
         for term in data.get('sale_terms', []):
             if term.get('id') == 'MANUFACTURING_TIME':
                 demora = term.get('value_name')
-                break
-
-        # Financiación: combinando listing_type_id + INSTALLMENTS_CAMPAIGN
-        listing_type_id = data.get('listing_type_id', '')
-        campaign = None
-        for term in data.get('sale_terms', []):
             if term.get('id') == 'INSTALLMENTS_CAMPAIGN':
                 campaign = (term.get('value_name') or '').split('|')[0].strip()
-                break
 
+        listing_type_id = data.get('listing_type_id', '')
         if listing_type_id == 'gold_special':
-            if campaign:
-                financiacion = CAMPAÑAS_CUOTAS.get(campaign, campaign)
-            else:
-                financiacion = 'Sin cuotas propias'
+            financiacion = CAMPAÑAS_CUOTAS.get(campaign, 'Sin cuotas propias') if campaign else 'Sin cuotas propias'
         elif listing_type_id == 'gold_pro':
             financiacion = CAMPAÑAS_CUOTAS.get(campaign, '6 cuotas s/interés')
         else:
@@ -6415,7 +6418,6 @@ def obtener_datos_ml(mla_id, access_token):
             'titulo': mla_id, 'stock': 0, 'status': 'unknown',
             'demora': None, 'precio': None, 'listing_type': None
         }
-
 # ============================================================================
 # RUTAS CARGAR STOCK ML - CORREGIDAS CON COLUMNAS REALES
 # ============================================================================
@@ -6437,30 +6439,44 @@ def cargar_stock_ml():
 # ============================================================================
 
 
-def ml_request(method, url, access_token, json_data=None, params=None, max_retries=3):
+def ml_request(method, url, access_token, json_data=None, params=None, max_retries=4):
     """
-    Helper para requests a ML con retry automático en caso de 429.
-    method: 'get' o 'put'
-    Espera 10s si recibe 429, reintenta hasta max_retries veces.
+    Helper para requests a ML con rate limiting global + retry exponencial.
+    Toda llamada a ML debe pasar por acá.
     """
+    global _ml_last_request
+
     headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
+
     for attempt in range(max_retries):
+        # Rate limiting global: esperar si la última request fue muy reciente
+        with _ml_rate_lock:
+            now = time.time()
+            elapsed = now - _ml_last_request
+            if elapsed < _ML_MIN_INTERVAL:
+                time.sleep(_ML_MIN_INTERVAL - elapsed)
+            _ml_last_request = time.time()
+
         try:
             if method == 'get':
-                r = requests.get(url, headers=headers, params=params)
+                r = requests.get(url, headers=headers, params=params, timeout=15)
             else:
-                r = requests.put(url, headers=headers, json=json_data)
-            
+                r = requests.put(url, headers=headers, json=json_data, timeout=15)
+
             if r.status_code == 429:
-                if attempt < max_retries - 1:
-                    time.sleep(10)
-                    continue
+                wait = min(5 * (2 ** attempt), 60)  # 5s, 10s, 20s, 40s
+                print(f"⚠️ 429 ML - esperando {wait}s (intento {attempt+1}/{max_retries})")
+                time.sleep(wait)
+                continue
+
             return r
+
         except Exception as e:
             if attempt < max_retries - 1:
-                time.sleep(5)
+                time.sleep(3)
                 continue
             raise
+
     return r
 
 def obtener_datos_ml_batch(mla_ids, access_token):
@@ -6468,13 +6484,8 @@ def obtener_datos_ml_batch(mla_ids, access_token):
     Consulta datos de múltiples publicaciones ML en UNA sola llamada (batch).
     Devuelve dict: { mla_id: { titulo, stock, status, demora, precio, listing_type } }
     """
-    import requests as req
-
     if not mla_ids:
         return {}
-
-    headers = {'Authorization': f'Bearer {access_token}'}
-    ids_str = ','.join(mla_ids)
 
     CAMPAÑAS_CUOTAS = {
         'pcj-co-funded': 'Cuota Simple',
@@ -6486,13 +6497,10 @@ def obtener_datos_ml_batch(mla_ids, access_token):
 
     resultado = {}
     try:
-        r = req.get(
-            f'https://api.mercadolibre.com/items',
-            headers=headers,
-            params={'ids': ids_str}
-        )
+        r = ml_request('get', 'https://api.mercadolibre.com/items', access_token,
+                       params={'ids': ','.join(mla_ids)})
+
         if r.status_code != 200:
-            # fallback: devolver datos vacíos para cada MLA
             for mla_id in mla_ids:
                 resultado[mla_id] = {
                     'titulo': mla_id, 'stock': 0, 'status': 'unknown',
@@ -6500,7 +6508,7 @@ def obtener_datos_ml_batch(mla_ids, access_token):
                 }
             return resultado
 
-        items = r.json()  # lista de { code, body }
+        items = r.json()
         for item in items:
             if item.get('code') != 200:
                 mla_id = item.get('body', {}).get('id', '')
@@ -6513,21 +6521,15 @@ def obtener_datos_ml_batch(mla_ids, access_token):
             data = item['body']
             mla_id = data.get('id', '')
 
-            # Demora
             demora = None
+            campaign = None
             for term in data.get('sale_terms', []):
                 if term.get('id') == 'MANUFACTURING_TIME':
                     demora = term.get('value_name')
-                    break
-
-            # Financiación
-            listing_type_id = data.get('listing_type_id', '')
-            campaign = None
-            for term in data.get('sale_terms', []):
                 if term.get('id') == 'INSTALLMENTS_CAMPAIGN':
                     campaign = (term.get('value_name') or '').split('|')[0].strip()
-                    break
 
+            listing_type_id = data.get('listing_type_id', '')
             if listing_type_id == 'gold_special':
                 financiacion = CAMPAÑAS_CUOTAS.get(campaign, 'Sin cuotas propias') if campaign else 'Sin cuotas propias'
             elif listing_type_id == 'gold_pro':
@@ -6544,14 +6546,16 @@ def obtener_datos_ml_batch(mla_ids, access_token):
                 'precio':       data.get('price'),
                 'listing_type': financiacion
             }
+
     except Exception as e:
+        print(f"Error en obtener_datos_ml_batch: {e}")
         for mla_id in mla_ids:
             resultado[mla_id] = {
                 'titulo': mla_id, 'stock': 0, 'status': 'unknown',
                 'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
             }
-
     return resultado
+
 
 @app.route('/buscar-sku-ml', methods=['POST'])
 @login_required
