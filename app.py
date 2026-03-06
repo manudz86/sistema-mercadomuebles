@@ -6715,7 +6715,9 @@ def cambiar_precio_mla():
 
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku,
-                           publicaciones=_recargar_publicaciones(sku, access_token),
+                           publicaciones=_recargar_publicaciones(sku, access_token,
+                               pubs_actuales=request.form.get('pubs_json'),
+                               actualizar_mla=mla, campo='precio', valor=precio_float),
                            es_sku_con_z=sku.endswith('Z'))
 
 
@@ -6769,9 +6771,17 @@ def cambiar_precio_masivo():
     for msg in errores[:3]:
         flash(f'❌ {msg}', 'danger')
 
+    # Actualizar precio en todas las pubs localmente
+    pubs_json = request.form.get('pubs_json')
+    import json as _j
+    try:
+        pubs = _j.loads(pubs_json) if pubs_json else None
+        if pubs:
+            for p in pubs: p['precio'] = precio_float
+    except: pubs = None
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku,
-                           publicaciones=_recargar_publicaciones(sku, access_token),
+                           publicaciones=_recargar_publicaciones(sku, access_token, pubs_actuales=pubs),
                            es_sku_con_z=sku.endswith('Z'))
 
 @app.route('/cambiar-precios-individuales', methods=['POST'])
@@ -6825,9 +6835,20 @@ def cambiar_precios_individuales():
     for msg in errores[:3]:
         flash(f'❌ {msg}', 'danger')
 
+    # Actualizar precios individuales localmente
+    pubs_json = request.form.get('pubs_json')
+    import json as _j
+    try:
+        pubs = _j.loads(pubs_json) if pubs_json else None
+        if pubs:
+            precios_dict = {item['mla']: float(item['precio']) for item in precios}
+            for p in pubs:
+                if p['mla'] in precios_dict:
+                    p['precio'] = precios_dict[p['mla']]
+    except: pubs = None
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku,
-                           publicaciones=_recargar_publicaciones(sku, access_token),
+                           publicaciones=_recargar_publicaciones(sku, access_token, pubs_actuales=pubs),
                            es_sku_con_z=sku.endswith('Z') if sku else False)
 
 
@@ -6837,17 +6858,41 @@ def cambiar_precios_individuales():
 # Agregar en app.py junto a las rutas de cargar_stock_ml
 # ============================================================================
 
-def _recargar_publicaciones(sku, access_token):
-    """Helper: recarga lista de publicaciones con datos frescos de ML"""
+def _recargar_publicaciones(sku, access_token, pubs_actuales=None, actualizar_mla=None, campo=None, valor=None):
+    """
+    Helper: devuelve lista de publicaciones.
+    Si se pasan pubs_actuales, las usa directamente y solo actualiza el campo indicado.
+    Si no, consulta ML (solo al buscar por primera vez).
+    """
+    import json as _json
+
+    estado_map = {
+        'active': 'Activa', 'paused': 'Pausada', 'closed': 'Cerrada',
+        'under_review': 'En revisión', 'inactive': 'Inactiva'
+    }
+
+    # Si tenemos datos actuales del form, usarlos sin llamar a ML
+    if pubs_actuales:
+        try:
+            if isinstance(pubs_actuales, str):
+                pubs_lista = _json.loads(pubs_actuales)
+            else:
+                pubs_lista = pubs_actuales
+            # Aplicar el cambio puntual si se indicó
+            if actualizar_mla and campo:
+                for pub in pubs_lista:
+                    if pub.get('mla') == actualizar_mla:
+                        pub[campo] = valor
+            return pubs_lista
+        except:
+            pass  # Si falla el parse, caer al batch
+
+    # Sin datos actuales: consultar ML (solo pasa al buscar por primera vez)
     publicaciones = query_db(
         "SELECT mla_id, titulo_ml, activo FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE",
         (sku,)
     )
     pubs_lista = []
-    estado_map = {
-        'active': 'Activa', 'paused': 'Pausada', 'closed': 'Cerrada',
-        'under_review': 'En revisión', 'inactive': 'Inactiva'
-    }
     if access_token and publicaciones:
         mla_ids = [row['mla_id'] for row in publicaciones]
         datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
@@ -6909,7 +6954,9 @@ def bajar_stock_mla_cero():
 
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku,
-                           publicaciones=_recargar_publicaciones(sku, access_token),
+                           publicaciones=_recargar_publicaciones(sku, access_token,
+                               pubs_actuales=request.form.get('pubs_json'),
+                               actualizar_mla=mla, campo='stock_actual', valor=0),
                            es_sku_con_z=sku.endswith('Z'))
 
 
@@ -6949,7 +6996,7 @@ def bajar_stock_cero_masivo():
 
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku,
-                           publicaciones=_recargar_publicaciones(sku, access_token),
+                           publicaciones=_recargar_publicaciones(sku, access_token, pubs_actuales=request.form.get('pubs_json')),
                            es_sku_con_z=sku.endswith('Z'))
 
 
@@ -6989,7 +7036,7 @@ def cargar_demora_mla():
 
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku,
-                           publicaciones=_recargar_publicaciones(sku, access_token),
+                           publicaciones=_recargar_publicaciones(sku, access_token, pubs_actuales=request.form.get('pubs_json')),
                            es_sku_con_z=sku.endswith('Z'))
 
 
@@ -7035,7 +7082,7 @@ def cargar_demora_masivo():
 
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku,
-                           publicaciones=_recargar_publicaciones(sku, access_token),
+                           publicaciones=_recargar_publicaciones(sku, access_token, pubs_actuales=request.form.get('pubs_json')),
                            es_sku_con_z=sku.endswith('Z'))
 
 
