@@ -511,11 +511,10 @@ function confirmarActualizarTodosPrecios(sku) {
         return;
     }
 
-    const resumen = precios.map(p => `${p.mla}: $${Number(p.precio).toLocaleString('es-AR')}`).join('
-');
-    if (confirm(`¿Actualizar los siguientes precios?
+    const resumen = precios.map(p => `${p.mla}: $${Number(p.precio).toLocaleString('es-AR')}`).join('\n');
+        if (confirm(`¿Actualizar los siguientes precios?\n\n${resumen}`)) {
 
-${resumen}`)) {
+
         // Serializar como JSON para enviar al servidor
         const form = document.createElement('form');
         form.method = 'POST';
