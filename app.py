@@ -6465,6 +6465,33 @@ def cargar_stock_ml():
 # RUTA BUSCAR SKU - ACTUALIZADA CON STATUS REAL DE ML
 # ============================================================================
 
+
+def ml_request(method, url, access_token, json_data=None, params=None, max_retries=3):
+    """
+    Helper para requests a ML con retry automático en caso de 429.
+    method: 'get' o 'put'
+    Espera 10s si recibe 429, reintenta hasta max_retries veces.
+    """
+    headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
+    for attempt in range(max_retries):
+        try:
+            if method == 'get':
+                r = requests.get(url, headers=headers, params=params)
+            else:
+                r = requests.put(url, headers=headers, json=json_data)
+            
+            if r.status_code == 429:
+                if attempt < max_retries - 1:
+                    time.sleep(10)
+                    continue
+            return r
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(5)
+                continue
+            raise
+    return r
+
 def obtener_datos_ml_batch(mla_ids, access_token):
     """
     Consulta datos de múltiples publicaciones ML en UNA sola llamada (batch).
@@ -6675,7 +6702,7 @@ def cambiar_precio_mla():
     headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
     payload = {'price': precio_float}
 
-    r = req.put(f'https://api.mercadolibre.com/items/{mla}', headers=headers, json=payload)
+    r = ml_request('put', f'https://api.mercadolibre.com/items/{mla}', access_token, json_data=payload)
 
     if r.status_code == 200:
         flash(f'✅ Precio actualizado a ${precio_float:,.0f} en {mla}', 'success')
@@ -6730,7 +6757,7 @@ def cambiar_precio_masivo():
 
     exitos, errores = 0, []
     for row in mlas:
-        r = req.put(f'https://api.mercadolibre.com/items/{row["mla_id"]}', headers=headers, json=payload)
+        r = ml_request('put', f'https://api.mercadolibre.com/items/{row["mla_id"]}', access_token, json_data=payload)
         if r.status_code == 200:
             exitos += 1
         else:
@@ -6786,11 +6813,7 @@ def cambiar_precios_individuales():
             errores.append(f'{mla}: precio inválido')
             continue
 
-        r = req.put(
-            f'https://api.mercadolibre.com/items/{mla}',
-            headers=headers,
-            json={'price': precio_float}
-        )
+        r = ml_request('put', f'https://api.mercadolibre.com/items/{mla}', access_token, json_data={'price': precio_float})
         if r.status_code == 200:
             exitos += 1
         else:
@@ -6953,7 +6976,7 @@ def cargar_demora_mla():
     headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
     payload = {"sale_terms": [{"id": "MANUFACTURING_TIME", "value_name": f"{dias} días"}]}
 
-    r = req.put(f'https://api.mercadolibre.com/items/{mla}', headers=headers, json=payload)
+    r = ml_request('put', f'https://api.mercadolibre.com/items/{mla}', access_token, json_data=payload)
 
     if r.status_code == 200:
         flash(f'✅ Demora de {dias} días cargada en {mla}', 'success')
@@ -6998,7 +7021,7 @@ def cargar_demora_masivo():
 
     exitos, errores = 0, []
     for row in mlas:
-        r = req.put(f'https://api.mercadolibre.com/items/{row["mla_id"]}', headers=headers, json=payload)
+        r = ml_request('put', f'https://api.mercadolibre.com/items/{row["mla_id"]}', access_token, json_data=payload)
         if r.status_code == 200:
             exitos += 1
         else:
@@ -7691,7 +7714,7 @@ def auditoria_activar_publicaciones():
             headers = {'Authorization': f'Bearer {access_token}'}
             data = {'status': 'active'}
             
-            response = requests.put(url, headers=headers, json=data)
+            response = ml_request('put', url, access_token, json_data=data)
             
             if response.status_code == 200:
                 exitos += 1
