@@ -6640,6 +6640,7 @@ def cambiar_precio_masivo():
             exitos += 1
         else:
             errores.append(f'{row["mla_id"]}: {r.status_code}')
+        time.sleep(0.3)
 
     if exitos:
         flash(f'✅ Precio actualizado a ${precio_float:,.0f} en {exitos} publicación{"es" if exitos > 1 else ""}', 'success')
@@ -6699,6 +6700,7 @@ def cambiar_precios_individuales():
             exitos += 1
         else:
             errores.append(f'{mla}: error {r.status_code}')
+        time.sleep(0.3)
 
     if exitos:
         flash(f'✅ {exitos} precio{"s" if exitos > 1 else ""} actualizado{"s" if exitos > 1 else ""} correctamente', 'success')
@@ -6814,6 +6816,7 @@ def bajar_stock_cero_masivo():
             exitos += 1
         else:
             errores.append(msg)
+        time.sleep(0.3)
 
     if exitos:
         flash(f'✅ Stock bajado a 0 en {exitos} publicación{"es" if exitos > 1 else ""}', 'success')
@@ -6899,6 +6902,7 @@ def cargar_demora_masivo():
             exitos += 1
         else:
             errores.append(f'{row["mla_id"]}: {r.status_code}')
+        time.sleep(0.3)
 
     if exitos:
         flash(f'✅ {dias} días de demora cargados en {exitos} publicación{"es" if exitos > 1 else ""}', 'success')
@@ -7079,6 +7083,7 @@ def quitar_demora_masivo():
         else:
             errores += 1
             mensajes_error.append(message)
+        time.sleep(0.3)
 
     if exitos > 0:
         flash(f'✅ Demora eliminada en {exitos} publicación{"es" if exitos > 1 else ""}', 'success')
@@ -7263,6 +7268,7 @@ def cargar_stock_masivo():
             else:
                 errores += 1
                 mensajes_error.append(f"{mla}: {message}")
+            time.sleep(0.3)
         
         if exitos > 0:
             flash(f'✅ Stock cargado en {exitos} publicaciones: {stock_nuevo} unidades', 'success')
@@ -7590,6 +7596,7 @@ def auditoria_activar_publicaciones():
                 exitos += 1
             else:
                 errores.append(f'{mla}: {response.status_code}')
+            time.sleep(0.3)
         except Exception as e:
             errores.append(f'{mla}: {str(e)}')
     
@@ -7627,6 +7634,7 @@ def auditoria_cargar_stock():
                 exitos += 1
             else:
                 errores.append(f'{mla}: {message}')
+            time.sleep(0.3)
         except Exception as e:
             errores.append(f'{item}: {str(e)}')
     
@@ -7657,6 +7665,7 @@ def auditoria_reducir_demora():
                 exitos += 1
             else:
                 errores.append(f'{mla}: {message}')
+            time.sleep(0.3)
         except Exception as e:
             errores.append(f'{mla}: {str(e)}')
     
