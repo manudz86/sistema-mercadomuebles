@@ -477,7 +477,6 @@ function getPubsJson() {
         const mla = mlaLink.textContent.replace(/\s+/g, '').split('\n')[0].trim();
         const stockEl = row.querySelector('td:nth-child(3) strong');
         const precioInput = row.querySelector('input[id^="precio_"]');
-        // Recolectar datos del data attribute si existe
         const pub = {
             mla: mla,
             titulo: row.querySelector('td:nth-child(2)')?.textContent?.trim() || '',
@@ -498,7 +497,6 @@ function submitForm(action, fields) {
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = action;
-    // Siempre incluir pubs_json
     const pubsInp = document.createElement('input');
     pubsInp.type = 'hidden'; pubsInp.name = 'pubs_json'; pubsInp.value = getPubsJson();
     form.appendChild(pubsInp);
@@ -531,7 +529,6 @@ function confirmarCambiarPrecioMasivo(sku) {
 
 // ── Actualizar todos los precios individuales ──────────────────────
 function confirmarActualizarTodosPrecios(sku) {
-    // Recolectar todos los inputs de precio
     const inputs = document.querySelectorAll('input[id^="precio_MLA"]');
     const precios = [];
     inputs.forEach(input => {
@@ -547,12 +544,8 @@ function confirmarActualizarTodosPrecios(sku) {
         return;
     }
 
-    const resumen = precios.map(p => `${p.mla}: $${Number(p.precio).toLocaleString('es-AR')}`).join('
-');
-    if (confirm(`¿Actualizar los siguientes precios?
-
-${resumen}`)) {
-        // Serializar como JSON para enviar al servidor
+    const resumen = precios.map(p => `${p.mla}: $${Number(p.precio).toLocaleString('es-AR')}`).join('\n');
+    if (confirm(`¿Actualizar los siguientes precios?\n\n${resumen}`)) {
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = '{{ url_for("cambiar_precios_individuales") }}';
@@ -573,6 +566,7 @@ ${resumen}`)) {
         form.submit();
     }
 }
+
 // Poblar campos pubs_json en forms normales antes de submit
 document.addEventListener('submit', function(e) {
     const form = e.target;
