@@ -8347,21 +8347,51 @@ def debug_mla():
     }
 
 
-@app.route('/admin/crear-tabla-config')
+@app.route('/ml/callback')
 @login_required
-@admin_required
-def crear_tabla_config():
+def ml_callback():
+    """Recibe el code de ML y lo canjea automáticamente por el token"""
+    code = request.args.get('code', '').strip()
+    if not code:
+        flash('❌ No se recibió el code de MercadoLibre', 'error')
+        return redirect(url_for('ml_configurar_token'))
+    
+    CLIENT_ID = os.getenv('ML_APP_ID')
+    CLIENT_SECRET = os.getenv('ML_SECRET_KEY')
+    REDIRECT_URI = os.getenv('ML_REDIRECT_URI')
+    
     try:
-        execute_db("""
-            CREATE TABLE IF NOT EXISTS configuracion (
-                clave VARCHAR(100) PRIMARY KEY,
-                valor TEXT,
-                actualizado_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            )
-        """)
-        return "✅ Tabla 'configuracion' creada correctamente"
+        response = requests.post(
+            "https://api.mercadolibre.com/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": REDIRECT_URI
+            }
+        )
+        if response.status_code == 200:
+            data = response.json()
+            token_data = {
+                "access_token": data.get("access_token"),
+                "refresh_token": data.get("refresh_token"),
+                "expires_at": time.time() + data.get("expires_in", 21600) - 300,
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET
+            }
+            if guardar_ml_token(token_data):
+                flash('✅ Token configurado con auto-renovación activada', 'success')
+                return redirect(url_for('ventas_activas'))
+            else:
+                flash('❌ Error al guardar el token', 'error')
+        else:
+            error_msg = response.json().get('message', 'Error desconocido')
+            flash(f'❌ Error al canjear el code: {error_msg}', 'error')
     except Exception as e:
-        return f"❌ Error: {str(e)}"
+        flash(f'❌ Error: {str(e)}', 'error')
+    
+    return redirect(url_for('ml_configurar_token'))
 
 
 # ============================================================================
