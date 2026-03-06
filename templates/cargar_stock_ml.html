@@ -89,7 +89,7 @@
                         {% for pub in publicaciones %}
                         <tr>
                             <td class="text-center">
-                                <a href="https://articulo.mercadolibre.com.ar/{{ pub.mla | replace('MLA', 'MLA-') }}" 
+                                <a href="https://articulo.mercadolibre.com.ar/{{ pub.mla }}" 
                                    target="_blank" 
                                    class="text-decoration-none">
                                     {{ pub.mla }}
@@ -307,6 +307,13 @@
                             </button>
                         </div>
                     </div>
+                    <div class="col-md-4">
+                        <label class="form-label small mb-1">Actualizar precios individuales:</label>
+                        <button type="button" class="btn btn-success w-100"
+                                onclick="confirmarActualizarTodosPrecios('{{ sku_buscado }}')">
+                            <i class="bi bi-tags"></i> Actualizar Todos los Precios
+                        </button>
+                    </div>
                 </div>
                 
                 <!-- ACCIONES MASIVAS PARA SKU SIN Z -->
@@ -348,6 +355,13 @@
                                 <i class="bi bi-tag"></i> Cambiar
                             </button>
                         </div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Actualizar precios individuales:</label>
+                        <button type="button" class="btn btn-success btn-lg w-100"
+                                onclick="confirmarActualizarTodosPrecios('{{ sku_buscado }}')">
+                            <i class="bi bi-tags"></i> Actualizar Todos los Precios
+                        </button>
                     </div>
                 </div>
                 {% endif %}
@@ -476,6 +490,51 @@ function confirmarCambiarPrecioMasivo(sku) {
     if (!precio || precio <= 0) { alert('Ingresá un precio válido'); return; }
     if (confirm(`¿Cambiar precio a $${Number(precio).toLocaleString('es-AR')} en todas las publicaciones?`)) {
         submitForm('{{ url_for("cambiar_precio_masivo") }}', { sku, precio });
+    }
+}
+
+// ── Actualizar todos los precios individuales ──────────────────────
+function confirmarActualizarTodosPrecios(sku) {
+    // Recolectar todos los inputs de precio
+    const inputs = document.querySelectorAll('input[id^="precio_MLA"]');
+    const precios = [];
+    inputs.forEach(input => {
+        const mla = input.id.replace('precio_', '');
+        const precio = input.value;
+        if (precio && precio > 0) {
+            precios.push({ mla, precio });
+        }
+    });
+
+    if (precios.length === 0) {
+        alert('No hay precios cargados en ninguna fila');
+        return;
+    }
+
+    const resumen = precios.map(p => `${p.mla}: $${Number(p.precio).toLocaleString('es-AR')}`).join('
+');
+    if (confirm(`¿Actualizar los siguientes precios?
+
+${resumen}`)) {
+        // Serializar como JSON para enviar al servidor
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("cambiar_precios_individuales") }}';
+
+        const skuInput = document.createElement('input');
+        skuInput.type = 'hidden';
+        skuInput.name = 'sku';
+        skuInput.value = sku;
+        form.appendChild(skuInput);
+
+        const preciosInput = document.createElement('input');
+        preciosInput.type = 'hidden';
+        preciosInput.name = 'precios_json';
+        preciosInput.value = JSON.stringify(precios);
+        form.appendChild(preciosInput);
+
+        document.body.appendChild(form);
+        form.submit();
     }
 }
 </script>
