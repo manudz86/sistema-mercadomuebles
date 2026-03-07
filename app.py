@@ -171,6 +171,9 @@ def index():
     
     return render_template('dashboard.html', stats=stats, stock_critico=stock_critico, now=datetime.now)
 
+
+
+
 # ============================================================================
 # FUNCIONES AUXILIARES: VERIFICACIÓN DE STOCK
 # Agregar ANTES de las rutas de /ventas/activas en app.py
@@ -299,6 +302,46 @@ def obtener_stock_disponible(cursor, sku, tipo, ubicacion_despacho):
         cursor.execute('SELECT stock_actual FROM productos_base WHERE sku = %s', (sku,))
         prod = cursor.fetchone()
         return prod['stock_actual'] if prod else 0
+
+
+
+# Porcentajes ML por defecto
+PORCENTAJES_ML_DEFAULT = {
+    'cuota_simple':  5.00,
+    'cuotas_3':      9.40,
+    'cuotas_6':     15.10,
+    'cuotas_9':     20.70,
+    'cuotas_12':    25.90,
+}
+
+@app.route('/configuracion/porcentajes-ml', methods=['GET'])
+@login_required
+def get_porcentajes_ml():
+    """Retorna los porcentajes de ML guardados en DB"""
+    try:
+        row = query_one("SELECT valor FROM configuracion WHERE clave = 'porcentajes_ml'")
+        if row:
+            return jsonify({'ok': True, 'porcentajes': json.loads(row['valor'])})
+        return jsonify({'ok': True, 'porcentajes': PORCENTAJES_ML_DEFAULT})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+@app.route('/configuracion/porcentajes-ml', methods=['POST'])
+@login_required
+def guardar_porcentajes_ml():
+    """Guarda los porcentajes de ML en DB"""
+    try:
+        data = request.get_json()
+        porcentajes = data.get('porcentajes', {})
+        valor = json.dumps(porcentajes)
+        execute_db(
+            "INSERT INTO configuracion (clave, valor) VALUES ('porcentajes_ml', %s) "
+            "ON DUPLICATE KEY UPDATE valor = %s, actualizado_at = NOW()",
+            (valor, valor)
+        )
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 # ============================================================================
 # FUNCIÓN CORREGIDA: EXCLUIR VENTA ACTUAL
@@ -6426,13 +6469,19 @@ def obtener_datos_ml(mla_id, access_token):
 @login_required
 def cargar_stock_ml():
     """Mostrar página para cargar stock en ML"""
-    return render_template('cargar_stock_ml.html',
-                         sku_buscado=None,
-                         publicaciones=[],
-                         es_sku_con_z=False,
-                         mensaje=None,
-                         mensaje_tipo=None)
+    try:
+        row = query_one("SELECT valor FROM configuracion WHERE clave = 'porcentajes_ml'")
+        porcentajes = json.loads(row['valor']) if row else PORCENTAJES_ML_DEFAULT
+    except:
+        porcentajes = PORCENTAJES_ML_DEFAULT
 
+    return render_template('cargar_stock_ml.html',
+                           sku_buscado=None,
+                           publicaciones=[],
+                           es_sku_con_z=False,
+                           mensaje=None,
+                           mensaje_tipo=None,
+                           porcentajes=porcentajes)
 
 # ============================================================================
 # RUTA BUSCAR SKU - ACTUALIZADA CON STATUS REAL DE ML
@@ -6568,17 +6617,21 @@ def buscar_sku_ml():
 
     access_token = cargar_ml_token()
 
+    # Cargar porcentajes
+    try:
+        row = query_one("SELECT valor FROM configuracion WHERE clave = 'porcentajes_ml'")
+        porcentajes = json.loads(row['valor']) if row else PORCENTAJES_ML_DEFAULT
+    except:
+        porcentajes = PORCENTAJES_ML_DEFAULT
+
     if not access_token:
         flash('❌ No hay token de ML configurado', 'warning')
         return render_template('cargar_stock_ml.html',
                                sku_buscado=sku_buscado,
                                publicaciones=[],
-                               es_sku_con_z=sku_buscado.endswith('Z'))
+                               es_sku_con_z=sku_buscado.endswith('Z'),
+                               porcentajes=porcentajes)
 
-    import requests as req
-    headers = {'Authorization': f'Bearer {access_token}'}
-
-    # Detectar si es un MLA (con o sin prefijo)
     mla_directo = None
     if sku_buscado.startswith('MLA'):
         mla_directo = sku_buscado
@@ -6586,23 +6639,20 @@ def buscar_sku_ml():
         mla_directo = f'MLA{sku_buscado}'
 
     if mla_directo:
-        # Buscar directo por MLA
         mla_ids = [mla_directo]
-        es_sku_con_z = False  # no sabemos, asumimos sin Z
+        es_sku_con_z = False
     else:
-        # Buscar por SKU en ML
         es_sku_con_z = sku_buscado.endswith('Z')
-        r = req.get(
+        r = ml_request('get',
             f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/items/search',
-            headers=headers,
-            params={'seller_sku': sku_buscado}
-        )
+            access_token, params={'seller_sku': sku_buscado})
         if r.status_code != 200:
             flash(f'❌ Error consultando ML: {r.status_code}', 'danger')
             return render_template('cargar_stock_ml.html',
                                    sku_buscado=sku_buscado,
                                    publicaciones=[],
-                                   es_sku_con_z=es_sku_con_z)
+                                   es_sku_con_z=es_sku_con_z,
+                                   porcentajes=porcentajes)
         mla_ids = r.json().get('results', [])
 
     if not mla_ids:
@@ -6610,14 +6660,24 @@ def buscar_sku_ml():
         return render_template('cargar_stock_ml.html',
                                sku_buscado=sku_buscado,
                                publicaciones=[],
-                               es_sku_con_z=es_sku_con_z)
+                               es_sku_con_z=es_sku_con_z,
+                               porcentajes=porcentajes)
 
     estado_map = {
         'active': 'Activa', 'paused': 'Pausada', 'closed': 'Cerrada',
         'under_review': 'En revisión', 'inactive': 'Inactiva'
     }
 
-    # Usar batch para traer todos los MLAs en UNA sola llamada
+    # Orden de tipos de publicación
+    ORDEN_TIPOS = {
+        'Sin cuotas propias': 0,
+        'Cuota Simple':       1,
+        '3 cuotas s/interés': 2,
+        '6 cuotas s/interés': 3,
+        '9 cuotas s/interés': 4,
+        '12 cuotas s/interés': 5,
+    }
+
     datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
     publicaciones = []
     for mla_id in mla_ids:
@@ -6637,13 +6697,16 @@ def buscar_sku_ml():
             'status_raw':   status_ml
         })
 
+    # Ordenar por tipo de publicación
+    publicaciones.sort(key=lambda p: ORDEN_TIPOS.get(p.get('listing_type', ''), 99))
+
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku_buscado,
                            publicaciones=publicaciones,
                            es_sku_con_z=es_sku_con_z,
                            mensaje=None,
-                           mensaje_tipo=None)
-
+                           mensaje_tipo=None,
+                           porcentajes=porcentajes)
 # ============================================================================
 # 4. RUTA: Cambiar precio — INDIVIDUAL
 # ============================================================================
