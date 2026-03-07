@@ -5140,12 +5140,12 @@ def obtener_shipping_completo(shipping_id, access_token):
             print(f"✅ MAPEADO A: Flex")
         
         elif logistic_type == 'xd_drop_off':
-            shipping_data['metodo_envio'] = 'Mercadoenvios'
-            print(f"✅ MAPEADO A: Mercadoenvios")
+            shipping_data['metodo_envio'] = 'Colecta'
+            print(f"✅ MAPEADO A: Colecta")
         
         elif logistic_type == 'cross_docking':
-            shipping_data['metodo_envio'] = 'Mercadoenvios'
-            print(f"✅ MAPEADO A: Flex")
+            shipping_data['metodo_envio'] = 'Colecta'
+            print(f"✅ MAPEADO A: Colecta")
         
         elif logistic_type == 'default':
             # Default depende de la zona (Flete propio o Zippin)
@@ -5154,12 +5154,12 @@ def obtener_shipping_completo(shipping_id, access_token):
             print(f"⚠️ MAPEADO A: Flete Propio (default - ajustar según zona)")
         
         elif 'mercadoenvios' in str(shipping_mode).lower():
-            shipping_data['metodo_envio'] = 'Mercadoenvios'
-            print(f"✅ MAPEADO A: Mercadoenvios")
+            shipping_data['metodo_envio'] = 'Colecta'
+            print(f"✅ MAPEADO A: Colecta")
         
         else:
-            shipping_data['metodo_envio'] = 'Mercadoenvios'
-            print(f"⚠️ MAPEADO A: Mercadoenvios (default)")
+            shipping_data['metodo_envio'] = 'Colecta'
+            print(f"⚠️ MAPEADO A: Colecta (default)")
         
         # Dirección
         receiver_address = shipment.get('receiver_address', {})

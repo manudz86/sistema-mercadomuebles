@@ -8,9 +8,19 @@ import json
 import requests  # pip install requests
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 from dotenv import load_dotenv
 import pymysql
 
+import threading
+
+_ml_rate_lock = threading.Lock()
+_ml_last_request = 0.0
+_ML_MIN_INTERVAL = 0.7  # ~1.4 requests/segundo máximo
+
+ML_SELLER_ID = 29563319
 
 # Cargar configuración
 load_dotenv('config/.env')
@@ -24,6 +34,38 @@ app.secret_key = os.getenv('SECRET_KEY', 'cambiar-en-produccion-123456')
 def zero_dash(value):
     """Convierte 0 en '-' para el dashboard visual"""
     return '-' if value == 0 or value is None else value
+
+# ============================================================================
+# FLASK-LOGIN SETUP
+# ============================================================================
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+login_manager.login_message = '⚠️ Debés iniciar sesión para acceder'
+login_manager.login_message_category = 'warning'
+
+class User(UserMixin):
+    def __init__(self, id, username, rol, activo):
+        self.id = id
+        self.username = username
+        self.rol = rol
+        self.activo = activo
+
+@login_manager.user_loader
+def load_user(user_id):
+    row = query_one('SELECT * FROM usuarios WHERE id = %s AND activo = TRUE', (user_id,))
+    if row:
+        return User(row['id'], row['username'], row['rol'], row['activo'])
+    return None
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated or current_user.rol != 'admin':
+            flash('❌ No tenés permisos para realizar esta acción', 'danger')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated
 
 # Configuración de base de datos
 DB_CONFIG = {
@@ -74,7 +116,35 @@ def execute_db(query, params=None):
 # RUTAS - PÁGINAS
 # ============================================================================
 
+# ============================================================================
+# RUTAS DE LOGIN / LOGOUT
+# ============================================================================
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        user_row = query_one('SELECT * FROM usuarios WHERE username = %s AND activo = TRUE', (username,))
+        if user_row and check_password_hash(user_row['password_hash'], password):
+            user = User(user_row['id'], user_row['username'], user_row['rol'], user_row['activo'])
+            login_user(user, remember=True)
+            next_page = request.args.get('next')
+            return redirect(next_page or url_for('index'))
+        flash('❌ Usuario o contraseña incorrectos', 'danger')
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('✅ Sesión cerrada', 'success')
+    return redirect(url_for('login'))
+
+
 @app.route('/')
+@login_required
 def index():
     """Dashboard principal"""
     stats = {'ventas_activas': 0, 'ventas_en_proceso': 0, 'alertas_pendientes': 0}
@@ -456,6 +526,7 @@ def detectar_alertas_stock_bajo(cursor, items_vendidos, venta_id_actual=None):
 
 
 @app.route('/ventas/activas')
+@login_required
 def ventas_activas():
     """Lista de ventas activas con filtros de búsqueda"""
     try:
@@ -569,6 +640,7 @@ metodo_pago, importe_total, importe_abonado,
         return redirect(url_for('index'))
 
 @app.route('/ventas/activas/<int:venta_id>/proceso', methods=['POST'])
+@login_required
 def pasar_a_proceso(venta_id):
     """Pasar venta a proceso de envío (descuenta stock con verificación)"""
     conn = get_db_connection()
@@ -642,6 +714,7 @@ def pasar_a_proceso(venta_id):
 
 
 @app.route('/ventas/activas/<int:venta_id>/entregada', methods=['POST'])
+@login_required
 def marcar_entregada(venta_id):
     """Marcar venta como entregada (descuenta stock si no se descontó, con verificación)"""
     conn = get_db_connection()
@@ -715,6 +788,7 @@ def marcar_entregada(venta_id):
 
 
 @app.route('/ventas/activas/<int:venta_id>/cancelar', methods=['POST'])
+@login_required
 def cancelar_venta(venta_id):
     """Cancelar venta (NO descuenta stock)"""
     conn = get_db_connection()
@@ -750,6 +824,7 @@ def cancelar_venta(venta_id):
     return redirect(url_for('ventas_activas'))
 
 @app.route('/ventas/activas/<int:venta_id>/eliminar', methods=['POST'])
+@login_required
 def eliminar_venta(venta_id):
     """
     Eliminar venta completamente de la base de datos
@@ -798,6 +873,7 @@ def eliminar_venta(venta_id):
 # ============================================================================
 
 @app.route('/ventas/activas/pasar-proceso-multiple', methods=['POST'])
+@login_required
 def pasar_a_proceso_multiple():
     """
     Pasar múltiples ventas a proceso de envío
@@ -898,6 +974,7 @@ def pasar_a_proceso_multiple():
 
 
 @app.route('/ventas/activas/marcar-entregadas-multiple', methods=['POST'])
+@login_required
 def marcar_entregadas_multiple():
     """
     Marcar múltiples ventas como entregadas
@@ -999,6 +1076,7 @@ def marcar_entregadas_multiple():
 
 
 @app.route('/ventas/activas/cancelar-multiple', methods=['POST'])
+@login_required
 def cancelar_ventas_multiple():
     """
     Cancelar múltiples ventas
@@ -1074,6 +1152,7 @@ def cancelar_ventas_multiple():
 # ============================================================================
 
 @app.route('/ventas/proceso')
+@login_required
 def ventas_proceso():
     """Lista de ventas en proceso de envío con filtros"""
     try:
@@ -1188,6 +1267,7 @@ metodo_pago, importe_total, importe_abonado,
 
 
 @app.route('/ventas/proceso/<int:venta_id>/volver_activas', methods=['POST'])
+@login_required
 def proceso_volver_activas(venta_id):
     """Volver venta de proceso a activas (devuelve stock)"""
     conn = get_db_connection()
@@ -1238,6 +1318,7 @@ def proceso_volver_activas(venta_id):
 
 
 @app.route('/ventas/proceso/<int:venta_id>/entregada', methods=['POST'])
+@login_required
 def proceso_marcar_entregada(venta_id):
     """Marcar venta en proceso como entregada (stock ya descontado)"""
     conn = get_db_connection()
@@ -1281,6 +1362,7 @@ def proceso_marcar_entregada(venta_id):
 
 
 @app.route('/ventas/proceso/<int:venta_id>/cancelar', methods=['POST'])
+@login_required
 def proceso_cancelar_devolver(venta_id):
     """Cancelar venta en proceso y DEVOLVER stock descontado (con motivo opcional)"""
     conn = get_db_connection()
@@ -1356,6 +1438,7 @@ def proceso_cancelar_devolver(venta_id):
 # ============================================================================
 
 @app.route('/ventas/proceso/volver-activas-multiple', methods=['POST'])
+@login_required
 def proceso_volver_activas_multiple():
     """
     Volver múltiples ventas en proceso a activas
@@ -1435,6 +1518,7 @@ def proceso_volver_activas_multiple():
 
 
 @app.route('/ventas/proceso/marcar-entregadas-multiple', methods=['POST'])
+@login_required
 def proceso_marcar_entregadas_multiple():
     """
     Marcar múltiples ventas en proceso como entregadas
@@ -1507,6 +1591,7 @@ def proceso_marcar_entregadas_multiple():
 
 
 @app.route('/ventas/proceso/cancelar-multiple', methods=['POST'])
+@login_required
 def proceso_cancelar_multiple():
     """
     Cancelar múltiples ventas en proceso y DEVOLVER stock
@@ -1601,6 +1686,7 @@ def proceso_cancelar_multiple():
 
 
 @app.route('/ventas/editar/<int:venta_id>', methods=['GET', 'POST'])
+@login_required
 def editar_venta(venta_id):
     """Editar una venta activa"""
     
@@ -2129,6 +2215,7 @@ def pausar_publicacion_ml(mla_id, access_token):
 
 # ─── RUTA NUEVA: Sincronizar stock con ML desde alertas ───
 @app.route('/alertas/<int:alerta_id>/sincronizar-ml', methods=['POST'])
+@login_required
 def sincronizar_ml_desde_alerta(alerta_id):
     """
     Poner stock en 0 en las publicaciones NORMALES (sin Z)
@@ -2222,6 +2309,7 @@ def sincronizar_ml_desde_alerta(alerta_id):
 
 # ─── RUTA ACTUALIZADA: alertas_ml con info de publicaciones ───
 @app.route('/alertas')
+@login_required
 def alertas_ml():
     """Ver alertas de stock pendientes con info de publicaciones ML (normales y con Z)"""
     alertas = []
@@ -2263,6 +2351,7 @@ def alertas_ml():
 
 
 @app.route('/alertas/<int:alerta_id>/procesar', methods=['POST'])
+@login_required
 def marcar_alerta_procesada(alerta_id):
     """Marcar una alerta como procesada"""
     try:
@@ -2278,6 +2367,7 @@ def marcar_alerta_procesada(alerta_id):
 
 
 @app.route('/alertas/marcar-todas-procesadas', methods=['POST'])
+@login_required
 def marcar_todas_procesadas():
     """Marcar TODAS las alertas pendientes como procesadas"""
     try:
@@ -2291,6 +2381,7 @@ def marcar_todas_procesadas():
     return redirect(url_for('alertas_ml'))
 
 @app.route('/stock')
+@login_required
 def ver_stock():
     """Ver stock disponible con filtros - PRODUCTOS BASE + COMBOS"""
     productos = []
@@ -2497,6 +2588,7 @@ def ver_stock():
 
 
 @app.route('/ventas/historicas')
+@login_required
 def ventas_historicas():
     """Lista de ventas históricas (entregadas y canceladas) con filtros"""
     try:
@@ -2645,6 +2737,7 @@ metodo_pago, importe_total, importe_abonado,
         return redirect(url_for('index'))
 
 @app.route('/ventas/historicas/<int:venta_id>/volver_activas', methods=['POST'])
+@login_required
 def historicas_volver_activas(venta_id):
     """Volver venta histórica (entregada o cancelada) a ventas activas"""
     conn = get_db_connection()
@@ -2718,6 +2811,7 @@ def historicas_volver_activas(venta_id):
     return redirect(url_for('ventas_historicas'))
 
 @app.route('/ventas/historicas/volver-activas-multiple', methods=['POST'])
+@login_required
 def historicas_volver_activas_multiple():
     """
     Volver múltiples ventas históricas a ventas activas
@@ -2909,6 +3003,7 @@ def provincia_a_codigo(provincia_str):
 
 
 @app.route('/ventas/historicas/<int:venta_id>/generar-factura-excel')
+@login_required
 def generar_factura_excel(venta_id):
     from flask import make_response
     from datetime import datetime
@@ -3041,6 +3136,7 @@ def generar_factura_excel(venta_id):
 # ============================================================================
 
 @app.route('/ventas/historicas/facturar-multiple-excel')
+@login_required
 def facturar_multiple_excel():
     from flask import make_response
     from datetime import datetime
@@ -3222,6 +3318,7 @@ def facturar_multiple_excel():
 
 
 @app.route('/ventas/historicas/facturar-multiple')
+@login_required
 def facturar_multiple():
     """
     Generar UN SOLO archivo .txt con TODAS las ventas seleccionadas
@@ -3428,6 +3525,7 @@ def facturar_multiple():
 # ============================================================================
 
 @app.route('/api/productos')
+@login_required
 def api_productos():
     """API para el buscador de productos en templates"""
     from flask import jsonify
@@ -3459,6 +3557,7 @@ def api_productos():
     return jsonify(todos)
 
 @app.route('/cargar-stock', methods=['GET', 'POST'])
+@login_required
 def cargar_stock():
     """Formulario para cargar/agregar stock de productos"""
     from flask import jsonify
@@ -3541,6 +3640,7 @@ def cargar_stock():
     return render_template('cargar_stock.html', productos=productos)
 
 @app.route('/cargar-stock/guardar', methods=['POST'])
+@login_required
 def guardar_stock():
     """Agregar stock (SUMA al stock actual) y registrar movimientos"""
     conn = get_db_connection()
@@ -3598,6 +3698,7 @@ def guardar_stock():
 
 
 @app.route('/bajar-stock')
+@login_required
 def bajar_stock():
     """Formulario para dar de baja stock"""
     productos = []
@@ -3622,6 +3723,7 @@ def bajar_stock():
 
 
 @app.route('/bajar-stock/guardar', methods=['POST'])
+@login_required
 def bajar_stock_guardar():
     """Guardar bajas de stock y registrar movimientos"""
     conn = get_db_connection()
@@ -3676,6 +3778,7 @@ def bajar_stock_guardar():
 
 
 @app.route('/historial-stock')
+@login_required
 def historial_stock():
     """Ver historial de movimientos de stock"""
     from datetime import datetime, timedelta
@@ -3751,6 +3854,7 @@ def historial_stock():
 
 
 @app.route('/transferir-stock')
+@login_required
 def transferir_stock():
     """Formulario para transferir stock de Depósito a Full (Compac y Almohadas)"""
     productos_compac = []
@@ -3785,6 +3889,7 @@ def transferir_stock():
 
 
 @app.route('/transferir-stock/guardar', methods=['POST'])
+@login_required
 def transferir_stock_guardar():
     """Procesar transferencia de stock de Depósito a Full (Compac y Almohadas)"""
     conn = get_db_connection()
@@ -3936,6 +4041,7 @@ def decimal_to_float(obj):
 # ============================================================================
 
 @app.route('/nueva-venta')
+@login_required
 def nueva_venta():
     """Formulario para registrar venta con stock disponible y ubicaciones"""
     from datetime import date
@@ -4138,6 +4244,7 @@ def nueva_venta():
 
 
 @app.route('/nueva-venta/guardar', methods=['POST'])
+@login_required
 def guardar_venta():
     """Guardar venta SIN descontar stock (solo registra la venta)"""
     conn = get_db_connection()
@@ -4406,6 +4513,7 @@ def guardar_venta():
 # ============================================================================
 
 @app.route('/dashboard-visual')
+@login_required
 def dashboard_visual():
     """Dashboard visual - Stock Físico y Ventas Activas con lógica de bases grandes"""
     
@@ -4593,12 +4701,14 @@ def dashboard_visual():
 # ============================================================================
 
 @app.route('/configuracion/resetear')
+@login_required
 def resetear_sistema():
     """Página para resetear el sistema (requiere contraseña)"""
     return render_template('resetear_sistema.html')
 
 
 @app.route('/configuracion/resetear/ejecutar', methods=['POST'])
+@login_required
 def ejecutar_reseteo():
     """Ejecutar reseteo completo del sistema"""
     from flask import jsonify
@@ -4690,28 +4800,22 @@ def ejecutar_reseteo():
 import time  # Agregar este import si no lo tenés
 
 def refresh_ml_token():
-    """
-    Renovar el access_token usando el refresh_token
-    Retorna el nuevo access_token o None si falla
-    """
+    """Renovar el access_token usando el refresh_token guardado en DB"""
     try:
-        token_path = 'config/ml_token.json'
-        if not os.path.exists(token_path):
+        row = query_one("SELECT valor FROM configuracion WHERE clave = 'ml_token'")
+        if not row:
             return None
-        
-        with open(token_path, 'r') as f:
-            data = json.load(f)
-        
+        data = json.loads(row['valor'])
+
         refresh_token = data.get('refresh_token')
         client_id = data.get('client_id')
         client_secret = data.get('client_secret')
-        
+
         if not refresh_token or not client_id or not client_secret:
             print("⚠️  No hay refresh_token o credenciales guardadas")
             return None
-        
+
         print("🔄 Renovando access_token de ML...")
-        
         response = requests.post(
             "https://api.mercadolibre.com/oauth/token",
             data={
@@ -4721,90 +4825,67 @@ def refresh_ml_token():
                 "refresh_token": refresh_token
             }
         )
-        
+
         if response.status_code == 200:
             new_data = response.json()
-            
-            # Actualizar datos guardados
             data['access_token'] = new_data.get('access_token')
-            data['refresh_token'] = new_data.get('refresh_token', refresh_token)  # ML puede dar uno nuevo
+            data['refresh_token'] = new_data.get('refresh_token', refresh_token)
             data['expires_at'] = time.time() + new_data.get('expires_in', 21600) - 300
-            
-            with open(token_path, 'w') as f:
-                json.dump(data, f, indent=4)
-            
-            print(f"✅ Token renovado automáticamente!")
+            execute_db(
+                "INSERT INTO configuracion (clave, valor) VALUES ('ml_token', %s) "
+                "ON DUPLICATE KEY UPDATE valor = %s, actualizado_at = NOW()",
+                (json.dumps(data), json.dumps(data))
+            )
+            print("✅ Token renovado automáticamente!")
             return data['access_token']
         else:
             print(f"❌ Error renovando token: {response.status_code} - {response.json()}")
             return None
-    
     except Exception as e:
         print(f"Error en refresh_ml_token: {e}")
         return None
 
-
 def cargar_ml_token():
-    """
-    Cargar ACCESS_TOKEN desde config/ml_token.json
-    Si está vencido, lo renueva automáticamente con el refresh_token
-    """
+    """Cargar token ML desde la base de datos. Si está vencido, lo renueva."""
     try:
-        token_path = 'config/ml_token.json'
-        if not os.path.exists(token_path):
+        row = query_one("SELECT valor FROM configuracion WHERE clave = 'ml_token'")
+        if not row:
             return None
-        
-        with open(token_path, 'r') as f:
-            data = json.load(f)
-        
+        data = json.loads(row['valor'])
         access_token = data.get('access_token')
         expires_at = data.get('expires_at', 0)
-        
-        # Verificar si el token está vencido
         if expires_at and time.time() > expires_at:
             print("⚠️  Token ML vencido, renovando automáticamente...")
             access_token = refresh_ml_token()
-        
         return access_token
-    
     except Exception as e:
         print(f"Error cargando token ML: {e}")
         return None
 
 
 def guardar_ml_token(token_data):
-    """
-    Guardar datos del token en config/ml_token.json
-    Mantiene el refresh_token si ya existía
-    """
+    """Guardar token ML en la base de datos (persiste en Railway)"""
     try:
-        os.makedirs('config', exist_ok=True)
-        
-        token_path = 'config/ml_token.json'
-        
-        # Si ya hay un archivo, preservar refresh_token y credenciales
-        if os.path.exists(token_path):
-            with open(token_path, 'r') as f:
-                existing = json.load(f)
-            
-            # Preservar datos existentes que no vengan en el nuevo token_data
+        # Preservar refresh_token y credenciales si ya existen en DB
+        existing_json = query_one("SELECT valor FROM configuracion WHERE clave = 'ml_token'")
+        if existing_json:
+            existing = json.loads(existing_json['valor'])
             if 'refresh_token' not in token_data and 'refresh_token' in existing:
                 token_data['refresh_token'] = existing['refresh_token']
             if 'client_id' not in token_data and 'client_id' in existing:
                 token_data['client_id'] = existing['client_id']
             if 'client_secret' not in token_data and 'client_secret' in existing:
                 token_data['client_secret'] = existing['client_secret']
-        
-        # Si se guarda solo el access_token manual, no ponemos expires_at
-        # para que no intente auto-refresh sin refresh_token
+
         if 'refresh_token' not in token_data:
             token_data.pop('expires_at', None)
-        
-        with open(token_path, 'w') as f:
-            json.dump(token_data, f, indent=4)
-        
+
+        execute_db(
+            "INSERT INTO configuracion (clave, valor) VALUES ('ml_token', %s) "
+            "ON DUPLICATE KEY UPDATE valor = %s, actualizado_at = NOW()",
+            (json.dumps(token_data), json.dumps(token_data))
+        )
         return True
-    
     except Exception as e:
         print(f"Error guardando token ML: {e}")
         return False
@@ -5266,6 +5347,7 @@ def quitar_handling_time_ml(mla_id, access_token):
 
 # ─── FUNCIÓN 2: Sincronizar variantes con Z (demora) ───
 @app.route('/alertas/<int:alerta_id>/configurar-demora-ml', methods=['POST'])
+@login_required
 def configurar_demora_ml_desde_alerta(alerta_id):
     """
     Configurar días de demora en las publicaciones CON Z
@@ -5364,6 +5446,7 @@ def configurar_demora_ml_desde_alerta(alerta_id):
     return redirect(url_for('alertas_ml'))
 
 @app.route('/ventas/ml/configurar_token', methods=['GET', 'POST'])
+@login_required
 def ml_configurar_token():
     """
     Página para configurar/actualizar el token de ML
@@ -5374,9 +5457,9 @@ def ml_configurar_token():
     """
     
     # Credenciales de la app ML
-    CLIENT_ID = "2109946238600277"
-    CLIENT_SECRET = "FLwEh7gcKUuc5DvqgaYtO8OyrMDB9R0Z"
-    REDIRECT_URI = "https://www.google.com"
+    CLIENT_ID = os.getenv('ML_APP_ID')
+    CLIENT_SECRET = os.getenv('ML_SECRET_KEY')
+    REDIRECT_URI = os.getenv('ML_REDIRECT_URI')
     
     # Generar URL de autorización
     url_autorizacion = (
@@ -5487,6 +5570,7 @@ def ml_configurar_token():
 
 
 @app.route('/ventas/ml/importar')
+@login_required
 def ml_importar_ordenes():
     """
     Traer órdenes de ML - FILTRO ARREGLADO
@@ -5585,6 +5669,7 @@ def ml_importar_ordenes():
 
 
 @app.route('/ventas/ml/seleccionar/<orden_id>')
+@login_required
 def ml_seleccionar_orden(orden_id):
     """
     Seleccionar orden - Con normalización automática de SKU (quita Z)
@@ -5705,6 +5790,7 @@ def ml_seleccionar_orden(orden_id):
 
 
 @app.route('/ventas/ml/mapear', methods=['POST'])
+@login_required
 def ml_guardar_mapeo():
     """
     Guardar mapeo - Obtiene shipping completo y billing info
@@ -5803,6 +5889,7 @@ def ml_guardar_mapeo():
 
 
 @app.route('/ventas/nueva/ml')
+@login_required
 def nueva_venta_desde_ml():
     """
     Crear nueva venta con datos precargados desde ML
@@ -6184,6 +6271,7 @@ def extraer_billing_info_ml(billing_data):
 # ============================================================================
 
 @app.route('/debug/ml/<orden_id>')
+@login_required
 def debug_ml_orden(orden_id):
     """Ver qué datos trae ML de una orden"""
     access_token = cargar_ml_token()
@@ -6280,11 +6368,17 @@ def obtener_datos_ml(mla_id, access_token):
     Consulta datos actuales de una publicación ML.
     Devuelve: titulo, stock, status, demora, precio, listing_type
     """
-    import requests as req
+    CAMPAÑAS_CUOTAS = {
+        'pcj-co-funded': 'Cuota Simple',
+        '3x_campaign':   '3 cuotas s/interés',
+        '6x_campaign':   '6 cuotas s/interés',
+        '9x_campaign':   '9 cuotas s/interés',
+        '12x_campaign':  '12 cuotas s/interés',
+    }
 
-    headers = {'Authorization': f'Bearer {access_token}'}
     try:
-        r = req.get(f'https://api.mercadolibre.com/items/{mla_id}', headers=headers)
+        r = ml_request('get', f'https://api.mercadolibre.com/items/{mla_id}', access_token)
+
         if r.status_code != 200:
             return {
                 'titulo': mla_id, 'stock': 0, 'status': 'unknown',
@@ -6293,26 +6387,17 @@ def obtener_datos_ml(mla_id, access_token):
 
         data = r.json()
 
-        # Demora
         demora = None
+        campaign = None
         for term in data.get('sale_terms', []):
             if term.get('id') == 'MANUFACTURING_TIME':
                 demora = term.get('value_name')
-                break
-
-        # Financiación: combinando listing_type_id + INSTALLMENTS_CAMPAIGN
-        listing_type_id = data.get('listing_type_id', '')
-        campaign = None
-        for term in data.get('sale_terms', []):
             if term.get('id') == 'INSTALLMENTS_CAMPAIGN':
                 campaign = (term.get('value_name') or '').split('|')[0].strip()
-                break
 
+        listing_type_id = data.get('listing_type_id', '')
         if listing_type_id == 'gold_special':
-            if campaign:
-                financiacion = CAMPAÑAS_CUOTAS.get(campaign, campaign)
-            else:
-                financiacion = 'Sin cuotas propias'
+            financiacion = CAMPAÑAS_CUOTAS.get(campaign, 'Sin cuotas propias') if campaign else 'Sin cuotas propias'
         elif listing_type_id == 'gold_pro':
             financiacion = CAMPAÑAS_CUOTAS.get(campaign, '6 cuotas s/interés')
         else:
@@ -6333,12 +6418,12 @@ def obtener_datos_ml(mla_id, access_token):
             'titulo': mla_id, 'stock': 0, 'status': 'unknown',
             'demora': None, 'precio': None, 'listing_type': None
         }
-
 # ============================================================================
 # RUTAS CARGAR STOCK ML - CORREGIDAS CON COLUMNAS REALES
 # ============================================================================
 
 @app.route('/cargar-stock-ml', methods=['GET'])
+@login_required
 def cargar_stock_ml():
     """Mostrar página para cargar stock en ML"""
     return render_template('cargar_stock_ml.html',
@@ -6353,57 +6438,194 @@ def cargar_stock_ml():
 # RUTA BUSCAR SKU - ACTUALIZADA CON STATUS REAL DE ML
 # ============================================================================
 
+
+def ml_request(method, url, access_token, json_data=None, params=None, max_retries=4):
+    """
+    Helper para requests a ML con rate limiting global + retry exponencial.
+    Toda llamada a ML debe pasar por acá.
+    """
+    global _ml_last_request
+
+    headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
+
+    for attempt in range(max_retries):
+        # Rate limiting global: esperar si la última request fue muy reciente
+        with _ml_rate_lock:
+            now = time.time()
+            elapsed = now - _ml_last_request
+            if elapsed < _ML_MIN_INTERVAL:
+                time.sleep(_ML_MIN_INTERVAL - elapsed)
+            _ml_last_request = time.time()
+
+        try:
+            if method == 'get':
+                r = requests.get(url, headers=headers, params=params, timeout=15)
+            else:
+                r = requests.put(url, headers=headers, json=json_data, timeout=15)
+
+            if r.status_code == 429:
+                wait = min(5 * (2 ** attempt), 60)  # 5s, 10s, 20s, 40s
+                print(f"⚠️ 429 ML - esperando {wait}s (intento {attempt+1}/{max_retries})")
+                time.sleep(wait)
+                continue
+
+            return r
+
+        except Exception as e:
+            if attempt < max_retries - 1:
+                time.sleep(3)
+                continue
+            raise
+
+    return r
+
+def obtener_datos_ml_batch(mla_ids, access_token):
+    """
+    Consulta datos de múltiples publicaciones ML en UNA sola llamada (batch).
+    Devuelve dict: { mla_id: { titulo, stock, status, demora, precio, listing_type } }
+    """
+    if not mla_ids:
+        return {}
+
+    CAMPAÑAS_CUOTAS = {
+        'pcj-co-funded': 'Cuota Simple',
+        '3x_campaign':   '3 cuotas s/interés',
+        '6x_campaign':   '6 cuotas s/interés',
+        '9x_campaign':   '9 cuotas s/interés',
+        '12x_campaign':  '12 cuotas s/interés',
+    }
+
+    resultado = {}
+    try:
+        r = ml_request('get', 'https://api.mercadolibre.com/items', access_token,
+                       params={'ids': ','.join(mla_ids)})
+
+        if r.status_code != 200:
+            for mla_id in mla_ids:
+                resultado[mla_id] = {
+                    'titulo': mla_id, 'stock': 0, 'status': 'unknown',
+                    'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
+                }
+            return resultado
+
+        items = r.json()
+        for item in items:
+            if item.get('code') != 200:
+                mla_id = item.get('body', {}).get('id', '')
+                resultado[mla_id] = {
+                    'titulo': mla_id, 'stock': 0, 'status': 'unknown',
+                    'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
+                }
+                continue
+
+            data = item['body']
+            mla_id = data.get('id', '')
+
+            demora = None
+            campaign = None
+            for term in data.get('sale_terms', []):
+                if term.get('id') == 'MANUFACTURING_TIME':
+                    demora = term.get('value_name')
+                if term.get('id') == 'INSTALLMENTS_CAMPAIGN':
+                    campaign = (term.get('value_name') or '').split('|')[0].strip()
+
+            listing_type_id = data.get('listing_type_id', '')
+            if listing_type_id == 'gold_special':
+                financiacion = CAMPAÑAS_CUOTAS.get(campaign, 'Sin cuotas propias') if campaign else 'Sin cuotas propias'
+            elif listing_type_id == 'gold_pro':
+                financiacion = CAMPAÑAS_CUOTAS.get(campaign, '6 cuotas s/interés')
+            else:
+                financiacion = listing_type_id
+
+            resultado[mla_id] = {
+                'titulo':       data.get('title', mla_id),
+                'stock':        data.get('available_quantity', 0),
+                'status':       data.get('status', 'unknown'),
+                'status_raw':   data.get('status', 'unknown'),
+                'demora':       demora,
+                'precio':       data.get('price'),
+                'listing_type': financiacion
+            }
+
+    except Exception as e:
+        print(f"Error en obtener_datos_ml_batch: {e}")
+        for mla_id in mla_ids:
+            resultado[mla_id] = {
+                'titulo': mla_id, 'stock': 0, 'status': 'unknown',
+                'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
+            }
+    return resultado
+
+
 @app.route('/buscar-sku-ml', methods=['POST'])
+@login_required
 def buscar_sku_ml():
-    """Buscar publicaciones de ML por SKU"""
-    
     sku_buscado = request.form.get('sku_buscar', '').strip().upper()
-    
+
     if not sku_buscado:
         flash('Debes ingresar un SKU', 'warning')
         return redirect(url_for('cargar_stock_ml'))
-    
-    es_sku_con_z = sku_buscado.endswith('Z')
+
     access_token = cargar_ml_token()
-    
-    query = """
-        SELECT mla_id, titulo_ml, activo
-        FROM sku_mla_mapeo
-        WHERE sku = %s AND activo = TRUE
-        ORDER BY mla_id
-    """
-    resultados = query_db(query, (sku_buscado,))
-    
+
     if not access_token:
         flash('❌ No hay token de ML configurado', 'warning')
-        publicaciones = []
-        for row in resultados:
-            publicaciones.append({
-                'mla':          row['mla_id'],
-                'titulo':       row['titulo_ml'] or 'Sin título',
-                'stock_actual': '-',
-                'demora':       None,
-                'precio':       None,
-                'listing_type': None,
-                'estado':       'Activa' if row['activo'] else 'Pausada',
-                'status_raw':   'active' if row['activo'] else 'paused'
-            })
         return render_template('cargar_stock_ml.html',
                                sku_buscado=sku_buscado,
-                               publicaciones=publicaciones,
+                               publicaciones=[],
+                               es_sku_con_z=sku_buscado.endswith('Z'))
+
+    import requests as req
+    headers = {'Authorization': f'Bearer {access_token}'}
+
+    # Detectar si es un MLA (con o sin prefijo)
+    mla_directo = None
+    if sku_buscado.startswith('MLA'):
+        mla_directo = sku_buscado
+    elif sku_buscado.isdigit():
+        mla_directo = f'MLA{sku_buscado}'
+
+    if mla_directo:
+        # Buscar directo por MLA
+        mla_ids = [mla_directo]
+        es_sku_con_z = False  # no sabemos, asumimos sin Z
+    else:
+        # Buscar por SKU en ML
+        es_sku_con_z = sku_buscado.endswith('Z')
+        r = req.get(
+            f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/items/search',
+            headers=headers,
+            params={'seller_sku': sku_buscado}
+        )
+        if r.status_code != 200:
+            flash(f'❌ Error consultando ML: {r.status_code}', 'danger')
+            return render_template('cargar_stock_ml.html',
+                                   sku_buscado=sku_buscado,
+                                   publicaciones=[],
+                                   es_sku_con_z=es_sku_con_z)
+        mla_ids = r.json().get('results', [])
+
+    if not mla_ids:
+        flash(f'No se encontraron publicaciones para "{sku_buscado}"', 'warning')
+        return render_template('cargar_stock_ml.html',
+                               sku_buscado=sku_buscado,
+                               publicaciones=[],
                                es_sku_con_z=es_sku_con_z)
-    
+
     estado_map = {
         'active': 'Activa', 'paused': 'Pausada', 'closed': 'Cerrada',
         'under_review': 'En revisión', 'inactive': 'Inactiva'
     }
-    
+
+    # Usar batch para traer todos los MLAs en UNA sola llamada
+    datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
     publicaciones = []
-    for row in resultados:
-        mla_id   = row['mla_id']
-        datos_ml = obtener_datos_ml(mla_id, access_token)
+    for mla_id in mla_ids:
+        datos_ml = datos_batch.get(mla_id, {
+            'titulo': mla_id, 'stock': 0, 'status': 'unknown',
+            'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
+        })
         status_ml = datos_ml.get('status', 'unknown')
-        
         publicaciones.append({
             'mla':          mla_id,
             'titulo':       datos_ml['titulo'],
@@ -6414,18 +6636,20 @@ def buscar_sku_ml():
             'estado':       estado_map.get(status_ml, status_ml.capitalize()),
             'status_raw':   status_ml
         })
-    
+
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku_buscado,
                            publicaciones=publicaciones,
                            es_sku_con_z=es_sku_con_z,
                            mensaje=None,
                            mensaje_tipo=None)
+
 # ============================================================================
 # 4. RUTA: Cambiar precio — INDIVIDUAL
 # ============================================================================
 
 @app.route('/cambiar-precio-mla', methods=['POST'])
+@login_required
 def cambiar_precio_mla():
     """Cambiar el precio de una publicación específica"""
     mla    = request.form.get('mla')
@@ -6453,7 +6677,7 @@ def cambiar_precio_mla():
     headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
     payload = {'price': precio_float}
 
-    r = req.put(f'https://api.mercadolibre.com/items/{mla}', headers=headers, json=payload)
+    r = ml_request('put', f'https://api.mercadolibre.com/items/{mla}', access_token, json_data=payload)
 
     if r.status_code == 200:
         flash(f'✅ Precio actualizado a ${precio_float:,.0f} en {mla}', 'success')
@@ -6466,7 +6690,9 @@ def cambiar_precio_mla():
 
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku,
-                           publicaciones=_recargar_publicaciones(sku, access_token),
+                           publicaciones=_recargar_publicaciones(sku, access_token,
+                               pubs_actuales=request.form.get('pubs_json'),
+                               actualizar_mla=mla, campo='precio', valor=precio_float),
                            es_sku_con_z=sku.endswith('Z'))
 
 
@@ -6475,6 +6701,7 @@ def cambiar_precio_mla():
 # ============================================================================
 
 @app.route('/cambiar-precio-masivo', methods=['POST'])
+@login_required
 def cambiar_precio_masivo():
     """Cambiar el precio de todas las publicaciones de un SKU"""
     sku    = request.form.get('sku')
@@ -6507,21 +6734,98 @@ def cambiar_precio_masivo():
 
     exitos, errores = 0, []
     for row in mlas:
-        r = req.put(f'https://api.mercadolibre.com/items/{row["mla_id"]}', headers=headers, json=payload)
+        r = ml_request('put', f'https://api.mercadolibre.com/items/{row["mla_id"]}', access_token, json_data=payload)
         if r.status_code == 200:
             exitos += 1
         else:
             errores.append(f'{row["mla_id"]}: {r.status_code}')
+        time.sleep(2)
 
     if exitos:
         flash(f'✅ Precio actualizado a ${precio_float:,.0f} en {exitos} publicación{"es" if exitos > 1 else ""}', 'success')
     for msg in errores[:3]:
         flash(f'❌ {msg}', 'danger')
 
+    # Actualizar precio en todas las pubs localmente
+    pubs_json = request.form.get('pubs_json')
+    import json as _j
+    try:
+        pubs = _j.loads(pubs_json) if pubs_json else None
+        if pubs:
+            for p in pubs: p['precio'] = precio_float
+    except: pubs = None
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku,
-                           publicaciones=_recargar_publicaciones(sku, access_token),
+                           publicaciones=_recargar_publicaciones(sku, access_token, pubs_actuales=pubs),
                            es_sku_con_z=sku.endswith('Z'))
+
+@app.route('/cambiar-precios-individuales', methods=['POST'])
+@login_required
+def cambiar_precios_individuales():
+    """Actualizar precios individuales de múltiples MLAs de una vez"""
+    import requests as req
+    import json
+
+    sku = request.form.get('sku')
+    precios_json = request.form.get('precios_json', '[]')
+
+    try:
+        precios = json.loads(precios_json)
+    except:
+        flash('❌ Error al procesar los precios', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
+
+    if not precios:
+        flash('❌ No se recibieron precios', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
+
+    access_token = cargar_ml_token()
+    if not access_token:
+        flash('❌ No hay token de ML configurado', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
+
+    headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
+
+    exitos, errores = 0, []
+    for item in precios:
+        mla = item.get('mla')
+        precio = item.get('precio')
+        try:
+            precio_float = float(precio)
+            if precio_float <= 0:
+                raise ValueError()
+        except:
+            errores.append(f'{mla}: precio inválido')
+            continue
+
+        r = ml_request('put', f'https://api.mercadolibre.com/items/{mla}', access_token, json_data={'price': precio_float})
+        if r.status_code == 200:
+            exitos += 1
+        else:
+            errores.append(f'{mla}: error {r.status_code}')
+        time.sleep(2)
+
+    if exitos:
+        flash(f'✅ {exitos} precio{"s" if exitos > 1 else ""} actualizado{"s" if exitos > 1 else ""} correctamente', 'success')
+    for msg in errores[:3]:
+        flash(f'❌ {msg}', 'danger')
+
+    # Actualizar precios individuales localmente
+    pubs_json = request.form.get('pubs_json')
+    import json as _j
+    try:
+        pubs = _j.loads(pubs_json) if pubs_json else None
+        if pubs:
+            precios_dict = {item['mla']: float(item['precio']) for item in precios}
+            for p in pubs:
+                if p['mla'] in precios_dict:
+                    p['precio'] = precios_dict[p['mla']]
+    except: pubs = None
+    return render_template('cargar_stock_ml.html',
+                           sku_buscado=sku,
+                           publicaciones=_recargar_publicaciones(sku, access_token, pubs_actuales=pubs),
+                           es_sku_con_z=sku.endswith('Z') if sku else False)
+
 
 
 # ============================================================================
@@ -6529,32 +6833,62 @@ def cambiar_precio_masivo():
 # Agregar en app.py junto a las rutas de cargar_stock_ml
 # ============================================================================
 
-def _recargar_publicaciones(sku, access_token):
-    """Helper: recarga lista de publicaciones con datos frescos de ML"""
+def _recargar_publicaciones(sku, access_token, pubs_actuales=None, actualizar_mla=None, campo=None, valor=None):
+    """
+    Helper: devuelve lista de publicaciones.
+    Si se pasan pubs_actuales, las usa directamente y solo actualiza el campo indicado.
+    Si no, consulta ML (solo al buscar por primera vez).
+    """
+    import json as _json
+
+    estado_map = {
+        'active': 'Activa', 'paused': 'Pausada', 'closed': 'Cerrada',
+        'under_review': 'En revisión', 'inactive': 'Inactiva'
+    }
+
+    # Si tenemos datos actuales del form, usarlos sin llamar a ML
+    if pubs_actuales:
+        try:
+            if isinstance(pubs_actuales, str):
+                pubs_lista = _json.loads(pubs_actuales)
+            else:
+                pubs_lista = pubs_actuales
+            # Aplicar el cambio puntual si se indicó
+            if actualizar_mla and campo:
+                for pub in pubs_lista:
+                    if pub.get('mla') == actualizar_mla:
+                        pub[campo] = valor
+            return pubs_lista
+        except:
+            pass  # Si falla el parse, caer al batch
+
+    # Sin datos actuales: consultar ML (solo pasa al buscar por primera vez)
     publicaciones = query_db(
         "SELECT mla_id, titulo_ml, activo FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE",
         (sku,)
     )
     pubs_lista = []
-    estado_map = {
-        'active': 'Activa', 'paused': 'Pausada', 'closed': 'Cerrada',
-        'under_review': 'En revisión', 'inactive': 'Inactiva'
-    }
-    for row in publicaciones:
-        if access_token:
-            datos_ml = obtener_datos_ml(row['mla_id'], access_token)
+    if access_token and publicaciones:
+        mla_ids = [row['mla_id'] for row in publicaciones]
+        datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
+        for row in publicaciones:
+            datos_ml = datos_batch.get(row['mla_id'], {
+                'titulo': row['mla_id'], 'stock': 0, 'status': 'unknown',
+                'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
+            })
             status_ml = datos_ml.get('status', 'unknown')
             pubs_lista.append({
                 'mla':          row['mla_id'],
                 'titulo':       datos_ml['titulo'],
                 'stock_actual': datos_ml['stock'],
                 'demora':       datos_ml.get('demora'),
-                'precio':       datos_ml.get('precio'),        # ← NUEVO
-                'listing_type': datos_ml.get('listing_type'),  # ← NUEVO
+                'precio':       datos_ml.get('precio'),
+                'listing_type': datos_ml.get('listing_type'),
                 'estado':       estado_map.get(status_ml, status_ml.capitalize()),
                 'status_raw':   status_ml
             })
-        else:
+    else:
+        for row in publicaciones:
             pubs_lista.append({
                 'mla':          row['mla_id'],
                 'titulo':       row['titulo_ml'] or 'Sin título',
@@ -6571,6 +6905,7 @@ def _recargar_publicaciones(sku, access_token):
 # ─── Bajar stock a 0 — INDIVIDUAL ────────────────────────────────────────────
 
 @app.route('/bajar-stock-mla-cero', methods=['POST'])
+@login_required
 def bajar_stock_mla_cero():
     """Poner stock en 0 en una publicación específica"""
     mla = request.form.get('mla')
@@ -6594,13 +6929,16 @@ def bajar_stock_mla_cero():
 
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku,
-                           publicaciones=_recargar_publicaciones(sku, access_token),
+                           publicaciones=_recargar_publicaciones(sku, access_token,
+                               pubs_actuales=request.form.get('pubs_json'),
+                               actualizar_mla=mla, campo='stock_actual', valor=0),
                            es_sku_con_z=sku.endswith('Z'))
 
 
 # ─── Bajar stock a 0 — MASIVO ────────────────────────────────────────────────
 
 @app.route('/bajar-stock-cero-masivo', methods=['POST'])
+@login_required
 def bajar_stock_cero_masivo():
     """Poner stock en 0 en todas las publicaciones de un SKU"""
     sku = request.form.get('sku')
@@ -6624,6 +6962,7 @@ def bajar_stock_cero_masivo():
             exitos += 1
         else:
             errores.append(msg)
+        time.sleep(2)
 
     if exitos:
         flash(f'✅ Stock bajado a 0 en {exitos} publicación{"es" if exitos > 1 else ""}', 'success')
@@ -6632,13 +6971,14 @@ def bajar_stock_cero_masivo():
 
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku,
-                           publicaciones=_recargar_publicaciones(sku, access_token),
+                           publicaciones=_recargar_publicaciones(sku, access_token, pubs_actuales=request.form.get('pubs_json')),
                            es_sku_con_z=sku.endswith('Z'))
 
 
 # ─── Cargar demora — INDIVIDUAL ──────────────────────────────────────────────
 
 @app.route('/cargar-demora-mla', methods=['POST'])
+@login_required
 def cargar_demora_mla():
     """Poner X días de MANUFACTURING_TIME en una publicación"""
     mla  = request.form.get('mla')
@@ -6658,7 +6998,7 @@ def cargar_demora_mla():
     headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
     payload = {"sale_terms": [{"id": "MANUFACTURING_TIME", "value_name": f"{dias} días"}]}
 
-    r = req.put(f'https://api.mercadolibre.com/items/{mla}', headers=headers, json=payload)
+    r = ml_request('put', f'https://api.mercadolibre.com/items/{mla}', access_token, json_data=payload)
 
     if r.status_code == 200:
         flash(f'✅ Demora de {dias} días cargada en {mla}', 'success')
@@ -6671,13 +7011,14 @@ def cargar_demora_mla():
 
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku,
-                           publicaciones=_recargar_publicaciones(sku, access_token),
+                           publicaciones=_recargar_publicaciones(sku, access_token, pubs_actuales=request.form.get('pubs_json')),
                            es_sku_con_z=sku.endswith('Z'))
 
 
 # ─── Cargar demora — MASIVO ───────────────────────────────────────────────────
 
 @app.route('/cargar-demora-masivo', methods=['POST'])
+@login_required
 def cargar_demora_masivo():
     """Poner X días de MANUFACTURING_TIME en todas las publicaciones de un SKU"""
     sku  = request.form.get('sku')
@@ -6702,11 +7043,12 @@ def cargar_demora_masivo():
 
     exitos, errores = 0, []
     for row in mlas:
-        r = req.put(f'https://api.mercadolibre.com/items/{row["mla_id"]}', headers=headers, json=payload)
+        r = ml_request('put', f'https://api.mercadolibre.com/items/{row["mla_id"]}', access_token, json_data=payload)
         if r.status_code == 200:
             exitos += 1
         else:
             errores.append(f'{row["mla_id"]}: {r.status_code}')
+        time.sleep(2)
 
     if exitos:
         flash(f'✅ {dias} días de demora cargados en {exitos} publicación{"es" if exitos > 1 else ""}', 'success')
@@ -6715,7 +7057,7 @@ def cargar_demora_masivo():
 
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku,
-                           publicaciones=_recargar_publicaciones(sku, access_token),
+                           publicaciones=_recargar_publicaciones(sku, access_token, pubs_actuales=request.form.get('pubs_json')),
                            es_sku_con_z=sku.endswith('Z'))
 
 
@@ -6788,6 +7130,7 @@ def quitar_manufacturing_time_ml(mla_id, access_token):
 # ============================================================================
 
 @app.route('/quitar-demora-mla', methods=['POST'])
+@login_required
 def quitar_demora_mla():
     """Eliminar MANUFACTURING_TIME de una publicación específica"""
 
@@ -6856,9 +7199,9 @@ def quitar_demora_mla():
 # ============================================================================
 
 @app.route('/quitar-demora-masivo', methods=['POST'])
+@login_required
 def quitar_demora_masivo():
     """Eliminar MANUFACTURING_TIME de todas las publicaciones de un SKU"""
-
     sku = request.form.get('sku')
     if not sku:
         flash('Falta el SKU', 'danger')
@@ -6870,13 +7213,10 @@ def quitar_demora_masivo():
         return redirect(url_for('cargar_stock_ml'))
 
     mlas = query_db(
-        "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE",
-        (sku,)
+        "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku,)
     )
 
-    exitos = 0
-    errores = 0
-    mensajes_error = []
+    exitos, errores, mensajes_error = 0, 0, []
 
     for row in mlas:
         success, message = quitar_manufacturing_time_ml(row['mla_id'], access_token)
@@ -6885,6 +7225,7 @@ def quitar_demora_masivo():
         else:
             errores += 1
             mensajes_error.append(message)
+        time.sleep(2)
 
     if exitos > 0:
         flash(f'✅ Demora eliminada en {exitos} publicación{"es" if exitos > 1 else ""}', 'success')
@@ -6893,39 +7234,34 @@ def quitar_demora_masivo():
         for msg in mensajes_error[:3]:
             flash(msg, 'warning')
 
-    # Recargar publicaciones con datos actualizados de ML
+    # Recargar con UNA sola llamada batch
     publicaciones = query_db(
-        "SELECT mla_id, titulo_ml, activo FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE",
-        (sku,)
+        "SELECT mla_id, titulo_ml, activo FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku,)
     )
-
+    estado_map = {
+        'active': 'Activa', 'paused': 'Pausada', 'closed': 'Cerrada',
+        'under_review': 'En revisión', 'inactive': 'Inactiva'
+    }
     pubs_lista = []
-    access_token_refresh = cargar_ml_token()
-
-    for row in publicaciones:
-        if access_token_refresh:
-            datos_ml = obtener_datos_ml(row['mla_id'], access_token_refresh)
-            status_ml = datos_ml.get('status', 'unknown')
-            estado_map = {
-                'active': 'Activa', 'paused': 'Pausada', 'closed': 'Cerrada',
-                'under_review': 'En revisión', 'inactive': 'Inactiva'
-            }
-            pubs_lista.append({
-                'mla': row['mla_id'],
-                'titulo': datos_ml['titulo'],
-                'stock_actual': datos_ml['stock'],
-                'demora': datos_ml.get('demora'),
-                'estado': estado_map.get(status_ml, status_ml.capitalize()),
-                'status_raw': status_ml
+    if publicaciones:
+        mla_ids = [row['mla_id'] for row in publicaciones]
+        datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
+        for row in publicaciones:
+            datos_ml = datos_batch.get(row['mla_id'], {
+                'titulo': row['titulo_ml'] or row['mla_id'],
+                'stock': '-', 'status': 'unknown', 'demora': None,
+                'precio': None, 'listing_type': None
             })
-        else:
+            status_ml = datos_ml.get('status', 'unknown')
             pubs_lista.append({
-                'mla': row['mla_id'],
-                'titulo': row['titulo_ml'] or 'Sin título',
-                'stock_actual': '-',
-                'demora': None,
-                'estado': 'Activa' if row['activo'] else 'Pausada',
-                'status_raw': 'active' if row['activo'] else 'paused'
+                'mla':          row['mla_id'],
+                'titulo':       datos_ml.get('titulo', row['titulo_ml'] or row['mla_id']),
+                'stock_actual': datos_ml.get('stock', '-'),
+                'demora':       datos_ml.get('demora'),
+                'precio':       datos_ml.get('precio'),
+                'listing_type': datos_ml.get('listing_type'),
+                'estado':       estado_map.get(status_ml, status_ml.capitalize()),
+                'status_raw':   status_ml
             })
 
     return render_template('cargar_stock_ml.html',
@@ -6934,12 +7270,12 @@ def quitar_demora_masivo():
                            es_sku_con_z=sku.endswith('Z'))
 
 
-
 # ============================================================================
 # RUTAS CARGAR STOCK - CON STATUS REAL DE ML
 # ============================================================================
 
 @app.route('/cargar-stock-mla', methods=['POST'])
+@login_required
 def cargar_stock_mla():
     """Cargar stock en una publicación específica"""
     
@@ -7026,6 +7362,7 @@ def cargar_stock_mla():
 
 
 @app.route('/cargar-stock-masivo', methods=['POST'])
+@login_required
 def cargar_stock_masivo():
     """Cargar el mismo stock en todas las publicaciones de un SKU"""
     
@@ -7067,6 +7404,7 @@ def cargar_stock_masivo():
             else:
                 errores += 1
                 mensajes_error.append(f"{mla}: {message}")
+            time.sleep(2)
         
         if exitos > 0:
             flash(f'✅ Stock cargado en {exitos} publicaciones: {stock_nuevo} unidades', 'success')
@@ -7250,6 +7588,7 @@ def calcular_stock_por_sku():
 # ============================================================================
 
 @app.route('/auditoria-ml', methods=['GET'])
+@login_required
 def auditoria_ml():
     """Renderiza la página de auditoría. Los datos se cargan vía AJAX por sección."""
     return render_template('auditoria_ml.html')
@@ -7262,6 +7601,7 @@ def auditoria_ml():
 # ============================================================================
 
 @app.route('/auditoria-ml/run/<tipo>', methods=['GET'])
+@login_required
 def auditoria_ml_run(tipo):
     """
     Ejecuta un tipo específico de auditoría y devuelve JSON con los resultados.
@@ -7364,6 +7704,7 @@ def auditoria_ml_run(tipo):
 # ============================================================================
 
 @app.route('/auditoria-ml/activar', methods=['POST'])
+@login_required
 def auditoria_activar_publicaciones():
     """Activar (despausar) publicaciones seleccionadas. Devuelve JSON."""
     
@@ -7385,12 +7726,13 @@ def auditoria_activar_publicaciones():
             headers = {'Authorization': f'Bearer {access_token}'}
             data = {'status': 'active'}
             
-            response = requests.put(url, headers=headers, json=data)
+            response = ml_request('put', url, access_token, json_data=data)
             
             if response.status_code == 200:
                 exitos += 1
             else:
                 errores.append(f'{mla}: {response.status_code}')
+            time.sleep(2)
         except Exception as e:
             errores.append(f'{mla}: {str(e)}')
     
@@ -7398,6 +7740,7 @@ def auditoria_activar_publicaciones():
 
 
 @app.route('/auditoria-ml/cargar-stock', methods=['POST'])
+@login_required
 def auditoria_cargar_stock():
     """Cargar stock en publicaciones seleccionadas. Devuelve JSON."""
     
@@ -7427,6 +7770,7 @@ def auditoria_cargar_stock():
                 exitos += 1
             else:
                 errores.append(f'{mla}: {message}')
+            time.sleep(2)
         except Exception as e:
             errores.append(f'{item}: {str(e)}')
     
@@ -7434,6 +7778,7 @@ def auditoria_cargar_stock():
 
 
 @app.route('/auditoria-ml/reducir-demora', methods=['POST'])
+@login_required
 def auditoria_reducir_demora():
     """Quitar demora completamente en publicaciones seleccionadas. Devuelve JSON."""
     
@@ -7456,6 +7801,7 @@ def auditoria_reducir_demora():
                 exitos += 1
             else:
                 errores.append(f'{mla}: {message}')
+            time.sleep(2)
         except Exception as e:
             errores.append(f'{mla}: {str(e)}')
     
@@ -7465,6 +7811,7 @@ def auditoria_reducir_demora():
 # ============================================================================
 
 @app.route('/estadisticas')
+@login_required
 def estadisticas():
     from datetime import datetime, timedelta
 
@@ -7615,6 +7962,7 @@ def estadisticas():
 # ============================================================================
 
 @app.route('/estadisticas/exportar-reposicion')
+@login_required
 def exportar_reposicion():
     from flask import make_response
     from datetime import datetime, timedelta
@@ -7778,6 +8126,7 @@ def exportar_reposicion():
 # ============================================================================
 
 @app.route('/test/manufacturing-time', methods=['GET'])
+@login_required
 def test_manufacturing_time():
     """
     Página de prueba para ver y modificar el MANUFACTURING_TIME
@@ -7787,6 +8136,7 @@ def test_manufacturing_time():
 
 
 @app.route('/test/manufacturing-time/ver', methods=['POST'])
+@login_required
 def ver_manufacturing_time():
     """
     Consulta el estado actual de una publicación:
@@ -7835,6 +8185,7 @@ def ver_manufacturing_time():
 
 
 @app.route('/test/manufacturing-time/quitar', methods=['POST'])
+@login_required
 def quitar_manufacturing_time():
     """
     Elimina el MANUFACTURING_TIME de una publicación enviando null.
@@ -7903,6 +8254,7 @@ def quitar_manufacturing_time():
 
 
 @app.route('/test/manufacturing-time/poner', methods=['POST'])
+@login_required
 def poner_manufacturing_time():
     """
     Pone o restaura el MANUFACTURING_TIME a un valor específico.
@@ -7967,6 +8319,7 @@ def poner_manufacturing_time():
 
 
 @app.route('/debug-mla')
+@login_required
 def debug_mla():
     import requests
     access_token = cargar_ml_token()
@@ -7988,6 +8341,51 @@ def debug_mla():
     }
 
 
+@app.route('/ml/callback')
+@login_required
+def ml_callback():
+    """Recibe el code de ML y lo canjea automáticamente por el token"""
+    code = request.args.get('code', '').strip()
+    if not code:
+        flash('❌ No se recibió el code de MercadoLibre', 'error')
+        return redirect(url_for('ml_configurar_token'))
+    
+    CLIENT_ID = os.getenv('ML_APP_ID')
+    CLIENT_SECRET = os.getenv('ML_SECRET_KEY')
+    REDIRECT_URI = os.getenv('ML_REDIRECT_URI')
+    
+    try:
+        response = requests.post(
+            "https://api.mercadolibre.com/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": REDIRECT_URI
+            }
+        )
+        if response.status_code == 200:
+            data = response.json()
+            token_data = {
+                "access_token": data.get("access_token"),
+                "refresh_token": data.get("refresh_token"),
+                "expires_at": time.time() + data.get("expires_in", 21600) - 300,
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET
+            }
+            if guardar_ml_token(token_data):
+                flash('✅ Token configurado con auto-renovación activada', 'success')
+                return redirect(url_for('ventas_activas'))
+            else:
+                flash('❌ Error al guardar el token', 'error')
+        else:
+            error_msg = response.json().get('message', 'Error desconocido')
+            flash(f'❌ Error al canjear el code: {error_msg}', 'error')
+    except Exception as e:
+        flash(f'❌ Error: {str(e)}', 'error')
+    
+    return redirect(url_for('ml_configurar_token'))
 
 
 # ============================================================================

@@ -9,7 +9,75 @@
             <h2 class="mb-2">
                 <i class="bi bi-pencil-square"></i> Modificar Publicaciones en ML
             </h2>
-            <p class="text-muted">Cargar/bajar stock, quitar o poner demora en publicaciones de ML</p>
+            <p class="text-muted">Cargar/bajar stock, quitar o poner demora, y actualizar precios</p>
+        </div>
+    </div>
+
+    <!-- CONFIGURAR % DE ML (colapsable) -->
+    <div class="card mb-3 shadow-sm border-warning">
+        <div class="card-header bg-warning bg-opacity-10 d-flex justify-content-between align-items-center"
+             style="cursor:pointer" onclick="togglePorcentajes()">
+            <span><i class="bi bi-gear me-2"></i><strong>Configurar % de financiación de ML</strong></span>
+            <i class="bi bi-chevron-down" id="chevron-pct"></i>
+        </div>
+        <div class="card-body" id="panel-porcentajes" style="display:none">
+            <p class="text-muted small mb-3">
+                Estos porcentajes definen el costo de financiación que cobra ML.
+                Se usan para calcular los precios sugeridos. Actualizalos cuando ML cambie sus tarifas.
+            </p>
+            <div class="row g-2">
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold">Cuota Simple (%)</label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" class="form-control" id="pct_cuota_simple"
+                               step="0.01" min="0" max="100"
+                               value="{{ porcentajes.cuota_simple if porcentajes else 5.00 }}">
+                        <span class="input-group-text">%</span>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold">3 cuotas (%)</label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" class="form-control" id="pct_cuotas_3"
+                               step="0.01" min="0" max="100"
+                               value="{{ porcentajes.cuotas_3 if porcentajes else 9.40 }}">
+                        <span class="input-group-text">%</span>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold">6 cuotas (%)</label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" class="form-control" id="pct_cuotas_6"
+                               step="0.01" min="0" max="100"
+                               value="{{ porcentajes.cuotas_6 if porcentajes else 15.10 }}">
+                        <span class="input-group-text">%</span>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold">9 cuotas (%)</label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" class="form-control" id="pct_cuotas_9"
+                               step="0.01" min="0" max="100"
+                               value="{{ porcentajes.cuotas_9 if porcentajes else 20.70 }}">
+                        <span class="input-group-text">%</span>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold">12 cuotas (%)</label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" class="form-control" id="pct_cuotas_12"
+                               step="0.01" min="0" max="100"
+                               value="{{ porcentajes.cuotas_12 if porcentajes else 25.90 }}">
+                        <span class="input-group-text">%</span>
+                    </div>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button class="btn btn-warning btn-sm w-100" onclick="guardarPorcentajes()">
+                        <i class="bi bi-floppy"></i> Guardar
+                    </button>
+                </div>
+            </div>
+            <div id="msg-porcentajes" class="mt-2"></div>
         </div>
     </div>
 
@@ -22,10 +90,10 @@
                         <label for="sku_buscar" class="form-label">
                             <i class="bi bi-upc-scan"></i> Buscar por SKU
                         </label>
-                        <input type="text" 
-                               class="form-control form-control-lg" 
-                               id="sku_buscar" 
-                               name="sku_buscar" 
+                        <input type="text"
+                               class="form-control form-control-lg"
+                               id="sku_buscar"
+                               name="sku_buscar"
                                placeholder="Ej: CEX80, SDOP140Z"
                                value="{% if sku_buscado %}{{ sku_buscado }}{% endif %}"
                                autofocus
@@ -50,7 +118,7 @@
             </h5>
         </div>
         <div class="card-body">
-            
+
             <!-- INFO DEL SKU -->
             <div class="alert {% if es_sku_con_z %}alert-warning{% else %}alert-success{% endif %} d-flex justify-content-between align-items-center">
                 <div>
@@ -68,49 +136,101 @@
             </div>
 
             {% if publicaciones %}
+
+            <!-- CALCULADORA DE PRECIOS -->
+            <div class="card mb-3 border-success bg-success bg-opacity-5">
+                <div class="card-body py-3">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-auto">
+                            <span class="fw-bold text-success"><i class="bi bi-calculator me-1"></i>Calculadora de precios</span>
+                        </div>
+                        <div class="col-auto">
+                            <label class="form-label small mb-1">Precio base (sin cuotas):</label>
+                            <div class="input-group input-group-sm" style="width:160px">
+                                <span class="input-group-text">$</span>
+                                <input type="number" id="precio_base_calc" class="form-control fw-bold"
+                                       placeholder="745000" min="0" step="1000"
+                                       oninput="calcularPrecios()">
+                            </div>
+                        </div>
+                        <div class="col-auto">
+                            <button class="btn btn-outline-success btn-sm" onclick="aplicarPrecioBase()">
+                                <i class="bi bi-arrow-down-circle"></i> Aplicar a sin cuotas
+                            </button>
+                        </div>
+                        <div class="col-auto">
+                            <button class="btn btn-success btn-sm" onclick="calcularYAplicarTodos()">
+                                <i class="bi bi-tags"></i> Calcular y aplicar todos
+                            </button>
+                        </div>
+                        <div class="col" id="resumen-calc"></div>
+                    </div>
+                    <!-- Sugeridos -->
+                    <div id="sugeridos-container" class="mt-2" style="display:none">
+                        <small class="text-muted me-2">Sugeridos:</small>
+                        <span id="sugeridos-lista"></span>
+                    </div>
+                </div>
+            </div>
+
             <!-- TABLA DE PUBLICACIONES -->
             <div class="table-responsive">
                 <table class="table table-hover table-bordered">
                     <thead class="table-dark">
                         <tr>
-                            <th width="15%">MLA</th>
-                            <th width="35%">Título</th>
-                            <th width="8%">Stock Actual</th>
+                            <th width="12%">MLA</th>
+                            <th width="20%">Título</th>
+                            <th width="6%">Stock</th>
                             {% if es_sku_con_z %}
-                            <th width="10%">Demora</th>
+                            <th width="8%">Demora</th>
                             {% endif %}
-                            <th width="10%">Estado</th>
-                            <th width="{% if es_sku_con_z %}22%{% else %}22%{% endif %}">Acciones</th>
+                            <th width="10%">Precio actual</th>
+                            <th width="11%">Tipo publi</th>
+                            <th width="7%">Estado</th>
+                            <th width="26%">Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for pub in publicaciones %}
-                        <tr>
+                        <tr data-status-raw="{{ pub.status_raw }}"
+                            data-demora="{{ pub.demora or '' }}"
+                            data-listing-type="{{ pub.listing_type or '' }}"
+                            data-mla="{{ pub.mla }}">
                             <td class="text-center">
-                                <a href="https://articulo.mercadolibre.com.ar/{{ pub.mla }}" 
-                                   target="_blank" 
-                                   class="text-decoration-none">
-                                    {{ pub.mla }}
-                                    <i class="bi bi-box-arrow-up-right"></i>
+                                <a href="https://articulo.mercadolibre.com.ar/{{ pub.mla }}"
+                                   target="_blank" class="text-decoration-none">
+                                    {{ pub.mla }}<i class="bi bi-box-arrow-up-right ms-1"></i>
                                 </a>
                             </td>
-                            <td>{{ pub.titulo }}</td>
-                            <td class="text-center">
-                                <strong>{{ pub.stock_actual }}</strong>
-                            </td>
+                            <td><small>{{ pub.titulo }}</small></td>
+                            <td class="text-center"><strong>{{ pub.stock_actual }}</strong></td>
                             {% if es_sku_con_z %}
                             <td class="text-center">
                                 {% if pub.demora %}
-                                    <span class="badge bg-warning text-dark">
-                                        <i class="bi bi-clock"></i> {{ pub.demora }}
-                                    </span>
+                                    <span class="badge bg-warning text-dark"><i class="bi bi-clock"></i> {{ pub.demora }}</span>
                                 {% else %}
-                                    <span class="badge bg-success">
-                                        <i class="bi bi-check-circle"></i> Sin demora
-                                    </span>
+                                    <span class="badge bg-success"><i class="bi bi-check-circle"></i> Sin demora</span>
                                 {% endif %}
                             </td>
                             {% endif %}
+                            <td class="text-center">
+                                {% if pub.precio %}
+                                    <span class="fw-bold text-muted" style="font-size:.9rem">
+                                        ${{ "{:,.0f}".format(pub.precio) }}
+                                    </span>
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if pub.listing_type %}
+                                    <span class="badge" style="font-size:.72rem; background:#e8f0fe; color:#1a56db">
+                                        {{ pub.listing_type }}
+                                    </span>
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
                             <td class="text-center">
                                 {% if pub.status_raw == 'active' %}
                                     <span class="badge bg-success">Activa</span>
@@ -127,16 +247,15 @@
                                 {% endif %}
                             </td>
                             <td>
-                                <!-- ACCIONES PARA SKU CON Z -->
                                 {% if es_sku_con_z %}
                                 <div class="d-flex gap-2 flex-column">
-                                    <!-- Fila 1: Cargar stock + Bajar a 0 -->
                                     <div class="d-flex gap-1">
                                         <form method="POST" action="{{ url_for('cargar_stock_mla') }}"
                                               class="d-flex gap-1 flex-fill"
                                               onsubmit="return confirmarCargaStock(event, '{{ pub.mla }}')">
                                             <input type="hidden" name="mla" value="{{ pub.mla }}">
                                             <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                                            <input type="hidden" name="pubs_json" class="pubs-json-field">
                                             <input type="number" name="stock_nuevo"
                                                    class="form-control form-control-sm" placeholder="Stock"
                                                    min="0" max="99" required style="width:60px">
@@ -150,7 +269,6 @@
                                             <i class="bi bi-arrow-down-circle"></i> 0
                                         </button>
                                     </div>
-                                    <!-- Fila 2: Quitar demora + Cargar demora -->
                                     <div class="d-flex gap-1">
                                         <button type="button" class="btn btn-sm btn-warning flex-fill"
                                                 onclick="confirmarReducirDemora('{{ pub.mla }}', '{{ sku_buscado }}')">
@@ -162,15 +280,28 @@
                                             <i class="bi bi-clock-history"></i>
                                         </button>
                                     </div>
+                                    <div class="d-flex gap-1 align-items-center">
+                                        <input type="number" class="form-control form-control-sm precio-input"
+                                               id="precio_{{ pub.mla }}"
+                                               data-mla="{{ pub.mla }}"
+                                               data-tipo="{{ pub.listing_type or 'Sin cuotas propias' }}"
+                                               placeholder="Precio" min="0" step="1000" style="width:95px"
+                                               value="{{ pub.precio|int if pub.precio else '' }}"
+                                               oninput="onPrecioInputChange(this)">
+                                        <button type="button" class="btn btn-sm btn-outline-success flex-fill"
+                                                onclick="confirmarCambiarPrecio('{{ pub.mla }}', '{{ sku_buscado }}')">
+                                            <i class="bi bi-tag"></i> Precio
+                                        </button>
+                                    </div>
                                 </div>
                                 {% else %}
-                                <!-- ACCIONES PARA SKU SIN Z -->
-                                <div class="d-flex gap-1">
+                                <div class="d-flex gap-1 mb-1">
                                     <form method="POST" action="{{ url_for('cargar_stock_mla') }}"
                                           class="d-flex gap-1 flex-fill"
                                           onsubmit="return confirmarCargaStock(event, '{{ pub.mla }}')">
                                         <input type="hidden" name="mla" value="{{ pub.mla }}">
                                         <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                                        <input type="hidden" name="pubs_json" class="pubs-json-field">
                                         <input type="number" name="stock_nuevo"
                                                class="form-control form-control-sm" placeholder="Stock"
                                                min="0" max="99" required style="width:60px">
@@ -184,6 +315,19 @@
                                         <i class="bi bi-arrow-down-circle"></i> 0
                                     </button>
                                 </div>
+                                <div class="d-flex gap-1 align-items-center">
+                                    <input type="number" class="form-control form-control-sm precio-input"
+                                           id="precio_{{ pub.mla }}"
+                                           data-mla="{{ pub.mla }}"
+                                           data-tipo="{{ pub.listing_type or 'Sin cuotas propias' }}"
+                                           placeholder="Precio" min="0" step="1000" style="width:95px"
+                                           value="{{ pub.precio|int if pub.precio else '' }}"
+                                           oninput="onPrecioInputChange(this)">
+                                    <button type="button" class="btn btn-sm btn-outline-success flex-fill"
+                                            onclick="confirmarCambiarPrecio('{{ pub.mla }}', '{{ sku_buscado }}')">
+                                        <i class="bi bi-tag"></i> Precio
+                                    </button>
+                                </div>
                                 {% endif %}
                             </td>
                         </tr>
@@ -195,40 +339,34 @@
             <!-- ACCIÓN MASIVA -->
             <div class="mt-4 p-3 bg-light border rounded">
                 <h6 class="mb-3"><i class="bi bi-lightning"></i> Acción Masiva</h6>
-                
-                <!-- ACCIONES MASIVAS PARA SKU CON Z -->
+
                 {% if es_sku_con_z %}
                 <div class="row g-3">
-                    <!-- Cargar stock masivo -->
                     <div class="col-md-3">
                         <form method="POST" action="{{ url_for('cargar_stock_masivo') }}"
                               class="d-flex gap-2 align-items-end"
                               onsubmit="return confirmarCargaStockMasiva(event, {{ publicaciones|length }})">
                             <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <input type="hidden" name="pubs_json" class="pubs-json-field">
                             <div class="flex-fill">
                                 <label class="form-label small mb-1">Cargar stock a todas:</label>
                                 <input type="number" name="stock_nuevo" class="form-control"
                                        placeholder="Ej: 5" min="0" max="99" required>
                             </div>
-                            <button type="submit" class="btn btn-primary">
-                                <i class="bi bi-upload"></i>
-                            </button>
+                            <button type="submit" class="btn btn-primary"><i class="bi bi-upload"></i></button>
                         </form>
                     </div>
-
-                    <!-- Bajar a 0 masivo -->
                     <div class="col-md-3">
                         <label class="form-label small mb-1">Bajar stock a 0 en todas:</label>
                         <form method="POST" action="{{ url_for('bajar_stock_cero_masivo') }}"
                               onsubmit="return confirmarAccionMasiva('bajar stock a 0', {{ publicaciones|length }})">
                             <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <input type="hidden" name="pubs_json" class="pubs-json-field">
                             <button type="submit" class="btn btn-danger w-100">
                                 <i class="bi bi-arrow-down-circle"></i> Stock 0 en Todas
                             </button>
                         </form>
                     </div>
-
-                    <!-- Quitar demora masivo -->
                     <div class="col-md-3">
                         <label class="form-label small mb-1">Demora en todas:</label>
                         <form method="POST" action="{{ url_for('quitar_demora_masivo') }}"
@@ -239,8 +377,6 @@
                             </button>
                         </form>
                     </div>
-
-                    <!-- Cargar demora masivo -->
                     <div class="col-md-3">
                         <label class="form-label small mb-1">Poner demora en todas:</label>
                         <div class="d-flex gap-1">
@@ -253,22 +389,42 @@
                         </div>
                     </div>
                 </div>
-                
-                <!-- ACCIONES MASIVAS PARA SKU SIN Z -->
+                <div class="row g-3 mt-1">
+                    <div class="col-md-4">
+                        <label class="form-label small mb-1">Cambiar precio en todas:</label>
+                        <div class="d-flex gap-1">
+                            <input type="number" id="precio_masivo" class="form-control"
+                                   placeholder="Nuevo precio" min="0" step="1000">
+                            <button type="button" class="btn btn-outline-success"
+                                    onclick="confirmarCambiarPrecioMasivo('{{ sku_buscado }}')">
+                                <i class="bi bi-tag"></i> Cambiar
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small mb-1">Actualizar precios individuales:</label>
+                        <button type="button" class="btn btn-success w-100"
+                                onclick="confirmarActualizarTodosPrecios('{{ sku_buscado }}')">
+                            <i class="bi bi-tags"></i> Actualizar Todos los Precios
+                        </button>
+                    </div>
+                </div>
+
                 {% else %}
                 <div class="row g-3 align-items-end">
-                    <div class="col-md-5">
+                    <div class="col-md-4">
                         <form method="POST" action="{{ url_for('cargar_stock_masivo') }}"
                               class="d-flex gap-2"
                               onsubmit="return confirmarCargaStockMasiva(event, {{ publicaciones|length }})">
                             <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <input type="hidden" name="pubs_json" class="pubs-json-field">
                             <div class="flex-fill">
                                 <label class="form-label">Stock a cargar en todas:</label>
-                                <input type="number" name="stock_nuevo" class="form-control form-control-lg"
+                                <input type="number" name="stock_nuevo" class="form-control"
                                        placeholder="Ej: 5" min="0" max="99" required>
                             </div>
                             <div class="d-flex align-items-end">
-                                <button type="submit" class="btn btn-primary btn-lg">
+                                <button type="submit" class="btn btn-primary">
                                     <i class="bi bi-upload"></i> Cargar en Todas
                                 </button>
                             </div>
@@ -278,10 +434,26 @@
                         <form method="POST" action="{{ url_for('bajar_stock_cero_masivo') }}"
                               onsubmit="return confirmarAccionMasiva('bajar stock a 0', {{ publicaciones|length }})">
                             <input type="hidden" name="sku" value="{{ sku_buscado }}">
-                            <button type="submit" class="btn btn-danger btn-lg w-100">
+                            <input type="hidden" name="pubs_json" class="pubs-json-field">
+                            <button type="submit" class="btn btn-danger w-100">
                                 <i class="bi bi-arrow-down-circle"></i> Bajar Stock a 0 en Todas
                             </button>
                         </form>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">Precios:</label>
+                        <div class="d-flex gap-1">
+                            <input type="number" id="precio_masivo" class="form-control"
+                                   placeholder="Mismo precio todas" min="0" step="1000">
+                            <button type="button" class="btn btn-outline-success"
+                                    onclick="confirmarCambiarPrecioMasivo('{{ sku_buscado }}')">
+                                <i class="bi bi-tag"></i>
+                            </button>
+                            <button type="button" class="btn btn-success"
+                                    onclick="confirmarActualizarTodosPrecios('{{ sku_buscado }}')">
+                                <i class="bi bi-tags"></i> Actualizar Todos
+                            </button>
+                        </div>
                     </div>
                 </div>
                 {% endif %}
@@ -293,7 +465,7 @@
                 No se encontraron publicaciones activas para el SKU <strong>{{ sku_buscado }}</strong>
             </div>
             {% endif %}
-            
+
         </div>
     </div>
     {% endif %}
@@ -327,36 +499,175 @@
 <script>
 let modalMla = '', modalSku = '';
 
-// ── Quitar demora individual ──────────────────────────────────────
+// ── Obtener porcentajes actuales desde los inputs ────────────────
+function getPorcentajes() {
+    return {
+        'Cuota Simple':        parseFloat(document.getElementById('pct_cuota_simple').value || 5.00),
+        '3 cuotas s/interés':  parseFloat(document.getElementById('pct_cuotas_3').value || 9.40),
+        '6 cuotas s/interés':  parseFloat(document.getElementById('pct_cuotas_6').value || 15.10),
+        '9 cuotas s/interés':  parseFloat(document.getElementById('pct_cuotas_9').value || 20.70),
+        '12 cuotas s/interés': parseFloat(document.getElementById('pct_cuotas_12').value || 25.90),
+    };
+}
+
+// ── Calcular precio sugerido: 0.76/(0.76-pct/100) × base, redondeado a millar
+function calcularSugerido(base, pct) {
+    const coef = 0.76 / (0.76 - pct / 100);
+    return Math.round(base * coef / 1000) * 1000;
+}
+
+// ── Calculadora central (muestra sugeridos sin aplicar) ──────────
+function calcularPrecios() {
+    const base = parseInt(document.getElementById('precio_base_calc').value);
+    const container = document.getElementById('sugeridos-container');
+    const lista = document.getElementById('sugeridos-lista');
+
+    if (!base || base <= 0) { container.style.display = 'none'; return; }
+
+    const pcts = getPorcentajes();
+    let html = '';
+    for (const [tipo, pct] of Object.entries(pcts)) {
+        const sug = calcularSugerido(base, pct);
+        html += `<span class="badge bg-light text-dark border me-1 p-2" style="font-size:.8rem">
+            <strong>${tipo}:</strong> $${sug.toLocaleString('es-AR')}
+        </span>`;
+    }
+    lista.innerHTML = html;
+    container.style.display = 'block';
+}
+
+// ── Aplicar precio base solo a publicaciones "Sin cuotas propias" 
+function aplicarPrecioBase() {
+    const base = parseInt(document.getElementById('precio_base_calc').value);
+    if (!base || base <= 0) { alert('Ingresá un precio base válido'); return; }
+
+    let n = 0;
+    document.querySelectorAll('.precio-input').forEach(inp => {
+        if (inp.dataset.tipo === 'Sin cuotas propias') {
+            inp.value = base;
+            inp.classList.add('border-success');
+            n++;
+        }
+    });
+    calcularPrecios();
+    if (n === 0) alert('No hay publicaciones sin cuotas propias');
+}
+
+// ── Calcular y aplicar sugeridos a TODOS ────────────────────────
+function calcularYAplicarTodos() {
+    const base = parseInt(document.getElementById('precio_base_calc').value);
+    if (!base || base <= 0) { alert('Ingresá un precio base válido'); return; }
+
+    const pcts = getPorcentajes();
+    let n = 0;
+    document.querySelectorAll('.precio-input').forEach(inp => {
+        const tipo = inp.dataset.tipo;
+        if (tipo === 'Sin cuotas propias') {
+            inp.value = base;
+        } else if (pcts[tipo] !== undefined) {
+            inp.value = calcularSugerido(base, pcts[tipo]);
+        } else {
+            return;
+        }
+        inp.classList.remove('border-success', 'border-warning', 'border-info');
+        inp.classList.add('border-success');
+        n++;
+    });
+    calcularPrecios();
+
+    const resumen = document.getElementById('resumen-calc');
+    resumen.innerHTML = n > 0
+        ? `<span class="text-success fw-bold ms-2">✅ Precios aplicados en ${n} publicaciones — revisalos y hacé click en "Actualizar Todos los Precios"</span>`
+        : '';
+}
+
+// ── Cuando se modifica un precio de "Sin cuotas propias" manualmente
+function onPrecioInputChange(input) {
+    const tipo = input.dataset.tipo;
+    const mla = input.dataset.mla;
+    const base = parseInt(input.value);
+    if (!base || base <= 0) return;
+
+    if (tipo !== 'Sin cuotas propias') return; // solo reaccionar al base
+
+    const pcts = getPorcentajes();
+
+    // Aplicar a financiadas
+    document.querySelectorAll('.precio-input').forEach(inp => {
+        const t = inp.dataset.tipo;
+        if (t === 'Sin cuotas propias' && inp.dataset.mla !== mla) {
+            // Otra publicación sin cuotas: sincronizar
+            inp.value = base;
+            inp.classList.remove('border-success', 'border-warning');
+            inp.classList.add('border-info');
+        } else if (pcts[t] !== undefined) {
+            // Publicación financiada: calcular sugerido
+            inp.value = calcularSugerido(base, pcts[t]);
+            inp.classList.remove('border-success', 'border-info');
+            inp.classList.add('border-warning');
+        }
+    });
+}
+
+// ── Panel de porcentajes ─────────────────────────────────────────
+function togglePorcentajes() {
+    const panel = document.getElementById('panel-porcentajes');
+    const chevron = document.getElementById('chevron-pct');
+    const visible = panel.style.display !== 'none';
+    panel.style.display = visible ? 'none' : 'block';
+    chevron.className = visible ? 'bi bi-chevron-down' : 'bi bi-chevron-up';
+}
+
+async function guardarPorcentajes() {
+    const porcentajes = {
+        cuota_simple: parseFloat(document.getElementById('pct_cuota_simple').value),
+        cuotas_3:     parseFloat(document.getElementById('pct_cuotas_3').value),
+        cuotas_6:     parseFloat(document.getElementById('pct_cuotas_6').value),
+        cuotas_9:     parseFloat(document.getElementById('pct_cuotas_9').value),
+        cuotas_12:    parseFloat(document.getElementById('pct_cuotas_12').value),
+    };
+    try {
+        const r = await fetch('/configuracion/porcentajes-ml', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ porcentajes })
+        });
+        const data = await r.json();
+        const msg = document.getElementById('msg-porcentajes');
+        if (data.ok) {
+            msg.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Guardado correctamente</span>';
+            setTimeout(() => msg.innerHTML = '', 3000);
+        } else {
+            msg.innerHTML = `<span class="text-danger">Error: ${data.error}</span>`;
+        }
+    } catch (e) {
+        document.getElementById('msg-porcentajes').innerHTML = '<span class="text-danger">Error de conexión</span>';
+    }
+}
+
+// ── Demora ───────────────────────────────────────────────────────
 function confirmarReducirDemora(mla, sku) {
     if (confirm(`¿Quitar la demora completamente en ${mla}?`)) {
         submitForm('{{ url_for("quitar_demora_mla") }}', { mla, sku });
     }
 }
-
-// ── Bajar stock a 0 individual ───────────────────────────────────
 function confirmarBajarCero(mla, sku) {
     if (confirm(`¿Bajar stock a 0 en la publicación ${mla}?`)) {
         submitForm('{{ url_for("bajar_stock_mla_cero") }}', { mla, sku });
     }
 }
-
-// ── Cargar demora individual (abre modal) ────────────────────────
 function mostrarModalDemora(mla, sku) {
     modalMla = mla; modalSku = sku;
     document.getElementById('modal_mla_texto').textContent = `Publicación: ${mla}`;
     document.getElementById('modal_dias').value = '';
     new bootstrap.Modal(document.getElementById('modalDemora')).show();
 }
-
 function ejecutarCargarDemora() {
     const dias = document.getElementById('modal_dias').value;
     if (!dias || dias < 1) { alert('Ingresá una cantidad válida de días'); return; }
     bootstrap.Modal.getInstance(document.getElementById('modalDemora')).hide();
     submitForm('{{ url_for("cargar_demora_mla") }}', { mla: modalMla, sku: modalSku, dias });
 }
-
-// ── Cargar demora masivo ─────────────────────────────────────────
 function confirmarCargarDemoraMasivo(sku) {
     const dias = document.getElementById('dias_masivo').value;
     if (!dias || dias < 1) { alert('Ingresá los días antes de confirmar'); return; }
@@ -365,27 +676,90 @@ function confirmarCargarDemoraMasivo(sku) {
     }
 }
 
-// ── Stock individual ─────────────────────────────────────────────
+// ── Stock ────────────────────────────────────────────────────────
 function confirmarCargaStock(event, mla) {
-    const stock = event.target.stock_nuevo.value;
-    return confirm(`¿Cargar ${stock} unidades en ${mla}?`);
+    return confirm(`¿Cargar ${event.target.stock_nuevo.value} unidades en ${mla}?`);
 }
-
-// ── Acciones masivas ─────────────────────────────────────────────
 function confirmarAccionMasiva(accion, cantidad) {
     return confirm(`¿Estás seguro de ${accion} en ${cantidad} publicaciones?`);
 }
-
 function confirmarCargaStockMasiva(event, cantidad) {
-    const stock = event.target.stock_nuevo.value;
-    return confirm(`¿Cargar ${stock} unidades en ${cantidad} publicaciones?`);
+    return confirm(`¿Cargar ${event.target.stock_nuevo.value} unidades en ${cantidad} publicaciones?`);
 }
 
-// ── Helper: crear y enviar form dinámico ─────────────────────────
+// ── Precios ──────────────────────────────────────────────────────
+function confirmarCambiarPrecio(mla, sku) {
+    const precio = document.getElementById(`precio_${mla}`).value;
+    if (!precio || precio <= 0) { alert('Ingresá un precio válido'); return; }
+    if (confirm(`¿Cambiar precio a $${Number(precio).toLocaleString('es-AR')} en ${mla}?`)) {
+        submitForm('{{ url_for("cambiar_precio_mla") }}', { mla, sku, precio });
+    }
+}
+function confirmarCambiarPrecioMasivo(sku) {
+    const precio = document.getElementById('precio_masivo').value;
+    if (!precio || precio <= 0) { alert('Ingresá un precio válido'); return; }
+    if (confirm(`¿Cambiar precio a $${Number(precio).toLocaleString('es-AR')} en todas las publicaciones?`)) {
+        submitForm('{{ url_for("cambiar_precio_masivo") }}', { sku, precio });
+    }
+}
+function confirmarActualizarTodosPrecios(sku) {
+    const inputs = document.querySelectorAll('input[id^="precio_MLA"]');
+    const precios = [];
+    inputs.forEach(input => {
+        const mla = input.id.replace('precio_', '');
+        const precio = input.value;
+        if (precio && precio > 0) precios.push({ mla, precio });
+    });
+    if (precios.length === 0) { alert('No hay precios cargados en ninguna fila'); return; }
+    const resumen = precios.map(p => `${p.mla}: $${Number(p.precio).toLocaleString('es-AR')}`).join('\n');
+    if (confirm(`¿Actualizar los siguientes precios?\n\n${resumen}`)) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("cambiar_precios_individuales") }}';
+        [
+            { name: 'sku', value: sku },
+            { name: 'precios_json', value: JSON.stringify(precios) }
+        ].forEach(({ name, value }) => {
+            const inp = document.createElement('input');
+            inp.type = 'hidden'; inp.name = name; inp.value = value;
+            form.appendChild(inp);
+        });
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+// ── Helpers ──────────────────────────────────────────────────────
+function getPubsJson() {
+    const rows = document.querySelectorAll('tbody tr');
+    const pubs = [];
+    rows.forEach(row => {
+        const mlaLink = row.querySelector('td:first-child a');
+        if (!mlaLink) return;
+        const mla = mlaLink.textContent.replace(/\s+/g, '').split('\n')[0].trim();
+        const stockEl = row.querySelector('td:nth-child(3) strong');
+        const precioInput = row.querySelector('input[id^="precio_"]');
+        pubs.push({
+            mla,
+            titulo: row.querySelector('td:nth-child(2)')?.textContent?.trim() || '',
+            stock_actual: stockEl ? parseInt(stockEl.textContent) || 0 : 0,
+            precio: precioInput ? (parseFloat(precioInput.value) || null) : null,
+            estado: row.querySelector('.badge')?.textContent?.trim() || '',
+            status_raw: row.dataset.statusRaw || 'unknown',
+            demora: row.dataset.demora || null,
+            listing_type: row.dataset.listingType || null,
+        });
+    });
+    return JSON.stringify(pubs);
+}
+
 function submitForm(action, fields) {
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = action;
+    const pubsInp = document.createElement('input');
+    pubsInp.type = 'hidden'; pubsInp.name = 'pubs_json'; pubsInp.value = getPubsJson();
+    form.appendChild(pubsInp);
     Object.entries(fields).forEach(([k, v]) => {
         const inp = document.createElement('input');
         inp.type = 'hidden'; inp.name = k; inp.value = v;
@@ -394,5 +768,10 @@ function submitForm(action, fields) {
     document.body.appendChild(form);
     form.submit();
 }
+
+document.addEventListener('submit', function(e) {
+    const field = e.target.querySelector('.pubs-json-field');
+    if (field) field.value = getPubsJson();
+});
 </script>
 {% endblock %}

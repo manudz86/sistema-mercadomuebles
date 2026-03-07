@@ -417,15 +417,20 @@ function facturarIndividual(ventaId, metodoEnvio) {
     setTimeout(() => { window.location.reload(); }, 2000);
 }
 
-// Facturar múltiple: para múltiple siempre pregunta si incluir flete
+// Facturar múltiple: usa los checkboxes individuales de cada venta
 function facturarMultiple() {
     const ids = Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value);
     if (ids.length === 0) { alert('Seleccioná al menos una venta'); return; }
     
-    const incluirFlete = confirm('¿Incluir costo de flete en la factura?\n(Solo aplica a ventas con Flete Propio o Zippin)');
+    // Recopilar qué ventas tienen el flete marcado
+    const idsConFlete = ids.filter(id => {
+        const cb = document.getElementById('flete_' + id);
+        return cb && cb.checked;
+    });
     
     const idsStr = ids.join(',');
-    const url = `/ventas/historicas/facturar-multiple-excel?ids=${idsStr}&incluir_flete=${incluirFlete}`;
+    const idsConFleteStr = idsConFlete.join(',');
+    const url = `/ventas/historicas/facturar-multiple-excel?ids=${idsStr}&ids_con_flete=${idsConFleteStr}`;
     
     const iframe = document.createElement('iframe');
     iframe.style.display = 'none';

@@ -227,7 +227,7 @@
                             <br>
                             {% if venta.importe_abonado >= venta.importe_total + venta.costo_flete %}
                                 <small class="text-success fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</small>
-                            {% elif venta.importe_abonado >= venta.importe_total %}
+                            {% elif venta.importe_abonado > venta.importe_total %}
                                 <small class="text-warning fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</small>
                             {% else %}
                                 <small class="text-danger fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</small>
