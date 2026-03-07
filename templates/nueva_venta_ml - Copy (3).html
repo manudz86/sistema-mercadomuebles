@@ -191,7 +191,7 @@
                         <div class="col-md-3" id="metodo_envio_container">
                             <label class="form-label">Método de Envío</label>
                             <select class="form-select" name="metodo_envio" id="metodo_envio">
-                                <option value="Colecta" {% if shipping.get('metodo_envio') == 'Colecta' %}selected{% endif %}>Colecta</option>
+                                <option value="Mercadoenvios" {% if shipping.get('metodo_envio') == 'Mercadoenvios' %}selected{% endif %}>Mercadoenvios</option>
                                 <option value="Flex" {% if shipping.get('metodo_envio') == 'Flex' %}selected{% endif %}>Flex</option>
                                 <option value="Full" {% if shipping.get('metodo_envio') == 'Full' %}selected{% endif %}>Full</option>
                                 <option value="Flete Propio" {% if shipping.get('metodo_envio') == 'Flete Propio' %}selected{% endif %}>Flete Propio</option>
