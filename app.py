@@ -6530,7 +6530,7 @@ def ml_request(method, url, access_token, json_data=None, params=None, max_retri
 
 def obtener_datos_ml_batch(mla_ids, access_token):
     """
-    Consulta datos de múltiples publicaciones ML en UNA sola llamada (batch).
+    Consulta datos de múltiples publicaciones ML en chunks de 20 (límite de la API).
     Devuelve dict: { mla_id: { titulo, stock, status, demora, precio, listing_type } }
     """
     if not mla_ids:
@@ -6545,66 +6545,71 @@ def obtener_datos_ml_batch(mla_ids, access_token):
     }
 
     resultado = {}
-    try:
-        r = ml_request('get', 'https://api.mercadolibre.com/items', access_token,
-                       params={'ids': ','.join(mla_ids)})
 
-        if r.status_code != 200:
-            for mla_id in mla_ids:
-                resultado[mla_id] = {
-                    'titulo': mla_id, 'stock': 0, 'status': 'unknown',
-                    'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
-                }
-            return resultado
+    # Cortar en chunks de 20 (límite de la API de ML)
+    chunks = [mla_ids[i:i+20] for i in range(0, len(mla_ids), 20)]
 
-        items = r.json()
-        for item in items:
-            if item.get('code') != 200:
-                mla_id = item.get('body', {}).get('id', '')
-                resultado[mla_id] = {
-                    'titulo': mla_id, 'stock': 0, 'status': 'unknown',
-                    'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
-                }
+    for chunk in chunks:
+        try:
+            r = ml_request('get', 'https://api.mercadolibre.com/items', access_token,
+                           params={'ids': ','.join(chunk)})
+
+            if r.status_code != 200:
+                for mla_id in chunk:
+                    resultado[mla_id] = {
+                        'titulo': mla_id, 'stock': 0, 'status': 'unknown',
+                        'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
+                    }
                 continue
 
-            data = item['body']
-            mla_id = data.get('id', '')
+            items = r.json()
+            for item in items:
+                if item.get('code') != 200:
+                    mla_id = item.get('body', {}).get('id', '')
+                    resultado[mla_id] = {
+                        'titulo': mla_id, 'stock': 0, 'status': 'unknown',
+                        'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
+                    }
+                    continue
 
-            demora = None
-            campaign = None
-            for term in data.get('sale_terms', []):
-                if term.get('id') == 'MANUFACTURING_TIME':
-                    demora = term.get('value_name')
-                if term.get('id') == 'INSTALLMENTS_CAMPAIGN':
-                    campaign = (term.get('value_name') or '').split('|')[0].strip()
+                data = item['body']
+                mla_id = data.get('id', '')
 
-            listing_type_id = data.get('listing_type_id', '')
-            if listing_type_id == 'gold_special':
-                financiacion = CAMPAÑAS_CUOTAS.get(campaign, 'Sin cuotas propias') if campaign else 'Sin cuotas propias'
-            elif listing_type_id == 'gold_pro':
-                financiacion = CAMPAÑAS_CUOTAS.get(campaign, '6 cuotas s/interés')
-            else:
-                financiacion = listing_type_id
+                demora = None
+                campaign = None
+                for term in data.get('sale_terms', []):
+                    if term.get('id') == 'MANUFACTURING_TIME':
+                        demora = term.get('value_name')
+                    if term.get('id') == 'INSTALLMENTS_CAMPAIGN':
+                        campaign = (term.get('value_name') or '').split('|')[0].strip()
 
-            resultado[mla_id] = {
-                'titulo':       data.get('title', mla_id),
-                'stock':        data.get('available_quantity', 0),
-                'status':       data.get('status', 'unknown'),
-                'status_raw':   data.get('status', 'unknown'),
-                'demora':       demora,
-                'precio':       data.get('price'),
-                'listing_type': financiacion
-            }
+                listing_type_id = data.get('listing_type_id', '')
+                if listing_type_id == 'gold_special':
+                    financiacion = CAMPAÑAS_CUOTAS.get(campaign, 'Sin cuotas propias') if campaign else 'Sin cuotas propias'
+                elif listing_type_id == 'gold_pro':
+                    financiacion = CAMPAÑAS_CUOTAS.get(campaign, '6 cuotas s/interés')
+                else:
+                    financiacion = listing_type_id
 
-    except Exception as e:
-        print(f"Error en obtener_datos_ml_batch: {e}")
-        for mla_id in mla_ids:
-            resultado[mla_id] = {
-                'titulo': mla_id, 'stock': 0, 'status': 'unknown',
-                'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
-            }
+                resultado[mla_id] = {
+                    'titulo':       data.get('title', mla_id),
+                    'stock':        data.get('available_quantity', 0),
+                    'status':       data.get('status', 'unknown'),
+                    'status_raw':   data.get('status', 'unknown'),
+                    'demora':       demora,
+                    'precio':       data.get('price'),
+                    'listing_type': financiacion
+                }
+
+        except Exception as e:
+            print(f"Error en obtener_datos_ml_batch (chunk {chunk}): {e}")
+            for mla_id in chunk:
+                resultado[mla_id] = {
+                    'titulo': mla_id, 'stock': 0, 'status': 'unknown',
+                    'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
+                }
+
     return resultado
-
 
 @app.route('/buscar-sku-ml', methods=['POST'])
 @login_required
@@ -7668,94 +7673,92 @@ def auditoria_ml():
 def auditoria_ml_run(tipo):
     """
     Ejecuta un tipo específico de auditoría y devuelve JSON con los resultados.
+    Usa batch de ML (20 MLAs por request) en lugar de llamadas individuales.
     """
     if tipo not in ['pausadas_sin_stock', 'pausadas_con_stock', 'demoras']:
         return jsonify({'error': 'Tipo de auditoría inválido'}), 400
-    
+
     access_token = cargar_ml_token()
     if not access_token:
         return jsonify({'error': 'No hay token de ML configurado'}), 401
-    
+
     try:
-        # Calcular stock local
         stock_por_sku = calcular_stock_por_sku()
-        
-        # Obtener publicaciones relevantes de la BD
+
         if tipo == 'demoras':
-            # Solo SKUs que terminan en Z
             publicaciones_db = query_db("""
-                SELECT mla_id, sku, titulo_ml 
-                FROM sku_mla_mapeo 
+                SELECT mla_id, sku, titulo_ml
+                FROM sku_mla_mapeo
                 WHERE activo = TRUE AND sku LIKE '%%Z'
                 ORDER BY sku
             """)
         else:
             publicaciones_db = query_db("""
-                SELECT mla_id, sku, titulo_ml 
-                FROM sku_mla_mapeo 
+                SELECT mla_id, sku, titulo_ml
+                FROM sku_mla_mapeo
                 WHERE activo = TRUE
                 ORDER BY sku
             """)
-        
-        resultados = []
-        
+
+        # PASO 1: filtrar por stock local primero (sin tocar la API de ML)
+        pubs_a_consultar = []
         for pub in publicaciones_db:
-            mla_id = pub['mla_id']
             sku = pub['sku']
-            
-            # Obtener stock local del SKU (con fallback sin Z)
             stock_info = stock_por_sku.get(sku)
             if not stock_info and sku.endswith('Z'):
                 stock_info = stock_por_sku.get(sku[:-1])
-            
             if not stock_info:
                 continue
-            
             stock_disponible = stock_info['stock_disponible']
-            
-            # Solo consultar ML si hay stock local relevante
-            if tipo in ['pausadas_sin_stock', 'pausadas_con_stock'] and stock_disponible <= 0:
+            if stock_disponible <= 0:
                 continue
-            if tipo == 'demoras' and stock_disponible <= 0:
-                continue
-            
-            # Consultar datos de ML
-            datos_ml = obtener_datos_ml(mla_id, access_token)
+            pubs_a_consultar.append((pub, stock_disponible))
+
+        # PASO 2: batch a ML — 20 MLAs por request en lugar de 1 x 1
+        mla_ids = [pub['mla_id'] for pub, _ in pubs_a_consultar]
+        datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
+
+        # PASO 3: clasificar resultados
+        import re
+        resultados = []
+        for pub, stock_disponible in pubs_a_consultar:
+            mla_id    = pub['mla_id']
+            sku       = pub['sku']
+            datos_ml  = datos_batch.get(mla_id, {})
             status_ml = datos_ml.get('status', 'unknown')
-            stock_ml = datos_ml.get('stock', 0)
+            stock_ml  = datos_ml.get('stock', 0)
             demora_ml = datos_ml.get('demora')
-            
+
             item_base = {
-                'mla': mla_id,
-                'sku': sku,
-                'titulo': datos_ml.get('titulo', pub.get('titulo_ml', '')),
+                'mla':              mla_id,
+                'sku':              sku,
+                'titulo':           datos_ml.get('titulo', pub.get('titulo_ml', '')),
                 'stock_disponible': stock_disponible,
-                'stock_ml': stock_ml,
-                'status': status_ml
+                'stock_ml':         stock_ml,
+                'status':           status_ml
             }
-            
+
             if tipo == 'pausadas_sin_stock':
-                if status_ml == 'paused' and stock_ml == 0 and stock_disponible > 0:
+                if status_ml == 'paused' and stock_ml == 0:
                     resultados.append(item_base)
-            
+
             elif tipo == 'pausadas_con_stock':
-                if status_ml == 'paused' and stock_ml > 0 and stock_disponible > 0:
+                if status_ml == 'paused' and stock_ml > 0:
                     resultados.append(item_base)
-            
+
             elif tipo == 'demoras':
                 if demora_ml and demora_ml != 'Sin especificar':
                     try:
-                        import re
                         numeros = re.findall(r'\d+', str(demora_ml))
                         if numeros and int(numeros[0]) > 0:
                             item_base['demora'] = demora_ml
                             resultados.append(item_base)
                     except Exception as e:
                         print(f"Error parseando demora '{demora_ml}': {e}")
-        
-        print(f"✅ Auditoría '{tipo}': {len(resultados)} resultados")
+
+        print(f"✅ Auditoría '{tipo}': {len(resultados)} resultados (consultados {len(mla_ids)} MLAs en {-(-len(mla_ids)//20)} requests)")
         return jsonify({'tipo': tipo, 'resultados': resultados, 'total': len(resultados)})
-    
+
     except Exception as e:
         import traceback
         traceback.print_exc()
