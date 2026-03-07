@@ -4,4 +4,5 @@ echo __pycache__/
 echo *.pyc
 echo venv/
 echo .venv/
+config/.env
 ) > .gitignore 
