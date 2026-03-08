@@ -693,8 +693,11 @@ function mostrarEstado(tipo, estado) {
 }
 
 function toggleAll(tipo) {
-    const s = secciones[tipo];
+    const key = tipo.replace(/-/g, '_');
+    const s = secciones[key];
+    if (!s) return;
     const selectAll = document.getElementById(`selectAll${tipo.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('')}`);
+    if (!selectAll) return;
     document.querySelectorAll(`.checkbox-${s.checkboxClass}`).forEach(cb => {
         cb.checked = selectAll.checked;
     });
@@ -702,7 +705,9 @@ function toggleAll(tipo) {
 }
 
 function selectAll(tipo) {
-    const s = secciones[tipo];
+    const key = tipo.replace(/-/g, '_');
+    const s = secciones[key];
+    if (!s) return;
     document.querySelectorAll(`.checkbox-${s.checkboxClass}`).forEach(cb => cb.checked = true);
     updateCount(s.checkboxClass);
 }
