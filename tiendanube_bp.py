@@ -652,8 +652,8 @@ def _crear_producto_tn(nombre, descripcion, variantes, categoria_id=None):
     logger.error(f"TN 422 debug: {debug_resp.text}")
     debug_resp.raise_for_status()
     resultado = debug_resp.json()
-        time.sleep(0.5)  # rate limiting cortesía
-        return resultado
+    time.sleep(0.5)  # rate limiting cortesía
+    return resultado
 
 
 @tiendanube_bp.route('/crear-catalogo', methods=['POST'])
