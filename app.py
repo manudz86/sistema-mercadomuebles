@@ -7764,9 +7764,23 @@ def auditoria_ml_run(tipo):
                         print(f"Error parseando demora '{demora_ml}': {e}")
 
             elif tipo == 'stock_en_ml':
-                # Publicaciones con stock en ML pero sin stock local disponible
                 if stock_ml > 0:
-                    resultados.append(item_base)
+                    es_z = sku.endswith('Z')
+                    if es_z:
+                        # Para SKUs Z: solo incluir si NO tiene demora cargada
+                        tiene_demora = False
+                        if demora_ml and demora_ml != 'Sin especificar':
+                            try:
+                                numeros = re.findall(r'\d+', str(demora_ml))
+                                if numeros and int(numeros[0]) > 0:
+                                    tiene_demora = True
+                            except:
+                                pass
+                        if not tiene_demora:
+                            resultados.append(item_base)
+                    else:
+                        # Para SKUs normales: siempre incluir si tiene stock en ML
+                        resultados.append(item_base)
 
         print(f"✅ Auditoría '{tipo}': {len(resultados)} resultados (consultados {len(mla_ids)} MLAs en {-(-len(mla_ids)//20)} requests)")
         return jsonify({'tipo': tipo, 'resultados': resultados, 'total': len(resultados)})
