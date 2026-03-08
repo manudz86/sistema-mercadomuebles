@@ -585,19 +585,4 @@ function showToast(msg, tipo = 'success') {
 }
 </script>
 
-<style>
-@media (max-width: 767px) {
-    .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    .table-responsive .table { font-size: 0.78rem; min-width: max-content; }
-    .table-responsive .table th,
-    .table-responsive .table td { padding: 5px 6px; white-space: nowrap; }
-    .table-responsive .table th:first-child,
-    .table-responsive .table td:first-child {
-        position: sticky; left: 0; z-index: 2;
-        background: #f8f9fa; box-shadow: 2px 0 4px rgba(0,0,0,0.08);
-    }
-    .table-responsive .table td:first-child { background: #fff; }
-}
-</style>
-
 {% endblock %}
