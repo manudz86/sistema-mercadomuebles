@@ -339,6 +339,15 @@ document.addEventListener('DOMContentLoaded', async function() {
         todosProductos = [];
     }
     inicializarBuscadores();
+
+    // Inicializar visibilidad según tipo_entrega al cargar
+    const tipoEntrega = document.getElementById('tipo_entrega');
+    if (tipoEntrega && tipoEntrega.value === 'Retiro') {
+        document.getElementById('metodo_envio_container').style.display = 'none';
+        document.getElementById('ubicacion_despacho_container').style.display = 'none';
+        document.getElementById('direccion_container').style.display = 'none';
+        document.getElementById('metodo_envio').value = '';
+    }
 });
 
 function inicializarBuscadores() {
@@ -435,6 +444,7 @@ document.getElementById('tipo_entrega').addEventListener('change', function() {
     document.getElementById('metodo_envio_container').style.display = esRetiro ? 'none' : 'block';
     document.getElementById('ubicacion_despacho_container').style.display = esRetiro ? 'none' : 'block';
     document.getElementById('direccion_container').style.display = esRetiro ? 'none' : 'block';
+    if (esRetiro) { document.getElementById('metodo_envio').value = ''; }
 });
 
 document.getElementById('metodo_envio').addEventListener('change', function() {

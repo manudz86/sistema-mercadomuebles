@@ -170,8 +170,8 @@
                 </div>
             </div>
 
-            <!-- TABLA DE PUBLICACIONES (solo desktop) -->
-            <div class="table-responsive d-none d-md-block">
+            <!-- TABLA DE PUBLICACIONES -->
+            <div class="table-responsive">
                 <table class="table table-hover table-bordered">
                     <thead class="table-dark">
                         <tr>
@@ -331,86 +331,6 @@
                         {% endfor %}
                     </tbody>
                 </table>
-            </div>
-
-            <!-- CARDS MOBILE publicaciones -->
-            <div class="d-md-none mb-3">
-                {% for pub in publicaciones %}
-                <div class="card mb-2 shadow-sm">
-                    <div class="card-header d-flex justify-content-between align-items-center py-2"
-                         style="background:#1e2a38;">
-                        <div>
-                            <a href="https://articulo.mercadolibre.com.ar/{{ pub.mla }}" target="_blank"
-                               class="text-white fw-bold text-decoration-none" style="font-size:0.9rem;">
-                                {{ pub.mla }} <i class="bi bi-box-arrow-up-right" style="font-size:0.7rem;"></i>
-                            </a>
-                        </div>
-                        <div class="d-flex gap-1">
-                            {% if pub.status_raw == 'active' %}<span class="badge bg-success">Activa</span>
-                            {% elif pub.status_raw == 'paused' %}<span class="badge bg-warning text-dark">Pausada</span>
-                            {% elif pub.status_raw == 'closed' %}<span class="badge bg-danger">Cerrada</span>
-                            {% else %}<span class="badge bg-secondary">{{ pub.estado }}</span>{% endif %}
-                        </div>
-                    </div>
-                    <div class="card-body py-2 px-3">
-                        <div class="mb-1" style="font-size:0.82rem;">{{ pub.titulo }}</div>
-                        <div class="d-flex gap-3 mb-2" style="font-size:0.8rem;">
-                            <span><strong>Stock:</strong> {{ pub.stock_actual }}</span>
-                            {% if pub.precio %}<span><strong>Precio:</strong> ${{ "{:,.0f}".format(pub.precio) }}</span>{% endif %}
-                            {% if pub.listing_type %}<span class="badge" style="background:#e8f0fe;color:#1a56db;font-size:0.7rem;">{{ pub.listing_type }}</span>{% endif %}
-                            {% if es_sku_con_z and pub.demora %}
-                                <span class="badge bg-warning text-dark"><i class="bi bi-clock"></i> {{ pub.demora }}</span>
-                            {% endif %}
-                        </div>
-                        <!-- ACCIONES STOCK -->
-                        <div class="d-flex gap-1 flex-wrap mb-2">
-                            <form method="POST" action="{{ url_for('cargar_stock_mla') }}"
-                                  class="d-flex gap-1"
-                                  onsubmit="return confirmarCargaStock(event, '{{ pub.mla }}')">
-                                <input type="hidden" name="mla" value="{{ pub.mla }}">
-                                <input type="hidden" name="sku" value="{{ sku_buscado }}">
-                                <input type="hidden" name="pubs_json" class="pubs-json-field">
-                                <input type="number" name="stock_nuevo" class="form-control form-control-sm"
-                                       placeholder="Stock" min="0" max="99" required style="width:65px;">
-                                <button type="submit" class="btn btn-sm btn-primary">
-                                    <i class="bi bi-upload"></i> Subir
-                                </button>
-                            </form>
-                            <button type="button" class="btn btn-sm btn-danger"
-                                    onclick="confirmarBajarCero('{{ pub.mla }}', '{{ sku_buscado }}')">
-                                <i class="bi bi-arrow-down-circle"></i> 0
-                            </button>
-                        </div>
-                        <!-- ACCIONES PRECIO -->
-                        <div class="d-flex gap-1 mb-2">
-                            <input type="number" class="form-control form-control-sm precio-input"
-                                   id="precio_{{ pub.mla }}"
-                                   data-mla="{{ pub.mla }}"
-                                   data-tipo="{{ pub.listing_type or 'Sin cuotas propias' }}"
-                                   placeholder="Precio" min="0" step="1000" style="width:100px;"
-                                   value="{{ pub.precio|int if pub.precio else '' }}"
-                                   oninput="onPrecioInputChange(this)">
-                            <button type="button" class="btn btn-sm btn-outline-success flex-fill"
-                                    onclick="confirmarCambiarPrecio('{{ pub.mla }}', '{{ sku_buscado }}')">
-                                <i class="bi bi-tag"></i> Precio
-                            </button>
-                        </div>
-                        {% if es_sku_con_z %}
-                        <!-- ACCIONES DEMORA -->
-                        <div class="d-flex gap-1">
-                            <button type="button" class="btn btn-sm btn-warning flex-fill"
-                                    onclick="confirmarReducirDemora('{{ pub.mla }}', '{{ sku_buscado }}')">
-                                <i class="bi bi-x-circle"></i> Quitar demora
-                            </button>
-                            <button type="button" class="btn btn-sm btn-outline-warning"
-                                    onclick="mostrarModalDemora('{{ pub.mla }}', '{{ sku_buscado }}')">
-                                <i class="bi bi-clock-history"></i>
-                            </button>
-                        </div>
-                        {% endif %}
-                    </div>
-                </div>
-                {% endfor %}
             </div>
 
             <!-- ACCIÓN MASIVA -->
