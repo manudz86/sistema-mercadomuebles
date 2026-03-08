@@ -112,8 +112,24 @@ def callback():
         return jsonify({'error': 'Error obteniendo token', 'detalle': resp.text}), 400
     
     data = resp.json()
-    store_id     = data.get('user_id')
+    logger.info(f"TN OAuth response completa: {data}")
+    
+    # Tiendanube puede devolver el store_id en distintos campos según la versión
+    store_id = (
+        data.get('user_id') or
+        data.get('store_id') or
+        data.get('id') or
+        str(data.get('userId', ''))
+    )
     access_token = data.get('access_token')
+    
+    if not store_id or not access_token:
+        return jsonify({
+            'error': 'Respuesta OAuth incompleta',
+            'data_recibida': data
+        }), 400
+    
+    store_id = str(store_id)
     
     # Guardar en DB
     db = get_db()
@@ -125,7 +141,7 @@ def callback():
             access_token = VALUES(access_token),
             scope = VALUES(scope),
             fecha_actualizacion = CURRENT_TIMESTAMP
-    """, (store_id, access_token, data.get('scope'), store_id))
+    """, (store_id, access_token, data.get('scope', ''), store_id))
     db.commit()
     cursor.close()
     db.close()
