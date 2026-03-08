@@ -239,89 +239,6 @@
         </div>
     </div>
 
-    <!-- ===================================================== -->
-    <!-- SECCIÓN 4: CON STOCK EN ML PERO SIN STOCK LOCAL       -->
-    <!-- ===================================================== -->
-    <div class="card mb-4 shadow-sm" id="card-stock-en-ml">
-        <div class="card-header bg-danger text-white d-flex justify-content-between align-items-center">
-            <div>
-                <h5 class="mb-0">
-                    <i class="bi bi-exclamation-octagon"></i> Con Stock en ML pero sin Stock Local
-                </h5>
-                <small>Publicaciones con stock en ML pero stock disponible ≤ 0 → Bajar a 0 (normales) o poner demora (Z)</small>
-            </div>
-            <div class="d-flex align-items-center gap-2">
-                <span class="badge bg-white text-danger fs-6 d-none" id="badge-stock-en-ml">0</span>
-                <button class="btn btn-light btn-sm" onclick="ejecutarAuditoria('stock_en_ml')" id="btn-stock-en-ml">
-                    <i class="bi bi-play-circle"></i> Ejecutar
-                </button>
-            </div>
-        </div>
-        <div class="card-body">
-            <div id="estado-stock-en-ml" class="text-center py-4 text-muted">
-                <i class="bi bi-play-circle fs-1 d-block mb-2 opacity-50"></i>
-                <p>Hacé clic en <strong>Ejecutar</strong> para analizar esta sección</p>
-            </div>
-            <div id="spinner-stock-en-ml" class="text-center py-5 d-none">
-                <div class="spinner-border text-danger" style="width: 3rem; height: 3rem;"></div>
-                <p class="mt-3 text-muted">Consultando publicaciones en ML...<br><small>Esto puede tardar unos minutos</small></p>
-            </div>
-            <div id="resultados-stock-en-ml" class="d-none">
-                <form id="formStockEnMl">
-                    <div class="table-responsive">
-                        <table class="table table-hover table-sm">
-                            <thead class="table-light">
-                                <tr>
-                                    <th width="5%">
-                                        <input type="checkbox" class="form-check-input" id="selectAllStockEnMl"
-                                               onchange="toggleAll('stock-en-ml')">
-                                    </th>
-                                    <th width="15%">MLA</th>
-                                    <th width="10%">SKU</th>
-                                    <th width="30%">Título</th>
-                                    <th width="12%">Stock Local</th>
-                                    <th width="8%">Stock ML</th>
-                                    <th width="20%">Acción</th>
-                                </tr>
-                            </thead>
-                            <tbody id="tbody-stock-en-ml"></tbody>
-                        </table>
-                    </div>
-                    <div class="mt-3 p-3 bg-light border rounded">
-                        <div class="d-flex gap-2 align-items-center flex-wrap">
-                            <span class="text-muted">
-                                <i class="bi bi-check2-square"></i>
-                                <span id="count-stock-en-ml">0</span> seleccionadas
-                            </span>
-                            <button type="button" class="btn btn-danger btn-sm"
-                                    onclick="accionMasiva('stock_en_ml', 'bajar_cero')">
-                                <i class="bi bi-arrow-down-circle"></i> Bajar a 0 (normales)
-                            </button>
-                            <div class="d-flex gap-1 align-items-center">
-                                <input type="number" id="dias-demora-masivo-stock-en-ml"
-                                       class="form-control form-control-sm" placeholder="días" min="1" max="90" value="15"
-                                       style="width:65px;">
-                                <button type="button" class="btn btn-info btn-sm"
-                                        onclick="accionMasiva('stock_en_ml', 'poner_demora')">
-                                    <i class="bi bi-clock"></i> Poner demora (Z)
-                                </button>
-                            </div>
-                            <button type="button" class="btn btn-outline-secondary btn-sm"
-                                    onclick="selectAll('stock-en-ml')">
-                                Seleccionar Todas
-                            </button>
-                        </div>
-                    </div>
-                </form>
-            </div>
-            <div id="vacio-stock-en-ml" class="d-none">
-                <div class="alert alert-success mb-0">
-                    <i class="bi bi-check-circle"></i> No se encontraron inconsistencias en esta sección.
-                </div>
-            </div>
-        </div>
-    </div>
-
 </div>
 
 <!-- Toast de notificaciones -->
@@ -380,20 +297,6 @@ const secciones = {
         btn: 'btn-demoras',
         checkboxClass: 'demoras',
         renderFila: renderFilaDemoras
-    },
-    'stock_en_ml': {
-        endpoint: '/auditoria-ml/run/stock_en_ml',
-        accionEndpoint: null,
-        tbody: 'tbody-stock-en-ml',
-        badge: 'badge-stock-en-ml',
-        spinner: 'spinner-stock-en-ml',
-        estado: 'estado-stock-en-ml',
-        resultados: 'resultados-stock-en-ml',
-        vacio: 'vacio-stock-en-ml',
-        count: 'count-stock-en-ml',
-        btn: 'btn-stock-en-ml',
-        checkboxClass: 'stock-en-ml',
-        renderFila: renderFilaStockEnMl
     }
 };
 
@@ -506,31 +409,6 @@ function renderFilaPausadasConStock(item) {
     return tr;
 }
 
-function renderFilaStockEnMl(item) {
-    const esZ = item.sku.endsWith('Z');
-    const tipoTag = esZ
-        ? '<span class=\"badge bg-info text-dark\"><i class=\"bi bi-clock\"></i> Z - Demora</span>'
-        : '<span class=\"badge bg-danger\"><i class=\"bi bi-arrow-down-circle\"></i> Bajar a 0</span>';
-    const accionBtn = esZ
-        ? `<div class="d-flex gap-1"><input type="number" class="form-control form-control-sm" id="dias-${item.mla}" value="15" min="1" max="90" style="width:60px;" placeholder="días"><button type="button" class="btn btn-sm btn-info text-white" onclick="accionIndividual('stock_en_ml', 'poner_demora', '${item.mla}')"><i class="bi bi-clock"></i></button></div>`
-        : `<button type="button" class="btn btn-sm btn-danger" onclick="accionIndividual('stock_en_ml', 'bajar_cero', '${item.mla}')"><i class="bi bi-arrow-down-circle"></i> Bajar a 0</button>`;
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-        <td><input type="checkbox" class="form-check-input checkbox-stock-en-ml"
-               data-mla="${item.mla}" data-es-z="${esZ}"
-               onchange="updateCount('stock-en-ml')"></td>
-        <td><a href="https://www.mercadolibre.com.ar/publicaciones/listado?search=${item.mla}"
-               target="_blank" class="text-decoration-none">
-            ${item.mla} <i class="bi bi-box-arrow-up-right"></i></a></td>
-        <td>${tipoTag}<br><small class="text-muted">${item.sku}</small></td>
-        <td><small>${item.titulo}</small></td>
-        <td><span class="badge bg-danger">0</span></td>
-        <td><span class="badge bg-warning text-dark fw-bold">${item.stock_ml}</span></td>
-        <td>${accionBtn}</td>
-    `;
-    return tr;
-}
-
 function renderFilaDemoras(item) {
     const estadoBadge = item.status === 'active'
         ? '<span class="badge bg-success">Activa</span>'
@@ -576,11 +454,6 @@ async function accionIndividual(tipo, accion, mla) {
         if (!confirm(`¿Activar publicación ${mla}?`)) return;
     } else if (accion === 'reducir_demora') {
         if (!confirm(`¿Quitar la demora completamente en ${mla}?`)) return;
-    } else if (accion === 'bajar_cero') {
-        if (!confirm(`¿Bajar stock a 0 en ${mla}?`)) return;
-    } else if (accion === 'poner_demora') {
-        const dias = document.getElementById(`dias-${mla}`)?.value || 15;
-        if (!confirm(`¿Poner ${dias} días de demora en ${mla}?`)) return;
     }
     
     await ejecutarAccion(tipo, accion, [mla], stockValue ? {[mla]: stockValue} : {});
@@ -602,12 +475,6 @@ async function accionMasiva(tipo, accion) {
     if (accion === 'cargar_stock') confirmMsg = `¿Cargar stock en ${checkboxes.length} publicaciones?`;
     else if (accion === 'activar') confirmMsg = `¿Activar ${checkboxes.length} publicaciones?`;
     else if (accion === 'reducir_demora') confirmMsg = `¿Quitar demora en ${checkboxes.length} publicaciones?`;
-    else if (accion === 'bajar_cero') confirmMsg = `¿Bajar stock a 0 en ${checkboxes.length} publicaciones?`;
-    else if (accion === 'poner_demora') {
-        const diasInput = document.getElementById('dias-demora-masivo-stock-en-ml');
-        const dias = diasInput ? diasInput.value : 15;
-        confirmMsg = `¿Poner ${dias} días de demora en ${checkboxes.length} publicaciones Z?`;
-    }
     
     if (!confirm(confirmMsg)) return;
     
@@ -631,9 +498,7 @@ async function ejecutarAccion(tipo, accion, mlas, stockMap = {}) {
     const endpoints = {
         'cargar_stock': '/auditoria-ml/cargar-stock',
         'activar': '/auditoria-ml/activar',
-        'reducir_demora': '/auditoria-ml/reducir-demora',
-        'bajar_cero': '/auditoria-ml/bajar-cero',
-        'poner_demora': '/auditoria-ml/poner-demora'
+        'reducir_demora': '/auditoria-ml/reducir-demora'
     };
     
     let body = {};
@@ -643,15 +508,6 @@ async function ejecutarAccion(tipo, accion, mlas, stockMap = {}) {
         body.mlas = mlas;
     } else if (accion === 'reducir_demora') {
         body.mlas = mlas;
-    } else if (accion === 'bajar_cero') {
-        body.mla_stock = mlas.map(mla => `${mla}:0`);
-    } else if (accion === 'poner_demora') {
-        const diasMasivo = document.getElementById('dias-demora-masivo-stock-en-ml')?.value || 15;
-        body.mlas_dias = mlas.map(mla => {
-            const diasInput = document.getElementById(`dias-${mla}`);
-            const dias = diasInput ? diasInput.value : diasMasivo;
-            return `${mla}:${dias}`;
-        });
     }
     
     try {
@@ -713,8 +569,7 @@ function updateCount(checkboxClass) {
     const countMap = {
         'pausadas-sin-stock': 'count-pausadas-sin-stock',
         'pausadas-con-stock': 'count-pausadas-con-stock',
-        'demoras': 'count-demoras',
-        'stock-en-ml': 'count-stock-en-ml'
+        'demoras': 'count-demoras'
     };
     const countId = countMap[checkboxClass];
     if (countId) document.getElementById(countId).textContent = count;
@@ -729,5 +584,20 @@ function showToast(msg, tipo = 'success') {
     toast.show();
 }
 </script>
+
+<style>
+@media (max-width: 767px) {
+    .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .table-responsive .table { font-size: 0.78rem; min-width: max-content; }
+    .table-responsive .table th,
+    .table-responsive .table td { padding: 5px 6px; white-space: nowrap; }
+    .table-responsive .table th:first-child,
+    .table-responsive .table td:first-child {
+        position: sticky; left: 0; z-index: 2;
+        background: #f8f9fa; box-shadow: 2px 0 4px rgba(0,0,0,0.08);
+    }
+    .table-responsive .table td:first-child { background: #fff; }
+}
+</style>
 
 {% endblock %}
