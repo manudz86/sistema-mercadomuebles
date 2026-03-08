@@ -40,7 +40,7 @@ def get_db():
 def get_tn_config():
     """Obtiene el token y store_id guardado en DB."""
     db = get_db()
-    cursor = db.cursor(dictionary=True)
+    cursor = db.cursor()
     cursor.execute("SELECT * FROM tiendanube_config ORDER BY id DESC LIMIT 1")
     row = cursor.fetchone()
     cursor.close()
@@ -219,7 +219,7 @@ def procesar_orden_tiendanube(orden):
         return jsonify({'ok': True, 'accion': 'ignorada', 'motivo': payment_status})
     
     db = get_db()
-    cursor = db.cursor(dictionary=True)
+    cursor = db.cursor()
     
     try:
         # Verificar si ya fue procesada
@@ -338,7 +338,7 @@ def sync_stock():
     skus_filtro = body.get('skus', [])
     
     db = get_db()
-    cursor = db.cursor(dictionary=True)
+    cursor = db.cursor()
     
     try:
         if skus_filtro:
@@ -417,7 +417,7 @@ def _get_product_id_for_variant(cursor, variant_id):
 def listar_mapeos():
     """Lista todos los mapeos SKU ↔ Tiendanube."""
     db = get_db()
-    cursor = db.cursor(dictionary=True)
+    cursor = db.cursor()
     cursor.execute("""
         SELECT m.*, p.nombre, p.stock_actual
         FROM sku_tiendanube_mapeo m
@@ -472,7 +472,7 @@ def crear_mapeo():
 def listar_ordenes():
     """Lista las últimas 100 órdenes recibidas de Tiendanube."""
     db = get_db()
-    cursor = db.cursor(dictionary=True)
+    cursor = db.cursor()
     cursor.execute("""
         SELECT tiendanube_order_id, estado, payment_status, total,
                cliente_nombre, cliente_email, procesada,
