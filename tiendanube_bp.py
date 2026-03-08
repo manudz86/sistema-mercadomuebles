@@ -485,3 +485,390 @@ def listar_ordenes():
     cursor.close()
     db.close()
     return jsonify(ordenes)
+
+
+
+# ============================================================
+# AGREGAR ESTAS RUTAS AL FINAL DE tiendanube_bp.py
+# (antes del último bloque si hay alguno)
+# ============================================================
+
+import time
+
+# Mapeo de ancho → plaza (para mostrar en TN)
+PLAZA_MAP = {
+    '80':  '1 Plaza',
+    '90':  '1½ Plaza',
+    '100': '1½ Plaza',
+    '130': '1½ Plaza',
+    '140': '2 Plazas',
+    '150': '2 Plazas',
+    '160': 'Queen Size (160x200)',
+    '180': 'King Size (180x200)',
+    '200': 'King Size (200x200)',
+}
+
+# Catálogo completo: modelo → lista de SKUs de colchón
+# True = también se vende en conjunto, False = solo colchón
+CATALOGO = {
+    # ── LÍNEA ESPUMA ──────────────────────────────────────────
+    'Colchón Cannon Tropical': {
+        'linea': 'espuma',
+        'descripcion': 'Colchón de espuma de alta densidad, ideal para cuartos de invitados o uso ocasional. Tela ticking rayada. Fabricado por Cannon.',
+        'conjunto': False,
+        'skus': ['CTR80', 'CTR90', 'CTR100'],
+    },
+    'Colchón Cannon Princess 20cm': {
+        'linea': 'espuma',
+        'descripcion': 'Colchón de espuma 20cm de altura con tela ticking premium. Excelente relación precio-confort. Disponible solo o en conjunto con sommier.',
+        'conjunto': True,
+        'skus': ['CPR8020', 'CPR9020', 'CPR10020', 'CPR14020'],
+    },
+    'Colchón Cannon Princess 23cm': {
+        'linea': 'espuma',
+        'descripcion': 'Colchón de espuma 23cm de altura, mayor volumen y confort. Tela ticking premium. Disponible solo o en conjunto con sommier.',
+        'conjunto': True,
+        'skus': ['CPR8023', 'CPR9023', 'CPR10023', 'CPR14023'],
+    },
+    'Colchón Cannon Exclusive 25cm': {
+        'linea': 'espuma',
+        'descripcion': 'Colchón de espuma premium 25cm de altura. Tela jacquard de alta gama. Excelente soporte y durabilidad. Disponible solo o en conjunto con sommier.',
+        'conjunto': True,
+        'skus': ['CEX80', 'CEX90', 'CEX100', 'CEX140', 'CEX150', 'CEX160', 'CEX180', 'CEX200'],
+    },
+    'Colchón Cannon Exclusive con Pillow 29cm': {
+        'linea': 'espuma',
+        'descripcion': 'Colchón de espuma premium 29cm con pillow top incorporado para mayor suavidad superficial. El más completo de la línea espuma. Disponible solo o en conjunto.',
+        'conjunto': True,
+        'skus': ['CEXP80', 'CEXP90', 'CEXP100', 'CEXP140', 'CEXP150', 'CEXP160', 'CEXP180', 'CEXP200'],
+    },
+    'Colchón Cannon Renovation': {
+        'linea': 'espuma',
+        'descripcion': 'Colchón de espuma de alta densidad con tecnología de renovación. Ideal para uso diario. Tela ticking de alta resistencia. Disponible solo o en conjunto con sommier.',
+        'conjunto': True,
+        'skus': ['CRE80', 'CRE90', 'CRE100', 'CRE140', 'CRE150', 'CRE160', 'CRE180', 'CRE200'],
+    },
+    'Colchón Cannon Renovation Europillow': {
+        'linea': 'espuma',
+        'descripcion': 'Colchón Renovation con europillow incorporado para mayor altura y suavidad superficial. El tope de la línea Renovation. Disponible solo o en conjunto con sommier.',
+        'conjunto': True,
+        'skus': ['CREP80', 'CREP90', 'CREP100', 'CREP140', 'CREP150', 'CREP160', 'CREP180', 'CREP200'],
+    },
+    # ── LÍNEA RESORTES ────────────────────────────────────────
+    'Colchón Cannon Soñar (Resortes)': {
+        'linea': 'resortes',
+        'descripcion': 'Colchón de resortes bonell, el modelo de entrada a la línea resortes Cannon. Excelente soporte y ventilación natural. Disponible solo o en conjunto con sommier.',
+        'conjunto': True,
+        'skus': ['CSO80', 'CSO90', 'CSO100', 'CSO140'],
+    },
+    'Colchón Cannon Doral (Resortes)': {
+        'linea': 'resortes',
+        'descripcion': 'Colchón de resortes bonell con mayor densidad de resortes. Soporte firme y distribución uniforme del peso. Disponible solo o en conjunto con sommier.',
+        'conjunto': True,
+        'skus': ['CDO80', 'CDO90', 'CDO100', 'CDO140', 'CDO150', 'CDO160', 'CDO180', 'CDO200'],
+    },
+    'Colchón Cannon Doral con Pillow (Resortes)': {
+        'linea': 'resortes',
+        'descripcion': 'Colchón Doral con pillow top para mayor suavidad superficial manteniendo el soporte de resortes. Disponible solo o en conjunto con sommier.',
+        'conjunto': True,
+        'skus': ['CDOP140', 'CDOP150', 'CDOP160', 'CDOP180', 'CDOP200'],
+    },
+    'Colchón Cannon Sublime Europillow (Resortes)': {
+        'linea': 'resortes',
+        'descripcion': 'El tope de línea de resortes Cannon. Europillow de alta densidad sobre sistema de resortes premium. Máximo confort y durabilidad. Disponible solo o en conjunto con sommier.',
+        'conjunto': True,
+        'skus': ['CSUP140', 'CSUP150', 'CSUP160', 'CSUP180', 'CSUP200'],
+    },
+    # ── COLCHÓN EN CAJA ───────────────────────────────────────
+    'Colchón en Caja Cannon Compac': {
+        'linea': 'box',
+        'descripcion': 'Colchón de espuma enrollado al vacío que llega en caja. Fácil de transportar e instalar. Se expande completamente en pocas horas. Solo colchón.',
+        'conjunto': False,
+        'skus': ['CCO80_DEP', 'CCO100_DEP', 'CCO140_DEP', 'CCO160_DEP'],
+    },
+    'Colchón en Caja Cannon Compac Plus Pocket': {
+        'linea': 'box',
+        'descripcion': 'Colchón en caja con tecnología pocket coil enrollado al vacío. Mayor confort que el Compac estándar. Fácil transporte e instalación. Solo colchón.',
+        'conjunto': False,
+        'skus': ['CCP80_DEP', 'CCP100_DEP', 'CCP140_DEP', 'CCP160_DEP'],
+    },
+}
+
+ALMOHADAS_SKUS = ['CLASICA', 'CERVICAL', 'DORAL', 'RENOVATION', 'PLATINO', 'EXCLUSIVE', 'DUAL', 'SUBLIME']
+
+
+def _get_medida_info(medida_str):
+    """Devuelve (medida_completa, plaza) a partir de '140x190'."""
+    if not medida_str:
+        return '', ''
+    ancho = medida_str.split('x')[0]
+    plaza = PLAZA_MAP.get(ancho, medida_str)
+    return medida_str, plaza
+
+
+def _crear_producto_tn(nombre, descripcion, variantes, categoria_id=None):
+    """
+    Crea un producto en Tiendanube con sus variantes.
+    variantes = lista de dicts con keys: sku, precio, stock, medida, tipo
+    Retorna el producto creado con sus variant IDs.
+    """
+    # Construir lista de variantes para la API
+    tn_variantes = []
+    for v in variantes:
+        medida, plaza = _get_medida_info(v['medida'])
+        variante = {
+            'price': str(v['precio']),
+            'stock': v['stock'],
+            'sku': v['sku'],
+            'attributes': [
+                {'name': 'Medida', 'value': medida},
+                {'name': 'Tipo', 'value': v['tipo']},
+            ]
+        }
+        if v['stock'] == 0:
+            variante['stock_management'] = True
+        tn_variantes.append(variante)
+
+    payload = {
+        'name': {'es': nombre},
+        'description': {'es': descripcion},
+        'attributes': ['Medida', 'Tipo'],
+        'variants': tn_variantes,
+        'published': True,
+    }
+
+    if categoria_id:
+        payload['categories'] = [{'id': categoria_id}]
+
+    resultado = tn_request('POST', 'products', data=payload)
+    time.sleep(0.5)  # rate limiting cortesía
+    return resultado
+
+
+@tiendanube_bp.route('/crear-catalogo', methods=['POST'])
+def crear_catalogo():
+    """
+    Crea todos los productos del catálogo Cannon en Tiendanube vía API
+    y guarda los mapeos en sku_tiendanube_mapeo.
+
+    POST /tiendanube/crear-catalogo
+    Body opcional: {"solo_modelo": "Colchón Cannon Exclusive 25cm"}  → para crear uno solo
+    """
+    body = request.get_json() or {}
+    solo_modelo = body.get('solo_modelo')  # para crear uno solo y testear
+
+    db = get_db()
+    cursor = db.cursor()
+
+    creados = []
+    errores = []
+
+    try:
+        # ── Traer precios y stock de la DB ──────────────────
+        cursor.execute("""
+            SELECT sku, medida, precio_base, stock_actual
+            FROM productos_base
+            WHERE tipo = 'colchon'
+        """)
+        colchones_db = {row['sku']: row for row in cursor.fetchall()}
+
+        cursor.execute("""
+            SELECT sku, medida, precio_base, stock_actual
+            FROM productos_base
+            WHERE tipo = 'base'
+        """)
+        bases_db = {row['sku']: row for row in cursor.fetchall()}
+
+        cursor.execute("""
+            SELECT colchon_sku, base_sku_default, cantidad_bases
+            FROM conjunto_configuracion
+            WHERE activo = 1
+        """)
+        conjuntos_cfg = {row['colchon_sku']: row for row in cursor.fetchall()}
+
+        # ── Iterar catálogo ─────────────────────────────────
+        modelos = CATALOGO.items()
+        if solo_modelo:
+            modelos = [(k, v) for k, v in CATALOGO.items() if k == solo_modelo]
+
+        for nombre_modelo, cfg in modelos:
+            logger.info(f"Creando producto: {nombre_modelo}")
+            variantes = []
+
+            for sku in cfg['skus']:
+                if sku not in colchones_db:
+                    errores.append(f"SKU {sku} no encontrado en DB")
+                    continue
+
+                col = colchones_db[sku]
+                medida = col['medida'] or ''
+                precio_colchon = float(col['precio_base'] or 0)
+                stock_colchon = int(col['stock_actual'] or 0)
+
+                # Variante: Solo Colchón
+                variantes.append({
+                    'sku': sku,
+                    'medida': medida,
+                    'tipo': 'Solo Colchón',
+                    'precio': precio_colchon,
+                    'stock': stock_colchon,
+                    'tipo_mapeo': 'colchon',
+                    'base_sku': None,
+                })
+
+                # Variante: Conjunto (si aplica)
+                if cfg['conjunto'] and sku in conjuntos_cfg:
+                    cfg_conj = conjuntos_cfg[sku]
+                    base_sku = cfg_conj['base_sku_default']
+                    cant_bases = int(cfg_conj['cantidad_bases'] or 1)
+
+                    precio_base = 0
+                    stock_base = 999
+                    if base_sku in bases_db:
+                        precio_base = float(bases_db[base_sku]['precio_base'] or 0) * cant_bases
+                        stock_base = int(bases_db[base_sku]['stock_actual'] or 0)
+
+                    precio_conjunto = precio_colchon + precio_base
+                    stock_conjunto = min(stock_colchon, stock_base)
+
+                    variantes.append({
+                        'sku': f"{sku}_CONJ",
+                        'medida': medida,
+                        'tipo': 'Conjunto con Sommier',
+                        'precio': precio_conjunto,
+                        'stock': stock_conjunto,
+                        'tipo_mapeo': 'conjunto',
+                        'base_sku': base_sku,
+                    })
+
+            if not variantes:
+                errores.append(f"Sin variantes para {nombre_modelo}")
+                continue
+
+            try:
+                # Crear producto en TN
+                producto_tn = _crear_producto_tn(
+                    nombre_modelo,
+                    cfg['descripcion'],
+                    variantes
+                )
+
+                product_id = producto_tn.get('id')
+                variantes_tn = producto_tn.get('variants', [])
+
+                if not product_id:
+                    errores.append(f"No se obtuvo product_id para {nombre_modelo}")
+                    continue
+
+                # Mapear variantes: el orden devuelto por TN coincide con el enviado
+                for i, v_tn in enumerate(variantes_tn):
+                    variant_id = v_tn.get('id')
+                    if i >= len(variantes):
+                        break
+                    v_local = variantes[i]
+
+                    cursor.execute("""
+                        INSERT INTO sku_tiendanube_mapeo
+                            (sku_interno, tiendanube_product_id, tiendanube_variant_id, tipo, base_sku)
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON DUPLICATE KEY UPDATE
+                            tiendanube_product_id = VALUES(tiendanube_product_id),
+                            tipo = VALUES(tipo),
+                            base_sku = VALUES(base_sku)
+                    """, (
+                        v_local['sku'],
+                        product_id,
+                        variant_id,
+                        v_local['tipo_mapeo'],
+                        v_local['base_sku'],
+                    ))
+
+                db.commit()
+                creados.append({
+                    'modelo': nombre_modelo,
+                    'product_id': product_id,
+                    'variantes': len(variantes_tn),
+                })
+                logger.info(f"✅ {nombre_modelo} creado. ID: {product_id}, variantes: {len(variantes_tn)}")
+
+            except Exception as e:
+                errores.append(f"Error creando {nombre_modelo}: {str(e)}")
+                logger.error(f"Error creando {nombre_modelo}: {e}")
+
+        # ── Almohadas ────────────────────────────────────────
+        if not solo_modelo or solo_modelo == 'Almohadas Cannon':
+            cursor.execute("""
+                SELECT sku, nombre, precio_base, stock_actual
+                FROM productos_base
+                WHERE tipo = 'almohada'
+                ORDER BY nombre
+            """)
+            almohadas = cursor.fetchall()
+
+            if almohadas:
+                variantes_alm = []
+                for alm in almohadas:
+                    variantes_alm.append({
+                        'sku': alm['sku'],
+                        'medida': '70x40',
+                        'tipo': alm['nombre'].replace('Almohada ', ''),
+                        'precio': float(alm['precio_base'] or 0),
+                        'stock': int(alm['stock_actual'] or 0),
+                        'tipo_mapeo': 'almohada',
+                        'base_sku': None,
+                    })
+
+                try:
+                    producto_tn = _crear_producto_tn(
+                        'Almohadas Cannon',
+                        'Almohadas Cannon de diferentes modelos y tecnologías. Visco cervical, visco clásica, memory foam, látex y más. Medida estándar 70x40cm.',
+                        variantes_alm
+                    )
+                    product_id = producto_tn.get('id')
+                    variantes_tn = producto_tn.get('variants', [])
+
+                    for i, v_tn in enumerate(variantes_tn):
+                        if i >= len(variantes_alm):
+                            break
+                        cursor.execute("""
+                            INSERT INTO sku_tiendanube_mapeo
+                                (sku_interno, tiendanube_product_id, tiendanube_variant_id, tipo, base_sku)
+                            VALUES (%s, %s, %s, %s, NULL)
+                            ON DUPLICATE KEY UPDATE
+                                tiendanube_product_id = VALUES(tiendanube_product_id),
+                                tipo = VALUES(tipo)
+                        """, (
+                            variantes_alm[i]['sku'],
+                            product_id,
+                            v_tn.get('id'),
+                            'almohada',
+                        ))
+
+                    db.commit()
+                    creados.append({
+                        'modelo': 'Almohadas Cannon',
+                        'product_id': product_id,
+                        'variantes': len(variantes_tn),
+                    })
+                    logger.info(f"✅ Almohadas creadas. ID: {product_id}")
+
+                except Exception as e:
+                    errores.append(f"Error creando almohadas: {str(e)}")
+
+        return jsonify({
+            'ok': True,
+            'productos_creados': len(creados),
+            'errores': len(errores),
+            'detalle_creados': creados,
+            'detalle_errores': errores,
+        })
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error general crear_catalogo: {e}")
+        return jsonify({'error': str(e)}), 500
+
+    finally:
+        cursor.close()
+        db.close()
+
