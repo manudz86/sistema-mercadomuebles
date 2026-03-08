@@ -7675,7 +7675,7 @@ def auditoria_ml_run(tipo):
     Ejecuta un tipo específico de auditoría y devuelve JSON con los resultados.
     Usa batch de ML (20 MLAs por request) en lugar de llamadas individuales.
     """
-    if tipo not in ['pausadas_sin_stock', 'pausadas_con_stock', 'demoras']:
+    if tipo not in ['pausadas_sin_stock', 'pausadas_con_stock', 'demoras', 'stock_en_ml']:
         return jsonify({'error': 'Tipo de auditoría inválido'}), 400
 
     access_token = cargar_ml_token()
@@ -7710,8 +7710,15 @@ def auditoria_ml_run(tipo):
             if not stock_info:
                 continue
             stock_disponible = stock_info['stock_disponible']
-            if stock_disponible <= 0:
-                continue
+
+            if tipo == 'stock_en_ml':
+                # Para esta auditoría queremos los que NO tienen stock disponible
+                if stock_disponible > 0:
+                    continue
+            else:
+                if stock_disponible <= 0:
+                    continue
+
             pubs_a_consultar.append((pub, stock_disponible))
 
         # PASO 2: batch a ML — 20 MLAs por request en lugar de 1 x 1
@@ -7755,6 +7762,25 @@ def auditoria_ml_run(tipo):
                             resultados.append(item_base)
                     except Exception as e:
                         print(f"Error parseando demora '{demora_ml}': {e}")
+
+            elif tipo == 'stock_en_ml':
+                if stock_ml > 0:
+                    es_z = sku.endswith('Z')
+                    if es_z:
+                        # Para SKUs Z: solo incluir si NO tiene demora cargada
+                        tiene_demora = False
+                        if demora_ml and demora_ml != 'Sin especificar':
+                            try:
+                                numeros = re.findall(r'\d+', str(demora_ml))
+                                if numeros and int(numeros[0]) > 0:
+                                    tiene_demora = True
+                            except:
+                                pass
+                        if not tiene_demora:
+                            resultados.append(item_base)
+                    else:
+                        # Para SKUs normales: siempre incluir si tiene stock en ML
+                        resultados.append(item_base)
 
         print(f"✅ Auditoría '{tipo}': {len(resultados)} resultados (consultados {len(mla_ids)} MLAs en {-(-len(mla_ids)//20)} requests)")
         return jsonify({'tipo': tipo, 'resultados': resultados, 'total': len(resultados)})
@@ -7872,6 +7898,73 @@ def auditoria_reducir_demora():
             errores.append(f'{mla}: {str(e)}')
     
     return jsonify({'exitos': exitos, 'errores': errores, 'total': len(mlas_seleccionadas)})
+
+@app.route('/auditoria-ml/bajar-cero', methods=['POST'])
+@login_required
+def auditoria_bajar_cero():
+    """Bajar stock a 0 en publicaciones seleccionadas. Para sección stock_en_ml."""
+    if request.is_json:
+        mlas_data = request.json.get('mla_stock', [])
+    else:
+        mlas_data = request.form.getlist('mla_stock')
+    if not mlas_data:
+        return jsonify({'error': 'No se seleccionaron publicaciones'}), 400
+    access_token = cargar_ml_token()
+    if not access_token:
+        return jsonify({'error': 'No hay token de ML configurado'}), 401
+    exitos = 0
+    errores = []
+    for item in mlas_data:
+        try:
+            mla, stock_str = item.split(':')
+            stock = int(stock_str)  # siempre 0
+            success, message = actualizar_stock_ml(mla, stock, access_token)
+            if success:
+                exitos += 1
+            else:
+                errores.append(f'{mla}: {message}')
+            time.sleep(2)
+        except Exception as e:
+            errores.append(f'{item}: {str(e)}')
+    return jsonify({'exitos': exitos, 'errores': errores, 'total': len(mlas_data)})
+
+
+@app.route('/auditoria-ml/poner-demora', methods=['POST'])
+@login_required
+def auditoria_poner_demora():
+    """Poner X días de demora en publicaciones Z seleccionadas. Para sección stock_en_ml."""
+    if request.is_json:
+        mlas_dias = request.json.get('mlas_dias', [])  # lista de "MLA123:15"
+    else:
+        mlas_dias = request.form.getlist('mlas_dias')
+    if not mlas_dias:
+        return jsonify({'error': 'No se seleccionaron publicaciones'}), 400
+    access_token = cargar_ml_token()
+    if not access_token:
+        return jsonify({'error': 'No hay token de ML configurado'}), 401
+    exitos = 0
+    errores = []
+    for item in mlas_dias:
+        try:
+            mla, dias_str = item.split(':')
+            dias = int(dias_str)
+            payload = {"sale_terms": [{"id": "MANUFACTURING_TIME", "value_name": f"{dias} días"}]}
+            r = ml_request('put', f'https://api.mercadolibre.com/items/{mla}', access_token, json_data=payload)
+            if r.status_code == 200:
+                exitos += 1
+            else:
+                try:
+                    err = r.json()
+                except:
+                    err = r.text
+                errores.append(f'{mla}: {err}')
+            time.sleep(2)
+        except Exception as e:
+            errores.append(f'{item}: {str(e)}')
+    return jsonify({'exitos': exitos, 'errores': errores, 'total': len(mlas_dias)})
+
+
+
 # ============================================================================
 # ESTADÍSTICAS DE VENTAS
 # ============================================================================
