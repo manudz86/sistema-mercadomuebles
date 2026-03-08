@@ -90,8 +90,8 @@
     </div>
 </div>
 
-<!-- TABLA DE ALERTAS (solo desktop) -->
-<div class="table-responsive d-none d-md-block">
+<!-- TABLA DE ALERTAS -->
+<div class="table-responsive">
     <table class="table table-bordered table-hover">
         <thead class="table-warning">
             <tr>
@@ -226,120 +226,6 @@
     <i class="bi bi-info-circle"></i> Mostrando las primeras 100 alertas.
 </div>
 {% endif %}
-
-<!-- CARDS MOBILE -->
-<div class="d-md-none">
-    {% for alerta in alertas %}
-
-        {# CARD: Publicación NORMAL #}
-        {% if alerta.tiene_ml and alerta.tipo_procesado not in ['normal', 'ambos'] %}
-        <div class="card mb-2 shadow-sm border-{% if alerta.stock_disponible < 0 %}danger{% else %}warning{% endif %}">
-            <div class="card-header d-flex justify-content-between align-items-center py-2"
-                 style="background: {% if alerta.stock_disponible < 0 %}#f8d7da{% else %}#fff3cd{% endif %};">
-                <div>
-                    <strong>{{ alerta.sku }}</strong>
-                    <div style="font-size:0.8rem; color:#555;">{{ alerta.nombre_producto }}</div>
-                </div>
-                <div class="text-end">
-                    <span class="badge {% if alerta.stock_disponible < 0 %}bg-danger{% else %}bg-warning text-dark{% endif %} fs-6">
-                        Disp: {{ alerta.stock_disponible }}
-                    </span>
-                    <div style="font-size:0.72rem; color:#888;" class="mt-1">
-                        Físico: {{ alerta.stock_fisico }} / Vendido: {{ alerta.stock_vendido }}
-                    </div>
-                </div>
-            </div>
-            <div class="card-body py-2 px-3">
-                <div class="mb-2" style="font-size:0.78rem; color:#666;">
-                    {{ alerta.fecha_creacion.strftime('%d/%m/%Y %H:%M') if alerta.fecha_creacion else '-' }}
-                </div>
-                <div class="d-flex gap-1 flex-wrap mb-2">
-                    <a href="{{ url_for('cargar_stock') }}" class="btn btn-primary btn-sm">
-                        <i class="bi bi-arrow-up-circle"></i> Cargar Stock
-                    </a>
-                    <form method="POST" action="{{ url_for('marcar_alerta_procesada', alerta_id=alerta.id) }}">
-                        <button type="submit" class="btn btn-success btn-sm">
-                            <i class="bi bi-check-circle"></i> Procesada
-                        </button>
-                    </form>
-                </div>
-                <div class="p-2 rounded" style="background:#fff8e1; font-size:0.8rem;">
-                    <strong>Publicaciones normales ({{ alerta.publicaciones_ml|length }}):</strong>
-                    <div class="mt-1 mb-1" style="font-size:0.72rem; color:#666;">
-                        {% for pub in alerta.publicaciones_ml[:3] %}
-                            <a href="https://www.mercadolibre.com.ar/publicaciones/listado?page=1&search={{ pub.mla_id }}&sort=DEFAULT" target="_blank">{{ pub.mla_id }}</a>{% if not loop.last %}, {% endif %}
-                        {% endfor %}
-                        {% if alerta.publicaciones_ml|length > 3 %}...{% endif %}
-                    </div>
-                    <form method="POST" action="{{ url_for('sincronizar_ml_desde_alerta', alerta_id=alerta.id) }}"
-                          onsubmit="return confirm('¿Poner stock en 0 en {{ alerta.publicaciones_ml|length }} publicación(es)?');">
-                        <button type="submit" class="btn btn-warning btn-sm w-100">
-                            <i class="bi bi-arrow-down-circle"></i> Stock 0 en ML
-                        </button>
-                    </form>
-                </div>
-            </div>
-        </div>
-        {% endif %}
-
-        {# CARD: Publicación CON Z #}
-        {% if alerta.tiene_ml_z and alerta.tipo_procesado not in ['z', 'ambos'] %}
-        <div class="card mb-2 shadow-sm border-{% if alerta.stock_disponible < 0 %}danger{% else %}warning{% endif %}">
-            <div class="card-header d-flex justify-content-between align-items-center py-2"
-                 style="background: {% if alerta.stock_disponible < 0 %}#f8d7da{% else %}#fff3cd{% endif %};">
-                <div>
-                    <strong>{{ alerta.sku }}Z</strong>
-                    <div style="font-size:0.8rem; color:#555;">{{ alerta.nombre_producto }} (con demora)</div>
-                </div>
-                <div class="text-end">
-                    <span class="badge {% if alerta.stock_disponible < 0 %}bg-danger{% else %}bg-warning text-dark{% endif %} fs-6">
-                        Disp: {{ alerta.stock_disponible }}
-                    </span>
-                    <div style="font-size:0.72rem; color:#888;" class="mt-1">
-                        Físico: {{ alerta.stock_fisico }} / Vendido: {{ alerta.stock_vendido }}
-                    </div>
-                </div>
-            </div>
-            <div class="card-body py-2 px-3">
-                <div class="mb-2" style="font-size:0.78rem; color:#666;">
-                    {{ alerta.fecha_creacion.strftime('%d/%m/%Y %H:%M') if alerta.fecha_creacion else '-' }}
-                </div>
-                <div class="d-flex gap-1 flex-wrap mb-2">
-                    <a href="{{ url_for('cargar_stock') }}" class="btn btn-primary btn-sm">
-                        <i class="bi bi-arrow-up-circle"></i> Cargar Stock
-                    </a>
-                    <form method="POST" action="{{ url_for('marcar_alerta_procesada', alerta_id=alerta.id) }}">
-                        <button type="submit" class="btn btn-success btn-sm">
-                            <i class="bi bi-check-circle"></i> Procesada
-                        </button>
-                    </form>
-                </div>
-                <div class="p-2 rounded" style="background:#e8f4f8; font-size:0.8rem;">
-                    <strong>{{ alerta.sku }}Z — con demora ({{ alerta.publicaciones_ml_z|length }}):</strong>
-                    <div class="mt-1 mb-2" style="font-size:0.72rem; color:#666;">
-                        {% for pub in alerta.publicaciones_ml_z[:3] %}
-                            <a href="https://www.mercadolibre.com.ar/publicaciones/listado?page=1&search={{ pub.mla_id }}&sort=DEFAULT" target="_blank">{{ pub.mla_id }}</a>{% if not loop.last %}, {% endif %}
-                        {% endfor %}
-                        {% if alerta.publicaciones_ml_z|length > 3 %}...{% endif %}
-                    </div>
-                    <form method="POST" action="{{ url_for('configurar_demora_ml_desde_alerta', alerta_id=alerta.id) }}"
-                          onsubmit="return confirm('¿Configurar demora en {{ alerta.publicaciones_ml_z|length }} publicación(es)?');">
-                        <div class="input-group input-group-sm">
-                            <input type="number" class="form-control" name="dias_demora"
-                                   min="1" max="90" value="15" required style="max-width:55px;">
-                            <span class="input-group-text">días</span>
-                            <button type="submit" class="btn btn-info btn-sm">
-                                <i class="bi bi-clock"></i> Configurar Demora
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
-        {% endif %}
-
-    {% endfor %}
-</div>
 
 {% else %}
 <!-- SIN ALERTAS -->
