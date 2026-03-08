@@ -582,8 +582,21 @@ async function accionIndividual(tipo, accion, mla) {
         const dias = document.getElementById(`dias-${mla}`)?.value || 15;
         if (!confirm(`¿Poner ${dias} días de demora en ${mla}?`)) return;
     }
-    
+
+    // Deshabilitar el botón que disparó la acción
+    const btnDisparo = event?.target?.closest('button');
+    const textoOriginal = btnDisparo ? btnDisparo.innerHTML : null;
+    if (btnDisparo) {
+        btnDisparo.disabled = true;
+        btnDisparo.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    }
+
     await ejecutarAccion(tipo, accion, [mla], stockValue ? {[mla]: stockValue} : {});
+
+    if (btnDisparo) {
+        btnDisparo.disabled = false;
+        btnDisparo.innerHTML = textoOriginal;
+    }
 }
 
 // ============================================================
@@ -610,7 +623,18 @@ async function accionMasiva(tipo, accion) {
     }
     
     if (!confirm(confirmMsg)) return;
-    
+
+    // Deshabilitar todos los botones de acción de la sección mientras se procesa
+    const s = secciones[tipo];
+    const botonesAccion = document.querySelectorAll(`#card-${tipo.replace(/_/g,'-')} button:not(#btn-${s.btn?.replace('btn-','')})`);
+    botonesAccion.forEach(btn => { btn.disabled = true; });
+    const btnMasivo = event?.target?.closest('button');
+    const textoOriginalMasivo = btnMasivo ? btnMasivo.innerHTML : null;
+    if (btnMasivo) {
+        btnMasivo.disabled = true;
+        btnMasivo.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Procesando...';
+    }
+
     const mlas = [];
     const stockMap = {};
     checkboxes.forEach(cb => {
@@ -620,8 +644,15 @@ async function accionMasiva(tipo, accion) {
             if (input) stockMap[cb.dataset.mla] = input.value;
         }
     });
-    
+
     await ejecutarAccion(tipo, accion, mlas, stockMap);
+
+    // Restaurar botones (la sección se refresca sola tras ejecutarAccion)
+    botonesAccion.forEach(btn => { btn.disabled = false; });
+    if (btnMasivo) {
+        btnMasivo.disabled = false;
+        btnMasivo.innerHTML = textoOriginalMasivo;
+    }
 }
 
 // ============================================================
