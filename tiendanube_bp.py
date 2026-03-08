@@ -620,9 +620,9 @@ def _crear_producto_tn(nombre, descripcion, variantes, categoria_id=None):
             'price': str(v['precio']),
             'stock': v['stock'],
             'sku': v['sku'],
-            'attributes': [
-                {'name': 'Medida', 'value': medida},
-                {'name': 'Tipo', 'value': v['tipo']},
+            'values': [
+                {'es': medida},
+                {'es': v['tipo']},
             ]
         }
         if v['stock'] == 0:
