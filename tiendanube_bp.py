@@ -884,42 +884,5 @@ def crear_catalogo():
         db.close()
 
 
-@tiendanube_bp.route('/borrar-todos-productos', methods=['POST'])
-def borrar_todos_productos():
-    """Borra TODOS los productos de Tiendanube. Usar con cuidado."""
-    borrados = []
-    errores = []
-    page = 1
 
-    while True:
-        productos = tn_request('GET', 'products', params={'page': page, 'per_page': 50})
-        if not productos:
-            break
-
-        for p in productos:
-            try:
-                tn_request('DELETE', f"products/{p['id']}")
-                borrados.append(p['id'])
-                time.sleep(0.3)
-            except Exception as e:
-                errores.append({'id': p['id'], 'error': str(e)})
-
-        if len(productos) < 50:
-            break
-        page += 1
-
-    # Limpiar mapeos también
-    db = get_db()
-    cursor = db.cursor()
-    cursor.execute("DELETE FROM sku_tiendanube_mapeo")
-    db.commit()
-    cursor.close()
-    db.close()
-
-    return jsonify({
-        'ok': True,
-        'borrados': len(borrados),
-        'errores': len(errores),
-        'detalle_errores': errores
-    })
 
