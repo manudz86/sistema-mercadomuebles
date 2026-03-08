@@ -111,16 +111,23 @@
         .cuadro-tabla th { padding: 5px 3px; font-size: 0.72em; }
         .cuadro-tabla td { padding: 4px 3px; }
 
-        /* Primera columna sticky */
-        .cuadro-tabla th:first-child,
-        .cuadro-tabla td:first-child {
+        /* Primera columna sticky — solo celdas con clase .medida-col */
+        .cuadro-tabla .medida-col {
             position: sticky;
             left: 0;
             z-index: 2;
-            background: #e9ecef;
+            background: #e9ecef !important;
+            box-shadow: 2px 0 4px rgba(0,0,0,0.1);
+            min-width: 42px;
+        }
+        /* El th de "Medida" (rowspan) también sticky */
+        .cuadro-tabla thead tr:first-child th:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 3;
+            background: #f8f9fa !important;
             box-shadow: 2px 0 4px rgba(0,0,0,0.1);
         }
-        .cuadro-tabla th:first-child { background: #f8f9fa; }
 
         .stock-valor   { font-size: 1em; }
         .vendido-valor { font-size: 1em; }
