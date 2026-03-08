@@ -647,13 +647,13 @@ def _crear_producto_tn(nombre, descripcion, variantes, categoria_id=None):
         'Content-Type': 'application/json',
         'User-Agent': f'SistemaCannon/{TN_CLIENT_ID} (manu@cannon.com.ar)'
     }
-url = f"{TN_API_BASE}/{store_id}/products"
-debug_resp = requests.post(url, headers=headers, json=payload, timeout=30)
-logger.error(f"TN 422 debug: {debug_resp.text}")
-debug_resp.raise_for_status()
-resultado = debug_resp.json()
-    time.sleep(0.5)  # rate limiting cortesía
-    return resultado
+    url = f"{TN_API_BASE}/{store_id}/products"
+    debug_resp = requests.post(url, headers=headers, json=payload, timeout=30)
+    logger.error(f"TN 422 debug: {debug_resp.text}")
+    debug_resp.raise_for_status()
+    resultado = debug_resp.json()
+        time.sleep(0.5)  # rate limiting cortesía
+        return resultado
 
 
 @tiendanube_bp.route('/crear-catalogo', methods=['POST'])
