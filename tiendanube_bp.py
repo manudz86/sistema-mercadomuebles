@@ -157,7 +157,7 @@ def status():
         return jsonify({'conectado': False, 'mensaje': 'No configurado. Ir a /tiendanube/auth'})
     
     try:
-        store_info = tn_request('GET', '')
+        store_info = tn_request('GET', 'store')
         return jsonify({
             'conectado': True,
             'store_id': config['store_id'],
