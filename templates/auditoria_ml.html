@@ -625,7 +625,6 @@ async function accionMasiva(tipo, accion) {
     if (!confirm(confirmMsg)) return;
 
     // Deshabilitar todos los botones de acción de la sección mientras se procesa
-    const s = secciones[tipo];
     const botonesAccion = document.querySelectorAll(`#card-${tipo.replace(/_/g,'-')} button:not(#btn-${s.btn?.replace('btn-','')})`);
     botonesAccion.forEach(btn => { btn.disabled = true; });
     const btnMasivo = event?.target?.closest('button');
