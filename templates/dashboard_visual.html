@@ -1,653 +1,500 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Visual - Cannon</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body {
-            background: #f0f2f5;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+{% extends "base.html" %}
+
+{% block title %}Dashboard Visual - Cannon{% endblock %}
+
+{% block content %}
+<style>
+    .dashboard-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 16px 20px;
+        margin-bottom: 16px;
+        border-radius: 10px;
+    }
+    .dashboard-header .btn {
+        font-weight: 600;
+        border: none;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+    .seccion {
+        background: white;
+        padding: 16px;
+        border-radius: 10px;
+        margin-bottom: 16px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .seccion-titulo {
+        font-size: 1.1em;
+        font-weight: bold;
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 3px solid;
+    }
+    .seccion-espuma .seccion-titulo  { color: #2196F3; border-color: #2196F3; }
+    .seccion-resorte .seccion-titulo { color: #4CAF50; border-color: #4CAF50; }
+    .seccion-otros .seccion-titulo   { color: #FF9800; border-color: #FF9800; }
+
+    .cuadro-tabla {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.88em;
+    }
+    .cuadro-tabla th {
+        background: #f8f9fa;
+        font-weight: 600;
+        padding: 8px 4px;
+        border: 1px solid #dee2e6;
+        text-align: center;
+        font-size: 0.82em;
+        white-space: nowrap;
+    }
+    .cuadro-tabla td {
+        border: 1px solid #dee2e6;
+        padding: 6px 4px;
+        text-align: center;
+        vertical-align: middle;
+    }
+    .cuadro-tabla .medida-col {
+        background: #e9ecef;
+        font-weight: 600;
+        min-width: 48px;
+        white-space: nowrap;
+    }
+    .celda-no-disponible {
+        background: #d0d0d0 !important;
+        border: 1px solid #b0b0b0 !important;
+    }
+    .celda-datos {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 4px;
+        min-height: 30px;
+    }
+    .stock-valor  { font-weight: 700; color: #2196F3; font-size: 1.2em; }
+    .separador    { color: #999; font-weight: bold; }
+    .vendido-valor{ font-weight: 700; color: #f44336; font-size: 1.2em; }
+    .sin-stock    { background: #ffebee; }
+    .con-stock    { background: #e8f5e9; }
+
+    .header-deposito { background-color: #2c3e50 !important; color: white !important; font-weight: 600 !important; }
+    .header-full     { background-color: #16a085 !important; color: white !important; font-weight: 600 !important; }
+
+    .nombre-producto-celeste { background-color: #5dade2 !important; color: white !important; font-weight: 600 !important; }
+    .nombre-producto-naranja { background-color: #f39c12 !important; color: white !important; font-weight: 600 !important; }
+    .nombre-compac           { background-color: #27ae60 !important; color: white !important; font-weight: 600 !important; }
+    .nombre-compac-plus      { background-color: #8e44ad !important; color: white !important; font-weight: 600 !important; }
+
+    .tabla-almohadas { max-width: 600px; margin: 0 auto; }
+    .tabla-tropical  { max-width: 500px; margin: 0 auto 20px auto; }
+
+    /* ── MOBILE ── */
+    @media (max-width: 767px) {
+        .dashboard-header { padding: 12px; }
+        .dashboard-header h2 { font-size: 1.1rem; margin-bottom: 4px; }
+        .dashboard-header p  { font-size: 0.8rem; }
+        .header-botones { display: none; } /* ocultar botones de acceso rápido en mobile */
+
+        .seccion { padding: 12px 8px; }
+        .seccion-titulo { font-size: 0.95em; }
+
+        /* Scroll horizontal con primera columna fija */
+        .scroll-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            position: relative;
         }
-        
-        .dashboard-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px;
-            margin-bottom: 20px;
-            border-radius: 10px;
-        }
-        
-        .dashboard-header .btn {
-            font-weight: 600;
-            border: none;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        }
-        
-        .dashboard-header .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-            transition: all 0.2s;
-        }
-        
-        .seccion {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-        
-        .seccion-titulo {
-            font-size: 1.3em;
-            font-weight: bold;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
-            border-bottom: 3px solid;
-        }
-        
-        .seccion-espuma .seccion-titulo {
-            color: #2196F3;
-            border-color: #2196F3;
-        }
-        
-        .seccion-resorte .seccion-titulo {
-            color: #4CAF50;
-            border-color: #4CAF50;
-        }
-        
-        .seccion-otros .seccion-titulo {
-            color: #FF9800;
-            border-color: #FF9800;
-        }
-        
         .cuadro-tabla {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.9em;
+            font-size: 0.75em;
+            min-width: max-content;
         }
-        
-        .cuadro-tabla th {
-            background: #f8f9fa;
-            font-weight: 600;
-            padding: 10px 5px;
-            border: 1px solid #dee2e6;
-            text-align: center;
-            font-size: 0.85em;
-        }
-        
-        .cuadro-tabla td {
-            border: 1px solid #dee2e6;
-            padding: 8px 5px;
-            text-align: center;
-            vertical-align: middle;
-        }
-        
-        .cuadro-tabla .medida-col {
+        .cuadro-tabla th { padding: 5px 3px; font-size: 0.72em; }
+        .cuadro-tabla td { padding: 4px 3px; }
+
+        /* Primera columna sticky */
+        .cuadro-tabla th:first-child,
+        .cuadro-tabla td:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 2;
             background: #e9ecef;
-            font-weight: 600;
-            width: 70px;
+            box-shadow: 2px 0 4px rgba(0,0,0,0.1);
         }
-        
-        /* CELDA GRIS PARA PRODUCTOS NO DISPONIBLES */
-        .celda-no-disponible {
-            background: #d0d0d0 !important;
-            border: 1px solid #b0b0b0 !important;
-        }
-        
-        .celda-datos {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 8px;
-            min-height: 35px;
-        }
-        
-        .stock-valor {
-            font-weight: 700;
-            color: #2196F3;
-            font-size: 1.4em;
-        }
-        
-        .separador {
+        .cuadro-tabla th:first-child { background: #f8f9fa; }
+
+        .stock-valor   { font-size: 1em; }
+        .vendido-valor { font-size: 1em; }
+        .celda-datos   { gap: 2px; min-height: 24px; }
+
+        .tabla-tropical,
+        .tabla-almohadas { max-width: 100%; }
+
+        /* Hint de scroll */
+        .scroll-hint {
+            font-size: 0.72rem;
             color: #999;
-            font-weight: bold;
-            font-size: 1.2em;
+            text-align: right;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 4px;
         }
-        
-        .vendido-valor {
-            font-weight: 700;
-            color: #f44336;
-            font-size: 1.4em;
-        }
-        
-        .celda-vacia {
-            color: #ccc;
-        }
-        
-        .sin-stock {
-            background: #ffebee;
-        }
-        
-        .con-stock {
-            background: #e8f5e9;
-        }
-        
-        .header-deposito {
-            background-color: #2c3e50 !important;
-            color: white !important;
-            font-weight: 600 !important;
-        }
-        
-        .header-full {
-            background-color: #16a085 !important;
-            color: white !important;
-            font-weight: 600 !important;
-        }
-        
-        /* COLORES PARA NOMBRES DE PRODUCTOS */
-        .nombre-producto-celeste {
-            background-color: #5dade2 !important;
-            color: white !important;
-            font-weight: 600 !important;
-        }
-        
-        .nombre-producto-naranja {
-            background-color: #f39c12 !important;
-            color: white !important;
-            font-weight: 600 !important;
-        }
-        
-        /* COLORES PARA COMPAC */
-        .nombre-compac {
-            background-color: #27ae60 !important;
-            color: white !important;
-            font-weight: 600 !important;
-        }
-        
-        .nombre-compac-plus {
-            background-color: #8e44ad !important;
-            color: white !important;
-            font-weight: 600 !important;
-        }
-        
-        .tabla-almohadas {
-            max-width: 600px;
-            margin: 0 auto;
-        }
-        
-        .tabla-almohadas .cuadro-tabla {
-            font-size: 0.95em;
-        }
+    }
+    @media (min-width: 768px) {
+        .scroll-hint { display: none; }
+    }
+</style>
 
-        .tabla-tropical {
-            max-width: 500px;
-            margin: 0 auto 30px auto;
-        }
-    </style>
-</head>
-<body>
-    <div class="container-fluid">
-        <div class="dashboard-header">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <h2 class="mb-0">📊 Pizarra Visual - Stock Cannon</h2>
-                    <p class="mb-0 mt-2">{{ fecha_actual }}</p>
-                    <p class="mb-0 mt-1" style="font-size: 0.85em; opacity: 0.9;">
-                        <i class="bi bi-arrow-clockwise"></i> Auto-refresh: <span id="contador-refresh">5:00</span>
-                    </p>
-                </div>
-                <div class="d-flex gap-2 flex-wrap">
-                    <button onclick="location.reload()" class="btn btn-light" title="Actualizar dashboard">
-                        <i class="bi bi-arrow-clockwise"></i> Actualizar
-                    </button>
-                    <a href="{{ url_for('index') }}" class="btn btn-light">🏠 Dashboard</a>
-                    <a href="{{ url_for('nueva_venta') }}" class="btn btn-success">➕ Nueva Venta</a>
-                    <a href="{{ url_for('ventas_activas') }}" class="btn btn-info">📋 Ventas Activas</a>
-                    <a href="{{ url_for('cargar_stock') }}" class="btn btn-warning">📦 Cargar Stock</a>
-                    <a href="{{ url_for('bajar_stock') }}" class="btn btn-danger">📉 Bajar Stock</a>
-                    <a href="{{ url_for('transferir_stock') }}" class="btn btn-primary">🔄 Transferir Stock</a>
-                    <a href="{{ url_for('historial_stock') }}" class="btn btn-secondary">📜 Historial</a>
-                </div>
-            </div>
+<!-- HEADER -->
+<div class="dashboard-header">
+    <div class="d-flex justify-content-between align-items-start align-items-md-center flex-column flex-md-row gap-2">
+        <div>
+            <h2 class="mb-0">📊 Pizarra Visual - Stock Cannon</h2>
+            <p class="mb-0 mt-1">{{ fecha_actual }}</p>
+            <p class="mb-0 mt-1" style="font-size:0.82em; opacity:0.9;">
+                🔄 Auto-refresh: <span id="contador-refresh">5:00</span>
+            </p>
         </div>
-
-        <!-- LÍNEA ESPUMA -->
-        <div class="seccion seccion-espuma">
-            <div class="seccion-titulo">🟦 LÍNEA ESPUMA</div>
-            <div class="table-responsive">
-                <table class="cuadro-tabla">
-                    <thead>
-                        <tr>
-                            <th rowspan="2">Medida</th>
-                            <th colspan="2" class="nombre-producto-celeste">Princess 20cm</th>
-                            <th colspan="2" class="nombre-producto-naranja">Base Sabana</th>
-                            <th colspan="2" class="nombre-producto-celeste">Exclusive</th>
-                            <th colspan="2" class="nombre-producto-naranja">Exclusive Pillow</th>
-                            <th colspan="2" class="nombre-producto-celeste">Base Chocolate</th>
-                            <th colspan="2" class="nombre-producto-naranja">Princess 23cm</th>
-                            <th colspan="2" class="nombre-producto-celeste">Renovation</th>
-                            <th colspan="2" class="nombre-producto-naranja">Renovation E.P.</th>
-                            <th colspan="2" class="nombre-producto-celeste">Base Gris</th>
-                        </tr>
-                        <tr>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for medida in ['80', '90', '100', '140', '150', '160', '180', '200'] %}
-                        <tr>
-                            <td class="medida-col">{{ medida }}</td>
-                            
-                            <!-- Princess 20cm: Solo hasta 140 -->
-                            {% if medida in ['80', '90', '100', '140'] %}
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_espuma[medida]['CPR20']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_espuma[medida]['CPR20']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            {% else %}
-                            <td colspan="2" class="celda-no-disponible"></td>
-                            {% endif %}
-                            
-                            <!-- Base Sabana: Solo hasta 140 -->
-                            {% if medida in ['80', '90', '100', '140'] %}
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_espuma[medida]['BASE_SAB']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_espuma[medida]['BASE_SAB']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            {% else %}
-                            <td colspan="2" class="celda-no-disponible"></td>
-                            {% endif %}
-                            
-                            <!-- Exclusive: Todas las medidas -->
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_espuma[medida]['CEX']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_espuma[medida]['CEX']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            
-                            <!-- Exclusive Pillow: Todas las medidas -->
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_espuma[medida]['CEXP']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_espuma[medida]['CEXP']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            
-                            <!-- Base Chocolate: Todas las medidas -->
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_espuma[medida]['BASE_CHOC']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_espuma[medida]['BASE_CHOC']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            
-                            <!-- Princess 23cm: Solo hasta 140 -->
-                            {% if medida in ['80', '90', '100', '140'] %}
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_espuma[medida]['CPR23']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_espuma[medida]['CPR23']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            {% else %}
-                            <td colspan="2" class="celda-no-disponible"></td>
-                            {% endif %}
-                            
-                            <!-- Renovation: Todas las medidas -->
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_espuma[medida]['CRE']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_espuma[medida]['CRE']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            
-                            <!-- Renovation E.P.: Todas las medidas -->
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_espuma[medida]['CREP']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_espuma[medida]['CREP']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            
-                            <!-- Base Gris: Todas las medidas -->
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_espuma[medida]['BASE_GRIS']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_espuma[medida]['BASE_GRIS']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+        <div class="d-flex gap-2 flex-wrap header-botones">
+            <button onclick="location.reload()" class="btn btn-light btn-sm">🔄 Actualizar</button>
+            <a href="{{ url_for('index') }}" class="btn btn-light btn-sm">🏠 Dashboard</a>
+            <a href="{{ url_for('nueva_venta') }}" class="btn btn-success btn-sm">➕ Nueva Venta</a>
+            <a href="{{ url_for('ventas_activas') }}" class="btn btn-info btn-sm">📋 Activas</a>
+            <a href="{{ url_for('cargar_stock') }}" class="btn btn-warning btn-sm">📦 Cargar Stock</a>
+            <a href="{{ url_for('bajar_stock') }}" class="btn btn-danger btn-sm">📉 Bajar Stock</a>
+            <a href="{{ url_for('transferir_stock') }}" class="btn btn-primary btn-sm">🔄 Transferir</a>
+            <a href="{{ url_for('historial_stock') }}" class="btn btn-secondary btn-sm">📜 Historial</a>
         </div>
-
-        <!-- LÍNEA RESORTE -->
-        <div class="seccion seccion-resorte">
-            <div class="seccion-titulo">🟢 LÍNEA RESORTE</div>
-            <div class="table-responsive">
-                <table class="cuadro-tabla">
-                    <thead>
-                        <tr>
-                            <th rowspan="2">Medida</th>
-                            <th colspan="2" class="nombre-producto-celeste">Soñar</th>
-                            <th colspan="2" class="nombre-producto-naranja">Base Sabana</th>
-                            <th colspan="2" class="nombre-producto-celeste">Doral</th>
-                            <th colspan="2" class="nombre-producto-naranja">Doral Pillow</th>
-                            <th colspan="2" class="nombre-producto-celeste">Base Gris</th>
-                            <th colspan="2" class="nombre-producto-naranja">Sublime E.P.</th>
-                            <th colspan="2" class="nombre-producto-celeste">Base Sublime</th>
-                        </tr>
-                        <tr>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for medida in ['80', '90', '100', '140', '150', '160', '180', '200'] %}
-                        <tr>
-                            <td class="medida-col">{{ medida }}</td>
-                            
-                            <!-- Soñar: Solo hasta 140 -->
-                            {% if medida in ['80', '90', '100', '140'] %}
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_resorte[medida]['CSO']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_resorte[medida]['CSO']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            {% else %}
-                            <td colspan="2" class="celda-no-disponible"></td>
-                            {% endif %}
-                            
-                            <!-- Base Sabana: Solo hasta 140 -->
-                            {% if medida in ['80', '90', '100', '140'] %}
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_resorte[medida]['BASE_SAB']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_resorte[medida]['BASE_SAB']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            {% else %}
-                            <td colspan="2" class="celda-no-disponible"></td>
-                            {% endif %}
-                            
-                            <!-- Doral: Todas las medidas -->
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_resorte[medida]['CDO']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_resorte[medida]['CDO']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            
-                            <!-- Doral Pillow: Solo desde 140 -->
-                            {% if medida in ['140', '150', '160', '180', '200'] %}
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_resorte[medida]['CDOP']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_resorte[medida]['CDOP']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            {% else %}
-                            <td colspan="2" class="celda-no-disponible"></td>
-                            {% endif %}
-                            
-                            <!-- Base Gris: Todas las medidas -->
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_resorte[medida]['BASE_GRIS']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_resorte[medida]['BASE_GRIS']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            
-                            <!-- Sublime E.P.: Solo desde 140 -->
-                            {% if medida in ['140', '150', '160', '180', '200'] %}
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_resorte[medida]['CSUP']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_resorte[medida]['CSUP']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            {% else %}
-                            <td colspan="2" class="celda-no-disponible"></td>
-                            {% endif %}
-                            
-                            <!-- Base Sublime: Solo desde 140 -->
-                            {% if medida in ['140', '150', '160', '180', '200'] %}
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_resorte[medida]['BASE_SUBL']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_resorte[medida]['BASE_SUBL']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            {% else %}
-                            <td colspan="2" class="celda-no-disponible"></td>
-                            {% endif %}
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- TROPICAL -->
-        <div class="seccion seccion-otros">
-            <div class="seccion-titulo">🟨 TROPICAL</div>
-            <div class="table-responsive tabla-tropical">
-                <table class="cuadro-tabla">
-                    <thead>
-                        <tr>
-                            <th>Medida</th>
-                            <th>Stock</th>
-                            <th>Ventas</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for medida in ['80', '90', '100'] %}
-                        <tr>
-                            <td class="medida-col">{{ medida }}</td>
-                            <td>
-                                <span class="stock-valor">{{ datos_otros[medida]['TROPICAL']['stock']|zero_dash }}</span>
-                            </td>
-                            <td>
-                                <span class="vendido-valor">{{ datos_otros[medida]['TROPICAL']['vendido']|zero_dash }}</span>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- COMPAC -->
-        <div class="seccion seccion-otros">
-            <div class="seccion-titulo">🟨 COMPAC</div>
-            <div class="table-responsive">
-                <table class="cuadro-tabla">
-                    <thead>
-                        <tr>
-                            <th rowspan="3">Medida</th>
-                            <th colspan="4" class="nombre-compac">Compac</th>
-                            <th colspan="4" class="nombre-compac-plus">Compac Plus Pocket</th>
-                        </tr>
-                        <tr>
-                            <th colspan="2" class="header-deposito">Depósito</th>
-                            <th colspan="2" class="header-full">Full (ML)</th>
-                            <th colspan="2" class="header-deposito">Depósito</th>
-                            <th colspan="2" class="header-full">Full (ML)</th>
-                        </tr>
-                        <tr>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                            <th>Stock</th><th>Ventas</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for medida in ['80', '100', '140', '160'] %}
-                        <tr>
-                            <td class="medida-col">{{ medida }}</td>
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_otros[medida]['COMPAC_DEP']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_otros[medida]['COMPAC_DEP']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_otros[medida]['COMPAC_FULL']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_otros[medida]['COMPAC_FULL']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_otros[medida]['COMPAC_PLUS_DEP']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_otros[medida]['COMPAC_PLUS_DEP']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ datos_otros[medida]['COMPAC_PLUS_FULL']['stock']|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ datos_otros[medida]['COMPAC_PLUS_FULL']['vendido']|zero_dash }}</span>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- ALMOHADAS -->
-        <div class="seccion seccion-otros tabla-almohadas">
-            <div class="seccion-titulo text-center">🛏️ ALMOHADAS</div>
-            <div class="table-responsive">
-                <table class="cuadro-tabla">
-                    <thead>
-                        <tr>
-                            <th rowspan="2" style="width: 40%; text-align: left;">Nombre</th>
-                            <th colspan="2" class="header-deposito">Depósito</th>
-                            <th colspan="2" class="header-full">Full (ML)</th>
-                        </tr>
-                        <tr>
-                            <th style="width: 15%;">Stock</th>
-                            <th style="width: 15%;">Ventas</th>
-                            <th style="width: 15%;">Stock</th>
-                            <th style="width: 15%;">Ventas</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for alm in almohadas %}
-                        <tr>
-                            <td style="text-align: left; padding-left: 15px;">{{ alm.nombre }}</td>
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ alm.stock_dep|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">{{ alm.vendido|zero_dash }}</span>
-                                </div>
-                            </td>
-                            <td colspan="2">
-                                <div class="celda-datos">
-                                    <span class="stock-valor">{{ alm.stock_full|zero_dash }}</span>
-                                    <span class="separador">/</span>
-                                    <span class="vendido-valor">-</span>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
+        <!-- Botón actualizar solo visible en mobile -->
+        <button onclick="location.reload()" class="btn btn-light btn-sm d-md-none">🔄 Actualizar</button>
     </div>
+</div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    
-    <!-- AUTO-REFRESH: Actualización automática cada 5 minutos -->
-    <script>
-        // Auto-refresh cada 5 minutos (300,000 ms)
-        const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000;
-        
-        // Contador visual
-        let segundosRestantes = 300; // 5 minutos
-        
-        // Función para actualizar la página
-        function autoRefresh() {
-            console.log('🔄 Auto-refrescando dashboard...');
-            location.reload();
-        }
-        
-        // Función para actualizar contador visual
-        function actualizarContador() {
-            segundosRestantes--;
-            
-            if (segundosRestantes <= 0) {
-                segundosRestantes = 300;
-            }
-            
-            // Mostrar en formato mm:ss
-            const minutos = Math.floor(segundosRestantes / 60);
-            const segundos = segundosRestantes % 60;
-            const textoContador = minutos + ':' + (segundos < 10 ? '0' : '') + segundos;
-            
-            // Actualizar elemento si existe
-            const elemento = document.getElementById('contador-refresh');
-            if (elemento) {
-                elemento.textContent = textoContador;
-            }
-        }
-        
-        // Iniciar auto-refresh
-        setInterval(autoRefresh, AUTO_REFRESH_INTERVAL);
-        
-        // Actualizar contador cada segundo
-        setInterval(actualizarContador, 1000);
-        
-        // Mensaje en consola
-        console.log('✅ Auto-refresh activado: dashboard se actualizará cada 5 minutos');
-    </script>
-</body>
-</html>
+<!-- LÍNEA ESPUMA -->
+<div class="seccion seccion-espuma">
+    <div class="seccion-titulo">🟦 LÍNEA ESPUMA</div>
+    <div class="scroll-hint"><i>← deslizá →</i></div>
+    <div class="scroll-wrapper">
+        <table class="cuadro-tabla">
+            <thead>
+                <tr>
+                    <th rowspan="2">Medida</th>
+                    <th colspan="2" class="nombre-producto-celeste">Princess 20cm</th>
+                    <th colspan="2" class="nombre-producto-naranja">Base Sabana</th>
+                    <th colspan="2" class="nombre-producto-celeste">Exclusive</th>
+                    <th colspan="2" class="nombre-producto-naranja">Exclusive Pillow</th>
+                    <th colspan="2" class="nombre-producto-celeste">Base Chocolate</th>
+                    <th colspan="2" class="nombre-producto-naranja">Princess 23cm</th>
+                    <th colspan="2" class="nombre-producto-celeste">Renovation</th>
+                    <th colspan="2" class="nombre-producto-naranja">Renovation E.P.</th>
+                    <th colspan="2" class="nombre-producto-celeste">Base Gris</th>
+                </tr>
+                <tr>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for medida in ['80', '90', '100', '140', '150', '160', '180', '200'] %}
+                <tr>
+                    <td class="medida-col">{{ medida }}</td>
+                    {% if medida in ['80', '90', '100', '140'] %}
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_espuma[medida]['CPR20']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_espuma[medida]['CPR20']['vendido']|zero_dash }}</span>
+                    </div></td>
+                    {% else %}<td colspan="2" class="celda-no-disponible"></td>{% endif %}
+
+                    {% if medida in ['80', '90', '100', '140'] %}
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_espuma[medida]['BASE_SAB']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_espuma[medida]['BASE_SAB']['vendido']|zero_dash }}</span>
+                    </div></td>
+                    {% else %}<td colspan="2" class="celda-no-disponible"></td>{% endif %}
+
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_espuma[medida]['CEX']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_espuma[medida]['CEX']['vendido']|zero_dash }}</span>
+                    </div></td>
+
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_espuma[medida]['CEXP']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_espuma[medida]['CEXP']['vendido']|zero_dash }}</span>
+                    </div></td>
+
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_espuma[medida]['BASE_CHOC']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_espuma[medida]['BASE_CHOC']['vendido']|zero_dash }}</span>
+                    </div></td>
+
+                    {% if medida in ['80', '90', '100', '140'] %}
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_espuma[medida]['CPR23']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_espuma[medida]['CPR23']['vendido']|zero_dash }}</span>
+                    </div></td>
+                    {% else %}<td colspan="2" class="celda-no-disponible"></td>{% endif %}
+
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_espuma[medida]['CRE']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_espuma[medida]['CRE']['vendido']|zero_dash }}</span>
+                    </div></td>
+
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_espuma[medida]['CREP']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_espuma[medida]['CREP']['vendido']|zero_dash }}</span>
+                    </div></td>
+
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_espuma[medida]['BASE_GRIS']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_espuma[medida]['BASE_GRIS']['vendido']|zero_dash }}</span>
+                    </div></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- LÍNEA RESORTE -->
+<div class="seccion seccion-resorte">
+    <div class="seccion-titulo">🟢 LÍNEA RESORTE</div>
+    <div class="scroll-hint"><i>← deslizá →</i></div>
+    <div class="scroll-wrapper">
+        <table class="cuadro-tabla">
+            <thead>
+                <tr>
+                    <th rowspan="2">Medida</th>
+                    <th colspan="2" class="nombre-producto-celeste">Soñar</th>
+                    <th colspan="2" class="nombre-producto-naranja">Base Sabana</th>
+                    <th colspan="2" class="nombre-producto-celeste">Doral</th>
+                    <th colspan="2" class="nombre-producto-naranja">Doral Pillow</th>
+                    <th colspan="2" class="nombre-producto-celeste">Base Gris</th>
+                    <th colspan="2" class="nombre-producto-naranja">Sublime E.P.</th>
+                    <th colspan="2" class="nombre-producto-celeste">Base Sublime</th>
+                </tr>
+                <tr>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for medida in ['80', '90', '100', '140', '150', '160', '180', '200'] %}
+                <tr>
+                    <td class="medida-col">{{ medida }}</td>
+
+                    {% if medida in ['80', '90', '100', '140'] %}
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_resorte[medida]['CSO']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_resorte[medida]['CSO']['vendido']|zero_dash }}</span>
+                    </div></td>
+                    {% else %}<td colspan="2" class="celda-no-disponible"></td>{% endif %}
+
+                    {% if medida in ['80', '90', '100', '140'] %}
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_resorte[medida]['BASE_SAB']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_resorte[medida]['BASE_SAB']['vendido']|zero_dash }}</span>
+                    </div></td>
+                    {% else %}<td colspan="2" class="celda-no-disponible"></td>{% endif %}
+
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_resorte[medida]['CDO']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_resorte[medida]['CDO']['vendido']|zero_dash }}</span>
+                    </div></td>
+
+                    {% if medida in ['140', '150', '160', '180', '200'] %}
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_resorte[medida]['CDOP']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_resorte[medida]['CDOP']['vendido']|zero_dash }}</span>
+                    </div></td>
+                    {% else %}<td colspan="2" class="celda-no-disponible"></td>{% endif %}
+
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_resorte[medida]['BASE_GRIS']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_resorte[medida]['BASE_GRIS']['vendido']|zero_dash }}</span>
+                    </div></td>
+
+                    {% if medida in ['140', '150', '160', '180', '200'] %}
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_resorte[medida]['CSUP']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_resorte[medida]['CSUP']['vendido']|zero_dash }}</span>
+                    </div></td>
+                    {% else %}<td colspan="2" class="celda-no-disponible"></td>{% endif %}
+
+                    {% if medida in ['140', '150', '160', '180', '200'] %}
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_resorte[medida]['BASE_SUBL']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_resorte[medida]['BASE_SUBL']['vendido']|zero_dash }}</span>
+                    </div></td>
+                    {% else %}<td colspan="2" class="celda-no-disponible"></td>{% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- TROPICAL -->
+<div class="seccion seccion-otros">
+    <div class="seccion-titulo">🟨 TROPICAL</div>
+    <div class="tabla-tropical">
+        <table class="cuadro-tabla">
+            <thead>
+                <tr>
+                    <th>Medida</th>
+                    <th>Stock</th>
+                    <th>Ventas</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for medida in ['80', '90', '100'] %}
+                <tr>
+                    <td class="medida-col">{{ medida }}</td>
+                    <td><span class="stock-valor">{{ datos_otros[medida]['TROPICAL']['stock']|zero_dash }}</span></td>
+                    <td><span class="vendido-valor">{{ datos_otros[medida]['TROPICAL']['vendido']|zero_dash }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- COMPAC -->
+<div class="seccion seccion-otros">
+    <div class="seccion-titulo">🟨 COMPAC</div>
+    <div class="scroll-hint"><i>← deslizá →</i></div>
+    <div class="scroll-wrapper">
+        <table class="cuadro-tabla">
+            <thead>
+                <tr>
+                    <th rowspan="3">Medida</th>
+                    <th colspan="4" class="nombre-compac">Compac</th>
+                    <th colspan="4" class="nombre-compac-plus">Compac Plus Pocket</th>
+                </tr>
+                <tr>
+                    <th colspan="2" class="header-deposito">Depósito</th>
+                    <th colspan="2" class="header-full">Full (ML)</th>
+                    <th colspan="2" class="header-deposito">Depósito</th>
+                    <th colspan="2" class="header-full">Full (ML)</th>
+                </tr>
+                <tr>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                    <th>Stk</th><th>Vta</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for medida in ['80', '100', '140', '160'] %}
+                <tr>
+                    <td class="medida-col">{{ medida }}</td>
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_otros[medida]['COMPAC_DEP']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_otros[medida]['COMPAC_DEP']['vendido']|zero_dash }}</span>
+                    </div></td>
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_otros[medida]['COMPAC_FULL']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_otros[medida]['COMPAC_FULL']['vendido']|zero_dash }}</span>
+                    </div></td>
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_otros[medida]['COMPAC_PLUS_DEP']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_otros[medida]['COMPAC_PLUS_DEP']['vendido']|zero_dash }}</span>
+                    </div></td>
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_otros[medida]['COMPAC_PLUS_FULL']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_otros[medida]['COMPAC_PLUS_FULL']['vendido']|zero_dash }}</span>
+                    </div></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ALMOHADAS -->
+<div class="seccion seccion-otros tabla-almohadas">
+    <div class="seccion-titulo text-center">🛏️ ALMOHADAS</div>
+    <div class="scroll-wrapper">
+        <table class="cuadro-tabla">
+            <thead>
+                <tr>
+                    <th rowspan="2" style="text-align:left; min-width:120px;">Nombre</th>
+                    <th colspan="2" class="header-deposito">Depósito</th>
+                    <th colspan="2" class="header-full">Full (ML)</th>
+                </tr>
+                <tr>
+                    <th>Stock</th><th>Ventas</th>
+                    <th>Stock</th><th>Ventas</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for alm in almohadas %}
+                <tr>
+                    <td style="text-align:left; padding-left:10px;">{{ alm.nombre }}</td>
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ alm.stock_dep|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ alm.vendido|zero_dash }}</span>
+                    </div></td>
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ alm.stock_full|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">-</span>
+                    </div></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let segundosRestantes = 300;
+    function autoRefresh() { location.reload(); }
+    function actualizarContador() {
+        segundosRestantes--;
+        if (segundosRestantes <= 0) segundosRestantes = 300;
+        const m = Math.floor(segundosRestantes / 60);
+        const s = segundosRestantes % 60;
+        const el = document.getElementById('contador-refresh');
+        if (el) el.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+    }
+    setInterval(autoRefresh, 5 * 60 * 1000);
+    setInterval(actualizarContador, 1000);
+</script>
+{% endblock %}
