@@ -119,7 +119,7 @@
     </div>
 </div>
 
-<div class="table-responsive">
+<div class="table-responsive d-none d-md-block">
     <table class="table table-bordered table-hover" style="font-size: 0.95em;">
         <thead class="table-light">
             <tr>
@@ -290,6 +290,99 @@
             {% endfor %}
         </tbody>
     </table>
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- CARDS MOBILE (solo visible en mobile) -->
+<!-- ═══════════════════════════════════════ -->
+<div class="d-md-none">
+    {% for venta in ventas %}
+    <div class="card mb-2 shadow-sm" data-venta-id="{{ venta.id }}">
+        <!-- HEADER -->
+        <div class="card-header d-flex justify-content-between align-items-center py-2"
+             style="background: #e8f4f8;">
+            <div class="d-flex align-items-center gap-2">
+                <input type="checkbox" class="form-check-input venta-checkbox"
+                       value="{{ venta.id }}" onchange="actualizarContador()">
+                <div>
+                    <strong style="font-size:0.85rem;">{{ venta.numero_venta }}</strong>
+                    <div class="text-muted" style="font-size:0.75rem;">{{ venta.fecha_venta.strftime('%d/%m/%Y') }}</div>
+                </div>
+            </div>
+            <div class="text-end">
+                <div style="font-size:1.05rem; font-weight:700;">${{ "{:,.0f}".format(venta.importe_total) }}</div>
+                {% if venta.importe_abonado >= venta.importe_total %}
+                    <span class="badge bg-success">Pagado</span>
+                {% elif venta.importe_abonado > 0 %}
+                    <span class="badge bg-warning text-dark">Parcial</span>
+                {% else %}
+                    <span class="badge bg-danger">Impago</span>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card-body py-2 px-3">
+            <!-- CLIENTE -->
+            <div class="mb-1">
+                {% if venta.mla_code %}<span class="badge bg-primary me-1">{{ venta.mla_code }}</span>{% endif %}
+                <strong style="font-size:0.9rem;">{{ venta.nombre_cliente }}</strong>
+                {% if venta.telefono_cliente %}
+                    <span class="text-muted ms-2" style="font-size:0.8rem;"><i class="bi bi-telephone"></i> {{ venta.telefono_cliente }}</span>
+                {% endif %}
+            </div>
+
+            <!-- PRODUCTOS -->
+            <div class="mb-2" style="font-size:0.82rem; color:#444;">
+                {% for item in venta['items'] %}
+                    <div>{{ item.cantidad }}× {{ item.sku }} — {{ item.nombre_producto }}</div>
+                {% endfor %}
+            </div>
+
+            <!-- ENTREGA + ZONA -->
+            <div class="d-flex flex-wrap gap-2 mb-2" style="font-size:0.8rem;">
+                {% if venta.tipo_entrega == 'Retiro' %}
+                    <span class="badge bg-info text-dark">🔷 Retiro depósito</span>
+                {% else %}
+                    <span class="badge bg-secondary">{{ venta.metodo_envio }}</span>
+                    {% if venta.zona_envio %}<span class="badge bg-light text-dark border ms-1">{{ venta.zona_envio }}</span>{% endif %}
+                    {% if venta.ubicacion_despacho == 'FULL' %}
+                        <span class="badge bg-warning text-dark ms-1">🔶 FULL</span>
+                    {% endif %}
+                    {% if venta.metodo_envio in ['Flete Propio', 'Zippin'] and venta.costo_flete and venta.costo_flete > 0 %}
+                        <span class="ms-1
+                            {% if venta.importe_abonado >= venta.importe_total + venta.costo_flete %}text-success
+                            {% elif venta.importe_abonado > venta.importe_total %}text-warning
+                            {% else %}text-danger{% endif %} fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</span>
+                    {% endif %}
+                {% endif %}
+                <span class="text-muted">{{ venta.metodo_pago }}</span>
+            </div>
+
+            <!-- DIRECCIÓN -->
+            {% if venta.direccion_entrega %}
+            <div class="text-muted mb-2" style="font-size:0.78rem;">📍 {{ venta.direccion_entrega[:60] }}{% if venta.direccion_entrega|length > 60 %}...{% endif %}</div>
+            {% endif %}
+
+            <!-- NOTAS -->
+            {% if venta.notas %}
+            <div class="text-muted mb-2" style="font-size:0.78rem;">💬 {{ venta.notas[:60] }}{% if venta.notas|length > 60 %}...{% endif %}</div>
+            {% endif %}
+
+            <!-- ACCIONES -->
+            <div class="d-flex gap-1 flex-wrap">
+                <button class="btn btn-sm btn-info"
+                        onclick="confirmarAccion('{{ venta.id }}', 'volver_activas', '{{ venta.numero_venta }}')">
+                    <i class="bi bi-arrow-left-circle"></i> Activas</button>
+                <button class="btn btn-sm btn-success"
+                        onclick="confirmarAccion('{{ venta.id }}', 'entregada', '{{ venta.numero_venta }}')">
+                    <i class="bi bi-check-circle"></i> Entregada</button>
+                <button class="btn btn-sm btn-danger"
+                        onclick="confirmarAccion('{{ venta.id }}', 'cancelar', '{{ venta.numero_venta }}')">
+                    <i class="bi bi-x-circle"></i> Cancelar</button>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
 </div>
 
 {% else %}
