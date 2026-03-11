@@ -5066,7 +5066,8 @@ def obtener_shipping_completo(shipping_id, access_token):
         'metodo_envio': '',
         'metodo_envio_ml': '',
         'logistic_type_ml': '',
-        'costo_envio': 0,  # ✅ NUEVO: Inicializar
+        'costo_envio': 0,
+        'fecha_entrega_ml': '',
         'direccion': '',
         'ciudad': '',
         'provincia': '',
@@ -5129,6 +5130,21 @@ def obtener_shipping_completo(shipping_id, access_token):
         # Guardar valores originales
         shipping_data['metodo_envio_ml'] = shipping_mode
         shipping_data['logistic_type_ml'] = logistic_type
+
+        # Fecha estimada de entrega (Flex/self_service la tiene)
+        try:
+            fecha_entrega_raw = (
+                shipment.get('shipping_option', {})
+                .get('estimated_delivery_limit', {})
+                .get('date', '')
+            )
+            if fecha_entrega_raw:
+                from datetime import datetime
+                dt = datetime.fromisoformat(fecha_entrega_raw.replace('Z', '+00:00'))
+                shipping_data['fecha_entrega_ml'] = dt.strftime('%d/%m/%Y')
+                print(f"📅 Fecha entrega ML: {shipping_data['fecha_entrega_ml']}")
+        except Exception as e:
+            print(f"⚠️ Error capturando fecha entrega: {e}")
         
         # 🔧 MAPEO CORREGIDO según logs reales
         if logistic_type == 'fulfillment':
