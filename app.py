@@ -5191,7 +5191,12 @@ def obtener_shipping_completo(shipping_id, access_token):
             # Ciudad y provincia
             city = receiver_address.get('city', {})
             state = receiver_address.get('state', {})
-            
+
+            # Extraer nombre de ciudad y agregarlo a la dirección
+            ciudad_nombre = city.get('name', '') if isinstance(city, dict) else (str(city) if city else '')
+            if ciudad_nombre and shipping_data.get('direccion'):
+                shipping_data['direccion'] += f', {ciudad_nombre}'
+
             if isinstance(city, dict):
                 shipping_data['ciudad'] = str(city.get('name', ''))
             else:
@@ -5774,19 +5779,33 @@ def ml_seleccionar_orden(orden_id):
         items_sin_mapear = []
         items_mapeados = []
         
+        # logistic_type para mapeo automático de Compac (_DEP vs _FULL)
+        logistic_type_actual = orden_data['shipping'].get('logistic_type_ml', '')
+        es_full_ml = logistic_type_actual == 'fulfillment'
+
         for item in orden_data['items']:
             sku_ml_original = item['sku']
             if sku_ml_original:
                 existe, tipo, nombre = verificar_sku_en_bd(sku_ml_original)
                 sku_a_usar = sku_ml_original
-                
+
+                # Auto-mapeo SKU Z → sin Z
                 if not existe and sku_ml_original.endswith('Z'):
                     sku_normalizado = sku_ml_original[:-1]
                     existe, tipo, nombre = verificar_sku_en_bd(sku_normalizado)
                     if existe:
                         sku_a_usar = sku_normalizado
-                        print(f"✅ Mapeo automático: {sku_ml_original} → {sku_normalizado}")
-                
+                        print(f"✅ Mapeo automático Z: {sku_ml_original} → {sku_normalizado}")
+
+                # Auto-mapeo Compac: CCO{medida} → CCO{medida}_FULL o CCO{medida}_DEP
+                if not existe and sku_ml_original.upper().startswith('CCO') and '_' not in sku_ml_original:
+                    sufijo = '_FULL' if es_full_ml else '_DEP'
+                    sku_compac = sku_ml_original.upper() + sufijo
+                    existe, tipo, nombre = verificar_sku_en_bd(sku_compac)
+                    if existe:
+                        sku_a_usar = sku_compac
+                        print(f"✅ Mapeo automático Compac: {sku_ml_original} → {sku_compac} (logistic: {logistic_type_actual})")
+
                 if existe:
                     items_mapeados.append({
                         'sku_ml': sku_ml_original,
