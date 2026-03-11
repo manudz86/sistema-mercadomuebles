@@ -8548,6 +8548,16 @@ def ml_callback():
 
 
 # ============================================================================
+# TIENDANUBE Y TIENDA PROPIA
+# ============================================================================
+from tiendanube_bp import tiendanube_bp
+app.register_blueprint(tiendanube_bp)
+
+from tienda_bp import tienda_bp
+app.register_blueprint(tienda_bp)
+
+
+# ============================================================================
 # INICIAR APLICACIÓN
 # ============================================================================
 
