@@ -5171,15 +5171,22 @@ def obtener_shipping_completo(shipping_id, access_token):
             floor = receiver_address.get('floor', '')
             apartment = receiver_address.get('apartment', '')
             
+            def limpiar_direccion(d):
+                """Quita la palabra 'calle' al inicio si está presente"""
+                d = d.strip()
+                if d.lower().startswith('calle '):
+                    d = d[6:].strip()
+                return d
+
             if address_line:
-                shipping_data['direccion'] = address_line
+                shipping_data['direccion'] = limpiar_direccion(address_line)
             elif street_name and street_number:
                 direccion = f"{street_name} {street_number}"
                 if floor:
                     direccion += f" Piso {floor}"
                 if apartment:
                     direccion += f" Depto {apartment}"
-                shipping_data['direccion'] = direccion
+                shipping_data['direccion'] = limpiar_direccion(direccion)
             
             # Ciudad y provincia
             city = receiver_address.get('city', {})
