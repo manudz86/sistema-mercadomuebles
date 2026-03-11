@@ -125,7 +125,7 @@
                                             <button type="button" class="btn-close btn-close-sm ms-2 limpiar-producto" style="font-size: 0.6em;"></button>
                                         </div>
                                         
-                                        <small class="text-muted">De ML: {{ item['titulo'][:45] }}...</small>
+                                        <small class="text-muted titulo-ml" data-titulo="{{ item['titulo'] }}">De ML: {{ item['titulo'][:45] }}...</small>
                                     </div>
                                     <div class="col-md-2">
                                         <label class="form-label">Cantidad</label>
@@ -387,10 +387,10 @@ document.addEventListener('DOMContentLoaded', async function() {
     const skusAlmohadas = ['CERVICAL','CLASICA','DORAL','DUAL','EXCLUSIVE','PLATINO','RENOVATION','SUBLIME'];
     document.querySelectorAll('.producto-item').forEach(function(item) {
         const skuInput = item.querySelector('input[name$="[sku]"]');
-        const tituloEl = item.querySelector('small.text-muted');
+        const tituloEl = item.querySelector('small.titulo-ml');
         if (!skuInput || !tituloEl) return;
         const sku = skuInput.value.toUpperCase();
-        const titulo = tituloEl.textContent.toLowerCase();
+        const titulo = (tituloEl.dataset.titulo || tituloEl.textContent).toLowerCase();
         const esAlmohada = skusAlmohadas.some(a => sku.includes(a));
         if (!titulo.includes('almohada') || esAlmohada) return;
 
