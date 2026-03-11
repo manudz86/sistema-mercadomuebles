@@ -643,8 +643,8 @@ metodo_pago, importe_total, importe_abonado,
             elif filtro_estado_pago == 'parcial':
                 query += ' AND importe_abonado > 0 AND importe_abonado < importe_total'
         
-        # Ordenar: más antiguas arriba
-        query += ' ORDER BY id DESC'
+        # Ordenar: más recientes arriba por fecha real de compra
+        query += ' ORDER BY fecha_venta DESC, id DESC'
         
         # Ejecutar query
         ventas = query_db(query, tuple(params) if params else None)
@@ -666,6 +666,11 @@ metodo_pago, importe_total, importe_abonado,
                 ORDER BY iv.id
             ''', (venta['id'],))
             venta['items'] = items
+            # Hora de compra para mostrar en listado
+            if venta.get('fecha_venta') and hasattr(venta['fecha_venta'], 'strftime'):
+                venta['hora_venta_str'] = venta['fecha_venta'].strftime('%H:%M')
+            else:
+                venta['hora_venta_str'] = ''
         
         return render_template('ventas_activas.html', 
                              ventas=ventas,
@@ -1269,8 +1274,8 @@ metodo_pago, importe_total, importe_abonado,
             elif filtro_estado_pago == 'parcial':
                 query += ' AND importe_abonado > 0 AND importe_abonado < importe_total'
         
-        # Ordenar: más antiguas arriba
-        query += ' ORDER BY id DESC'
+        # Ordenar: más recientes arriba por fecha real de compra
+        query += ' ORDER BY fecha_venta DESC, id DESC'
         
         # Ejecutar query
         ventas = query_db(query, tuple(params) if params else None)
@@ -1292,6 +1297,10 @@ metodo_pago, importe_total, importe_abonado,
                 ORDER BY iv.id
             ''', (venta['id'],))
             venta['items'] = items
+            if venta.get('fecha_venta') and hasattr(venta['fecha_venta'], 'strftime'):
+                venta['hora_venta_str'] = venta['fecha_venta'].strftime('%H:%M')
+            else:
+                venta['hora_venta_str'] = ''
         
         return render_template('proceso_envio.html', 
                              ventas=ventas,
@@ -2708,7 +2717,7 @@ metodo_pago, importe_total, importe_abonado,
             params.append(filtro_canal)
         
         # Ordenar: Más recientes arriba (por fecha de entrega, o fecha_modificacion si no hay fecha_entrega)
-        query += ' ORDER BY id DESC'
+        query += ' ORDER BY fecha_venta DESC, id DESC'
         
         # Ejecutar query
         ventas = query_db(query, tuple(params) if params else None)
@@ -2730,6 +2739,10 @@ metodo_pago, importe_total, importe_abonado,
                 ORDER BY iv.id
             ''', (venta['id'],))
             venta['items'] = items
+            if venta.get('fecha_venta') and hasattr(venta['fecha_venta'], 'strftime'):
+                venta['hora_venta_str'] = venta['fecha_venta'].strftime('%H:%M')
+            else:
+                venta['hora_venta_str'] = ''
         
         # ========================================
         # CONTAR ENTREGADAS Y CANCELADAS

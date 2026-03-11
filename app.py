@@ -3104,6 +3104,14 @@ def generar_factura_excel(venta_id):
             cell.fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
             cell.alignment = Alignment(horizontal="center")
 
+        def mapear_iva(valor):
+            m = {
+                'IVA Exento': 'Exento',
+                'IVA Responsable Inscripto': 'Responsable Inscripto',
+                'Monotributo': 'Responsable Monotributo',
+            }
+            return m.get(valor, valor or 'Consumidor Final')
+
         row_data = []
 
         if venta.get('mla_code'):
@@ -3112,7 +3120,7 @@ def generar_factura_excel(venta_id):
             id_venta = venta.get('factura_business_name') or venta['nombre_cliente']
         row_data.append(id_venta)
 
-        row_data.append(venta.get('factura_taxpayer_type') or 'Consumidor Final')
+        row_data.append(mapear_iva(venta.get('factura_taxpayer_type')))
 
         row_data.append(venta.get('factura_business_name') or venta['nombre_cliente'])
 
@@ -3268,6 +3276,14 @@ def facturar_multiple_excel():
 
         current_row = 2
 
+        def mapear_iva(valor):
+            m = {
+                'IVA Exento': 'Exento',
+                'IVA Responsable Inscripto': 'Responsable Inscripto',
+                'Monotributo': 'Responsable Monotributo',
+            }
+            return m.get(valor, valor or 'Consumidor Final')
+
         for venta_prep in ventas_preparadas:
             venta = venta_prep['venta']
             items = venta_prep['items']
@@ -3283,7 +3299,7 @@ def facturar_multiple_excel():
                 id_venta = venta.get('factura_business_name') or venta['nombre_cliente']
             row_data.append(id_venta)
 
-            row_data.append(venta.get('factura_taxpayer_type') or 'Consumidor Final')
+            row_data.append(mapear_iva(venta.get('factura_taxpayer_type')))
             row_data.append(venta.get('factura_business_name') or venta['nombre_cliente'])
 
             if venta.get('factura_doc_number'):
@@ -5154,7 +5170,7 @@ def obtener_shipping_completo(shipping_id, access_token):
             if fecha_entrega_raw:
                 from datetime import datetime
                 dt = datetime.fromisoformat(fecha_entrega_raw.replace('Z', '+00:00'))
-                shipping_data['fecha_entrega_ml'] = dt.strftime('%d/%m/%Y')
+                shipping_data['fecha_entrega_ml'] = f"{dt.day:02d}/{dt.month:02d}"
                 print(f"📅 Fecha entrega ML: {shipping_data['fecha_entrega_ml']}")
         except Exception as e:
             print(f"⚠️ Error capturando fecha entrega: {e}")
