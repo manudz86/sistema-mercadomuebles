@@ -120,7 +120,7 @@
     </div>
 </div>
 
-<div class="table-responsive d-none d-md-block">
+<div class="table-responsive">
     <table class="table table-bordered table-hover" style="font-size: 0.95em;">
         <thead class="table-light">
             <tr>
@@ -157,6 +157,7 @@
                 
                 <!-- FECHAS -->
                 <td class="text-center">
+                    {% if venta.hora_venta_str %}<small class="text-muted d-block" style="font-size:0.75em;">{{ venta.hora_venta_str }} hs</small>{% endif %}
                     <strong>{{ venta.fecha_venta.strftime('%d/%m/%Y') }}</strong>
                     <br>
                     <small class="text-muted">{{ venta.numero_venta }}</small>
@@ -337,96 +338,6 @@
     <i class="bi bi-info-circle"></i> Mostrando las primeras 100 ventas. Usa los filtros para refinar la búsqueda.
 </div>
 {% endif %}
-
-<!-- CARDS MOBILE -->
-<div class="d-md-none">
-    {% for venta in ventas %}
-    <div class="card mb-2 shadow-sm {% if venta.estado_entrega == 'cancelada' %}border-secondary opacity-75{% endif %}">
-        <div class="card-header d-flex justify-content-between align-items-center py-2"
-             style="background: {% if venta.estado_entrega == 'cancelada' %}#e9ecef{% else %}#f8f9fa{% endif %};">
-            <div class="d-flex align-items-center gap-2">
-                <input type="checkbox" class="form-check-input venta-checkbox"
-                       value="{{ venta.id }}" data-estado="{{ venta.estado_entrega }}" onchange="actualizarContador()">
-                <div>
-                    <strong style="font-size:0.85rem;">{{ venta.numero_venta }}</strong>
-                    <div class="text-muted" style="font-size:0.75rem;">{{ venta.fecha_venta.strftime('%d/%m/%Y') }}
-                        {% if venta.fecha_entrega %} → <span class="text-success">{{ venta.fecha_entrega.strftime('%d/%m/%Y') }}</span>{% endif %}
-                    </div>
-                </div>
-            </div>
-            <div class="text-end">
-                <div style="font-size:1.05rem; font-weight:700;">${{ "{:,.0f}".format(venta.importe_total) }}</div>
-                <div class="d-flex gap-1 justify-content-end">
-                    {% if venta.canal == 'Mercado Libre' %}
-                        <span class="badge bg-primary" style="font-size:0.65rem;">ML</span>
-                    {% else %}
-                        <span class="badge bg-info" style="font-size:0.65rem;">{{ venta.canal }}</span>
-                    {% endif %}
-                    {% if venta.estado_entrega == 'entregada' %}
-                        <span class="badge bg-success" style="font-size:0.65rem;">Entregada</span>
-                    {% else %}
-                        <span class="badge bg-secondary" style="font-size:0.65rem;">Cancelada</span>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-        <div class="card-body py-2 px-3">
-            <!-- CLIENTE -->
-            <div class="mb-1">
-                {% if venta.mla_code %}<span class="badge bg-primary me-1">{{ venta.mla_code }}</span>{% endif %}
-                <strong style="font-size:0.9rem;">{{ venta.nombre_cliente }}</strong>
-            </div>
-            <!-- PRODUCTOS -->
-            <div class="mb-2" style="font-size:0.82rem; color:#444;">
-                {% for item in venta['items'] %}
-                    <div>{{ item.cantidad }}× {{ item.sku }} — {{ item.nombre_producto }}</div>
-                {% endfor %}
-            </div>
-            <!-- ENTREGA -->
-            <div class="d-flex flex-wrap gap-2 mb-2" style="font-size:0.8rem;">
-                {% if venta.tipo_entrega == 'Retiro' %}
-                    <span class="badge bg-info text-dark">🔷 Retiro</span>
-                {% else %}
-                    <span class="badge bg-secondary">{{ venta.metodo_envio }}</span>
-                    {% if venta.zona_envio %}<span class="badge bg-light text-dark border">{{ venta.zona_envio }}</span>{% endif %}
-                    {% if venta.ubicacion_despacho == 'FULL' %}<span class="badge bg-warning text-dark">🔶 FULL</span>{% endif %}
-                {% endif %}
-                {% if venta.importe_abonado >= venta.importe_total %}
-                    <span class="badge bg-success">Pagado</span>
-                {% elif venta.importe_abonado > 0 %}
-                    <span class="badge bg-warning text-dark">Parcial</span>
-                {% else %}
-                    <span class="badge bg-danger">Impago</span>
-                {% endif %}
-            </div>
-            {% if venta.notas %}
-            <div class="text-muted mb-2" style="font-size:0.78rem;">💬 {{ venta.notas[:60] }}{% if venta.notas|length > 60 %}...{% endif %}</div>
-            {% endif %}
-            <!-- ACCIONES -->
-            <div class="d-flex gap-1 flex-wrap align-items-center">
-                {% if venta.estado_entrega == 'entregada' %}
-                    <button type="button" class="btn btn-sm {% if venta.factura_generada %}btn-secondary{% else %}btn-success{% endif %}"
-                            onclick="facturarIndividual('{{ venta.id }}', '{{ venta.metodo_envio }}')">
-                        <i class="bi bi-file-earmark-text"></i> {% if venta.factura_generada %}Re-facturar{% else %}Facturar{% endif %}
-                    </button>
-                    {% if venta.metodo_envio in ['Flete Propio', 'Zippin'] and venta.costo_flete and venta.costo_flete > 0 %}
-                    <div class="form-check form-check-inline mb-0" style="font-size:0.8rem;">
-                        <input class="form-check-input flete-checkbox" type="checkbox" id="flete_{{ venta.id }}">
-                        <label class="form-check-label text-muted" for="flete_{{ venta.id }}">+ Flete</label>
-                    </div>
-                    {% endif %}
-                {% endif %}
-                <form method="POST" action="{{ url_for('historicas_volver_activas', venta_id=venta.id) }}" style="display:inline;">
-                    <button type="submit" class="btn btn-sm {% if venta.estado_entrega == 'entregada' %}btn-warning{% else %}btn-secondary{% endif %}"
-                            onclick="return confirm('¿Volver esta venta a Activas?')">
-                        <i class="bi bi-arrow-counterclockwise"></i> Activa
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-    {% endfor %}
-</div>
 
 {% else %}
 <div class="alert alert-info">
