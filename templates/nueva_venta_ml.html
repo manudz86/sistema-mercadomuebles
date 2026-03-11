@@ -198,6 +198,7 @@
                                 <option value="Delega">Delega</option>
                                 <option value="Zippin">Zippin</option>
                             </select>
+
                         </div>
                         <div class="col-md-3" id="ubicacion_despacho_container">
                             <label class="form-label">Ubicación Despacho</label>
@@ -306,7 +307,7 @@
                     <textarea class="form-control" 
                               name="notas" 
                               rows="3" 
-                              placeholder="Observaciones adicionales...">Importado desde ML - Orden: {{ ml_orden_id }}</textarea>
+                              placeholder="Observaciones adicionales...">{% if shipping.get('fecha_entrega_ml') %}{{ shipping.get('fecha_entrega_ml')[:5] }}{% else %}Importado desde ML - Orden: {{ ml_orden_id }}{% endif %}</textarea>
                 </div>
             </div>
             
@@ -394,13 +395,26 @@ document.addEventListener('DOMContentLoaded', async function() {
         const esAlmohada = skusAlmohadas.some(a => sku.includes(a));
         if (!titulo.includes('almohada') || esAlmohada) return;
 
-        // Detectar ancho desde el título (ej: "140x190", "1.40m", "140 cm")
+        // Detectar ancho desde el título
         let ancho = 0;
-        const mMatch = titulo.match(/(\d+)\s*x\s*\d+/);
-        if (mMatch) ancho = parseInt(mMatch[1]);
+        // 140x190 o 190x140
+        const mMatch = titulo.match(/(\d{2,3})\s*x\s*(\d{2,3})/);
+        if (mMatch) {
+            const a = parseInt(mMatch[1]), b = parseInt(mMatch[2]);
+            ancho = Math.min(a, b); // el menor es el ancho
+        }
+        // 140cm / 140 cm
         if (!ancho) {
             const cmMatch = titulo.match(/(\d{2,3})\s*cm/);
             if (cmMatch) ancho = parseInt(cmMatch[1]);
+        }
+        // Por nombre de plaza
+        if (!ancho) {
+            if (titulo.includes('2 plazas') || titulo.includes('doble')) ancho = 140;
+            else if (titulo.includes('queen')) ancho = 160;
+            else if (titulo.includes('king')) ancho = 180;
+            else if (titulo.includes('plaza y media') || titulo.includes('1 y media') || titulo.includes('1.5')) ancho = 100;
+            else if (titulo.includes('1 plaza') || titulo.includes('una plaza') || titulo.includes('individual')) ancho = 80;
         }
         if (!ancho) return;
 

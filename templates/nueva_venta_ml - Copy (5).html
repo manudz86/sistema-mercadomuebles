@@ -125,7 +125,7 @@
                                             <button type="button" class="btn-close btn-close-sm ms-2 limpiar-producto" style="font-size: 0.6em;"></button>
                                         </div>
                                         
-                                        <small class="text-muted">De ML: {{ item['titulo'][:45] }}...</small>
+                                        <small class="text-muted titulo-ml" data-titulo="{{ item['titulo'] }}">De ML: {{ item['titulo'][:45] }}...</small>
                                     </div>
                                     <div class="col-md-2">
                                         <label class="form-label">Cantidad</label>
@@ -230,9 +230,9 @@
                             </small>
                             {% endif %}
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-4" id="zona_envio_container">
                             <label class="form-label">Zona</label>
-                            <select class="form-select" name="zona_envio">
+                            <select class="form-select" name="zona_envio" id="zona_envio">
                                 <option value="">-- Seleccionar --</option>
                                 <option value="Capital" {% if shipping.get('zona') == 'Capital' %}selected{% endif %}>Capital</option>
                                 <option value="Sur" {% if shipping.get('zona') == 'Sur' %}selected{% endif %}>Sur</option>
@@ -348,6 +348,104 @@ document.addEventListener('DOMContentLoaded', async function() {
         document.getElementById('direccion_container').style.display = 'none';
         document.getElementById('metodo_envio').value = '';
     }
+
+    // Inicializar visibilidad de zona: solo para Flete Propio
+    const metodoEnvioEl = document.getElementById('metodo_envio');
+    const zonaContainer = document.getElementById('zona_envio_container');
+    if (metodoEnvioEl && zonaContainer) {
+        const metodoActual = metodoEnvioEl.value;
+        zonaContainer.style.display = metodoActual === 'Flete Propio' ? 'block' : 'none';
+        if (metodoActual !== 'Flete Propio') {
+            const zonaSelect = document.getElementById('zona_envio');
+            if (zonaSelect) zonaSelect.value = '';
+        }
+    }
+
+    // Flex → Delega si el producto es Compac o almohada
+    if (metodoEnvioEl && metodoEnvioEl.value === 'Flex') {
+        const productosTexto = document.querySelectorAll('.producto-item');
+        let esCompacOAlmohada = false;
+        productosTexto.forEach(function(item) {
+            const skuInput = item.querySelector('input[name$="[sku]"]');
+            const sku = skuInput ? skuInput.value.toUpperCase() : '';
+            const skusAlmohadas = ['CERVICAL','CLASICA','DORAL','DUAL','EXCLUSIVE','PLATINO','RENOVATION','SUBLIME'];
+            const esCompac = sku.startsWith('CCO') || sku.includes('_DEP') || sku.includes('_FULL');
+            const esAlmohada = skusAlmohadas.some(a => sku.includes(a));
+            if (esCompac || esAlmohada) esCompacOAlmohada = true;
+        });
+        if (esCompacOAlmohada) {
+            metodoEnvioEl.value = 'Delega';
+            if (zonaContainer) {
+                zonaContainer.style.display = 'none';
+                const zonaSelect = document.getElementById('zona_envio');
+                if (zonaSelect) zonaSelect.value = '';
+            }
+        }
+    }
+
+    // Auto-agregar PLATINO cuando título ML tiene "almohada" pero el SKU es colchón/sommier
+    const skusAlmohadas = ['CERVICAL','CLASICA','DORAL','DUAL','EXCLUSIVE','PLATINO','RENOVATION','SUBLIME'];
+    document.querySelectorAll('.producto-item').forEach(function(item) {
+        const skuInput = item.querySelector('input[name$="[sku]"]');
+        const tituloEl = item.querySelector('small.titulo-ml');
+        if (!skuInput || !tituloEl) return;
+        const sku = skuInput.value.toUpperCase();
+        const titulo = (tituloEl.dataset.titulo || tituloEl.textContent).toLowerCase();
+        const esAlmohada = skusAlmohadas.some(a => sku.includes(a));
+        if (!titulo.includes('almohada') || esAlmohada) return;
+
+        // Detectar ancho desde el título (ej: "140x190", "1.40m", "140 cm")
+        let ancho = 0;
+        const mMatch = titulo.match(/(\d+)\s*x\s*\d+/);
+        if (mMatch) ancho = parseInt(mMatch[1]);
+        if (!ancho) {
+            const cmMatch = titulo.match(/(\d{2,3})\s*cm/);
+            if (cmMatch) ancho = parseInt(cmMatch[1]);
+        }
+        if (!ancho) return;
+
+        let cantPlatino = 0;
+        if (ancho >= 140) cantPlatino = 2;
+        else if (ancho <= 100) cantPlatino = 1;
+        if (!cantPlatino) return;
+
+        // Agregar fila PLATINO
+        const container = document.getElementById('productos-container');
+        const idx = contadorProductos;
+        contadorProductos++;
+        const div = document.createElement('div');
+        div.className = 'producto-item card mb-2 border-info';
+        div.innerHTML = `
+            <div class="card-header bg-info bg-opacity-10 py-1">
+                <small class="text-info"><i class="bi bi-plus-circle"></i> Agregado automáticamente por título con almohada</small>
+            </div>
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-1"><strong>${idx + 1}</strong></div>
+                    <div class="col-md-5">
+                        <div class="producto-elegido alert alert-success py-1 px-2 mb-0 d-flex justify-content-between align-items-center">
+                            <small><strong class="sku-label">PLATINO</strong> - <span class="nombre-label">Almohada Platino</span></small>
+                        </div>
+                        <input type="hidden" name="productos[${idx}][sku]" class="sku-hidden" value="PLATINO" required>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Cantidad</label>
+                        <input type="number" class="form-control" name="productos[${idx}][cantidad]" value="${cantPlatino}" min="1" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Precio Unitario</label>
+                        <input type="number" class="form-control" name="productos[${idx}][precio]" value="0" min="0" required>
+                    </div>
+                    <div class="col-md-1">
+                        <button type="button" class="btn btn-danger btn-sm" onclick="eliminarProducto(this)">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        container.appendChild(div);
+    });
 });
 
 function inicializarBuscadores() {
@@ -450,6 +548,12 @@ document.getElementById('tipo_entrega').addEventListener('change', function() {
 document.getElementById('metodo_envio').addEventListener('change', function() {
     const metodo = this.value;
     document.getElementById('costo_flete_container').style.display = metodo === 'Flete Propio' ? 'block' : 'none';
+    // Zona solo para Flete Propio
+    const zonaContainer = document.getElementById('zona_envio_container');
+    if (zonaContainer) {
+        zonaContainer.style.display = metodo === 'Flete Propio' ? 'block' : 'none';
+        if (metodo !== 'Flete Propio') document.getElementById('zona_envio').value = '';
+    }
     if (metodo === 'Full') {
         document.getElementById('ubicacion_despacho').value = 'FULL';
     } else {
