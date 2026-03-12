@@ -679,7 +679,8 @@ metodo_pago, importe_total, importe_abonado,
                              filtro_metodo_envio=filtro_metodo_envio,
                              filtro_zona=filtro_zona,
                              filtro_canal=filtro_canal,
-                             filtro_estado_pago=filtro_estado_pago)
+                             filtro_estado_pago=filtro_estado_pago,
+                             hora_corte_colecta=session.get('hora_corte_colecta', '14:00'))
         
     except Exception as e:
         flash(f'Error al cargar ventas activas: {str(e)}', 'error')
@@ -5160,18 +5161,45 @@ def obtener_shipping_completo(shipping_id, access_token):
         shipping_data['metodo_envio_ml'] = shipping_mode
         shipping_data['logistic_type_ml'] = logistic_type
 
-        # Fecha estimada de entrega (Flex/self_service la tiene)
+        # Fecha estimada de entrega
         try:
-            fecha_entrega_raw = (
-                shipment.get('shipping_option', {})
-                .get('estimated_delivery_limit', {})
-                .get('date', '')
-            )
-            if fecha_entrega_raw:
-                from datetime import datetime
-                dt = datetime.fromisoformat(fecha_entrega_raw.replace('Z', '+00:00'))
-                shipping_data['fecha_entrega_ml'] = f"{dt.day:02d}/{dt.month:02d}"
-                print(f"📅 Fecha entrega ML: {shipping_data['fecha_entrega_ml']}")
+            from datetime import datetime, timedelta
+            lt = logistic_type  # alias corto
+
+            if lt in ('cross_docking', 'xd_drop_off'):
+                # Fecha de colecta según hora de corte
+                hora_corte_str = session.get('hora_corte_colecta', '14:00')
+                try:
+                    hh, mm = map(int, hora_corte_str.split(':'))
+                except:
+                    hh, mm = 14, 0
+
+                # Hora de la compra (fecha de la orden)
+                fecha_orden_raw = orden.get('date_created', '')
+                if fecha_orden_raw:
+                    dt_orden = datetime.fromisoformat(fecha_orden_raw.replace('Z', '+00:00'))
+                    from datetime import timezone, timedelta
+                    tz_ar = timezone(timedelta(hours=-3))
+                    dt_orden_ar = dt_orden.astimezone(tz_ar)
+                    corte = dt_orden_ar.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                    # Si la compra fue 1h+ antes del corte → colecta hoy, sino mañana
+                    if (corte - dt_orden_ar).total_seconds() >= 3600:
+                        fecha_colecta = dt_orden_ar.date()
+                    else:
+                        fecha_colecta = (dt_orden_ar + timedelta(days=1)).date()
+                    shipping_data['fecha_entrega_ml'] = f"{fecha_colecta.day:02d}/{fecha_colecta.month:02d}"
+                    print(f"📅 Fecha colecta (corte {hora_corte_str}): {shipping_data['fecha_entrega_ml']}")
+            else:
+                # Flex y otros: usar estimated_delivery_limit
+                fecha_entrega_raw = (
+                    shipment.get('shipping_option', {})
+                    .get('estimated_delivery_limit', {})
+                    .get('date', '')
+                )
+                if fecha_entrega_raw:
+                    dt = datetime.fromisoformat(fecha_entrega_raw.replace('Z', '+00:00'))
+                    shipping_data['fecha_entrega_ml'] = f"{dt.day:02d}/{dt.month:02d}"
+                    print(f"📅 Fecha entrega ML: {shipping_data['fecha_entrega_ml']}")
         except Exception as e:
             print(f"⚠️ Error capturando fecha entrega: {e}")
         
@@ -5675,6 +5703,11 @@ def ml_importar_ordenes():
     """
     Traer órdenes de ML - FILTRO ARREGLADO
     """
+    # Guardar hora de corte si viene en el request
+    hora_corte = request.args.get('hora_corte', '').strip()
+    if hora_corte:
+        session['hora_corte_colecta'] = hora_corte
+
     access_token = cargar_ml_token()
     
     if not access_token:
