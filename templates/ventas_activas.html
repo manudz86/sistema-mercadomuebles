@@ -299,7 +299,7 @@
                 <!-- OBSERVACIONES -->
                 <td>
                     {% if venta.notas %}
-                        {{ venta.notas[:80] }}{% if venta.notas|length > 80 %}...{% endif %}...{% endif %}
+                        {{ venta.notas[:80] }}{% if venta.notas|length > 80 %}...{% endif %}
                     {% else %}
                         <span class="text-muted">-</span>
                     {% endif %}
