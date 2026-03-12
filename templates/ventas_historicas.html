@@ -61,6 +61,8 @@
                     <option value="Flete Propio" {% if filtro_metodo_envio == 'Flete Propio' %}selected{% endif %}>Flete Propio</option>
                     <option value="Delega" {% if filtro_metodo_envio == 'Delega' %}selected{% endif %}>Delega</option>
                     <option value="Zippin" {% if filtro_metodo_envio == 'Zippin' %}selected{% endif %}>Zippin</option>
+                    <option value="ME2" {% if filtro_metodo_envio == 'ME2' %}selected{% endif %}>ME2 (Tienda)</option>
+                    <option value="ME1" {% if filtro_metodo_envio == 'ME1' %}selected{% endif %}>ME1 (Tienda)</option>
                 </select>
             </div>
             
@@ -221,7 +223,7 @@
                 
                 <!-- ENTREGA -->
                 <td>
-                    {% if venta.tipo_entrega == 'Retiro' %}
+                    {% if venta.tipo_entrega in ['retiro', 'Retiro'] or not venta.metodo_envio %}
                         <strong>Retiro</strong>
                         <br><small class="text-info">🔷 Depósito</small>
                     {% else %}
