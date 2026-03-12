@@ -5076,6 +5076,7 @@ def procesar_orden_ml(orden):
     return {
         'id': orden['id'],
         'fecha': fecha,  # ✅ Fecha real de ML
+        'fecha_iso': orden['date_created'],  # ISO string para pasar a shipping
         'comprador_nombre': comprador_nombre,
         'comprador_nickname': comprador_nickname,
         'items': items,
@@ -5084,7 +5085,7 @@ def procesar_orden_ml(orden):
         'shipping': shipping_data
     }
 
-def obtener_shipping_completo(shipping_id, access_token):
+def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
     """
     Obtener detalles completos de shipping desde ML
     MAPEO CORREGIDO según tipos reales de ML
@@ -5175,7 +5176,7 @@ def obtener_shipping_completo(shipping_id, access_token):
                     hh, mm = 14, 0
 
                 # Hora de la compra (fecha de la orden)
-                fecha_orden_raw = orden.get('date_created', '')
+                fecha_orden_raw = fecha_orden_iso
                 if fecha_orden_raw:
                     dt_orden = datetime.fromisoformat(fecha_orden_raw.replace('Z', '+00:00'))
                     from datetime import timezone, timedelta
@@ -5830,7 +5831,8 @@ def ml_seleccionar_orden(orden_id):
         if orden_data['shipping']['shipping_id']:
             shipping_completo = obtener_shipping_completo(
                 orden_data['shipping']['shipping_id'],
-                access_token
+                access_token,
+                orden_data.get('fecha_iso', '')
             )
             # ✅ CORREGIDO: Ya no sobrescribimos costo_envio
             # porque obtener_shipping_completo() ya lo captura del shipment
@@ -5981,7 +5983,8 @@ def ml_guardar_mapeo():
             if orden_data['shipping']['shipping_id']:
                 shipping_completo = obtener_shipping_completo(
                     orden_data['shipping']['shipping_id'],
-                    access_token
+                    access_token,
+                    orden_data.get('fecha_iso', '')
                 )
                 # ✅ CORREGIDO: Ya no sobrescribimos costo_envio
                 orden_data['shipping'] = shipping_completo
