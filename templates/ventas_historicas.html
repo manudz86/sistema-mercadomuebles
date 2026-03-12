@@ -81,6 +81,7 @@
                     <option value="">Todos</option>
                     <option value="Mercado Libre" {% if filtro_canal == 'Mercado Libre' %}selected{% endif %}>ML</option>
                     <option value="Fuera de ML" {% if filtro_canal == 'Fuera de ML' %}selected{% endif %}>Fuera ML</option>
+                    <option value="Tienda Web" {% if filtro_canal == 'Tienda Web' %}selected{% endif %}>Tienda Web</option>
                 </select>
             </div>
             
@@ -401,7 +402,7 @@
                 {% endif %}
             </div>
             {% if venta.notas %}
-            <div class="text-muted mb-2" style="font-size:0.78rem;">💬 {{ venta.notas[:60] }}{% if venta.notas|length > 60 %}...{% endif %}</div>
+            <div class="text-muted mb-2" style="font-size:0.78rem;">💬 {{ venta.notas[:100] }}{% if venta.notas|length > 100 %}...{% endif %}</div>
             {% endif %}
             <!-- ACCIONES -->
             <div class="d-flex gap-1 flex-wrap align-items-center">

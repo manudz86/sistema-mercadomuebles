@@ -10,16 +10,15 @@
     </div>
     <div class="d-flex gap-2 align-items-center">
         <!-- BOTÓN IMPORTAR DE ML -->
-        <div class="d-flex align-items-center gap-1" title="Hora de corte para colecta (si la compra es 1h+ antes → colecta hoy)">
-            <label class="text-muted mb-0" style="font-size:0.8rem; white-space:nowrap;"><i class="bi bi-scissors"></i> Corte:</label>
-            <input type="time" id="hora_corte_colecta" class="form-control form-control-sm" 
+        <form method="GET" action="{{ url_for('ml_importar_ordenes') }}" class="d-flex align-items-center gap-1">
+            <label class="text-muted mb-0" style="font-size:0.8rem; white-space:nowrap;" title="Hora de corte para colecta"><i class="bi bi-scissors"></i> Corte:</label>
+            <input type="time" name="hora_corte" class="form-control form-control-sm" 
                    style="width:90px; font-size:0.85rem;"
                    value="{{ hora_corte_colecta|default('14:00') }}">
-        </div>
-        <a href="{{ url_for('ml_importar_ordenes') }}" class="btn btn-primary" id="btn-importar-ml"
-           onclick="this.href = '{{ url_for('ml_importar_ordenes') }}?hora_corte=' + document.getElementById('hora_corte_colecta').value; return true;">
-            <i class="bi bi-download"></i> Importar de ML
-        </a>
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-download"></i> Importar de ML
+            </button>
+        </form>
         
         <span class="badge bg-primary" style="font-size: 1.1em; padding: 0.6em 1em;">
             {{ ventas|length }} venta{% if ventas|length != 1 %}s{% endif %}
@@ -79,6 +78,7 @@
                     <option value="">Todos</option>
                     <option value="Mercado Libre" {% if filtro_canal == 'Mercado Libre' %}selected{% endif %}>ML</option>
                     <option value="Fuera de ML" {% if filtro_canal == 'Fuera de ML' %}selected{% endif %}>Fuera ML</option>
+                    <option value="Tienda Web" {% if filtro_canal == 'Tienda Web' %}selected{% endif %}>Tienda Web</option>
                 </select>
             </div>
             
@@ -299,7 +299,7 @@
                 <!-- OBSERVACIONES -->
                 <td>
                     {% if venta.notas %}
-                        {{ venta.notas[:35] }}{% if venta.notas|length > 35 %}...{% endif %}
+                        {{ venta.notas[:80] }}{% if venta.notas|length > 80 %}...{% endif %}...{% endif %}
                     {% else %}
                         <span class="text-muted">-</span>
                     {% endif %}
@@ -434,7 +434,7 @@
 
             <!-- NOTAS -->
             {% if venta.notas %}
-            <div class="text-muted mb-2" style="font-size:0.78rem;">💬 {{ venta.notas[:60] }}{% if venta.notas|length > 60 %}...{% endif %}</div>
+            <div class="text-muted mb-2" style="font-size:0.78rem;">💬 {{ venta.notas[:100] }}{% if venta.notas|length > 100 %}...{% endif %}</div>
             {% endif %}
 
             <!-- ACCIONES -->

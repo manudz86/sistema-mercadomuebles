@@ -10,7 +10,14 @@
     </div>
     <div class="d-flex gap-2 align-items-center">
         <!-- BOTÓN IMPORTAR DE ML -->
-        <a href="{{ url_for('ml_importar_ordenes') }}" class="btn btn-primary">
+        <div class="d-flex align-items-center gap-1" title="Hora de corte para colecta (si la compra es 1h+ antes → colecta hoy)">
+            <label class="text-muted mb-0" style="font-size:0.8rem; white-space:nowrap;"><i class="bi bi-scissors"></i> Corte:</label>
+            <input type="time" id="hora_corte_colecta" class="form-control form-control-sm" 
+                   style="width:90px; font-size:0.85rem;"
+                   value="{{ hora_corte_colecta|default('14:00') }}">
+        </div>
+        <a href="{{ url_for('ml_importar_ordenes') }}" class="btn btn-primary" id="btn-importar-ml"
+           onclick="this.href = '{{ url_for('ml_importar_ordenes') }}?hora_corte=' + document.getElementById('hora_corte_colecta').value; return true;">
             <i class="bi bi-download"></i> Importar de ML
         </a>
         
@@ -159,6 +166,7 @@
                 
                 <!-- FECHA -->
                 <td class="text-center">
+                    {% if venta.hora_venta_str %}<small class="text-muted d-block" style="font-size:0.75em;">{{ venta.hora_venta_str }} hs</small>{% endif %}
                     <strong>{{ venta.fecha_venta.strftime('%d/%m/%Y') }}</strong>
                     <br>
                     <small class="text-muted">{{ venta.numero_venta }}</small>
