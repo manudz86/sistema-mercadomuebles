@@ -160,7 +160,14 @@
                     {% if venta.hora_venta_str %}<small class="text-muted d-block" style="font-size:0.75em;">{{ venta.hora_venta_str }} hs</small>{% endif %}
                     <strong>{{ venta.fecha_venta.strftime('%d/%m/%Y') }}</strong>
                     <br>
-                    <small class="text-muted">{{ venta.numero_venta }}</small>
+                    <small class="text-muted">{ venta.numero_venta }</small>
+                    {% if venta.canal == 'Mercado Libre' %}
+                        <span class="badge ms-1" style="background:#FFE600;color:#333;font-size:0.65rem;">ML</span>
+                    {% elif venta.canal == 'tienda_web' %}
+                        <span class="badge bg-primary ms-1" style="font-size:0.65rem;">WEB</span>
+                    {% else %}
+                        <span class="badge bg-secondary ms-1" style="font-size:0.65rem;">EXT</span>
+                    {% endif %}
                 </td>
                 
                 <!-- CLIENTE -->
@@ -310,6 +317,11 @@
                        value="{{ venta.id }}" onchange="actualizarContador()">
                 <div>
                     <strong style="font-size:0.85rem;">{{ venta.numero_venta }}</strong>
+                    <span class="ms-1" style="font-size:0.65rem;">
+                        {%- if venta.canal == 'Mercado Libre' %}<span class="badge" style="background:#FFE600;color:#333;">ML</span>
+                        {%- elif venta.canal == 'tienda_web' %}<span class="badge bg-primary">WEB</span>
+                        {%- else %}<span class="badge bg-secondary">EXT</span>{%- endif %}
+                    </span>
                     <div class="text-muted" style="font-size:0.75rem;">{{ venta.fecha_venta.strftime('%d/%m/%Y') }}</div>
                 </div>
             </div>
@@ -652,6 +664,12 @@ function agregarFiltrosAlForm(form) {
         form.appendChild(input);
     });
 }
+
+// Reset checkboxes al cargar
+window.addEventListener('load', function() {
+    document.querySelectorAll('.venta-checkbox, #selectAll').forEach(cb => cb.checked = false);
+    if (typeof actualizarContador === 'function') actualizarContador();
+});
 </script>
 
 {% endblock %}

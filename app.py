@@ -44,6 +44,18 @@ login_manager.login_view = 'login'
 login_manager.login_message = '⚠️ Debés iniciar sesión para acceder'
 login_manager.login_message_category = 'warning'
 
+@app.context_processor
+def inject_alertas_pendientes():
+    """Inyecta el contador de alertas en todos los templates"""
+    try:
+        from flask_login import current_user
+        if current_user.is_authenticated:
+            result = query_one("SELECT COUNT(*) as total FROM alertas_stock WHERE estado = 'pendiente'")
+            return {'alertas_pendientes_count': result['total'] if result else 0}
+    except:
+        pass
+    return {'alertas_pendientes_count': 0}
+
 class User(UserMixin):
     def __init__(self, id, username, rol, activo):
         self.id = id
@@ -5186,10 +5198,25 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
                     dt_orden_ar = dt_orden.astimezone(tz_ar)
                     corte = dt_orden_ar.replace(hour=hh, minute=mm, second=0, microsecond=0)
                     # Si la compra fue 1h+ antes del corte → colecta hoy, sino mañana
-                    if (corte - dt_orden_ar).total_seconds() >= 3600:
-                        fecha_colecta = dt_orden_ar.date()
+                    # Considerar fines de semana: sábado/domingo → lunes siguiente
+                    def proximo_dia_habil(fecha):
+                        # Si es sábado(5) o domingo(6) → siguiente lunes
+                        while fecha.weekday() >= 5:
+                            fecha = fecha + timedelta(days=1)
+                        return fecha
+
+                    dia_orden = dt_orden_ar.date()
+                    dia_siguiente = dia_orden + timedelta(days=1)
+
+                    if dia_orden.weekday() >= 5:
+                        # Compra en fin de semana → siempre lunes
+                        fecha_colecta = proximo_dia_habil(dia_orden + timedelta(days=1))
+                    elif (corte - dt_orden_ar).total_seconds() >= 3600:
+                        # Compra en día hábil, 1h+ antes del corte → hoy
+                        fecha_colecta = dia_orden
                     else:
-                        fecha_colecta = (dt_orden_ar + timedelta(days=1)).date()
+                        # Compra después del corte → día hábil siguiente
+                        fecha_colecta = proximo_dia_habil(dia_siguiente)
                     shipping_data['fecha_entrega_ml'] = f"{fecha_colecta.day:02d}/{fecha_colecta.month:02d}"
                     print(f"📅 Fecha colecta (corte {hora_corte_str}): {shipping_data['fecha_entrega_ml']}")
             else:
@@ -5711,6 +5738,10 @@ def ml_importar_ordenes():
     hora_corte = request.args.get('hora_corte', '').strip()
     if hora_corte:
         session['hora_corte_colecta'] = hora_corte
+
+    # Si solo_guardar=1, guardar en session y volver sin importar
+    if request.args.get('solo_guardar') == '1':
+        return ('', 204)
 
     access_token = cargar_ml_token()
     

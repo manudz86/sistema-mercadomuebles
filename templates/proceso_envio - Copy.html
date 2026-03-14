@@ -32,8 +32,8 @@
                 <label class="form-label"><i class="bi bi-truck"></i> Tipo Entrega</label>
                 <select class="form-select" name="tipo_entrega">
                     <option value="">Todos</option>
-                    <option value="Retiro" {% if filtro_tipo_entrega == 'Retiro' %}selected{% endif %}>Retiro</option>
-                    <option value="Envío" {% if filtro_tipo_entrega == 'Envío' %}selected{% endif %}>Envío</option>
+                    <option value="retiro" {% if filtro_tipo_entrega == 'retiro' %}selected{% endif %}>Retiro</option>
+                    <option value="envio" {% if filtro_tipo_entrega == 'envio' %}selected{% endif %}>Envío</option>
                 </select>
             </div>
             
@@ -47,6 +47,8 @@
                     <option value="Flete Propio" {% if filtro_metodo_envio == 'Flete Propio' %}selected{% endif %}>Flete Propio</option>
                     <option value="Delega" {% if filtro_metodo_envio == 'Delega' %}selected{% endif %}>Delega</option>
                     <option value="Zippin" {% if filtro_metodo_envio == 'Zippin' %}selected{% endif %}>Zippin</option>
+                    <option value="ME2" {% if filtro_metodo_envio == 'ME2' %}selected{% endif %}>ME2 (Tienda)</option>
+                    <option value="ME1" {% if filtro_metodo_envio == 'ME1' %}selected{% endif %}>ME1 (Tienda)</option>
                 </select>
             </div>
             
@@ -67,6 +69,7 @@
                     <option value="">Todos</option>
                     <option value="Mercado Libre" {% if filtro_canal == 'Mercado Libre' %}selected{% endif %}>ML</option>
                     <option value="Fuera de ML" {% if filtro_canal == 'Fuera de ML' %}selected{% endif %}>Fuera ML</option>
+                    <option value="tienda_web" {% if filtro_canal == 'tienda_web' %}selected{% endif %}>Tienda Web</option>
                 </select>
             </div>
             
@@ -212,7 +215,7 @@
                 
                 <!-- ENTREGA -->
                 <td>
-                    {% if venta.tipo_entrega == 'Retiro' %}
+                    {% if venta.tipo_entrega in ['retiro', 'Retiro'] or not venta.metodo_envio %}
                         <strong>Retiro</strong>
                         <br><small class="text-info">🔷 Depósito</small>
                     {% else %}
@@ -256,7 +259,7 @@
                 <!-- OBSERVACIONES -->
                 <td>
                     {% if venta.notas %}
-                        {{ venta.notas[:35] }}{% if venta.notas|length > 35 %}...{% endif %}
+                        {{ venta.notas[:80] }}{% if venta.notas|length > 80 %}...{% endif %}
                     {% else %}
                         <span class="text-muted">-</span>
                     {% endif %}
@@ -341,7 +344,7 @@
 
             <!-- ENTREGA + ZONA -->
             <div class="d-flex flex-wrap gap-2 mb-2" style="font-size:0.8rem;">
-                {% if venta.tipo_entrega == 'Retiro' %}
+                {% if venta.tipo_entrega in ['retiro', 'Retiro'] or not venta.metodo_envio %}
                     <span class="badge bg-info text-dark">🔷 Retiro depósito</span>
                 {% else %}
                     <span class="badge bg-secondary">{{ venta.metodo_envio }}</span>
@@ -366,7 +369,7 @@
 
             <!-- NOTAS -->
             {% if venta.notas %}
-            <div class="text-muted mb-2" style="font-size:0.78rem;">💬 {{ venta.notas[:60] }}{% if venta.notas|length > 60 %}...{% endif %}</div>
+            <div class="text-muted mb-2" style="font-size:0.78rem;">💬 {{ venta.notas[:100] }}{% if venta.notas|length > 100 %}...{% endif %}</div>
             {% endif %}
 
             <!-- ACCIONES -->
