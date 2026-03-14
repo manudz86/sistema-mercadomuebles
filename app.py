@@ -8705,6 +8705,41 @@ def ml_callback():
 from tiendanube_bp import tiendanube_bp
 app.register_blueprint(tiendanube_bp)
 
+@app.route('/ventas/guardar-trid', methods=['POST'])
+@login_required
+def guardar_trid():
+    """Guardar o actualizar el TRID (código de tracking Correo Argentino) en notas"""
+    try:
+        data = request.get_json()
+        venta_id = data.get('venta_id')
+        trid = data.get('trid', '').strip().upper()
+
+        if not venta_id or not trid:
+            return jsonify({'ok': False, 'error': 'Datos incompletos'}), 400
+
+        venta = query_one('SELECT notas FROM ventas WHERE id = %s', (venta_id,))
+        if not venta:
+            return jsonify({'ok': False, 'error': 'Venta no encontrada'}), 404
+
+        notas = venta['notas'] or ''
+        # Normalizar separadores (\n literal → \n real)
+        notas = notas.replace('\\n', '\n')
+
+        import re
+        if re.search(r'TRID:', notas):
+            # Reemplazar línea existente
+            notas = re.sub(r'TRID:[^\n]*', f'TRID: {trid}', notas)
+        else:
+            # Agregar al final
+            notas = notas.rstrip('\n') + f'\nTRID: {trid}'
+
+        execute_db('UPDATE ventas SET notas = %s WHERE id = %s', (notas, venta_id))
+        return jsonify({'ok': True, 'trid': trid})
+
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 from tienda_bp import tienda_bp
 app.register_blueprint(tienda_bp)
 

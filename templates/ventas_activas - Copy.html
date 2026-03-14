@@ -10,11 +10,14 @@
     </div>
     <div class="d-flex gap-2 align-items-center">
         <!-- BOTÓN IMPORTAR DE ML -->
-        <form method="GET" action="{{ url_for('ml_importar_ordenes') }}" class="d-flex align-items-center gap-1">
-            <label class="text-muted mb-0" style="font-size:0.8rem; white-space:nowrap;" title="Hora de corte para colecta"><i class="bi bi-scissors"></i> Corte:</label>
-            <input type="time" name="hora_corte" class="form-control form-control-sm" 
-                   style="width:90px; font-size:0.85rem;"
-                   value="{{ hora_corte_colecta|default('14:00') }}">
+        <form method="GET" action="{{ url_for('ml_importar_ordenes') }}" id="formImportar" class="d-flex flex-wrap align-items-center gap-2">
+            <div class="d-flex align-items-center gap-1" title="Hora de corte para colecta">
+                <i class="bi bi-scissors text-muted" style="font-size:0.85rem;"></i>
+                <input type="time" name="hora_corte" id="hora_corte_colecta" 
+                       class="form-control form-control-sm" 
+                       style="width:100px; font-size:0.82rem;"
+                       value="{{ hora_corte_colecta|default('14:00') }}">
+            </div>
             <button type="submit" class="btn btn-primary">
                 <i class="bi bi-download"></i> Importar de ML
             </button>
@@ -140,7 +143,7 @@
                 <!-- ✅ NUEVO: Checkbox seleccionar todas -->
                 <th width="3%">
                     <input type="checkbox" 
-                           id="selectAll" 
+                           id="selectAll" autocomplete="off" 
                            class="form-check-input"
                            onchange="toggleSelectAll(this)">
                 </th>
@@ -161,7 +164,7 @@
                 <!-- ✅ NUEVO: Checkbox por fila -->
                 <td class="text-center">
                     <input type="checkbox" 
-                           class="form-check-input venta-checkbox" 
+                           class="form-check-input venta-checkbox venta-checkbox-desktop" autocomplete="off"
                            value="{{ venta.id }}"
                            onchange="actualizarContador()">
                 </td>
@@ -172,6 +175,13 @@
                     <strong>{{ venta.fecha_venta.strftime('%d/%m/%Y') }}</strong>
                     <br>
                     <small class="text-muted">{{ venta.numero_venta }}</small>
+                    {% if venta.canal == 'Mercado Libre' %}
+                        <span class="badge ms-1" style="background:#FFE600;color:#333;font-size:0.65rem;">ML</span>
+                    {% elif venta.canal == 'tienda_web' %}
+                        <span class="badge bg-primary ms-1" style="font-size:0.65rem;">WEB</span>
+                    {% else %}
+                        <span class="badge bg-secondary ms-1" style="font-size:0.65rem;">EXT</span>
+                    {% endif %}
                 </td>
                 
                 <!-- CLIENTE -->
@@ -355,10 +365,15 @@
         <div class="card-header d-flex justify-content-between align-items-center py-2"
              style="background: #f8f9fa;">
             <div class="d-flex align-items-center gap-2">
-                <input type="checkbox" class="form-check-input venta-checkbox"
-                       value="{{ venta.id }}" onchange="actualizarContador()">
+                <input type="checkbox" class="form-check-input venta-checkbox-mobile" autocomplete="off"
+                       value="{{ venta.id }}" onchange="sincronizarDesdeMovil(this)">
                 <div>
                     <strong style="font-size:0.85rem;">{{ venta.numero_venta }}</strong>
+                    <span class="ms-1" style="font-size:0.65rem;">
+                        {%- if venta.canal == 'Mercado Libre' %}<span class="badge" style="background:#FFE600;color:#333;">ML</span>
+                        {%- elif venta.canal == 'tienda_web' %}<span class="badge bg-primary">WEB</span>
+                        {%- else %}<span class="badge bg-secondary">EXT</span>{%- endif %}
+                    </span>
                     <div class="text-muted" style="font-size:0.75rem;">{{ venta.fecha_venta.strftime('%d/%m/%Y') }}</div>
                 </div>
             </div>
@@ -647,24 +662,35 @@ function toggleSelectAll(checkbox) {
 }
 
 function actualizarContador() {
-    const checkboxes = document.querySelectorAll('.venta-checkbox:checked');
-    const count = checkboxes.length;
-    
+    const checked = document.querySelectorAll('.venta-checkbox-desktop:checked');
+    const count = checked.length;
     document.getElementById('contadorSeleccionadas').textContent = count;
     document.getElementById('accionesMultiples').style.display = count > 0 ? 'block' : 'none';
-    
-    const allCheckboxes = document.querySelectorAll('.venta-checkbox');
-    document.getElementById('selectAll').checked = count === allCheckboxes.length && count > 0;
+    const all = document.querySelectorAll('.venta-checkbox-desktop');
+    document.getElementById('selectAll').checked = count === all.length && count > 0;
+    // Sincronizar mobile
+    checked.forEach(cb => {
+        const mob = document.querySelector('.venta-checkbox-mobile[value="' + cb.value + '"]');
+        if (mob) mob.checked = true;
+    });
+    document.querySelectorAll('.venta-checkbox-desktop:not(:checked)').forEach(cb => {
+        const mob = document.querySelector('.venta-checkbox-mobile[value="' + cb.value + '"]');
+        if (mob) mob.checked = false;
+    });
+}
+function sincronizarDesdeMovil(el) {
+    const desk = document.querySelector('.venta-checkbox-desktop[value="' + el.value + '"]');
+    if (desk) { desk.checked = el.checked; actualizarContador(); }
 }
 
 function limpiarSeleccion() {
-    document.querySelectorAll('.venta-checkbox').forEach(cb => cb.checked = false);
+    document.querySelectorAll('.venta-checkbox-desktop, .venta-checkbox-mobile').forEach(cb => cb.checked = false);
     document.getElementById('selectAll').checked = false;
     actualizarContador();
 }
 
 function pasarProcesoMultiple() {
-    const ids = Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value);
+    const ids = Array.from(document.querySelectorAll('.venta-checkbox-desktop:checked')).map(cb => cb.value);
     
     if (ids.length === 0) {
         alert('Seleccioná al menos una venta');
@@ -693,7 +719,7 @@ function pasarProcesoMultiple() {
 }
 
 function marcarEntregadasMultiple() {
-    const ids = Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value);
+    const ids = Array.from(document.querySelectorAll('.venta-checkbox-desktop:checked')).map(cb => cb.value);
     
     if (ids.length === 0) {
         alert('Seleccioná al menos una venta');
@@ -722,7 +748,7 @@ function marcarEntregadasMultiple() {
 }
 
 function cancelarMultiple() {
-    const ids = Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value);
+    const ids = Array.from(document.querySelectorAll('.venta-checkbox-desktop:checked')).map(cb => cb.value);
     
     if (ids.length === 0) {
         alert('Seleccioná al menos una venta');
@@ -826,6 +852,22 @@ function mostrarNotificacion(mensaje, tipo) {
 // ============================================
 
 document.addEventListener('DOMContentLoaded', function() {
+    // Reset checkboxes al cargar
+    document.querySelectorAll('.venta-checkbox-desktop, .venta-checkbox-mobile, #selectAll').forEach(cb => cb.checked = false);
+    actualizarContador();
+
+    // Hora de corte: localStorage tiene prioridad sobre el valor del servidor
+    const savedCorte = localStorage.getItem('hora_corte_colecta');
+    const inputCorte = document.getElementById('hora_corte_colecta');
+    if (savedCorte && inputCorte) inputCorte.value = savedCorte;
+
+    // Guardar en localStorage cada vez que el usuario cambia el valor
+    if (inputCorte) {
+        inputCorte.addEventListener('change', function() {
+            localStorage.setItem('hora_corte_colecta', this.value);
+        });
+    }
+
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% for category, message in messages %}
             {% if category == 'alerta_stock' %}
