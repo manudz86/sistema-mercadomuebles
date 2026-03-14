@@ -129,7 +129,7 @@
                 <!-- ✅ NUEVO: Checkbox seleccionar todas -->
                 <th width="3%">
                     <input type="checkbox" 
-                           id="selectAll" 
+                           id="selectAll" autocomplete="off" 
                            class="form-check-input"
                            onchange="toggleSelectAll(this)">
                 </th>
@@ -150,7 +150,7 @@
                 <!-- ✅ NUEVO: Checkbox por fila -->
                 <td class="text-center">
                     <input type="checkbox" 
-                           class="form-check-input venta-checkbox" 
+                           class="form-check-input venta-checkbox" autocomplete="off" 
                            value="{{ venta.id }}"
                            onchange="actualizarContador()">
                 </td>
@@ -160,7 +160,7 @@
                     {% if venta.hora_venta_str %}<small class="text-muted d-block" style="font-size:0.75em;">{{ venta.hora_venta_str }} hs</small>{% endif %}
                     <strong>{{ venta.fecha_venta.strftime('%d/%m/%Y') }}</strong>
                     <br>
-                    <small class="text-muted">{ venta.numero_venta }</small>
+                    <small class="text-muted">{{ venta.numero_venta }}</small>
                     {% if venta.canal == 'Mercado Libre' %}
                         <span class="badge ms-1" style="background:#FFE600;color:#333;font-size:0.65rem;">ML</span>
                     {% elif venta.canal == 'tienda_web' %}
@@ -313,7 +313,7 @@
         <div class="card-header d-flex justify-content-between align-items-center py-2"
              style="background: #e8f4f8;">
             <div class="d-flex align-items-center gap-2">
-                <input type="checkbox" class="form-check-input venta-checkbox"
+                <input type="checkbox" class="form-check-input venta-checkbox" autocomplete="off"
                        value="{{ venta.id }}" onchange="actualizarContador()">
                 <div>
                     <strong style="font-size:0.85rem;">{{ venta.numero_venta }}</strong>
