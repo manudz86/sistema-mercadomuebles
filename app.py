@@ -50,7 +50,13 @@ def inject_alertas_pendientes():
     try:
         from flask_login import current_user
         if current_user.is_authenticated:
-            result = query_one("SELECT COUNT(*) as total FROM alertas_stock WHERE estado = 'pendiente'")
+            # Contar alertas que tienen al menos una fila visible en el template
+            # (tipo_procesado != 'ambos' significa que alguna acción queda pendiente)
+            result = query_one("""
+                SELECT COUNT(*) as total FROM alertas_stock 
+                WHERE estado = 'pendiente' 
+                AND (tipo_procesado IS NULL OR tipo_procesado NOT IN ('ambos'))
+            """)
             return {'alertas_pendientes_count': result['total'] if result else 0}
     except:
         pass
