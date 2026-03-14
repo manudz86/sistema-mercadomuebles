@@ -10,13 +10,7 @@
     </div>
     <div>
         <span class="badge bg-warning text-dark" style="font-size: 1.2em; padding: 0.6em 1em;">
-            {% set visible = namespace(count=0) %}
-            {% for a in alertas %}
-                {% if (a.tiene_ml and a.tipo_procesado not in ['normal', 'ambos']) or (a.tiene_ml_z and a.tipo_procesado not in ['z', 'ambos']) %}
-                    {% set visible.count = visible.count + 1 %}
-                {% endif %}
-            {% endfor %}
-            {{ visible.count }} alertas pendientes
+            {{ alertas|length }} alertas pendientes
         </span>
     </div>
 </div>

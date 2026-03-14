@@ -53,9 +53,14 @@ def inject_alertas_pendientes():
             # Contar alertas que tienen al menos una fila visible en el template
             # (tipo_procesado != 'ambos' significa que alguna acción queda pendiente)
             result = query_one("""
-                SELECT COUNT(*) as total FROM alertas_stock 
-                WHERE estado = 'pendiente' 
-                AND (tipo_procesado IS NULL OR tipo_procesado NOT IN ('ambos'))
+                SELECT COUNT(*) as total FROM alertas_stock a
+                WHERE a.estado = 'pendiente'
+                AND (a.tipo_procesado IS NULL OR a.tipo_procesado NOT IN ('ambos'))
+                AND EXISTS (
+                    SELECT 1 FROM sku_mla_mapeo m 
+                    WHERE (m.sku = a.sku OR m.sku = CONCAT(a.sku, 'Z'))
+                    AND m.activo = TRUE
+                )
             """)
             return {'alertas_pendientes_count': result['total'] if result else 0}
     except:
