@@ -61,6 +61,8 @@
                     <option value="Flete Propio" {% if filtro_metodo_envio == 'Flete Propio' %}selected{% endif %}>Flete Propio</option>
                     <option value="Delega" {% if filtro_metodo_envio == 'Delega' %}selected{% endif %}>Delega</option>
                     <option value="Zippin" {% if filtro_metodo_envio == 'Zippin' %}selected{% endif %}>Zippin</option>
+                    <option value="ME2" {% if filtro_metodo_envio == 'ME2' %}selected{% endif %}>ME2 (Tienda)</option>
+                    <option value="ME1" {% if filtro_metodo_envio == 'ME1' %}selected{% endif %}>ME1 (Tienda)</option>
                 </select>
             </div>
             
@@ -81,6 +83,7 @@
                     <option value="">Todos</option>
                     <option value="Mercado Libre" {% if filtro_canal == 'Mercado Libre' %}selected{% endif %}>ML</option>
                     <option value="Fuera de ML" {% if filtro_canal == 'Fuera de ML' %}selected{% endif %}>Fuera ML</option>
+                    <option value="tienda_web" {% if filtro_canal == 'tienda_web' %}selected{% endif %}>Tienda Web</option>
                 </select>
             </div>
             
@@ -220,7 +223,7 @@
                 
                 <!-- ENTREGA -->
                 <td>
-                    {% if venta.tipo_entrega == 'Retiro' %}
+                    {% if venta.tipo_entrega in ['retiro', 'Retiro'] or not venta.metodo_envio %}
                         <strong>Retiro</strong>
                         <br><small class="text-info">🔷 Depósito</small>
                     {% else %}
@@ -401,7 +404,7 @@
                 {% endif %}
             </div>
             {% if venta.notas %}
-            <div class="text-muted mb-2" style="font-size:0.78rem;">💬 {{ venta.notas[:60] }}{% if venta.notas|length > 60 %}...{% endif %}</div>
+            <div class="text-muted mb-2" style="font-size:0.78rem;">💬 {{ venta.notas[:100] }}{% if venta.notas|length > 100 %}...{% endif %}</div>
             {% endif %}
             <!-- ACCIONES -->
             <div class="d-flex gap-1 flex-wrap align-items-center">

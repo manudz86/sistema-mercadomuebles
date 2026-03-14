@@ -10,15 +10,29 @@
     </div>
     <div class="d-flex gap-2 align-items-center">
         <!-- BOTÓN IMPORTAR DE ML -->
-        <form method="GET" action="{{ url_for('ml_importar_ordenes') }}" class="d-flex align-items-center gap-1">
-            <label class="text-muted mb-0" style="font-size:0.8rem; white-space:nowrap;" title="Hora de corte para colecta"><i class="bi bi-scissors"></i> Corte:</label>
-            <input type="time" name="hora_corte" class="form-control form-control-sm" 
-                   style="width:90px; font-size:0.85rem;"
-                   value="{{ hora_corte_colecta|default('14:00') }}">
-            <button type="submit" class="btn btn-primary">
-                <i class="bi bi-download"></i> Importar de ML
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-outline-secondary btn-sm d-none d-md-inline-flex align-items-center gap-1" 
+                    type="button" data-bs-toggle="collapse" data-bs-target="#configCorte" 
+                    title="Configurar hora de corte colecta">
+                <i class="bi bi-scissors"></i>
             </button>
-        </form>
+            <form method="GET" action="{{ url_for('ml_importar_ordenes') }}" id="formImportar">
+                <input type="hidden" name="hora_corte" id="hora_corte_hidden" value="{{ hora_corte_colecta|default('14:00') }}">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-download"></i> Importar de ML
+                </button>
+            </form>
+        </div>
+        <div class="collapse" id="configCorte">
+            <div class="d-flex align-items-center gap-2 mt-2 p-2 bg-light rounded">
+                <label class="text-muted mb-0" style="font-size:0.85rem;"><i class="bi bi-scissors"></i> Hora de corte colecta:</label>
+                <input type="time" id="hora_corte_colecta" class="form-control form-control-sm" 
+                       style="width:110px;"
+                       value="{{ hora_corte_colecta|default('14:00') }}">
+                <button class="btn btn-sm btn-success" onclick="guardarCorteYImportar()">Guardar e Importar</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="soloGuardarCorte()">Solo guardar</button>
+            </div>
+        </div>
         
         <span class="badge bg-primary" style="font-size: 1.1em; padding: 0.6em 1em;">
             {{ ventas|length }} venta{% if ventas|length != 1 %}s{% endif %}
@@ -171,7 +185,14 @@
                     {% if venta.hora_venta_str %}<small class="text-muted d-block" style="font-size:0.75em;">{{ venta.hora_venta_str }} hs</small>{% endif %}
                     <strong>{{ venta.fecha_venta.strftime('%d/%m/%Y') }}</strong>
                     <br>
-                    <small class="text-muted">{{ venta.numero_venta }}</small>
+                    <small class="text-muted">{ venta.numero_venta }</small>
+                    {% if venta.canal == 'Mercado Libre' %}
+                        <span class="badge ms-1" style="background:#FFE600;color:#333;font-size:0.65rem;">ML</span>
+                    {% elif venta.canal == 'tienda_web' %}
+                        <span class="badge bg-primary ms-1" style="font-size:0.65rem;">WEB</span>
+                    {% else %}
+                        <span class="badge bg-secondary ms-1" style="font-size:0.65rem;">EXT</span>
+                    {% endif %}
                 </td>
                 
                 <!-- CLIENTE -->
@@ -359,6 +380,11 @@
                        value="{{ venta.id }}" onchange="actualizarContador()">
                 <div>
                     <strong style="font-size:0.85rem;">{{ venta.numero_venta }}</strong>
+                    <span class="ms-1" style="font-size:0.65rem;">
+                        {%- if venta.canal == 'Mercado Libre' %}<span class="badge" style="background:#FFE600;color:#333;">ML</span>
+                        {%- elif venta.canal == 'tienda_web' %}<span class="badge bg-primary">WEB</span>
+                        {%- else %}<span class="badge bg-secondary">EXT</span>{%- endif %}
+                    </span>
                     <div class="text-muted" style="font-size:0.75rem;">{{ venta.fecha_venta.strftime('%d/%m/%Y') }}</div>
                 </div>
             </div>
@@ -825,7 +851,35 @@ function mostrarNotificacion(mensaje, tipo) {
 // MOSTRAR ALERTA DE STOCK ML
 // ============================================
 
+// Hora de corte: persistir con localStorage
+function guardarCorteYImportar() {
+    const val = document.getElementById('hora_corte_colecta').value;
+    localStorage.setItem('hora_corte_colecta', val);
+    document.getElementById('hora_corte_hidden').value = val;
+    document.getElementById('formImportar').submit();
+}
+function soloGuardarCorte() {
+    const val = document.getElementById('hora_corte_colecta').value;
+    localStorage.setItem('hora_corte_colecta', val);
+    // Enviar al servidor sin redirigir a importar
+    fetch('{{ url_for("ml_importar_ordenes") }}?hora_corte=' + val + '&solo_guardar=1')
+        .then(() => { document.querySelector('[data-bs-target="#configCorte"]').click(); });
+}
 document.addEventListener('DOMContentLoaded', function() {
+    // Reset checkboxes al cargar (evita que el browser recuerde el estado)
+    document.querySelectorAll('.venta-checkbox, #selectAll').forEach(cb => cb.checked = false);
+    if (typeof actualizarContador === 'function') actualizarContador();
+
+    // Restaurar hora de corte desde localStorage
+    const saved = localStorage.getItem('hora_corte_colecta');
+    if (saved) {
+        const input = document.getElementById('hora_corte_colecta');
+        if (input) input.value = saved;
+        document.getElementById('hora_corte_hidden').value = saved;
+    }
+    // Resetear contador de selección al cargar
+    actualizarContador();
+
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% for category, message in messages %}
             {% if category == 'alerta_stock' %}

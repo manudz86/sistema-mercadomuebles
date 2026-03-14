@@ -5033,7 +5033,9 @@ def procesar_orden_ml(orden):
     CAPTURA FECHA REAL DE VENTA y COSTO DE ENVÍO
     """
     # Fecha REAL de la venta en ML
-    fecha = datetime.fromisoformat(orden['date_created'].replace('Z', '+00:00'))
+    from datetime import timezone, timedelta as _td
+    _dt_utc = datetime.fromisoformat(orden['date_created'].replace('Z', '+00:00'))
+    fecha = _dt_utc.astimezone(timezone(_td(hours=-3))).replace(tzinfo=None)
     
     # Items/Productos
     items = []
@@ -5207,6 +5209,7 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
         # 🔧 MAPEO CORREGIDO según logs reales
         if logistic_type == 'fulfillment':
             shipping_data['metodo_envio'] = 'Full'
+            shipping_data['fecha_entrega_ml'] = ''  # Full no muestra fecha en observaciones
             print(f"✅ MAPEADO A: Full")
         
         elif logistic_type == 'self_service':
