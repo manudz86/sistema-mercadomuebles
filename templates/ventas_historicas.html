@@ -1,4 +1,43 @@
 {% extends "base.html" %}
+{# ── MACRO: bloque observaciones ME2 con tracking ── #}
+{% macro obs_me2(venta) %}
+{% if venta.canal == 'tienda_web' and venta.metodo_envio == 'ME2' and venta.notas %}
+    {% set lineas = venta.notas.replace('\\n', '\n').split('\n') %}
+    {% set ns = namespace(mpid='', veid='', shid='', trid='') %}
+    {% for l in lineas %}
+        {% if l.startswith('MPID:') %}{% set ns.mpid = l[5:].strip() %}{% endif %}
+        {% if l.startswith('VEID:') %}{% set ns.veid = l[5:].strip() %}{% endif %}
+        {% if l.startswith('SHID:') %}{% set ns.shid = l[5:].strip() %}{% endif %}
+        {% if l.startswith('TRID:') %}{% set ns.trid = l[5:].strip() %}{% endif %}
+    {% endfor %}
+    <div style="font-size:0.78rem; line-height:1.6;">
+        {% if ns.mpid %}<div><span class="text-muted">MPID:</span> {{ ns.mpid }}</div>{% endif %}
+        {% if ns.veid %}<div><span class="text-muted">VEID:</span> {{ ns.veid }}</div>{% endif %}
+        {% if ns.shid %}<div><span class="text-muted">SHID:</span> {{ ns.shid }}</div>{% endif %}
+        {% if ns.trid %}
+        <div class="d-flex align-items-center gap-1">
+            <span class="text-muted">TRID:</span>
+            <span id="trid-val-{{ venta.id }}">{{ ns.trid }}</span>
+            <button class="btn btn-link btn-sm p-0 ms-1" style="font-size:0.75rem;" 
+                    onclick="editarTrid({{ venta.id }}, '{{ ns.mpid }}', '{{ ns.trid }}')" title="Editar tracking">✏️</button>
+        </div>
+        {% else %}
+        <div id="trid-area-{{ venta.id }}">
+            <a href="https://www.mercadopago.com.ar/activities/1?q={{ ns.mpid }}" target="_blank"
+               class="btn btn-outline-secondary btn-sm py-0 px-1 me-1" style="font-size:0.72rem;"
+               onclick="mostrarInputTrid({{ venta.id }}, '{{ ns.mpid }}'); return false;">📋 Agregar tracking</a>
+        </div>
+        {% endif %}
+    </div>
+{% else %}
+    {% if venta.notas %}
+        {{ venta.notas[:80] }}{% if venta.notas|length > 80 %}...{% endif %}
+    {% else %}
+        <span class="text-muted">-</span>
+    {% endif %}
+{% endif %}
+{% endmacro %}
+
 
 {% block title %}Ventas Históricas - Mercadomuebles{% endblock %}
 
@@ -282,13 +321,7 @@
                 </td>
                 
                 <!-- OBSERVACIONES -->
-                <td>
-                    {% if venta.notas %}
-                        {{ venta.notas[:50] }}{% if venta.notas|length > 50 %}...{% endif %}
-                    {% else %}
-                        <span class="text-muted">-</span>
-                    {% endif %}
-                </td>
+                <td>{{ obs_me2(venta) }}</td>
                 
                 <!-- ACCIONES INDIVIDUALES -->
                 <td class="text-center">
@@ -415,9 +448,7 @@
                     <span class="badge bg-danger">Impago</span>
                 {% endif %}
             </div>
-            {% if venta.notas %}
-            <div class="text-muted mb-2" style="font-size:0.78rem;">💬 {{ venta.notas[:100] }}{% if venta.notas|length > 100 %}...{% endif %}</div>
-            {% endif %}
+            <div class="mb-2">{{ obs_me2(venta) }}</div>
             <!-- ACCIONES -->
             <div class="d-flex gap-1 flex-wrap align-items-center">
                 {% if venta.estado_entrega == 'entregada' %}
@@ -562,6 +593,56 @@ window.addEventListener('load', function() {
     document.querySelectorAll('.venta-checkbox, #selectAll').forEach(cb => cb.checked = false);
     if (typeof actualizarContador === 'function') actualizarContador();
 });
+// ── TRACKING ME2 ──
+function mostrarInputTrid(ventaId, mpid) {
+    const area = document.getElementById('trid-area-' + ventaId);
+    if (!area) return;
+    area.innerHTML = `
+        <a href="https://www.mercadopago.com.ar/activities/1?q=${mpid}" target="_blank" 
+           class="btn btn-outline-primary btn-sm py-0 px-1 mb-1" style="font-size:0.72rem;">
+           🔗 Abrir MP
+        </a>
+        <div class="d-flex gap-1 mt-1">
+            <input type="text" id="trid-input-${ventaId}" class="form-control form-control-sm"
+                   placeholder="HC000000000AR" style="width:140px; font-size:0.78rem;" maxlength="20">
+            <button class="btn btn-success btn-sm py-0 px-2" style="font-size:0.78rem;"
+                    onclick="guardarTrid(${ventaId})">Guardar</button>
+            <button class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size:0.78rem;"
+                    onclick="location.reload()">✕</button>
+        </div>`;
+    document.getElementById('trid-input-' + ventaId)?.focus();
+}
+function editarTrid(ventaId, mpid, tridActual) {
+    const valEl = document.getElementById('trid-val-' + ventaId);
+    if (!valEl) return;
+    const parent = valEl.parentElement;
+    parent.innerHTML = `
+        <a href="https://www.mercadopago.com.ar/activities/1?q=${mpid}" target="_blank"
+           class="btn btn-outline-primary btn-sm py-0 px-1 me-1" style="font-size:0.72rem;">🔗 MP</a>
+        <input type="text" id="trid-input-${ventaId}" class="form-control form-control-sm d-inline-block"
+               value="${tridActual}" style="width:140px; font-size:0.78rem;" maxlength="20">
+        <button class="btn btn-success btn-sm py-0 px-2" style="font-size:0.78rem;"
+                onclick="guardarTrid(${ventaId})">✓</button>
+        <button class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size:0.78rem;"
+                onclick="location.reload()">✕</button>`;
+    document.getElementById('trid-input-' + ventaId)?.focus();
+}
+function guardarTrid(ventaId) {
+    const input = document.getElementById('trid-input-' + ventaId);
+    const trid = input?.value.trim().toUpperCase();
+    if (!trid) { alert('Ingresá el código de tracking'); return; }
+    fetch('/ventas/guardar-trid', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({venta_id: ventaId, trid: trid})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) location.reload();
+        else alert('Error: ' + data.error);
+    });
+}
+
 </script>
 
 {% endblock %}
