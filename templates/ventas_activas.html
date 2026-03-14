@@ -10,8 +10,8 @@
     </div>
     <div class="d-flex gap-2 align-items-center">
         <!-- BOTÓN IMPORTAR DE ML -->
-        <form method="GET" action="{{ url_for('ml_importar_ordenes') }}" id="formImportar" class="d-flex align-items-center gap-2">
-            <div class="d-none d-md-flex align-items-center gap-1" title="Hora de corte para colecta">
+        <form method="GET" action="{{ url_for('ml_importar_ordenes') }}" id="formImportar" class="d-flex flex-wrap align-items-center gap-2">
+            <div class="d-flex align-items-center gap-1" title="Hora de corte para colecta">
                 <i class="bi bi-scissors text-muted" style="font-size:0.85rem;"></i>
                 <input type="time" name="hora_corte" id="hora_corte_colecta" 
                        class="form-control form-control-sm" 
@@ -855,6 +855,18 @@ document.addEventListener('DOMContentLoaded', function() {
     // Reset checkboxes al cargar
     document.querySelectorAll('.venta-checkbox-desktop, .venta-checkbox-mobile, #selectAll').forEach(cb => cb.checked = false);
     actualizarContador();
+
+    // Hora de corte: localStorage tiene prioridad sobre el valor del servidor
+    const savedCorte = localStorage.getItem('hora_corte_colecta');
+    const inputCorte = document.getElementById('hora_corte_colecta');
+    if (savedCorte && inputCorte) inputCorte.value = savedCorte;
+
+    // Guardar en localStorage cada vez que el usuario cambia el valor
+    if (inputCorte) {
+        inputCorte.addEventListener('change', function() {
+            localStorage.setItem('hora_corte_colecta', this.value);
+        });
+    }
 
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% for category, message in messages %}
