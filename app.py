@@ -8756,7 +8756,7 @@ def tienda_precios():
     cur.execute("""
         SELECT sku, nombre, tipo, linea, modelo, medida, precio_base, 'base' as origen
         FROM productos_base
-        WHERE tipo IN ('colchon','conjunto','almohada')
+        WHERE tipo IN ('colchon','almohada')
         ORDER BY tipo, linea, modelo, medida
     """)
     productos_base = cur.fetchall()
