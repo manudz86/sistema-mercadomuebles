@@ -1,0 +1,150 @@
+{% extends 'base.html' %}
+{% block titulo %}Precios Tienda Web{% endblock %}
+{% block contenido %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-tag me-2"></i>Precios Tienda Web</h4>
+  <button class="btn btn-success" id="btn-guardar" onclick="guardarCambios()">
+    <i class="bi bi-floppy me-1"></i> Guardar cambios (<span id="contador">0</span>)
+  </button>
+</div>
+
+<div class="mb-3 d-flex gap-2 align-items-center">
+  <input type="text" class="form-control" style="max-width:280px" id="filtro" placeholder="Buscar SKU o nombre...">
+  <select class="form-select" style="max-width:180px" id="filtro-tipo">
+    <option value="">Todos los tipos</option>
+    <option value="colchon">Colchón</option>
+    <option value="conjunto">Sommier</option>
+    <option value="almohada">Almohada</option>
+    <option value="compuesto">Sommier armado</option>
+  </select>
+</div>
+
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover table-sm mb-0" id="tabla-precios">
+      <thead class="table-dark">
+        <tr>
+          <th>SKU</th>
+          <th>Nombre</th>
+          <th>Tipo</th>
+          <th style="width:160px">Precio ($)</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in productos_base %}
+        <tr data-sku="{{ p.sku }}" data-origen="base" data-tipo="{{ p.tipo }}" data-nombre="{{ p.nombre }}">
+          <td><small class="text-muted font-monospace">{{ p.sku }}</small></td>
+          <td>{{ p.nombre }}</td>
+          <td><span class="badge bg-secondary">{{ p.tipo }}</span></td>
+          <td>
+            <input type="number" class="form-control form-control-sm precio-input"
+              value="{{ p.precio_base | int }}"
+              data-original="{{ p.precio_base | int }}"
+              min="0" step="1000"
+              style="max-width:140px">
+          </td>
+          <td><span class="badge bg-warning text-dark d-none badge-modificado">modificado</span></td>
+        </tr>
+        {% endfor %}
+        {% for p in productos_comp %}
+        <tr data-sku="{{ p.sku }}" data-origen="compuesto" data-tipo="compuesto" data-nombre="{{ p.nombre }}">
+          <td><small class="text-muted font-monospace">{{ p.sku }}</small></td>
+          <td>{{ p.nombre }}</td>
+          <td><span class="badge bg-primary">Sommier armado</span></td>
+          <td>
+            <input type="number" class="form-control form-control-sm precio-input"
+              value="{{ p.precio_base | int if p.precio_base else 0 }}"
+              data-original="{{ p.precio_base | int if p.precio_base else 0 }}"
+              min="0" step="1000"
+              style="max-width:140px">
+          </td>
+          <td><span class="badge bg-warning text-dark d-none badge-modificado">modificado</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div id="toast-container" style="position:fixed;bottom:20px;right:20px;z-index:9999"></div>
+
+<script>
+let cambios = {};
+
+document.querySelectorAll('.precio-input').forEach(input => {
+  input.addEventListener('input', function() {
+    const row    = this.closest('tr');
+    const sku    = row.dataset.sku;
+    const origen = row.dataset.origen;
+    const badge  = row.querySelector('.badge-modificado');
+    const orig   = parseInt(this.dataset.original);
+    const nuevo  = parseInt(this.value);
+    if (nuevo !== orig) {
+      cambios[sku] = {sku, precio: nuevo, origen};
+      badge.classList.remove('d-none');
+    } else {
+      delete cambios[sku];
+      badge.classList.add('d-none');
+    }
+    document.getElementById('contador').textContent = Object.keys(cambios).length;
+  });
+});
+
+// Filtro
+document.getElementById('filtro').addEventListener('input', filtrar);
+document.getElementById('filtro-tipo').addEventListener('change', filtrar);
+
+function filtrar() {
+  const txt  = document.getElementById('filtro').value.toLowerCase();
+  const tipo = document.getElementById('filtro-tipo').value;
+  document.querySelectorAll('#tabla-precios tbody tr').forEach(row => {
+    const matchTxt  = !txt  || row.dataset.sku.toLowerCase().includes(txt) || row.dataset.nombre.toLowerCase().includes(txt);
+    const matchTipo = !tipo || row.dataset.tipo === tipo;
+    row.style.display = matchTxt && matchTipo ? '' : 'none';
+  });
+}
+
+async function guardarCambios() {
+  const lista = Object.values(cambios);
+  if (!lista.length) { toast('Sin cambios para guardar', 'warning'); return; }
+  const btn = document.getElementById('btn-guardar');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Guardando...';
+  try {
+    const res  = await fetch('/tienda-admin/precios/guardar', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({cambios: lista}),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      // Marcar todos como originales
+      document.querySelectorAll('.precio-input').forEach(input => {
+        input.dataset.original = input.value;
+        input.closest('tr').querySelector('.badge-modificado').classList.add('d-none');
+      });
+      cambios = {};
+      document.getElementById('contador').textContent = '0';
+      toast(`${data.actualizados} precio(s) actualizados`, 'success');
+    } else {
+      toast('Error: ' + data.error, 'danger');
+    }
+  } catch(e) {
+    toast('Error de conexión', 'danger');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-floppy me-1"></i> Guardar cambios (<span id="contador">0</span>)';
+}
+
+function toast(msg, tipo) {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = `alert alert-${tipo} shadow mb-2`;
+  t.style.cssText = 'min-width:220px;animation:fadeIn .2s';
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+</script>
+{% endblock %}

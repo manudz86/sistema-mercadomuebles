@@ -286,6 +286,7 @@
                 <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'alertas_ml' %}active{% endif %}" href="/alertas">
                         <i class="bi bi-exclamation-triangle"></i> Alertas Pendientes
+                        {% if alertas_pendientes_count > 0 %}<span class="badge bg-danger ms-1">{{ alertas_pendientes_count }}</span>{% endif %}
                     </a>
                 </li>
                 <li class="nav-item">
@@ -487,8 +488,9 @@
             <span>Stock</span>
         </a>
         <a href="/alertas"
-           class="{% if request.endpoint == 'alertas_ml' %}active{% endif %}">
+           class="{% if request.endpoint == 'alertas_ml' %}active{% endif %}" style="position:relative;">
             <i class="bi bi-exclamation-triangle"></i>
+            {% if alertas_pendientes_count > 0 %}<span class="badge bg-danger" style="position:absolute;top:2px;right:8px;font-size:0.6rem;padding:2px 4px;">{{ alertas_pendientes_count }}</span>{% endif %}
             <span>Alertas</span>
         </a>
     </nav>

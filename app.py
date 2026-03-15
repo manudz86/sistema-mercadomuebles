@@ -8745,6 +8745,134 @@ app.register_blueprint(tienda_bp)
 
 
 # ============================================================================
+# PANEL TIENDA WEB — Precios y Ofertas
+# ============================================================================
+
+@app.route('/tienda-admin/precios', methods=['GET'])
+@login_required
+def tienda_precios():
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("""
+        SELECT sku, nombre, tipo, linea, modelo, medida, precio_base, 'base' as origen
+        FROM productos_base
+        WHERE tipo IN ('colchon','conjunto','almohada')
+        ORDER BY tipo, linea, modelo, medida
+    """)
+    productos_base = cur.fetchall()
+    cur.execute("""
+        SELECT sku, nombre, precio_base, 'compuesto' as origen
+        FROM productos_compuestos
+        WHERE activo = 1
+        ORDER BY nombre
+    """)
+    productos_comp = cur.fetchall()
+    db.close()
+    return render_template('tienda_precios.html',
+        productos_base=productos_base,
+        productos_comp=productos_comp,
+    )
+
+
+@app.route('/tienda-admin/precios/guardar', methods=['POST'])
+@login_required
+def tienda_precios_guardar():
+    data = request.get_json()
+    cambios = data.get('cambios', [])
+    if not cambios:
+        return jsonify({'ok': False, 'error': 'Sin cambios'})
+    db = get_db()
+    cur = db.cursor()
+    actualizados = 0
+    try:
+        for c in cambios:
+            sku    = c.get('sku', '').strip()
+            precio = c.get('precio')
+            origen = c.get('origen', 'base')
+            if not sku or precio is None:
+                continue
+            try:
+                precio = float(str(precio).replace(',', '.'))
+            except ValueError:
+                continue
+            if origen == 'compuesto':
+                cur.execute("UPDATE productos_compuestos SET precio_base=%s WHERE sku=%s", (precio, sku))
+            else:
+                cur.execute("UPDATE productos_base SET precio_base=%s WHERE sku=%s", (precio, sku))
+            actualizados += 1
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        db.close()
+        return jsonify({'ok': False, 'error': str(e)})
+    db.close()
+    return jsonify({'ok': True, 'actualizados': actualizados})
+
+
+@app.route('/tienda-admin/ofertas', methods=['GET'])
+@login_required
+def tienda_ofertas():
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("""
+        SELECT o.id, o.sku, o.descuento_pct, o.orden, o.activo,
+               COALESCE(pb.nombre, pc.nombre, o.sku) as nombre
+        FROM ofertas_home o
+        LEFT JOIN productos_base pb ON pb.sku = o.sku
+        LEFT JOIN productos_compuestos pc ON pc.sku = o.sku
+        ORDER BY o.orden, o.id
+    """)
+    ofertas = cur.fetchall()
+    # Todos los SKUs disponibles para agregar
+    cur.execute("SELECT sku, nombre, 'base' as origen FROM productos_base WHERE tipo IN ('colchon','conjunto','almohada') ORDER BY nombre")
+    skus_base = cur.fetchall()
+    cur.execute("SELECT sku, nombre, 'compuesto' as origen FROM productos_compuestos WHERE activo=1 ORDER BY nombre")
+    skus_comp = cur.fetchall()
+    db.close()
+    todos_skus = list(skus_base) + list(skus_comp)
+    return render_template('tienda_ofertas.html',
+        ofertas=ofertas,
+        todos_skus=todos_skus,
+    )
+
+
+@app.route('/tienda-admin/ofertas/guardar', methods=['POST'])
+@login_required
+def tienda_ofertas_guardar():
+    data = request.get_json()
+    accion = data.get('accion')
+    db = get_db()
+    cur = db.cursor()
+    try:
+        if accion == 'agregar':
+            sku  = data.get('sku', '').strip()
+            pct  = float(data.get('descuento_pct', 8))
+            cur.execute("SELECT id FROM ofertas_home WHERE sku=%s", (sku,))
+            if cur.fetchone():
+                db.close()
+                return jsonify({'ok': False, 'error': 'SKU ya existe en ofertas'})
+            cur.execute("SELECT COALESCE(MAX(orden),0)+1 FROM ofertas_home")
+            orden = cur.fetchone()['COALESCE(MAX(orden),0)+1']
+            cur.execute("INSERT INTO ofertas_home (sku, descuento_pct, orden, activo) VALUES (%s,%s,%s,1)", (sku, pct, orden))
+        elif accion == 'eliminar':
+            cur.execute("DELETE FROM ofertas_home WHERE id=%s", (data.get('id'),))
+        elif accion == 'toggle':
+            cur.execute("UPDATE ofertas_home SET activo = NOT activo WHERE id=%s", (data.get('id'),))
+        elif accion == 'pct':
+            cur.execute("UPDATE ofertas_home SET descuento_pct=%s WHERE id=%s", (float(data.get('descuento_pct', 8)), data.get('id')))
+        elif accion == 'reordenar':
+            for item in data.get('items', []):
+                cur.execute("UPDATE ofertas_home SET orden=%s WHERE id=%s", (item['orden'], item['id']))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        db.close()
+        return jsonify({'ok': False, 'error': str(e)})
+    db.close()
+    return jsonify({'ok': True})
+
+
+# ============================================================================
 # INICIAR APLICACIÓN
 # ============================================================================
 
