@@ -8751,7 +8751,7 @@ app.register_blueprint(tienda_bp)
 @app.route('/tienda-admin/precios', methods=['GET'])
 @login_required
 def tienda_precios():
-    db = get_db()
+    db = get_db_connection()
     cur = db.cursor()
     cur.execute("""
         SELECT sku, nombre, tipo, linea, modelo, medida, precio_base, 'base' as origen
@@ -8781,7 +8781,7 @@ def tienda_precios_guardar():
     cambios = data.get('cambios', [])
     if not cambios:
         return jsonify({'ok': False, 'error': 'Sin cambios'})
-    db = get_db()
+    db = get_db_connection()
     cur = db.cursor()
     actualizados = 0
     try:
@@ -8812,7 +8812,7 @@ def tienda_precios_guardar():
 @app.route('/tienda-admin/ofertas', methods=['GET'])
 @login_required
 def tienda_ofertas():
-    db = get_db()
+    db = get_db_connection()
     cur = db.cursor()
     cur.execute("""
         SELECT o.id, o.sku, o.descuento_pct, o.orden, o.activo,
@@ -8841,7 +8841,7 @@ def tienda_ofertas():
 def tienda_ofertas_guardar():
     data = request.get_json()
     accion = data.get('accion')
-    db = get_db()
+    db = get_db_connection()
     cur = db.cursor()
     try:
         if accion == 'agregar':
