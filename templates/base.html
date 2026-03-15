@@ -305,6 +305,17 @@
                         <i class="bi bi-bar-chart-line-fill"></i> Estadísticas
                     </a>
                 </li>
+                <div class="section-title">TIENDA WEB</div>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint in ('tienda_precios','tienda_precios_guardar') %}active{% endif %}" href="/tienda-admin/precios">
+                        <i class="bi bi-tag"></i> Precios
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint in ('tienda_ofertas','tienda_ofertas_guardar') %}active{% endif %}" href="/tienda-admin/ofertas">
+                        <i class="bi bi-percent"></i> Ofertas
+                    </a>
+                </li>
                 <div class="section-title">CONFIGURACIÓN</div>
                 <li class="nav-item">
                     <a class="nav-link" href="/configuracion/resetear">
@@ -418,6 +429,17 @@
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'estadisticas' %}active{% endif %}" href="/estadisticas">
                                 <i class="bi bi-bar-chart-line-fill"></i> Estadísticas
+                            </a>
+                        </li>
+                        <div class="section-title">TIENDA WEB</div>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint in ('tienda_precios','tienda_precios_guardar') %}active{% endif %}" href="/tienda-admin/precios">
+                                <i class="bi bi-tag"></i> Precios
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint in ('tienda_ofertas','tienda_ofertas_guardar') %}active{% endif %}" href="/tienda-admin/ofertas">
+                                <i class="bi bi-percent"></i> Ofertas
                             </a>
                         </li>
                         <div class="section-title">CONFIGURACIÓN</div>
