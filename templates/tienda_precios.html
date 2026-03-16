@@ -3,9 +3,14 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h4 class="mb-0"><i class="bi bi-tag me-2"></i>Precios Tienda Web</h4>
-  <button class="btn btn-success" id="btn-guardar" onclick="guardarCambios()">
-    <i class="bi bi-floppy me-1"></i> Guardar cambios (<span id="contador">0</span>)
-  </button>
+  <div class="d-flex gap-2">
+    <button class="btn btn-outline-secondary" onclick="mostrarModalAumento()">
+      <i class="bi bi-arrow-up-circle me-1"></i> Aumentar todos
+    </button>
+    <button class="btn btn-success" id="btn-guardar" onclick="guardarCambios()">
+      <i class="bi bi-floppy me-1"></i> Guardar cambios (<span id="contador">0</span>)
+    </button>
+  </div>
 </div>
 
 <div class="mb-3 d-flex gap-2 align-items-center">
@@ -13,7 +18,6 @@
   <select class="form-select" style="max-width:180px" id="filtro-tipo">
     <option value="">Todos los tipos</option>
     <option value="colchon">Colchón</option>
-    <option value="conjunto">Sommier</option>
     <option value="almohada">Almohada</option>
     <option value="compuesto">Sommier armado</option>
   </select>
@@ -41,8 +45,7 @@
             <input type="number" class="form-control form-control-sm precio-input"
               value="{{ p.precio_base | float | int }}"
               data-original="{{ p.precio_base | float | int }}"
-              min="0" step="1000"
-              style="max-width:140px">
+              min="0" step="1000" style="max-width:140px">
           </td>
           <td><span class="badge bg-warning text-dark d-none badge-modificado">modificado</span></td>
         </tr>
@@ -56,14 +59,45 @@
             <input type="number" class="form-control form-control-sm precio-input"
               value="{{ p.precio_base | float | int if p.precio_base else 0 }}"
               data-original="{{ p.precio_base | float | int if p.precio_base else 0 }}"
-              min="0" step="1000"
-              style="max-width:140px">
+              min="0" step="1000" style="max-width:140px">
           </td>
           <td><span class="badge bg-warning text-dark d-none badge-modificado">modificado</span></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+  </div>
+</div>
+
+<!-- Modal aumento masivo -->
+<div class="modal fade" id="modalAumento" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-arrow-up-circle me-2"></i>Aumentar todos los precios</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label fw-bold">Porcentaje de aumento (%)</label>
+          <input type="number" class="form-control" id="pct-aumento" value="10" min="1" max="500" step="1">
+        </div>
+        <div id="preview-aumento" class="d-none">
+          <hr>
+          <p class="fw-bold text-muted mb-2">Vista previa (primeros 5):</p>
+          <table class="table table-sm table-bordered">
+            <thead class="table-light"><tr><th>SKU</th><th>Precio actual</th><th>Precio nuevo</th></tr></thead>
+            <tbody id="preview-tbody"></tbody>
+          </table>
+          <p class="text-muted small">y <span id="preview-resto">0</span> productos más...</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" onclick="calcularAumento()"><i class="bi bi-eye me-1"></i> Previsualizar</button>
+        <button class="btn btn-danger d-none" id="btn-aplicar-aumento" onclick="aplicarAumento()"><i class="bi bi-check-lg me-1"></i> Aplicar aumento</button>
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -91,10 +125,8 @@ document.querySelectorAll('.precio-input').forEach(input => {
   });
 });
 
-// Filtro
 document.getElementById('filtro').addEventListener('input', filtrar);
 document.getElementById('filtro-tipo').addEventListener('change', filtrar);
-
 function filtrar() {
   const txt  = document.getElementById('filtro').value.toLowerCase();
   const tipo = document.getElementById('filtro-tipo').value;
@@ -119,7 +151,6 @@ async function guardarCambios() {
     });
     const data = await res.json();
     if (data.ok) {
-      // Marcar todos como originales
       document.querySelectorAll('.precio-input').forEach(input => {
         input.dataset.original = input.value;
         input.closest('tr').querySelector('.badge-modificado').classList.add('d-none');
@@ -134,7 +165,65 @@ async function guardarCambios() {
     toast('Error de conexión', 'danger');
   }
   btn.disabled = false;
-  btn.innerHTML = '<i class="bi bi-floppy me-1"></i> Guardar cambios (<span id="contador">0</span>)';
+  btn.innerHTML = '<i class="bi bi-floppy me-1"></i> Guardar cambios (<span id="contador">' + Object.keys(cambios).length + '</span>)';
+}
+
+// ── Aumento masivo ──
+let preciosAumento = [];
+
+function mostrarModalAumento() {
+  document.getElementById('preview-aumento').classList.add('d-none');
+  document.getElementById('btn-aplicar-aumento').classList.add('d-none');
+  new bootstrap.Modal(document.getElementById('modalAumento')).show();
+}
+
+function calcularAumento() {
+  const pct = parseFloat(document.getElementById('pct-aumento').value);
+  if (!pct || pct <= 0) { toast('Ingresá un porcentaje válido','warning'); return; }
+  preciosAumento = [];
+  document.querySelectorAll('#tabla-precios tbody tr').forEach(row => {
+    const input  = row.querySelector('.precio-input');
+    if (!input) return;
+    const actual = parseInt(input.value);
+    if (!actual) return;
+    const nuevo  = Math.round((actual * (1 + pct/100)) / 1000) * 1000;
+    preciosAumento.push({sku: row.dataset.sku, origen: row.dataset.origen, nombre: row.dataset.nombre, actual, nuevo});
+  });
+  const tbody = document.getElementById('preview-tbody');
+  tbody.innerHTML = preciosAumento.slice(0,5).map(p =>
+    `<tr><td class="font-monospace">${p.sku}</td><td>$${p.actual.toLocaleString('es-AR')}</td>
+     <td class="text-success fw-bold">$${p.nuevo.toLocaleString('es-AR')}</td></tr>`
+  ).join('');
+  document.getElementById('preview-resto').textContent = Math.max(0, preciosAumento.length - 5);
+  document.getElementById('preview-aumento').classList.remove('d-none');
+  document.getElementById('btn-aplicar-aumento').classList.remove('d-none');
+}
+
+async function aplicarAumento() {
+  if (!preciosAumento.length) return;
+  const cambiosMasivos = preciosAumento.map(p => ({sku: p.sku, precio: p.nuevo, origen: p.origen}));
+  const btn = document.getElementById('btn-aplicar-aumento');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Aplicando...';
+  try {
+    const res  = await fetch('/tienda-admin/precios/guardar', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({cambios: cambiosMasivos}),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      bootstrap.Modal.getInstance(document.getElementById('modalAumento')).hide();
+      toast(`${data.actualizados} precios aumentados`, 'success');
+      setTimeout(() => location.reload(), 1000);
+    } else {
+      toast('Error: ' + data.error, 'danger');
+    }
+  } catch(e) {
+    toast('Error de conexión', 'danger');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Aplicar aumento';
 }
 
 function toast(msg, tipo) {
@@ -144,7 +233,7 @@ function toast(msg, tipo) {
   t.style.cssText = 'min-width:220px;animation:fadeIn .2s';
   t.textContent = msg;
   c.appendChild(t);
-  setTimeout(() => t.remove(), 3000);
+  setTimeout(() => t.remove(), 3500);
 }
 </script>
 {% endblock %}

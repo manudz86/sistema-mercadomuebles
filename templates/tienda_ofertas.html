@@ -6,42 +6,39 @@
 </div>
 
 <div class="row g-3">
-  <!-- Agregar nueva oferta -->
   <div class="col-md-4">
-    <div class="card shadow-sm h-100">
+    <div class="card shadow-sm">
       <div class="card-header fw-bold"><i class="bi bi-plus-circle me-1"></i> Agregar oferta</div>
-      <div class="card-body">
+      <div class="card-body" style="position:relative;">
         <div class="mb-3">
-          <label class="form-label">Producto</label>
-          <select class="form-select" id="nuevo-sku">
-            <option value="">Seleccioná un producto...</option>
-            {% for p in todos_skus %}
-            <option value="{{ p.sku }}">{{ p.sku }} — {{ p.nombre }}</option>
-            {% endfor %}
-          </select>
+          <label class="form-label">Buscar producto</label>
+          <input type="text" class="form-control" id="buscar-producto" placeholder="Escribí SKU o nombre..." autocomplete="off">
+          <div id="resultado-busqueda" class="list-group mt-1" style="max-height:220px;overflow-y:auto;display:none;position:absolute;z-index:999;left:1rem;right:1rem;"></div>
+          <input type="hidden" id="nuevo-sku">
+          <div id="producto-seleccionado" class="mt-2 d-none">
+            <span class="badge bg-primary p-2" id="badge-seleccionado" style="font-size:0.85rem;"></span>
+            <button class="btn btn-sm btn-link text-danger p-0 ms-1" onclick="limpiarSeleccion()">✕</button>
+          </div>
         </div>
         <div class="mb-3">
           <label class="form-label">Descuento (%)</label>
           <input type="number" class="form-control" id="nuevo-pct" value="8" min="1" max="99" step="1">
         </div>
-        <button class="btn btn-primary w-100" onclick="agregarOferta()">
-          <i class="bi bi-plus me-1"></i> Agregar
-        </button>
+        <button class="btn btn-primary w-100" onclick="agregarOferta()"><i class="bi bi-plus me-1"></i> Agregar</button>
       </div>
     </div>
   </div>
 
-  <!-- Lista de ofertas -->
   <div class="col-md-8">
     <div class="card shadow-sm">
       <div class="card-header fw-bold"><i class="bi bi-fire me-1"></i> Ofertas activas</div>
       <div class="table-responsive">
-        <table class="table table-hover table-sm mb-0" id="tabla-ofertas">
+        <table class="table table-hover table-sm mb-0">
           <thead class="table-dark">
             <tr>
               <th>SKU / Nombre</th>
-              <th style="width:120px">Descuento</th>
-              <th style="width:80px">Estado</th>
+              <th style="width:130px">Descuento</th>
+              <th style="width:90px">Estado</th>
               <th style="width:80px"></th>
             </tr>
           </thead>
@@ -54,26 +51,17 @@
               </td>
               <td>
                 <div class="input-group input-group-sm" style="max-width:110px">
-                  <input type="number" class="form-control" value="{{ o.descuento_pct | int }}"
-                    min="1" max="99" id="pct-{{ o.id }}"
-                    onchange="cambiarPct({{ o.id }}, this.value)">
+                  <input type="number" class="form-control" value="{{ o.descuento_pct | int }}" min="1" max="99" id="pct-{{ o.id }}" onchange="cambiarPct({{ o.id }}, this.value)">
                   <span class="input-group-text">%</span>
                 </div>
               </td>
-              <td>
-                <span class="badge {{ 'bg-success' if o.activo else 'bg-secondary' }}">
-                  {{ 'Activa' if o.activo else 'Pausada' }}
-                </span>
-              </td>
+              <td><span class="badge {{ 'bg-success' if o.activo else 'bg-secondary' }}">{{ 'Activa' if o.activo else 'Pausada' }}</span></td>
               <td>
                 <div class="d-flex gap-1">
-                  <button class="btn btn-sm {{ 'btn-outline-warning' if o.activo else 'btn-outline-success' }}"
-                    onclick="toggleOferta({{ o.id }})" title="{{ 'Pausar' if o.activo else 'Activar' }}">
+                  <button class="btn btn-sm {{ 'btn-outline-warning' if o.activo else 'btn-outline-success' }}" onclick="toggleOferta({{ o.id }})" title="{{ 'Pausar' if o.activo else 'Activar' }}">
                     <i class="bi {{ 'bi-pause' if o.activo else 'bi-play' }}"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-danger" onclick="eliminarOferta({{ o.id }})" title="Eliminar">
-                    <i class="bi bi-trash"></i>
-                  </button>
+                  <button class="btn btn-sm btn-outline-danger" onclick="eliminarOferta({{ o.id }})"><i class="bi bi-trash"></i></button>
                 </div>
               </td>
             </tr>
@@ -90,53 +78,69 @@
 <div id="toast-container" style="position:fixed;bottom:20px;right:20px;z-index:9999"></div>
 
 <script>
-async function api(data) {
-  const res = await fetch('/tienda-admin/ofertas/guardar', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(data),
-  });
-  return res.json();
+const todosProductos = [{% for p in todos_skus %}{sku:"{{ p.sku }}",nombre:"{{ p.nombre | replace('"','\\"') }}"},{% endfor %}];
+const inputBuscar = document.getElementById('buscar-producto');
+const resultados  = document.getElementById('resultado-busqueda');
+const inputSku    = document.getElementById('nuevo-sku');
+
+inputBuscar.addEventListener('input', function() {
+  const q = this.value.toLowerCase().trim();
+  if (!q) { resultados.style.display='none'; return; }
+  const matches = todosProductos.filter(p => p.sku.toLowerCase().includes(q) || p.nombre.toLowerCase().includes(q)).slice(0,12);
+  if (!matches.length) { resultados.style.display='none'; return; }
+  resultados.innerHTML = matches.map(p =>
+    `<button type="button" class="list-group-item list-group-item-action py-1 px-2" onclick="seleccionarProducto('${p.sku}','${p.nombre.replace(/'/g,"\\'")}')">
+      <small class="font-monospace text-muted">${p.sku}</small> ${p.nombre}
+    </button>`).join('');
+  resultados.style.display = 'block';
+});
+document.addEventListener('click', e => { if (!resultados.contains(e.target) && e.target !== inputBuscar) resultados.style.display='none'; });
+
+function seleccionarProducto(sku, nombre) {
+  inputSku.value = sku;
+  document.getElementById('badge-seleccionado').textContent = `${sku} — ${nombre}`;
+  document.getElementById('producto-seleccionado').classList.remove('d-none');
+  inputBuscar.value = ''; resultados.style.display='none';
+}
+function limpiarSeleccion() {
+  inputSku.value = '';
+  document.getElementById('producto-seleccionado').classList.add('d-none');
 }
 
+async function api(data) {
+  const res = await fetch('/tienda-admin/ofertas/guardar', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+  return res.json();
+}
 function toast(msg, tipo='success') {
   const c = document.getElementById('toast-container');
   const t = document.createElement('div');
   t.className = `alert alert-${tipo} shadow mb-2`;
-  t.style.minWidth = '220px';
-  t.textContent = msg;
-  c.appendChild(t);
-  setTimeout(() => t.remove(), 3000);
+  t.style.minWidth = '220px'; t.textContent = msg;
+  c.appendChild(t); setTimeout(() => t.remove(), 3000);
 }
-
 async function agregarOferta() {
-  const sku = document.getElementById('nuevo-sku').value;
+  const sku = inputSku.value.trim();
   const pct = document.getElementById('nuevo-pct').value;
-  if (!sku) { toast('Seleccioná un producto', 'warning'); return; }
-  const data = await api({accion: 'agregar', sku, descuento_pct: pct});
+  if (!sku) { toast('Seleccioná un producto','warning'); return; }
+  const data = await api({accion:'agregar', sku, descuento_pct:pct});
   if (data.ok) { toast('Oferta agregada'); setTimeout(() => location.reload(), 800); }
-  else toast('Error: ' + data.error, 'danger');
+  else toast('Error: '+data.error, 'danger');
 }
-
 async function eliminarOferta(id) {
   if (!confirm('¿Eliminar esta oferta?')) return;
-  const data = await api({accion: 'eliminar', id});
-  if (data.ok) {
-    document.getElementById('oferta-' + id)?.remove();
-    toast('Oferta eliminada');
-  } else toast('Error: ' + data.error, 'danger');
+  const data = await api({accion:'eliminar', id});
+  if (data.ok) { document.getElementById('oferta-'+id)?.remove(); toast('Oferta eliminada'); }
+  else toast('Error: '+data.error,'danger');
 }
-
 async function toggleOferta(id) {
-  const data = await api({accion: 'toggle', id});
+  const data = await api({accion:'toggle', id});
   if (data.ok) { toast('Estado actualizado'); setTimeout(() => location.reload(), 600); }
-  else toast('Error: ' + data.error, 'danger');
+  else toast('Error: '+data.error,'danger');
 }
-
 async function cambiarPct(id, val) {
-  const data = await api({accion: 'pct', id, descuento_pct: val});
+  const data = await api({accion:'pct', id, descuento_pct:val});
   if (data.ok) toast('Descuento actualizado');
-  else toast('Error: ' + data.error, 'danger');
+  else toast('Error: '+data.error,'danger');
 }
 </script>
 {% endblock %}
