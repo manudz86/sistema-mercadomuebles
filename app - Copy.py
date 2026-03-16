@@ -8752,13 +8752,13 @@ app.register_blueprint(tienda_bp)
 @login_required
 def tienda_precios():
     productos_base = query_db("""
-        SELECT sku, nombre, tipo, linea, modelo, medida, precio_base, 'base' as origen
+        SELECT sku, nombre, tipo, linea, modelo, medida, precio_base, descuento_catalogo, 'base' as origen
         FROM productos_base
         WHERE tipo IN ('colchon','almohada')
         ORDER BY tipo, linea, modelo, medida
     """)
     productos_comp = query_db("""
-        SELECT sku, nombre, precio_base, 'compuesto' as origen
+        SELECT sku, nombre, precio_base, descuento_catalogo, 'compuesto' as origen
         FROM productos_compuestos
         WHERE activo = 1
         ORDER BY nombre
@@ -8799,9 +8799,37 @@ def tienda_precios_guardar():
     return jsonify({'ok': True, 'actualizados': actualizados})
 
 
-@app.route('/tienda-admin/ofertas', methods=['GET'])
+@app.route('/tienda-admin/precios/descuento', methods=['POST'])
 @login_required
-def tienda_ofertas():
+def tienda_precios_descuento():
+    data = request.get_json()
+    accion = data.get('accion')  # 'set', 'quitar', 'set_todos', 'quitar_todos'
+    try:
+        if accion == 'set':
+            sku    = data.get('sku', '').strip()
+            pct    = float(data.get('pct', 0))
+            origen = data.get('origen', 'base')
+            if origen == 'compuesto':
+                execute_db("UPDATE productos_compuestos SET descuento_catalogo=%s WHERE sku=%s", (pct, sku))
+            else:
+                execute_db("UPDATE productos_base SET descuento_catalogo=%s WHERE sku=%s", (pct, sku))
+        elif accion == 'quitar':
+            sku    = data.get('sku', '').strip()
+            origen = data.get('origen', 'base')
+            if origen == 'compuesto':
+                execute_db("UPDATE productos_compuestos SET descuento_catalogo=NULL WHERE sku=%s", (sku,))
+            else:
+                execute_db("UPDATE productos_base SET descuento_catalogo=NULL WHERE sku=%s", (sku,))
+        elif accion == 'set_todos':
+            pct = float(data.get('pct', 0))
+            execute_db("UPDATE productos_base SET descuento_catalogo=%s WHERE tipo IN ('colchon','almohada')", (pct,))
+            execute_db("UPDATE productos_compuestos SET descuento_catalogo=%s WHERE activo=1", (pct,))
+        elif accion == 'quitar_todos':
+            execute_db("UPDATE productos_base SET descuento_catalogo=NULL WHERE tipo IN ('colchon','almohada')", ())
+            execute_db("UPDATE productos_compuestos SET descuento_catalogo=NULL WHERE activo=1", ())
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+    return jsonify({'ok': True})
     ofertas = query_db("""
         SELECT o.id, o.sku, o.descuento_pct, o.orden, o.activo,
                COALESCE(pb.nombre, pc.nombre, o.sku) as nombre

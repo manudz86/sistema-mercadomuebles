@@ -8830,6 +8830,11 @@ def tienda_precios_descuento():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
     return jsonify({'ok': True})
+
+
+@app.route('/tienda-admin/ofertas', methods=['GET'])
+@login_required
+def tienda_ofertas():
     ofertas = query_db("""
         SELECT o.id, o.sku, o.descuento_pct, o.orden, o.activo,
                COALESCE(pb.nombre, pc.nombre, o.sku) as nombre
