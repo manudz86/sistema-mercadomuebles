@@ -8830,11 +8830,6 @@ def tienda_precios_descuento():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
     return jsonify({'ok': True})
-
-
-@app.route('/tienda-admin/ofertas', methods=['GET'])
-@login_required
-def tienda_ofertas():
     ofertas = query_db("""
         SELECT o.id, o.sku, o.descuento_pct, o.orden, o.activo,
                COALESCE(pb.nombre, pc.nombre, o.sku) as nombre
@@ -8876,6 +8871,78 @@ def tienda_ofertas_guardar():
         elif accion == 'reordenar':
             for item in data.get('items', []):
                 execute_db("UPDATE ofertas_home SET orden=%s WHERE id=%s", (item['orden'], item['id']))
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+    return jsonify({'ok': True})
+
+
+# ── CUPONES ──────────────────────────────────────────────────────────────────
+
+@app.route('/tienda-admin/cupones', methods=['GET'])
+@login_required
+def tienda_cupones():
+    execute_db("""
+        CREATE TABLE IF NOT EXISTS cupones (
+            id               INT AUTO_INCREMENT PRIMARY KEY,
+            codigo           VARCHAR(50) NOT NULL UNIQUE,
+            tipo             ENUM('pct','fijo') NOT NULL DEFAULT 'pct',
+            valor            DECIMAL(10,2) NOT NULL,
+            minimo_compra    DECIMAL(10,2) DEFAULT 0,
+            usos_maximos     INT DEFAULT NULL,
+            usos_actuales    INT DEFAULT 0,
+            fecha_vencimiento DATE DEFAULT NULL,
+            solo_un_uso      TINYINT DEFAULT 0,
+            activo           TINYINT DEFAULT 1,
+            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    execute_db("""
+        CREATE TABLE IF NOT EXISTS cupones_uso (
+            id           INT AUTO_INCREMENT PRIMARY KEY,
+            cupon_id     INT NOT NULL,
+            email        VARCHAR(255),
+            telefono     VARCHAR(50),
+            venta_numero VARCHAR(100),
+            fecha_uso    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cupones = query_db("""
+        SELECT c.*, COUNT(cu.id) as usos_reales
+        FROM cupones c
+        LEFT JOIN cupones_uso cu ON cu.cupon_id = c.id
+        GROUP BY c.id
+        ORDER BY c.created_at DESC
+    """)
+    return render_template('tienda_cupones.html', cupones=cupones)
+
+
+@app.route('/tienda-admin/cupones/guardar', methods=['POST'])
+@login_required
+def tienda_cupones_guardar():
+    data   = request.get_json()
+    accion = data.get('accion')
+    try:
+        if accion == 'crear':
+            codigo   = data.get('codigo', '').strip().upper()
+            tipo     = data.get('tipo', 'pct')
+            valor    = float(data.get('valor', 0))
+            minimo   = float(data.get('minimo_compra', 0) or 0)
+            usos_max = int(data.get('usos_maximos') or 0) or None
+            venc     = data.get('fecha_vencimiento') or None
+            solo_uno = int(data.get('solo_un_uso', 0))
+            if not codigo or valor <= 0:
+                return jsonify({'ok': False, 'error': 'Código y valor son obligatorios'})
+            existe = query_db("SELECT id FROM cupones WHERE codigo=%s", (codigo,))
+            if existe:
+                return jsonify({'ok': False, 'error': 'Código ya existe'})
+            execute_db("""
+                INSERT INTO cupones (codigo, tipo, valor, minimo_compra, usos_maximos, fecha_vencimiento, solo_un_uso, activo)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 1)
+            """, (codigo, tipo, valor, minimo, usos_max, venc, solo_uno))
+        elif accion == 'toggle':
+            execute_db("UPDATE cupones SET activo = NOT activo WHERE id=%s", (data.get('id'),))
+        elif accion == 'eliminar':
+            execute_db("DELETE FROM cupones WHERE id=%s", (data.get('id'),))
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
     return jsonify({'ok': True})
