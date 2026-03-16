@@ -8,23 +8,32 @@
 <div class="row g-3">
   <div class="col-md-4">
     <div class="card shadow-sm">
-      <div class="card-header fw-bold"><i class="bi bi-plus-circle me-1"></i> Agregar oferta</div>
+      <div class="card-header fw-bold"><i class="bi bi-plus-circle me-1"></i> Agregar ofertas</div>
       <div class="card-body" style="position:relative;">
-        <div class="mb-3">
+        <div class="mb-2">
           <label class="form-label">Buscar producto</label>
           <input type="text" class="form-control" id="buscar-producto" placeholder="Escribí SKU o nombre..." autocomplete="off">
-          <div id="resultado-busqueda" class="list-group mt-1" style="max-height:220px;overflow-y:auto;display:none;position:absolute;z-index:999;left:1rem;right:1rem;"></div>
-          <input type="hidden" id="nuevo-sku">
-          <div id="producto-seleccionado" class="mt-2 d-none">
-            <span class="badge bg-primary p-2" id="badge-seleccionado" style="font-size:0.85rem;"></span>
-            <button class="btn btn-sm btn-link text-danger p-0 ms-1" onclick="limpiarSeleccion()">✕</button>
-          </div>
+          <div id="resultado-busqueda" class="list-group mt-1" style="max-height:200px;overflow-y:auto;display:none;position:absolute;z-index:999;left:1rem;right:1rem;"></div>
         </div>
-        <div class="mb-3">
+        <div class="mb-2">
           <label class="form-label">Descuento (%)</label>
           <input type="number" class="form-control" id="nuevo-pct" value="8" min="1" max="99" step="1">
         </div>
-        <button class="btn btn-primary w-100" onclick="agregarOferta()"><i class="bi bi-plus me-1"></i> Agregar</button>
+        <button class="btn btn-outline-primary btn-sm w-100 mb-3" onclick="agregarAPendientes()">
+          <i class="bi bi-plus me-1"></i> Agregar a la lista
+        </button>
+
+        <!-- Lista pendientes -->
+        <div id="lista-pendientes" class="d-none">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <small class="fw-bold text-muted">A agregar:</small>
+            <button class="btn btn-link btn-sm text-danger p-0" onclick="limpiarPendientes()">Limpiar</button>
+          </div>
+          <div id="pendientes-items" class="mb-2" style="max-height:160px;overflow-y:auto;"></div>
+          <button class="btn btn-primary w-100" onclick="guardarTodosLaOfertas()">
+            <i class="bi bi-check-lg me-1"></i> Guardar todos (<span id="cnt-pendientes">0</span>)
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -81,7 +90,7 @@
 const todosProductos = [{% for p in todos_skus %}{sku:"{{ p.sku }}",nombre:"{{ p.nombre | replace('"','\\"') }}"},{% endfor %}];
 const inputBuscar = document.getElementById('buscar-producto');
 const resultados  = document.getElementById('resultado-busqueda');
-const inputSku    = document.getElementById('nuevo-sku');
+let pendientes = [];
 
 inputBuscar.addEventListener('input', function() {
   const q = this.value.toLowerCase().trim();
@@ -96,15 +105,53 @@ inputBuscar.addEventListener('input', function() {
 });
 document.addEventListener('click', e => { if (!resultados.contains(e.target) && e.target !== inputBuscar) resultados.style.display='none'; });
 
+let skuSeleccionado = null;
 function seleccionarProducto(sku, nombre) {
-  inputSku.value = sku;
-  document.getElementById('badge-seleccionado').textContent = `${sku} — ${nombre}`;
-  document.getElementById('producto-seleccionado').classList.remove('d-none');
-  inputBuscar.value = ''; resultados.style.display='none';
+  skuSeleccionado = {sku, nombre};
+  inputBuscar.value = `${sku} — ${nombre}`;
+  resultados.style.display='none';
 }
-function limpiarSeleccion() {
-  inputSku.value = '';
-  document.getElementById('producto-seleccionado').classList.add('d-none');
+
+function agregarAPendientes() {
+  if (!skuSeleccionado) { toast('Seleccioná un producto','warning'); return; }
+  const pct = parseInt(document.getElementById('nuevo-pct').value);
+  if (pendientes.find(p => p.sku === skuSeleccionado.sku)) { toast('Ya está en la lista','warning'); return; }
+  pendientes.push({...skuSeleccionado, pct});
+  skuSeleccionado = null;
+  inputBuscar.value = '';
+  renderPendientes();
+}
+
+function renderPendientes() {
+  const cont = document.getElementById('lista-pendientes');
+  const items = document.getElementById('pendientes-items');
+  document.getElementById('cnt-pendientes').textContent = pendientes.length;
+  if (!pendientes.length) { cont.classList.add('d-none'); return; }
+  cont.classList.remove('d-none');
+  items.innerHTML = pendientes.map((p, i) =>
+    `<div class="d-flex justify-content-between align-items-center mb-1 p-1 bg-light rounded">
+      <div><small class="font-monospace text-muted">${p.sku}</small> <small>${p.nombre}</small></div>
+      <div class="d-flex align-items-center gap-1">
+        <span class="badge bg-success">${p.pct}%</span>
+        <button class="btn btn-sm btn-link text-danger p-0" onclick="quitarPendiente(${i})">✕</button>
+      </div>
+    </div>`).join('');
+}
+
+function quitarPendiente(i) { pendientes.splice(i, 1); renderPendientes(); }
+function limpiarPendientes() { pendientes = []; renderPendientes(); }
+
+async function guardarTodosLaOfertas() {
+  if (!pendientes.length) return;
+  for (const p of pendientes) {
+    const data = await api({accion:'agregar', sku: p.sku, descuento_pct: p.pct});
+    if (!data.ok && data.error !== 'SKU ya existe en ofertas') {
+      toast('Error con ' + p.sku + ': ' + data.error, 'danger');
+      return;
+    }
+  }
+  toast(`${pendientes.length} oferta(s) guardadas`, 'success');
+  setTimeout(() => location.reload(), 800);
 }
 
 async function api(data) {
@@ -117,14 +164,6 @@ function toast(msg, tipo='success') {
   t.className = `alert alert-${tipo} shadow mb-2`;
   t.style.minWidth = '220px'; t.textContent = msg;
   c.appendChild(t); setTimeout(() => t.remove(), 3000);
-}
-async function agregarOferta() {
-  const sku = inputSku.value.trim();
-  const pct = document.getElementById('nuevo-pct').value;
-  if (!sku) { toast('Seleccioná un producto','warning'); return; }
-  const data = await api({accion:'agregar', sku, descuento_pct:pct});
-  if (data.ok) { toast('Oferta agregada'); setTimeout(() => location.reload(), 800); }
-  else toast('Error: '+data.error, 'danger');
 }
 async function eliminarOferta(id) {
   if (!confirm('¿Eliminar esta oferta?')) return;
