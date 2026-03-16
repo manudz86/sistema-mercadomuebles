@@ -8763,7 +8763,7 @@ def tienda_precios():
         WHERE activo = 1
         ORDER BY nombre
     """)
-    app.logger.info(f"[tienda_precios] base={len(productos_base)} comp={len(productos_comp)} first={productos_base[0] if productos_base else 'VACIO'}")
+    print(f"[tienda_precios] base={len(productos_base)} comp={len(productos_comp)} first={productos_base[0] if productos_base else 'VACIO'}", flush=True)
     return render_template('tienda_precios.html',
         productos_base=productos_base,
         productos_comp=productos_comp,
