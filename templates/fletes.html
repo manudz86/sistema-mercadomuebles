@@ -290,12 +290,15 @@ async function guardarMonto(id) {
   if (!monto || monto <= 0) return;
   const data = await api({accion:'editar_monto', id, monto});
   if (data.ok) {
-    const disp = document.getElementById('monto-' + id);
-    disp.textContent = '$ ' + monto.toLocaleString('es-AR', {maximumFractionDigits:0});
-    inp.classList.add('d-none');
-    disp.classList.remove('d-none');
     toast('Monto actualizado');
+    setTimeout(() => location.reload(), 400);
   } else toast('Error: ' + data.error, 'danger');
 }
+
+// Fecha actual al abrir el modal
+document.getElementById('modalAgregar').addEventListener('show.bs.modal', function() {
+  const hoy = new Date().toISOString().split('T')[0];
+  document.getElementById('modal-fecha').value = hoy;
+});
 </script>
 {% endblock %}
