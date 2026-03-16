@@ -1,0 +1,179 @@
+{% extends 'base.html' %}
+{% block title %}Cupones de Descuento{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-ticket-perforated me-2"></i>Cupones de descuento</h4>
+</div>
+
+<div class="row g-3">
+  <div class="col-md-4">
+    <div class="card shadow-sm">
+      <div class="card-header fw-bold"><i class="bi bi-plus-circle me-1"></i> Nuevo cupón</div>
+      <div class="card-body">
+        <div class="mb-2">
+          <label class="form-label">Código <small class="text-muted">(se guarda en mayúsculas)</small></label>
+          <input type="text" class="form-control text-uppercase" id="nuevo-codigo" placeholder="Ej: VERANO10" maxlength="50">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Tipo</label>
+          <select class="form-select" id="nuevo-tipo">
+            <option value="pct">% de descuento</option>
+            <option value="fijo">Monto fijo ($)</option>
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label" id="lbl-valor">Valor (%)</label>
+          <input type="number" class="form-control" id="nuevo-valor" min="1" step="1" placeholder="Ej: 10">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Compra mínima ($) <small class="text-muted">0 = sin mínimo</small></label>
+          <input type="number" class="form-control" id="nuevo-minimo" min="0" value="0" step="1000">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Usos máximos <small class="text-muted">vacío = ilimitado</small></label>
+          <input type="number" class="form-control" id="nuevo-usos" min="1" step="1" placeholder="Ej: 100">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Fecha de vencimiento <small class="text-muted">vacío = sin vencimiento</small></label>
+          <input type="date" class="form-control" id="nuevo-venc">
+        </div>
+        <div class="mb-3 form-check">
+          <input type="checkbox" class="form-check-input" id="nuevo-solo-uno">
+          <label class="form-check-label" for="nuevo-solo-uno">Un solo uso por cliente (por email)</label>
+        </div>
+        <button class="btn btn-primary w-100" onclick="crearCupon()">
+          <i class="bi bi-check-lg me-1"></i> Crear cupón
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-8">
+    <div class="card shadow-sm">
+      <div class="card-header fw-bold"><i class="bi bi-ticket-perforated me-1"></i> Cupones existentes</div>
+      <div class="table-responsive">
+        <table class="table table-hover table-sm mb-0">
+          <thead class="table-dark">
+            <tr>
+              <th>Código</th>
+              <th>Tipo</th>
+              <th>Restricciones</th>
+              <th>Usos</th>
+              <th>Estado</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in cupones %}
+            <tr id="cupon-{{ c.id }}" class="{{ '' if c.activo else 'table-secondary text-muted' }}">
+              <td>
+                <span class="badge bg-dark font-monospace fs-6">{{ c.codigo }}</span>
+              </td>
+              <td>
+                {% if c.tipo == 'pct' %}
+                  <span class="badge bg-info text-dark">-{{ c.valor | int }}%</span>
+                {% else %}
+                  <span class="badge bg-warning text-dark">-${{ "{:,.0f}".format(c.valor).replace(",",".") }}</span>
+                {% endif %}
+              </td>
+              <td style="font-size:0.78rem;">
+                {% if c.minimo_compra > 0 %}
+                  <span class="badge bg-light text-dark border">Mín ${{ "{:,.0f}".format(c.minimo_compra).replace(",",".") }}</span>
+                {% endif %}
+                {% if c.usos_maximos %}
+                  <span class="badge bg-light text-dark border">Máx {{ c.usos_maximos }} usos</span>
+                {% endif %}
+                {% if c.fecha_vencimiento %}
+                  <span class="badge bg-light text-dark border">Vence {{ c.fecha_vencimiento }}</span>
+                {% endif %}
+                {% if c.solo_un_uso %}
+                  <span class="badge bg-light text-dark border">1 por cliente</span>
+                {% endif %}
+              </td>
+              <td>
+                <span class="fw-bold">{{ c.usos_actuales }}</span>
+                {% if c.usos_maximos %}<span class="text-muted"> / {{ c.usos_maximos }}</span>{% endif %}
+              </td>
+              <td>
+                <span class="badge {{ 'bg-success' if c.activo else 'bg-secondary' }}">
+                  {{ 'Activo' if c.activo else 'Pausado' }}
+                </span>
+              </td>
+              <td>
+                <div class="d-flex gap-1">
+                  <button class="btn btn-sm {{ 'btn-outline-warning' if c.activo else 'btn-outline-success' }}"
+                    onclick="toggleCupon({{ c.id }})" title="{{ 'Pausar' if c.activo else 'Activar' }}">
+                    <i class="bi {{ 'bi-pause' if c.activo else 'bi-play' }}"></i>
+                  </button>
+                  <button class="btn btn-sm btn-outline-danger" onclick="eliminarCupon({{ c.id }})">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="text-center text-muted py-3">No hay cupones creados</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container" style="position:fixed;bottom:20px;right:20px;z-index:9999"></div>
+
+<script>
+document.getElementById('nuevo-tipo').addEventListener('change', function() {
+  document.getElementById('lbl-valor').textContent = this.value === 'pct' ? 'Valor (%)' : 'Valor ($)';
+  document.getElementById('nuevo-valor').step = this.value === 'pct' ? '1' : '1000';
+});
+
+async function api(data) {
+  const res = await fetch('/tienda-admin/cupones/guardar', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+function toast(msg, tipo='success') {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = `alert alert-${tipo} shadow mb-2`;
+  t.style.minWidth = '220px'; t.textContent = msg;
+  c.appendChild(t); setTimeout(() => t.remove(), 3000);
+}
+
+async function crearCupon() {
+  const codigo   = document.getElementById('nuevo-codigo').value.trim().toUpperCase();
+  const tipo     = document.getElementById('nuevo-tipo').value;
+  const valor    = parseFloat(document.getElementById('nuevo-valor').value);
+  const minimo   = parseFloat(document.getElementById('nuevo-minimo').value) || 0;
+  const usos     = document.getElementById('nuevo-usos').value || null;
+  const venc     = document.getElementById('nuevo-venc').value || null;
+  const solo_uno = document.getElementById('nuevo-solo-uno').checked ? 1 : 0;
+
+  if (!codigo || !valor) { toast('Completá código y valor', 'warning'); return; }
+
+  const data = await api({accion:'crear', codigo, tipo, valor, minimo_compra:minimo,
+    usos_maximos:usos, fecha_vencimiento:venc, solo_un_uso:solo_uno});
+  if (data.ok) { toast('Cupón creado'); setTimeout(() => location.reload(), 700); }
+  else toast('Error: ' + data.error, 'danger');
+}
+
+async function toggleCupon(id) {
+  const data = await api({accion:'toggle', id});
+  if (data.ok) { toast('Estado actualizado'); setTimeout(() => location.reload(), 600); }
+  else toast('Error: ' + data.error, 'danger');
+}
+
+async function eliminarCupon(id) {
+  if (!confirm('¿Eliminar este cupón?')) return;
+  const data = await api({accion:'eliminar', id});
+  if (data.ok) { document.getElementById('cupon-' + id)?.remove(); toast('Cupón eliminado'); }
+  else toast('Error: ' + data.error, 'danger');
+}
+</script>
+{% endblock %}

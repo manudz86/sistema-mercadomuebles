@@ -316,6 +316,11 @@
                         <i class="bi bi-percent"></i> Ofertas
                     </a>
                 </li>
+                <li class="nav-item">
+                  <a class="nav-link {% if request.endpoint == 'tienda_cupones' %}active{% endif %}" href="/tienda-admin/cupones">
+                    <i class="bi bi-ticket-perforated"></i> Cupones
+                  </a>
+                </li>
                 <div class="section-title">CONFIGURACIÓN</div>
                 <li class="nav-item">
                     <a class="nav-link" href="/configuracion/resetear">
