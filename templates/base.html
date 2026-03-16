@@ -305,6 +305,11 @@
                         <i class="bi bi-bar-chart-line-fill"></i> Estadísticas
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'fletes' %}active{% endif %}" href="/fletes">
+                        <i class="bi bi-truck"></i> Fletes
+                    </a>
+                </li>
                 <div class="section-title">TIENDA WEB</div>
                 <li class="nav-item">
                     <a class="nav-link {% if request.endpoint in ('tienda_precios','tienda_precios_guardar') %}active{% endif %}" href="/tienda-admin/precios">
@@ -434,6 +439,11 @@
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'estadisticas' %}active{% endif %}" href="/estadisticas">
                                 <i class="bi bi-bar-chart-line-fill"></i> Estadísticas
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'fletes' %}active{% endif %}" href="/fletes">
+                                <i class="bi bi-truck"></i> Fletes
                             </a>
                         </li>
                         <div class="section-title">TIENDA WEB</div>

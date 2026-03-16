@@ -1,0 +1,301 @@
+{% extends 'base.html' %}
+{% block title %}Fletes{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0"><i class="bi bi-truck me-2"></i>Fletes</h4>
+</div>
+
+<div class="row g-3">
+
+  <!-- ── SIDEBAR: ABM Fleteros ── -->
+  <div class="col-md-3">
+    <div class="card shadow-sm mb-3">
+      <div class="card-header fw-bold"><i class="bi bi-person-badge me-1"></i> Fleteros</div>
+      <div class="card-body p-2">
+        <div class="input-group input-group-sm mb-2">
+          <input type="text" class="form-control" id="nuevo-fletero" placeholder="Nombre del fletero">
+          <button class="btn btn-primary" onclick="agregarFletero()"><i class="bi bi-plus"></i></button>
+        </div>
+        <ul class="list-group list-group-flush" id="lista-fleteros">
+          {% for f in fleteros %}
+          <li class="list-group-item d-flex justify-content-between align-items-center px-1 py-1" id="fletero-li-{{ f.id }}">
+            <span class="{{ 'text-muted text-decoration-line-through' if not f.activo else '' }}">{{ f.nombre }}</span>
+            <button class="btn btn-xs btn-outline-{{ 'warning' if f.activo else 'success' }} btn-sm py-0 px-1"
+              onclick="toggleFletero({{ f.id }})" title="{{ 'Pausar' if f.activo else 'Activar' }}">
+              <i class="bi {{ 'bi-pause' if f.activo else 'bi-play' }}"></i>
+            </button>
+          </li>
+          {% else %}
+          <li class="list-group-item text-muted small">Sin fleteros</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+
+    <!-- Totales del mes -->
+    {% if totales_fletero %}
+    <div class="card shadow-sm">
+      <div class="card-header fw-bold"><i class="bi bi-calculator me-1"></i> Totales del mes</div>
+      <div class="card-body p-2">
+        <table class="table table-sm table-borderless mb-1" style="font-size:0.82rem;">
+          <thead><tr class="text-muted"><th>Fletero</th><th class="text-end">Total</th><th class="text-end">Pendiente</th></tr></thead>
+          <tbody>
+            {% set ns = namespace(gran_total=0, gran_pendiente=0) %}
+            {% for t in totales_fletero %}
+            {% set ns.gran_total = ns.gran_total + t.total %}
+            {% set ns.gran_pendiente = ns.gran_pendiente + t.pendiente %}
+            <tr>
+              <td>{{ t.nombre }}</td>
+              <td class="text-end fw-bold">${{ "{:,.0f}".format(t.total).replace(",",".") }}</td>
+              <td class="text-end {{ 'text-danger' if t.pendiente > 0 else 'text-success' }}">
+                ${{ "{:,.0f}".format(t.pendiente).replace(",",".") }}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr class="border-top fw-bold">
+              <td>TOTAL</td>
+              <td class="text-end">${{ "{:,.0f}".format(ns.gran_total).replace(",",".") }}</td>
+              <td class="text-end text-danger">${{ "{:,.0f}".format(ns.gran_pendiente).replace(",",".") }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── PRINCIPAL ── -->
+  <div class="col-md-9">
+
+    <!-- Selector de mes + botón agregar -->
+    <div class="d-flex gap-2 align-items-center mb-3 flex-wrap">
+      <input type="month" class="form-control" style="max-width:180px;" value="{{ mes }}"
+        onchange="window.location='/fletes?mes='+this.value">
+      <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#modalAgregar">
+        <i class="bi bi-plus-lg me-1"></i> Agregar recorrido
+      </button>
+    </div>
+
+    {% if registros %}
+    <!-- Agrupar por fecha en Jinja -->
+    {% set ns = namespace(fecha_actual='', subtotal_dia=0, grupos=[]) %}
+
+    <div class="accordion" id="acc-fletes">
+      {% set fechas = registros | map(attribute='fecha') | unique | list %}
+      {% for fecha in fechas %}
+        {% set regs_dia = registros | selectattr('fecha', 'equalto', fecha) | list %}
+        {% set total_dia = regs_dia | sum(attribute='monto') %}
+        {% set pagados_dia = regs_dia | selectattr('pagado', 'equalto', 1) | list | length %}
+        {% set todos_pagados = pagados_dia == regs_dia | length %}
+
+        <div class="accordion-item mb-2 border rounded">
+          <h2 class="accordion-header">
+            <button class="accordion-button py-2 {{ '' if loop.first else 'collapsed' }}" type="button"
+              data-bs-toggle="collapse" data-bs-target="#dia-{{ fecha | string | replace('-','') }}">
+              <div class="d-flex w-100 justify-content-between align-items-center pe-3">
+                <span class="fw-bold">{{ fecha.strftime('%d/%m/%Y') if fecha is not string else fecha }}</span>
+                <div class="d-flex gap-3 align-items-center">
+                  <span class="badge bg-secondary">{{ regs_dia | length }} recorrido{{ 's' if regs_dia | length > 1 }}</span>
+                  <span class="fw-bold text-dark">${{ "{:,.0f}".format(total_dia).replace(",",".") }}</span>
+                  {% if todos_pagados %}
+                    <span class="badge bg-success">✓ Pagado</span>
+                  {% else %}
+                    <span class="badge bg-danger">Pendiente</span>
+                  {% endif %}
+                </div>
+              </div>
+            </button>
+          </h2>
+          <div id="dia-{{ fecha | string | replace('-','') }}" class="accordion-collapse collapse {{ 'show' if loop.first }}">
+            <div class="accordion-body p-2">
+
+              <!-- Agrupar por fletero dentro del día -->
+              {% set fleteros_dia = regs_dia | map(attribute='fletero_nombre') | unique | list %}
+              {% for fletero_nombre in fleteros_dia %}
+                {% set regs_flet = regs_dia | selectattr('fletero_nombre', 'equalto', fletero_nombre) | list %}
+                {% set total_flet = regs_flet | sum(attribute='monto') %}
+                {% set flet_pagado = regs_flet[0].pagado %}
+                {% set fletero_id = regs_flet[0].fletero_id %}
+                {% set fecha_str = fecha | string %}
+
+                <div class="card mb-2">
+                  <div class="card-header py-1 d-flex justify-content-between align-items-center bg-light">
+                    <span class="fw-semibold">{{ fletero_nombre }}</span>
+                    <div class="d-flex align-items-center gap-2">
+                      <span class="fw-bold">${{ "{:,.0f}".format(total_flet).replace(",",".") }}</span>
+                      <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" role="switch"
+                          {{ 'checked' if flet_pagado else '' }}
+                          onchange="togglePagadoGrupo({{ fletero_id }}, '{{ fecha_str }}', this.checked)"
+                          title="{{ 'Marcar impago' if flet_pagado else 'Marcar pagado' }}">
+                        <label class="form-check-label small {{ 'text-success' if flet_pagado else 'text-danger' }}">
+                          {{ 'Pagado' if flet_pagado else 'Pendiente' }}
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="card-body p-0">
+                    <table class="table table-sm table-hover mb-0" style="font-size:0.85rem;">
+                      <tbody>
+                        {% for r in regs_flet %}
+                        <tr id="reg-{{ r.id }}">
+                          <td class="ps-3">{{ r.descripcion or '—' }}</td>
+                          <td class="text-end fw-bold" style="width:110px;">
+                            <span class="monto-display" id="monto-{{ r.id }}">${{ "{:,.0f}".format(r.monto).replace(",",".") }}</span>
+                            <input type="number" class="form-control form-control-sm d-none monto-input"
+                              id="input-monto-{{ r.id }}" value="{{ r.monto | int }}" style="width:90px;"
+                              onblur="guardarMonto({{ r.id }})" onkeydown="if(event.key==='Enter') guardarMonto({{ r.id }})">
+                          </td>
+                          <td style="width:70px;" class="text-end pe-2">
+                            <button class="btn btn-xs btn-outline-secondary py-0 px-1 btn-sm"
+                              onclick="editarMonto({{ r.id }})" title="Editar"><i class="bi bi-pencil"></i></button>
+                            <button class="btn btn-xs btn-outline-danger py-0 px-1 btn-sm"
+                              onclick="eliminarRegistro({{ r.id }})" title="Eliminar"><i class="bi bi-trash"></i></button>
+                          </td>
+                        </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              {% endfor %}
+
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+
+    {% else %}
+    <div class="alert alert-light text-center text-muted">
+      No hay registros para este mes.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── MODAL AGREGAR RECORRIDO ── -->
+<div class="modal fade" id="modalAgregar" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-truck me-2"></i>Agregar recorrido</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Fletero</label>
+          <select class="form-select" id="modal-fletero">
+            {% for f in fleteros %}{% if f.activo %}
+            <option value="{{ f.id }}">{{ f.nombre }}</option>
+            {% endif %}{% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Fecha</label>
+          <input type="date" class="form-control" id="modal-fecha" value="{{ mes }}-01">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Descripción <small class="text-muted">(opcional)</small></label>
+          <input type="text" class="form-control" id="modal-desc" placeholder="Ej: Zona norte, 3 entregas...">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Monto ($)</label>
+          <input type="number" class="form-control" id="modal-monto" min="0" step="100" placeholder="Ej: 15000">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="guardarRecorrido()">
+          <i class="bi bi-check-lg me-1"></i> Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container" style="position:fixed;bottom:20px;right:20px;z-index:9999"></div>
+
+<script>
+async function api(data) {
+  const res = await fetch('/fletes/guardar', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+function toast(msg, tipo='success') {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = `alert alert-${tipo} shadow mb-2`;
+  t.style.minWidth = '220px'; t.textContent = msg;
+  c.appendChild(t); setTimeout(() => t.remove(), 3000);
+}
+
+async function agregarFletero() {
+  const nombre = document.getElementById('nuevo-fletero').value.trim();
+  if (!nombre) return;
+  const data = await api({accion:'agregar_fletero', nombre});
+  if (data.ok) { toast('Fletero agregado'); setTimeout(() => location.reload(), 600); }
+  else toast('Error: ' + data.error, 'danger');
+}
+document.getElementById('nuevo-fletero').addEventListener('keydown', e => { if (e.key === 'Enter') agregarFletero(); });
+
+async function toggleFletero(id) {
+  const data = await api({accion:'toggle_fletero', id});
+  if (data.ok) { toast('Actualizado'); setTimeout(() => location.reload(), 500); }
+  else toast('Error: ' + data.error, 'danger');
+}
+
+async function guardarRecorrido() {
+  const fletero_id  = document.getElementById('modal-fletero').value;
+  const fecha       = document.getElementById('modal-fecha').value;
+  const descripcion = document.getElementById('modal-desc').value.trim();
+  const monto       = document.getElementById('modal-monto').value;
+  if (!fletero_id || !fecha || !monto) { toast('Completá todos los campos', 'warning'); return; }
+  const data = await api({accion:'agregar_registro', fletero_id, fecha, descripcion, monto});
+  if (data.ok) {
+    toast('Recorrido guardado');
+    bootstrap.Modal.getInstance(document.getElementById('modalAgregar')).hide();
+    setTimeout(() => location.reload(), 600);
+  } else toast('Error: ' + data.error, 'danger');
+}
+
+async function eliminarRegistro(id) {
+  if (!confirm('¿Eliminar este recorrido?')) return;
+  const data = await api({accion:'eliminar_registro', id});
+  if (data.ok) { document.getElementById('reg-' + id)?.remove(); toast('Eliminado'); }
+  else toast('Error: ' + data.error, 'danger');
+}
+
+async function togglePagadoGrupo(fletero_id, fecha, checked) {
+  const pagado = checked ? 1 : 0;
+  const data = await api({accion:'toggle_pagado_grupo', fletero_id, fecha, pagado});
+  if (data.ok) { setTimeout(() => location.reload(), 300); }
+  else { toast('Error: ' + data.error, 'danger'); }
+}
+
+function editarMonto(id) {
+  document.getElementById('monto-' + id).classList.add('d-none');
+  const inp = document.getElementById('input-monto-' + id);
+  inp.classList.remove('d-none');
+  inp.focus(); inp.select();
+}
+async function guardarMonto(id) {
+  const inp = document.getElementById('input-monto-' + id);
+  const monto = parseFloat(inp.value);
+  if (!monto || monto <= 0) return;
+  const data = await api({accion:'editar_monto', id, monto});
+  if (data.ok) {
+    const disp = document.getElementById('monto-' + id);
+    disp.textContent = '$ ' + monto.toLocaleString('es-AR', {maximumFractionDigits:0});
+    inp.classList.add('d-none');
+    disp.classList.remove('d-none');
+    toast('Monto actualizado');
+  } else toast('Error: ' + data.error, 'danger');
+}
+</script>
+{% endblock %}
