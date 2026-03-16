@@ -3,7 +3,10 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h4 class="mb-0"><i class="bi bi-tag me-2"></i>Precios Tienda Web</h4>
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-2 flex-wrap">
+    <button class="btn btn-outline-warning" onclick="mostrarModalDescuento()">
+      <i class="bi bi-scissors me-1"></i> Descuento catálogo
+    </button>
     <button class="btn btn-outline-secondary" onclick="mostrarModalAumento()">
       <i class="bi bi-arrow-up-circle me-1"></i> Aumentar todos
     </button>
@@ -33,7 +36,8 @@
               <th>SKU</th>
               <th>Nombre</th>
               <th>Tipo</th>
-              <th style="width:160px">Precio ($)</th>
+              <th style="width:150px">Precio ($)</th>
+              <th style="width:130px">Descuento cat.</th>
             </tr>
           </thead>
           <tbody>
@@ -47,7 +51,21 @@
                   value="{{ p.precio_base | float | int }}"
                   data-original="{{ p.precio_base | float | int }}"
                   data-nombre="{{ p.nombre }}"
-                  min="0" step="1000" style="max-width:140px">
+                  min="0" step="1000" style="max-width:130px">
+              </td>
+              <td>
+                <div class="input-group input-group-sm">
+                  <input type="number" class="form-control descuento-input"
+                    value="{{ p.descuento_catalogo | float | int if p.descuento_catalogo else '' }}"
+                    placeholder="0" min="0" max="99" step="1" style="max-width:60px"
+                    data-sku="{{ p.sku }}" data-origen="base"
+                    onchange="guardarDescuento(this)">
+                  <span class="input-group-text">%</span>
+                  {% if p.descuento_catalogo %}
+                  <button class="btn btn-outline-danger btn-sm" title="Quitar descuento"
+                    onclick="quitarDescuento('{{ p.sku }}','base',this)">✕</button>
+                  {% endif %}
+                </div>
               </td>
             </tr>
             {% endfor %}
@@ -61,7 +79,21 @@
                   value="{{ p.precio_base | float | int if p.precio_base else 0 }}"
                   data-original="{{ p.precio_base | float | int if p.precio_base else 0 }}"
                   data-nombre="{{ p.nombre }}"
-                  min="0" step="1000" style="max-width:140px">
+                  min="0" step="1000" style="max-width:130px">
+              </td>
+              <td>
+                <div class="input-group input-group-sm">
+                  <input type="number" class="form-control descuento-input"
+                    value="{{ p.descuento_catalogo | float | int if p.descuento_catalogo else '' }}"
+                    placeholder="0" min="0" max="99" step="1" style="max-width:60px"
+                    data-sku="{{ p.sku }}" data-origen="compuesto"
+                    onchange="guardarDescuento(this)">
+                  <span class="input-group-text">%</span>
+                  {% if p.descuento_catalogo %}
+                  <button class="btn btn-outline-danger btn-sm" title="Quitar descuento"
+                    onclick="quitarDescuento('{{ p.sku }}','compuesto',this)">✕</button>
+                  {% endif %}
+                </div>
               </td>
             </tr>
             {% endfor %}
@@ -134,6 +166,34 @@
         <button class="btn btn-success" id="btn-confirmar-guardar" onclick="confirmarGuardar()">
           <i class="bi bi-check-lg me-1"></i> Confirmar y guardar
         </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal descuento catálogo masivo -->
+<div class="modal fade" id="modalDescuento" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-scissors me-2"></i>Descuento en catálogo</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">Aplica un precio tachado en todas las publicaciones del catálogo. El precio base no se modifica.</p>
+        <div class="mb-3">
+          <label class="form-label fw-bold">Porcentaje de descuento (%)</label>
+          <input type="number" class="form-control" id="pct-descuento-masivo" value="10" min="1" max="99" step="1">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger" onclick="aplicarDescuentoTodos()">
+          <i class="bi bi-check-lg me-1"></i> Aplicar a todos
+        </button>
+        <button class="btn btn-outline-secondary" onclick="quitarDescuentoTodos()">
+          <i class="bi bi-x-lg me-1"></i> Quitar descuento de todos
+        </button>
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
       </div>
     </div>
   </div>
@@ -364,6 +424,75 @@ async function aplicarAumento() {
   } catch(e) { toast('Error: ' + e.message, 'danger'); }
   btn.disabled = false;
   btn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Aplicar aumento';
+}
+
+// ── Descuentos catálogo ──
+function mostrarModalDescuento() {
+  new bootstrap.Modal(document.getElementById('modalDescuento')).show();
+}
+
+async function apiDescuento(data) {
+  const res = await fetch('/tienda-admin/precios/descuento', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+async function guardarDescuento(input) {
+  const sku    = input.dataset.sku;
+  const origen = input.dataset.origen;
+  const pct    = parseFloat(input.value);
+  if (!pct || pct <= 0) { await quitarDescuento(sku, origen, input); return; }
+  const data = await apiDescuento({accion: 'set', sku, pct, origen});
+  if (data.ok) {
+    toast('Descuento aplicado', 'success');
+    // Mostrar botón ✕ si no existe
+    const group = input.closest('.input-group');
+    if (!group.querySelector('.btn-outline-danger')) {
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-outline-danger btn-sm';
+      btn.title = 'Quitar descuento';
+      btn.textContent = '✕';
+      btn.onclick = () => quitarDescuento(sku, origen, input);
+      group.appendChild(btn);
+    }
+  } else toast('Error: ' + data.error, 'danger');
+}
+
+async function quitarDescuento(sku, origen, inputOrBtn) {
+  const data = await apiDescuento({accion: 'quitar', sku, origen});
+  if (data.ok) {
+    const input = typeof inputOrBtn.tagName !== 'undefined' ? 
+      (inputOrBtn.tagName === 'INPUT' ? inputOrBtn : inputOrBtn.closest('.input-group').querySelector('.descuento-input')) 
+      : null;
+    if (input) input.value = '';
+    const group = typeof inputOrBtn.tagName !== 'undefined' ? inputOrBtn.closest('.input-group') : null;
+    if (group) group.querySelector('.btn-outline-danger')?.remove();
+    toast('Descuento quitado', 'success');
+  } else toast('Error: ' + data.error, 'danger');
+}
+
+async function aplicarDescuentoTodos() {
+  const pct = parseFloat(document.getElementById('pct-descuento-masivo').value);
+  if (!pct || pct <= 0) { toast('Ingresá un % válido', 'warning'); return; }
+  const data = await apiDescuento({accion: 'set_todos', pct});
+  if (data.ok) {
+    bootstrap.Modal.getInstance(document.getElementById('modalDescuento')).hide();
+    toast(`Descuento ${pct}% aplicado a todos`, 'success');
+    setTimeout(() => location.reload(), 800);
+  } else toast('Error: ' + data.error, 'danger');
+}
+
+async function quitarDescuentoTodos() {
+  if (!confirm('¿Quitar el descuento de catálogo de TODOS los productos?')) return;
+  const data = await apiDescuento({accion: 'quitar_todos'});
+  if (data.ok) {
+    bootstrap.Modal.getInstance(document.getElementById('modalDescuento')).hide();
+    toast('Descuentos quitados de todos', 'success');
+    setTimeout(() => location.reload(), 800);
+  } else toast('Error: ' + data.error, 'danger');
 }
 
 function toast(msg, tipo) {
