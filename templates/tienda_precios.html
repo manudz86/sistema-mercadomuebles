@@ -39,8 +39,8 @@
           <td><span class="badge bg-secondary">{{ p.tipo }}</span></td>
           <td>
             <input type="number" class="form-control form-control-sm precio-input"
-              value="{{ p.precio_base | int }}"
-              data-original="{{ p.precio_base | int }}"
+              value="{{ p.precio_base | float | int }}"
+              data-original="{{ p.precio_base | float | int }}"
               min="0" step="1000"
               style="max-width:140px">
           </td>
@@ -54,8 +54,8 @@
           <td><span class="badge bg-primary">Sommier armado</span></td>
           <td>
             <input type="number" class="form-control form-control-sm precio-input"
-              value="{{ p.precio_base | int if p.precio_base else 0 }}"
-              data-original="{{ p.precio_base | int if p.precio_base else 0 }}"
+              value="{{ p.precio_base | float | int if p.precio_base else 0 }}"
+              data-original="{{ p.precio_base | float | int if p.precio_base else 0 }}"
               min="0" step="1000"
               style="max-width:140px">
           </td>
