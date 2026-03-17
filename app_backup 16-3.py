@@ -8744,6 +8744,117 @@ from tienda_bp import tienda_bp
 app.register_blueprint(tienda_bp)
 
 
+
+# ============================================================================
+# FLETES
+# ============================================================================
+
+def _crear_tablas_fletes():
+    execute_db("""
+        CREATE TABLE IF NOT EXISTS fleteros (
+            id        INT AUTO_INCREMENT PRIMARY KEY,
+            nombre    VARCHAR(100) NOT NULL UNIQUE,
+            activo    TINYINT DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    execute_db("""
+        CREATE TABLE IF NOT EXISTS fletes_registros (
+            id          INT AUTO_INCREMENT PRIMARY KEY,
+            fletero_id  INT NOT NULL,
+            fecha       DATE NOT NULL,
+            descripcion VARCHAR(200) DEFAULT '',
+            monto       DECIMAL(10,2) NOT NULL,
+            pagado      TINYINT DEFAULT 0,
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (fletero_id) REFERENCES fleteros(id)
+        )
+    """)
+
+@app.route('/fletes', methods=['GET'])
+@login_required
+def fletes():
+    _crear_tablas_fletes()
+    from datetime import date
+    mes  = request.args.get('mes', date.today().strftime('%Y-%m'))
+    try:
+        anio, nmes = int(mes.split('-')[0]), int(mes.split('-')[1])
+    except Exception:
+        anio, nmes = date.today().year, date.today().month
+
+    fleteros = query_db("SELECT * FROM fleteros ORDER BY nombre")
+
+    registros = query_db("""
+        SELECT r.id, r.fletero_id, r.fecha, r.descripcion, r.monto, r.pagado,
+               f.nombre as fletero_nombre
+        FROM fletes_registros r
+        JOIN fleteros f ON f.id = r.fletero_id
+        WHERE YEAR(r.fecha) = %s AND MONTH(r.fecha) = %s
+        ORDER BY r.fecha, f.nombre, r.id
+    """, (anio, nmes))
+
+    # Totales por fletero del mes
+    totales_fletero = query_db("""
+        SELECT f.nombre, f.id,
+               SUM(r.monto) as total,
+               SUM(CASE WHEN r.pagado=1 THEN r.monto ELSE 0 END) as pagado,
+               SUM(CASE WHEN r.pagado=0 THEN r.monto ELSE 0 END) as pendiente
+        FROM fletes_registros r
+        JOIN fleteros f ON f.id = r.fletero_id
+        WHERE YEAR(r.fecha) = %s AND MONTH(r.fecha) = %s
+        GROUP BY f.id, f.nombre
+        ORDER BY f.nombre
+    """, (anio, nmes))
+
+    return render_template('fletes.html',
+        fleteros        = fleteros,
+        registros       = registros,
+        totales_fletero = totales_fletero,
+        mes             = mes,
+        anio            = anio,
+        nmes            = nmes,
+    )
+
+
+@app.route('/fletes/guardar', methods=['POST'])
+@login_required
+def fletes_guardar():
+    _crear_tablas_fletes()
+    data   = request.get_json()
+    accion = data.get('accion')
+    try:
+        if accion == 'agregar_fletero':
+            nombre = data.get('nombre', '').strip()
+            if not nombre:
+                return jsonify({'ok': False, 'error': 'Nombre requerido'})
+            existe = query_db("SELECT id FROM fleteros WHERE nombre=%s", (nombre,))
+            if existe:
+                return jsonify({'ok': False, 'error': 'Ya existe ese fletero'})
+            execute_db("INSERT INTO fleteros (nombre) VALUES (%s)", (nombre,))
+        elif accion == 'toggle_fletero':
+            execute_db("UPDATE fleteros SET activo = NOT activo WHERE id=%s", (data.get('id'),))
+        elif accion == 'agregar_registro':
+            execute_db("""
+                INSERT INTO fletes_registros (fletero_id, fecha, descripcion, monto, pagado)
+                VALUES (%s, %s, %s, %s, 0)
+            """, (data['fletero_id'], data['fecha'], data.get('descripcion',''), float(data['monto'])))
+        elif accion == 'eliminar_registro':
+            execute_db("DELETE FROM fletes_registros WHERE id=%s", (data.get('id'),))
+        elif accion == 'toggle_pagado_grupo':
+            # Marcar/desmarcar todos los registros de un día+fletero
+            nuevo = int(data.get('pagado', 0))
+            execute_db("""
+                UPDATE fletes_registros SET pagado=%s
+                WHERE fletero_id=%s AND fecha=%s
+            """, (nuevo, data['fletero_id'], data['fecha']))
+        elif accion == 'editar_monto':
+            execute_db("UPDATE fletes_registros SET monto=%s WHERE id=%s",
+                       (float(data['monto']), data['id']))
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+    return jsonify({'ok': True})
+
+
 # ============================================================================
 # PANEL TIENDA WEB — Precios y Ofertas
 # ============================================================================
@@ -8830,6 +8941,11 @@ def tienda_precios_descuento():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
     return jsonify({'ok': True})
+
+
+@app.route('/tienda-admin/ofertas', methods=['GET'])
+@login_required
+def tienda_ofertas():
     ofertas = query_db("""
         SELECT o.id, o.sku, o.descuento_pct, o.orden, o.activo,
                COALESCE(pb.nombre, pc.nombre, o.sku) as nombre
@@ -8871,6 +8987,78 @@ def tienda_ofertas_guardar():
         elif accion == 'reordenar':
             for item in data.get('items', []):
                 execute_db("UPDATE ofertas_home SET orden=%s WHERE id=%s", (item['orden'], item['id']))
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+    return jsonify({'ok': True})
+
+
+# ── CUPONES ──────────────────────────────────────────────────────────────────
+
+@app.route('/tienda-admin/cupones', methods=['GET'])
+@login_required
+def tienda_cupones():
+    execute_db("""
+        CREATE TABLE IF NOT EXISTS cupones (
+            id               INT AUTO_INCREMENT PRIMARY KEY,
+            codigo           VARCHAR(50) NOT NULL UNIQUE,
+            tipo             ENUM('pct','fijo') NOT NULL DEFAULT 'pct',
+            valor            DECIMAL(10,2) NOT NULL,
+            minimo_compra    DECIMAL(10,2) DEFAULT 0,
+            usos_maximos     INT DEFAULT NULL,
+            usos_actuales    INT DEFAULT 0,
+            fecha_vencimiento DATE DEFAULT NULL,
+            solo_un_uso      TINYINT DEFAULT 0,
+            activo           TINYINT DEFAULT 1,
+            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    execute_db("""
+        CREATE TABLE IF NOT EXISTS cupones_uso (
+            id           INT AUTO_INCREMENT PRIMARY KEY,
+            cupon_id     INT NOT NULL,
+            email        VARCHAR(255),
+            telefono     VARCHAR(50),
+            venta_numero VARCHAR(100),
+            fecha_uso    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cupones = query_db("""
+        SELECT c.*, COUNT(cu.id) as usos_reales
+        FROM cupones c
+        LEFT JOIN cupones_uso cu ON cu.cupon_id = c.id
+        GROUP BY c.id
+        ORDER BY c.created_at DESC
+    """)
+    return render_template('tienda_cupones.html', cupones=cupones)
+
+
+@app.route('/tienda-admin/cupones/guardar', methods=['POST'])
+@login_required
+def tienda_cupones_guardar():
+    data   = request.get_json()
+    accion = data.get('accion')
+    try:
+        if accion == 'crear':
+            codigo   = data.get('codigo', '').strip().upper()
+            tipo     = data.get('tipo', 'pct')
+            valor    = float(data.get('valor', 0))
+            minimo   = float(data.get('minimo_compra', 0) or 0)
+            usos_max = int(data.get('usos_maximos') or 0) or None
+            venc     = data.get('fecha_vencimiento') or None
+            solo_uno = int(data.get('solo_un_uso', 0))
+            if not codigo or valor <= 0:
+                return jsonify({'ok': False, 'error': 'Código y valor son obligatorios'})
+            existe = query_db("SELECT id FROM cupones WHERE codigo=%s", (codigo,))
+            if existe:
+                return jsonify({'ok': False, 'error': 'Código ya existe'})
+            execute_db("""
+                INSERT INTO cupones (codigo, tipo, valor, minimo_compra, usos_maximos, fecha_vencimiento, solo_un_uso, activo)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 1)
+            """, (codigo, tipo, valor, minimo, usos_max, venc, solo_uno))
+        elif accion == 'toggle':
+            execute_db("UPDATE cupones SET activo = NOT activo WHERE id=%s", (data.get('id'),))
+        elif accion == 'eliminar':
+            execute_db("DELETE FROM cupones WHERE id=%s", (data.get('id'),))
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
     return jsonify({'ok': True})
