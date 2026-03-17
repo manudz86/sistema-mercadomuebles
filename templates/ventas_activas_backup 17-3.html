@@ -137,17 +137,12 @@
                 </select>
             </div>
             
-            <div class="col-12 d-flex gap-2 flex-wrap">
+            <div class="col-12 d-flex gap-2">
                 <button type="submit" class="btn btn-primary">
                     <i class="bi bi-funnel"></i> Filtrar
                 </button>
                 <a href="/ventas/activas" class="btn btn-secondary">
                     <i class="bi bi-x-circle"></i> Limpiar
-                </a>
-                <a id="btn-exportar-excel"
-                   href="/ventas/activas/exportar-excel?buscar={{ filtro_buscar|urlencode }}&tipo_entrega={{ filtro_tipo_entrega|urlencode }}&metodo_envio={{ filtro_metodo_envio|urlencode }}&zona={{ filtro_zona|urlencode }}&canal={{ filtro_canal|urlencode }}&estado_pago={{ filtro_estado_pago|urlencode }}"
-                   class="btn btn-success">
-                    <i class="bi bi-file-earmark-excel"></i> Excel
                 </a>
             </div>
         </form>
@@ -965,27 +960,6 @@ function guardarTrid(ventaId) {
         else alert('Error: ' + data.error);
     });
 }
-
-// Actualizar href del botón Excel cuando cambian los filtros
-(function() {
-    function actualizarExcelHref() {
-        const form = document.querySelector('form[action="/ventas/activas"]');
-        if (!form || !document.getElementById('btn-exportar-excel')) return;
-        const params = new URLSearchParams(new FormData(form));
-        document.getElementById('btn-exportar-excel').href =
-            '/ventas/activas/exportar-excel?' + params.toString();
-    }
-    document.addEventListener('DOMContentLoaded', function() {
-        const form = document.querySelector('form[action="/ventas/activas"]');
-        if (form) {
-            form.querySelectorAll('input, select').forEach(function(el) {
-                el.addEventListener('change', actualizarExcelHref);
-                el.addEventListener('input', actualizarExcelHref);
-            });
-            actualizarExcelHref();
-        }
-    });
-})();
 
 </script>
 
