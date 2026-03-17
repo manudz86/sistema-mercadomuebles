@@ -193,7 +193,6 @@
                             <select class="form-select" name="metodo_envio" id="metodo_envio">
                                 <option value="Colecta" {% if shipping.get('metodo_envio') == 'Colecta' %}selected{% endif %}>Colecta</option>
                                 <option value="Flex" {% if shipping.get('metodo_envio') == 'Flex' %}selected{% endif %}>Flex</option>
-                                <option value="Turbo" {% if shipping.get('metodo_envio') == 'Turbo' %}selected{% endif %}>🚀 Turbo</option>
                                 <option value="Full" {% if shipping.get('metodo_envio') == 'Full' %}selected{% endif %}>Full</option>
                                 <option value="Flete Propio" {% if shipping.get('metodo_envio') == 'Flete Propio' %}selected{% endif %}>Flete Propio</option>
                                 <option value="Delega">Delega</option>
@@ -308,7 +307,7 @@
                     <textarea class="form-control" 
                               name="notas" 
                               rows="3" 
-                              placeholder="Observaciones adicionales...">{% if shipping.get('fecha_entrega_ml') %}{{ shipping.get('fecha_entrega_ml') }}{% else %}Importado desde ML - Orden: {{ ml_orden_id }}{% endif %}</textarea>
+                              placeholder="Observaciones adicionales...">{% if shipping.get('fecha_entrega_ml') %}{{ shipping.get('fecha_entrega_ml')[:5] }}{% else %}Importado desde ML - Orden: {{ ml_orden_id }}{% endif %}</textarea>
                 </div>
             </div>
             
@@ -363,8 +362,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
     }
 
-    // Flex → Delega si el producto es Compac o almohada (no aplica a Turbo)
-    if (metodoEnvioEl && metodoEnvioEl.value === 'Flex' && metodoEnvioEl.value !== 'Turbo') {
+    // Flex → Delega si el producto es Compac o almohada
+    if (metodoEnvioEl && metodoEnvioEl.value === 'Flex') {
         const productosTexto = document.querySelectorAll('.producto-item');
         let esCompacOAlmohada = false;
         productosTexto.forEach(function(item) {
