@@ -495,9 +495,6 @@
                               onsubmit="return confirmarCargaStockMasiva(event, {{ publicaciones|length }})">
                             <input type="hidden" name="sku" value="{{ sku_buscado }}">
                             <input type="hidden" name="pubs_json" class="pubs-json-field">
-                            {% for pub in publicaciones %}
-                            <input type="hidden" name="mla_ids" value="{{ pub.mla }}">
-                            {% endfor %}
                             <div class="flex-fill">
                                 <label class="form-label">Stock a cargar en todas:</label>
                                 <input type="number" name="stock_nuevo" class="form-control"
@@ -515,9 +512,6 @@
                               onsubmit="return confirmarAccionMasiva('bajar stock a 0', {{ publicaciones|length }})">
                             <input type="hidden" name="sku" value="{{ sku_buscado }}">
                             <input type="hidden" name="pubs_json" class="pubs-json-field">
-                            {% for pub in publicaciones %}
-                            <input type="hidden" name="mla_ids" value="{{ pub.mla }}">
-                            {% endfor %}
                             <button type="submit" class="btn btn-danger w-100">
                                 <i class="bi bi-arrow-down-circle"></i> Bajar Stock a 0 en Todas
                             </button>
