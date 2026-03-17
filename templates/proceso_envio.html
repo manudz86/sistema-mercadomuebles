@@ -88,6 +88,7 @@
                     <option value="Zippin" {% if filtro_metodo_envio == 'Zippin' %}selected{% endif %}>Zippin</option>
                     <option value="ME2" {% if filtro_metodo_envio == 'ME2' %}selected{% endif %}>ME2 (Tienda)</option>
                     <option value="ME1" {% if filtro_metodo_envio == 'ME1' %}selected{% endif %}>ME1 (Tienda)</option>
+                    <option value="Turbo" {% if filtro_metodo_envio == 'Turbo' %}selected{% endif %}>🚀 Turbo</option>
                 </select>
             </div>
             
@@ -185,7 +186,7 @@
         </thead>
         <tbody>
             {% for venta in ventas %}
-            <tr data-venta-id="{{ venta.id }}">
+            <tr data-venta-id="{{ venta.id }}" {% if venta.metodo_envio == 'Turbo' %}class="table-danger"{% endif %}>
                 <!-- ✅ NUEVO: Checkbox por fila -->
                 <td class="text-center">
                     <input type="checkbox" 
@@ -354,7 +355,9 @@
                         {%- if venta.canal == 'Mercado Libre' %}<span class="badge" style="background:#FFE600;color:#333;">ML</span>
                         {%- elif venta.canal == 'tienda_web' %}<span class="badge bg-primary">WEB</span>
                         {%- else %}<span class="badge bg-secondary">EXT</span>{%- endif %}
+                        {%- if venta.metodo_envio == 'Turbo' %}<span class="badge bg-danger ms-1">🚀 TURBO</span>{%- endif %}
                     </span>
+                    {% if venta.hora_venta_str %}<div class="text-muted" style="font-size:0.7rem;">{{ venta.hora_venta_str }} hs</div>{% endif %}
                     <div class="text-muted" style="font-size:0.75rem;">{{ venta.fecha_venta.strftime('%d/%m/%Y') }}</div>
                 </div>
             </div>
