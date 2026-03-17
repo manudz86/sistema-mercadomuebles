@@ -8935,6 +8935,28 @@ app.register_blueprint(tienda_bp)
 # FLETES
 # ============================================================================
 
+def _crear_tablas_fletes():
+    execute_db("""
+        CREATE TABLE IF NOT EXISTS fleteros (
+            id     INT AUTO_INCREMENT PRIMARY KEY,
+            nombre VARCHAR(100) NOT NULL,
+            activo TINYINT DEFAULT 1
+        )
+    """)
+    execute_db("""
+        CREATE TABLE IF NOT EXISTS fletes_registros (
+            id          INT AUTO_INCREMENT PRIMARY KEY,
+            fletero_id  INT NOT NULL,
+            fecha       DATE NOT NULL,
+            descripcion VARCHAR(255) DEFAULT '',
+            monto       DECIMAL(10,2) NOT NULL,
+            pagado      TINYINT DEFAULT 0,
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (fletero_id) REFERENCES fleteros(id)
+        )
+    """)
+
+
 @app.route('/fletes', methods=['GET'])
 @login_required
 def fletes():
