@@ -13,6 +13,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from dotenv import load_dotenv
 import pymysql
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 import threading
 
@@ -27,7 +29,14 @@ load_dotenv('config/.env')
 
 # Configurar Flask
 app = Flask(__name__, template_folder='templates')
-app.secret_key = os.getenv('SECRET_KEY', 'cambiar-en-produccion-123456')
+app.secret_key = os.getenv('SECRET_KEY', '')
+
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri="memory://",
+)
 
 # Filtro personalizado para dashboard visual
 @app.template_filter('zero_dash')
@@ -143,6 +152,7 @@ def execute_db(query, params=None):
 # RUTAS DE LOGIN / LOGOUT
 # ============================================================================
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("10 per minute; 30 per hour")
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('index'))
@@ -659,7 +669,6 @@ def exportar_ventas_activas_excel():
 
     ventas = query_db(query, tuple(params) if params else None)
 
-    # Obtener items de cada venta
     for venta in ventas:
         items = query_db('''
             SELECT iv.sku, iv.cantidad, iv.precio_unitario,
@@ -672,12 +681,10 @@ def exportar_ventas_activas_excel():
         ''', (venta['id'],))
         venta['items'] = items
 
-    # Construir Excel
     wb = Workbook()
     ws = wb.active
     ws.title = 'Ventas Activas'
 
-    # Estilos
     header_font = Font(bold=True, color='FFFFFF')
     header_fill = PatternFill('solid', fgColor='2563EB')
     center = Alignment(horizontal='center', vertical='center')
@@ -702,7 +709,6 @@ def exportar_ventas_activas_excel():
         fecha_str = fecha.strftime('%d/%m/%Y') if fecha else ''
         hora_str  = fecha.strftime('%H:%M')    if fecha else ''
 
-        # Armar string de productos
         productos_str = ' | '.join(
             f"{item['nombre_producto']} x{item['cantidad']}"
             for item in (venta.get('items') or [])
@@ -730,7 +736,6 @@ def exportar_ventas_activas_excel():
             venta['notas'] or '',
         ])
 
-    # Anchos de columna
     col_widths = [6, 12, 12, 8, 12, 16, 24, 14, 12, 14, 12, 30, 12, 14, 12, 12, 12, 50, 40]
     for i, w in enumerate(col_widths, 1):
         ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
@@ -2898,7 +2903,7 @@ metodo_pago, importe_total, importe_abonado,
             params.append(filtro_canal)
         
         # Ordenar: Más recientes arriba (por fecha de entrega, o fecha_modificacion si no hay fecha_entrega)
-        query += ' ORDER BY fecha_venta DESC, id DESC'
+        query += " ORDER BY CASE WHEN metodo_envio = 'Turbo' THEN 0 ELSE 1 END, fecha_venta DESC, id DESC"
         
         # Ejecutar query
         ventas = query_db(query, tuple(params) if params else None)
@@ -7350,13 +7355,11 @@ def bajar_stock_cero_masivo():
         flash('❌ No hay token de ML configurado', 'danger')
         return redirect(url_for('cargar_stock_ml'))
 
-    mla_ids_form = request.form.getlist('mla_ids')
-    if mla_ids_form:
-        mlas = [{'mla_id': m} for m in mla_ids_form]
-    else:
-        mlas = query_db(
-            "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku,)
-        )
+    mlas = query_db(
+        "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku,)
+    )
+
+    exitos, errores = 0, []
     for row in mlas:
         ok, msg = actualizar_stock_ml(row['mla_id'], 0, access_token)
         if ok:
@@ -7784,16 +7787,11 @@ def cargar_stock_masivo():
     try:
         stock_nuevo = int(stock_nuevo)
         
-        # Prioridad: MLA IDs enviados desde el form (publis visibles en pantalla)
-        # Fallback: consulta DB local (sku_mla_mapeo)
-        mla_ids_form = request.form.getlist('mla_ids')
-        if mla_ids_form:
-            mlas = [{'mla_id': m} for m in mla_ids_form]
-        else:
-            mlas = query_db(
-                "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE",
-                (sku,)
-            )
+        # Obtener todas las publicaciones del SKU
+        mlas = query_db(
+            "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE",
+            (sku,)
+        )
         
         exitos = 0
         errores = 0
@@ -8938,9 +8936,10 @@ app.register_blueprint(tienda_bp)
 def _crear_tablas_fletes():
     execute_db("""
         CREATE TABLE IF NOT EXISTS fleteros (
-            id     INT AUTO_INCREMENT PRIMARY KEY,
-            nombre VARCHAR(100) NOT NULL,
-            activo TINYINT DEFAULT 1
+            id        INT AUTO_INCREMENT PRIMARY KEY,
+            nombre    VARCHAR(100) NOT NULL UNIQUE,
+            activo    TINYINT DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     execute_db("""
@@ -8948,14 +8947,13 @@ def _crear_tablas_fletes():
             id          INT AUTO_INCREMENT PRIMARY KEY,
             fletero_id  INT NOT NULL,
             fecha       DATE NOT NULL,
-            descripcion VARCHAR(255) DEFAULT '',
+            descripcion VARCHAR(200) DEFAULT '',
             monto       DECIMAL(10,2) NOT NULL,
             pagado      TINYINT DEFAULT 0,
             created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (fletero_id) REFERENCES fleteros(id)
         )
     """)
-
 
 @app.route('/fletes', methods=['GET'])
 @login_required
@@ -8979,6 +8977,7 @@ def fletes():
         ORDER BY r.fecha, f.nombre, r.id
     """, (anio, nmes))
 
+    # Totales por fletero del mes
     totales_fletero = query_db("""
         SELECT f.nombre, f.id,
                SUM(r.monto) as total,
@@ -9026,6 +9025,7 @@ def fletes_guardar():
         elif accion == 'eliminar_registro':
             execute_db("DELETE FROM fletes_registros WHERE id=%s", (data.get('id'),))
         elif accion == 'toggle_pagado_grupo':
+            # Marcar/desmarcar todos los registros de un día+fletero
             nuevo = int(data.get('pagado', 0))
             execute_db("""
                 UPDATE fletes_registros SET pagado=%s
@@ -9040,7 +9040,7 @@ def fletes_guardar():
 
 
 # ============================================================================
-# PANEL TIENDA WEB — Precios, Ofertas y Cupones
+# PANEL TIENDA WEB — Precios y Ofertas
 # ============================================================================
 
 @app.route('/tienda-admin/precios', methods=['GET'])
@@ -9058,6 +9058,7 @@ def tienda_precios():
         WHERE activo = 1
         ORDER BY nombre
     """)
+    print(f"[tienda_precios] base={len(productos_base)} comp={len(productos_comp)} first={productos_base[0] if productos_base else 'VACIO'}", flush=True)
     return render_template('tienda_precios.html',
         productos_base=productos_base,
         productos_comp=productos_comp,
@@ -9097,7 +9098,7 @@ def tienda_precios_guardar():
 @login_required
 def tienda_precios_descuento():
     data = request.get_json()
-    accion = data.get('accion')
+    accion = data.get('accion')  # 'set', 'quitar', 'set_todos', 'quitar_todos'
     try:
         if accion == 'set':
             sku    = data.get('sku', '').strip()
@@ -9174,6 +9175,8 @@ def tienda_ofertas_guardar():
         return jsonify({'ok': False, 'error': str(e)})
     return jsonify({'ok': True})
 
+
+# ── CUPONES ──────────────────────────────────────────────────────────────────
 
 @app.route('/tienda-admin/cupones', methods=['GET'])
 @login_required

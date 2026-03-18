@@ -284,11 +284,6 @@
                     {% if venta.tipo_entrega in ['retiro', 'Retiro'] or not venta.metodo_envio %}
                         <strong>Retiro</strong>
                         <br><small class="text-info">🔷 Depósito</small>
-                        <br>
-                        <a href="{{ url_for('orden_retiro_pdf', venta_id=venta.id) }}" target="_blank"
-                           class="btn btn-outline-secondary btn-sm mt-1" title="Generar orden de retiro PDF">
-                            🖨️ Orden
-                        </a>
                     {% else %}
                         <strong>Envío</strong>
                         <br><span class="badge bg-secondary">{{ venta.metodo_envio }}</span>
@@ -457,8 +452,6 @@
                 <div>
                     {% if venta.tipo_entrega in ['retiro', 'Retiro'] or not venta.metodo_envio %}
                         <span class="badge bg-info text-dark">🔷 Retiro depósito</span>
-                        <a href="{{ url_for('orden_retiro_pdf', venta_id=venta.id) }}" target="_blank"
-                           class="badge bg-secondary text-white text-decoration-none ms-1">🖨️ Orden</a>
                     {% else %}
                         <span class="badge bg-secondary">{{ venta.metodo_envio }}</span>
                         {% if venta.zona_envio %}<span class="badge bg-light text-dark border ms-1">{{ venta.zona_envio }}</span>{% endif %}

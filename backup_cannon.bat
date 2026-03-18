@@ -4,7 +4,7 @@ set ARCHIVO="C:\Users\manud\OneDrive\Backup sistema\backup_cannon_%FECHA%.sql"
 
 echo Haciendo backup de inventario_cannon desde VPS...
 
-ssh root@72.61.134.243 "mysqldump -u cannon -pCannon2026! inventario_cannon" > %ARCHIVO%
+ssh root@72.61.134.243 "mysqldump -u cannon -pSistema@32267845 inventario_cannon" > %ARCHIVO%
 
 if errorlevel 1 (
     echo ERROR: Fallo el backup.
