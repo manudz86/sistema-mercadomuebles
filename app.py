@@ -9295,6 +9295,178 @@ def tienda_ofertas_guardar():
     return jsonify({'ok': True})
 
 
+
+# ── NOTA DE PEDIDO PDF ────────────────────────────────────────────────────────
+
+@app.route('/ventas/<int:venta_id>/nota-pedido')
+@login_required
+def nota_pedido_pdf(venta_id):
+    from flask import make_response
+    import io
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM ventas WHERE id = %s', (venta_id,))
+    venta = cursor.fetchone()
+    if not venta:
+        cursor.close(); conn.close()
+        return 'Venta no encontrada', 404
+
+    cursor.execute('''
+        SELECT iv.sku, iv.cantidad, iv.precio_unitario,
+               COALESCE(pb.nombre, pc.nombre, iv.sku) as nombre
+        FROM items_venta iv
+        LEFT JOIN productos_base pb ON pb.sku = iv.sku
+        LEFT JOIN productos_compuestos pc ON pc.sku = iv.sku
+        WHERE iv.venta_id = %s
+    ''', (venta_id,))
+    items = cursor.fetchall()
+    cursor.close(); conn.close()
+
+    # Parsear notas
+    notas_raw = (venta.get('notas') or '').replace('\\n', '\n')
+    notas_dict = {}
+    for linea in notas_raw.split('\n'):
+        if ':' in linea:
+            k, v = linea.split(':', 1)
+            notas_dict[k.strip()] = v.strip()
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+        leftMargin=2*cm, rightMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
+
+    styles = getSampleStyleSheet()
+    st_title  = ParagraphStyle('title',  fontSize=16, fontName='Helvetica-Bold', alignment=TA_CENTER, spaceAfter=4)
+    st_sub    = ParagraphStyle('sub',    fontSize=9,  fontName='Helvetica',      alignment=TA_CENTER, spaceAfter=12, textColor=colors.grey)
+    st_h      = ParagraphStyle('h',      fontSize=10, fontName='Helvetica-Bold', spaceBefore=10, spaceAfter=4)
+    st_normal = ParagraphStyle('n',      fontSize=9,  fontName='Helvetica',      spaceAfter=3)
+    st_right  = ParagraphStyle('r',      fontSize=9,  fontName='Helvetica',      alignment=TA_RIGHT)
+
+    story = []
+
+    # Encabezado
+    story.append(Paragraph('MERCADOMUEBLES', st_title))
+    story.append(Paragraph('Distribuidores oficiales Cannon · Bahía Blanca 1777, Floresta, CABA', st_sub))
+    story.append(HRFlowable(width='100%', thickness=1.5, color=colors.HexColor('#1a1a2e')))
+    story.append(Spacer(1, 8))
+
+    # Número y fecha
+    fecha_str = venta['fecha_venta'].strftime('%d/%m/%Y %H:%M') if venta.get('fecha_venta') else ''
+    story.append(Paragraph(f'<b>NOTA DE PEDIDO</b> · {venta["numero_venta"]}', st_h))
+    story.append(Paragraph(f'Fecha: {fecha_str}', st_normal))
+    story.append(Spacer(1, 8))
+
+    # Datos del cliente
+    story.append(Paragraph('DATOS DEL CLIENTE', st_h))
+    story.append(Paragraph(f'<b>Nombre:</b> {venta.get("nombre_cliente") or "-"}', st_normal))
+    if venta.get('dni_cliente'):
+        story.append(Paragraph(f'<b>DNI/CUIT:</b> {venta["dni_cliente"]}', st_normal))
+    if venta.get('telefono_cliente'):
+        story.append(Paragraph(f'<b>Teléfono:</b> {venta["telefono_cliente"]}', st_normal))
+    story.append(Spacer(1, 8))
+
+    # Entrega
+    story.append(Paragraph('ENTREGA', st_h))
+    tipo = venta.get('tipo_entrega', '')
+    metodo = venta.get('metodo_envio', '')
+    if tipo == 'retiro':
+        story.append(Paragraph('<b>Tipo:</b> Retiro en local', st_normal))
+        story.append(Paragraph('Bahía Blanca 1777, Floresta, CABA · Lunes a Viernes 8-12hs y 14-16:30hs', st_normal))
+    else:
+        story.append(Paragraph(f'<b>Tipo:</b> Envío a domicilio · <b>Método:</b> {metodo}', st_normal))
+        if venta.get('direccion_entrega'):
+            story.append(Paragraph(f'<b>Dirección:</b> {venta["direccion_entrega"]}', st_normal))
+        # Datos según método
+        if metodo == 'ME2':
+            for campo in ['MPID', 'VEID', 'SHID', 'TRID']:
+                if notas_dict.get(campo):
+                    story.append(Paragraph(f'<b>{campo}:</b> {notas_dict[campo]}', st_normal))
+        elif metodo in ('Zippin', 'Flete Propio'):
+            for campo in ['MPID', 'ZNID', 'ZN_URL']:
+                if notas_dict.get(campo):
+                    story.append(Paragraph(f'<b>{campo}:</b> {notas_dict[campo]}', st_normal))
+            if venta.get('fecha_entrega_estimada'):
+                story.append(Paragraph(f'<b>Entrega estimada:</b> {venta["fecha_entrega_estimada"]}', st_normal))
+    story.append(Spacer(1, 8))
+
+    # Productos
+    story.append(Paragraph('PRODUCTOS', st_h))
+    tabla_data = [['SKU', 'Descripción', 'Cant.', 'Precio Unit.', 'Subtotal']]
+    total_productos = 0
+    for it in items:
+        sub = float(it['precio_unitario'] or 0) * int(it['cantidad'] or 1)
+        total_productos += sub
+        tabla_data.append([
+            it['sku'],
+            it['nombre'] or it['sku'],
+            str(it['cantidad']),
+            f'${float(it["precio_unitario"]):,.0f}'.replace(',', '.'),
+            f'${sub:,.0f}'.replace(',', '.'),
+        ])
+    tabla = Table(tabla_data, colWidths=[3*cm, 8*cm, 1.5*cm, 3*cm, 3*cm])
+    tabla.setStyle(TableStyle([
+        ('BACKGROUND',  (0,0), (-1,0), colors.HexColor('#1a1a2e')),
+        ('TEXTCOLOR',   (0,0), (-1,0), colors.white),
+        ('FONTNAME',    (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTSIZE',    (0,0), (-1,-1), 8),
+        ('ALIGN',       (2,0), (-1,-1), 'RIGHT'),
+        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#f5f5f5')]),
+        ('GRID',        (0,0), (-1,-1), 0.5, colors.HexColor('#dddddd')),
+        ('TOPPADDING',  (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING',(0,0),(-1,-1), 4),
+    ]))
+    story.append(tabla)
+    story.append(Spacer(1, 6))
+
+    # Totales
+    costo_flete = float(venta.get('costo_flete') or 0)
+    total_final = total_productos + costo_flete
+    totales = [[f'Subtotal productos:', f'${total_productos:,.0f}'.replace(',', '.')]]
+    if costo_flete > 0:
+        totales.append([f'Costo de envío:', f'${costo_flete:,.0f}'.replace(',', '.')])
+    totales.append(['TOTAL:', f'${total_final:,.0f}'.replace(',', '.')])
+    t_totales = Table(totales, colWidths=[14*cm, 4.5*cm])
+    t_totales.setStyle(TableStyle([
+        ('ALIGN',    (1,0), (1,-1), 'RIGHT'),
+        ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,0), (-1,-1), 9),
+        ('LINEABOVE',(0,-1),(-1,-1), 1, colors.HexColor('#1a1a2e')),
+        ('TOPPADDING',(0,0),(-1,-1), 3),
+    ]))
+    story.append(t_totales)
+    story.append(Spacer(1, 8))
+
+    # Pago
+    story.append(Paragraph('PAGO', st_h))
+    metodo_pago = venta.get('metodo_pago') or 'MercadoPago'
+    abonado = float(venta.get('importe_abonado') or 0)
+    mp = float(venta.get('pago_mercadopago') or 0)
+    ef = float(venta.get('pago_efectivo') or 0)
+    story.append(Paragraph(f'<b>Método:</b> {metodo_pago}', st_normal))
+    story.append(Paragraph(f'<b>Total abonado:</b> ${abonado:,.0f}'.replace(',', '.'), st_normal))
+    if mp > 0:
+        story.append(Paragraph(f'  · MercadoPago: ${mp:,.0f}'.replace(',', '.'), st_normal))
+    if ef > 0:
+        story.append(Paragraph(f'  · Efectivo: ${ef:,.0f}'.replace(',', '.'), st_normal))
+
+    story.append(Spacer(1, 16))
+    story.append(HRFlowable(width='100%', thickness=0.5, color=colors.grey))
+    story.append(Paragraph('ventas@mercadomuebles.com.ar · www.mercadomuebles.com.ar · WhatsApp 11 2627-5185', st_sub))
+
+    doc.build(story)
+    buf.seek(0)
+    response = make_response(buf.read())
+    response.headers['Content-Type'] = 'application/pdf'
+    response.headers['Content-Disposition'] = f'inline; filename=nota-pedido-{venta["numero_venta"]}.pdf'
+    return response
+
+
 # ── CUPONES ──────────────────────────────────────────────────────────────────
 
 @app.route('/tienda-admin/cupones', methods=['GET'])

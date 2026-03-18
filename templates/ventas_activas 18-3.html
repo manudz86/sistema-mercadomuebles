@@ -1,16 +1,14 @@
 {% extends "base.html" %}
-{# ── MACRO: bloque observaciones tienda web ── #}
+{# ── MACRO: bloque observaciones ME2 con tracking ── #}
 {% macro obs_me2(venta) %}
-{% if venta.canal == 'tienda_web' and venta.notas %}
+{% if venta.canal == 'tienda_web' and venta.metodo_envio == 'ME2' and venta.notas %}
     {% set lineas = venta.notas.replace('\\n', '\n').split('\n') %}
-    {% set ns = namespace(mpid='', veid='', shid='', trid='', znid='', zn_url='') %}
+    {% set ns = namespace(mpid='', veid='', shid='', trid='') %}
     {% for l in lineas %}
         {% if l.startswith('MPID:') %}{% set ns.mpid = l[5:].strip() %}{% endif %}
         {% if l.startswith('VEID:') %}{% set ns.veid = l[5:].strip() %}{% endif %}
         {% if l.startswith('SHID:') %}{% set ns.shid = l[5:].strip() %}{% endif %}
         {% if l.startswith('TRID:') %}{% set ns.trid = l[5:].strip() %}{% endif %}
-        {% if l.startswith('ZNID:') %}{% set ns.znid = l[5:].strip() %}{% endif %}
-        {% if l.startswith('ZN_URL:') %}{% set ns.zn_url = l[7:].strip() %}{% endif %}
     {% endfor %}
     <div style="font-size:0.78rem; line-height:1.6;">
         {% if ns.mpid %}<div><span class="text-muted">MPID:</span> {{ ns.mpid }}</div>{% endif %}
@@ -20,26 +18,14 @@
         <div class="d-flex align-items-center gap-1">
             <span class="text-muted">TRID:</span>
             <span id="trid-val-{{ venta.id }}">{{ ns.trid }}</span>
-            <button class="btn btn-link btn-sm p-0 ms-1" style="font-size:0.75rem;"
+            <button class="btn btn-link btn-sm p-0 ms-1" style="font-size:0.75rem;" 
                     onclick="editarTrid({{ venta.id }}, '{{ ns.mpid }}', '{{ ns.trid }}')" title="Editar tracking">✏️</button>
         </div>
-        {% elif venta.metodo_envio == 'ME2' %}
+        {% else %}
         <div id="trid-area-{{ venta.id }}">
             <a href="https://www.mercadopago.com.ar/activities/1?q={{ ns.mpid }}" target="_blank"
                class="btn btn-outline-secondary btn-sm py-0 px-1 me-1" style="font-size:0.72rem;"
                onclick="mostrarInputTrid({{ venta.id }}, '{{ ns.mpid }}'); return false;">📋 Agregar tracking</a>
-        </div>
-        {% endif %}
-        {% if ns.znid %}
-        <div class="mt-1">
-            {% if ns.zn_url %}
-            <a href="{{ ns.zn_url }}" target="_blank" rel="noopener"
-               class="btn btn-outline-info btn-sm py-0 px-2" style="font-size:0.72rem;">
-                🚚 Seguimiento Zipnova
-            </a>
-            {% else %}
-            <span class="text-muted" style="font-size:0.72rem;">ZNID: {{ ns.znid }}</span>
-            {% endif %}
         </div>
         {% endif %}
     </div>
@@ -251,12 +237,6 @@
                     <small>{{ venta.nombre_cliente }}</small>
                     {% if venta.telefono_cliente %}
                         <br><small class="text-muted"><i class="bi bi-telephone"></i> {{ venta.telefono_cliente }}</small>
-                    {% endif %}
-                    {% if venta.canal == 'tienda_web' %}
-                        <br><a href="/ventas/{{ venta.id }}/nota-pedido" target="_blank"
-                           class="btn btn-outline-secondary btn-sm py-0 px-1 mt-1" style="font-size:0.7rem;">
-                            🧾 Nota de Pedido
-                        </a>
                     {% endif %}
                 </td>
                 
