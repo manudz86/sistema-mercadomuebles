@@ -919,33 +919,36 @@ def orden_retiro_pdf(venta_id):
         col_w = ancho * 0.48
         alto_firma = 35*mm
 
-        # Columna izquierda: firma cliente
-        c.setStrokeColor(colors.HexColor('#cccccc'))
-        c.setFillColor(colors.white)
-        c.rect(m, y - alto_firma, col_w, alto_firma, fill=1, stroke=1)
-        c.setFillColor(colors.HexColor('#666666'))
-        c.setFont('Helvetica', 6.5)
-        c.drawString(m + 1.5*mm, y - 5*mm, 'Firma:')
-        c.line(m + 12*mm, y - 5.5*mm, m + col_w - 2*mm, y - 5.5*mm)
-        c.drawString(m + 1.5*mm, y - 16*mm, 'Aclaración:')
-        c.line(m + 16*mm, y - 16.5*mm, m + col_w - 2*mm, y - 16.5*mm)
-        c.drawString(m + 1.5*mm, y - 27*mm, 'DNI:')
-        c.line(m + 9*mm, y - 27.5*mm, m + col_w - 2*mm, y - 27.5*mm)
+        if tipo_copia == 'ARCHIVO':
+            # Columna izquierda: firma cliente
+            c.setStrokeColor(colors.HexColor('#cccccc'))
+            c.setFillColor(colors.white)
+            c.rect(m, y - alto_firma, col_w, alto_firma, fill=1, stroke=1)
+            c.setFillColor(colors.HexColor('#666666'))
+            c.setFont('Helvetica', 6.5)
+            c.drawString(m + 1.5*mm, y - 5*mm, 'Firma:')
+            c.line(m + 12*mm, y - 5.5*mm, m + col_w - 2*mm, y - 5.5*mm)
+            c.drawString(m + 1.5*mm, y - 16*mm, 'Aclaración:')
+            c.line(m + 16*mm, y - 16.5*mm, m + col_w - 2*mm, y - 16.5*mm)
+            c.drawString(m + 1.5*mm, y - 27*mm, 'DNI:')
+            c.line(m + 9*mm, y - 27.5*mm, m + col_w - 2*mm, y - 27.5*mm)
+            x_emp = m + ancho * 0.52
+        else:
+            # CLIENTE: recuadro empresa ocupa todo el ancho
+            x_emp = m
+            col_w = ancho
 
-        # Columna derecha: empresa
-        x_emp = m + ancho * 0.52
+        # Recuadro empresa
         c.setFillColor(colors.HexColor('#f8f9fa'))
         c.rect(x_emp, y - alto_firma, col_w, alto_firma, fill=1, stroke=1)
         c.setFillColor(colors.HexColor('#1a1a2e'))
         c.setFont('Helvetica-Bold', 8.5)
-        c.drawCentredString(x_emp + col_w / 2, y - 7*mm, 'Mercadomuebles - Cimater SRL')
-        c.setFont('Helvetica', 7.5)
-        c.drawCentredString(x_emp + col_w / 2, y - 13*mm, 'Matias Dziencielsky')
+        c.drawCentredString(x_emp + col_w / 2, y - 9*mm, 'Mercadomuebles - Cimater SRL')
 
         # ENTREGADO en rojo
         c.setFillColor(colors.HexColor('#c62828'))
         c.setFont('Helvetica-Bold', 16)
-        c.drawCentredString(x_emp + col_w / 2, y - 22*mm, 'ENTREGADO')
+        c.drawCentredString(x_emp + col_w / 2, y - 20*mm, 'ENTREGADO')
 
         c.setFillColor(colors.HexColor('#444444'))
         c.setFont('Helvetica', 7)
