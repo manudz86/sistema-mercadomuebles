@@ -677,7 +677,7 @@ metodo_pago, importe_total, importe_abonado,
                 query += ' AND importe_abonado > 0 AND importe_abonado < importe_total'
         
         # Ordenar: más recientes arriba por fecha real de compra
-        query += ' ORDER BY fecha_venta DESC, id DESC'
+        query += " ORDER BY CASE WHEN metodo_envio = 'Turbo' THEN 0 ELSE 1 END, fecha_venta DESC, id DESC"
         
         # Ejecutar query
         ventas = query_db(query, tuple(params) if params else None)
@@ -1309,7 +1309,7 @@ metodo_pago, importe_total, importe_abonado,
                 query += ' AND importe_abonado > 0 AND importe_abonado < importe_total'
         
         # Ordenar: más recientes arriba por fecha real de compra
-        query += ' ORDER BY fecha_venta DESC, id DESC'
+        query += " ORDER BY CASE WHEN metodo_envio = 'Turbo' THEN 0 ELSE 1 END, fecha_venta DESC, id DESC"
         
         # Ejecutar query
         ventas = query_db(query, tuple(params) if params else None)
@@ -2751,7 +2751,7 @@ metodo_pago, importe_total, importe_abonado,
             params.append(filtro_canal)
         
         # Ordenar: Más recientes arriba (por fecha de entrega, o fecha_modificacion si no hay fecha_entrega)
-        query += ' ORDER BY fecha_venta DESC, id DESC'
+        query += " ORDER BY CASE WHEN metodo_envio = 'Turbo' THEN 0 ELSE 1 END, fecha_venta DESC, id DESC"
         
         # Ejecutar query
         ventas = query_db(query, tuple(params) if params else None)
@@ -5134,6 +5134,7 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
         'logistic_type_ml': '',
         'costo_envio': 0,
         'fecha_entrega_ml': '',
+        'turbo_rango': '',
         'direccion': '',
         'ciudad': '',
         'provincia': '',
@@ -5261,8 +5262,29 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
             print(f"✅ MAPEADO A: Full")
         
         elif logistic_type == 'self_service':
-            shipping_data['metodo_envio'] = 'Flex'
-            print(f"✅ MAPEADO A: Flex")
+            # Detectar Turbo: tag 'turbo' en el shipment
+            tags = shipment.get('tags', [])
+            if 'turbo' in tags:
+                shipping_data['metodo_envio'] = 'Turbo'
+                # Capturar rango horario desde offset
+                try:
+                    edt = shipment.get('shipping_option', {}).get('estimated_delivery_time', {})
+                    hora_desde_raw = edt.get('date', '')
+                    hora_hasta_raw = edt.get('offset', {}).get('date', '')
+                    if hora_desde_raw and hora_hasta_raw:
+                        from datetime import datetime, timezone, timedelta
+                        tz_ar = timezone(timedelta(hours=-3))
+                        h_desde = datetime.fromisoformat(hora_desde_raw).astimezone(tz_ar)
+                        h_hasta = datetime.fromisoformat(hora_hasta_raw).astimezone(tz_ar)
+                        shipping_data['turbo_rango'] = f"{h_desde.strftime('%H:%M')}-{h_hasta.strftime('%H:%M')}"
+                        shipping_data['fecha_entrega_ml'] = f"Turbo {h_desde.strftime('%H:%M')}-{h_hasta.strftime('%H:%M')}"
+                except Exception as e:
+                    print(f"⚠️ Error capturando rango Turbo: {e}")
+                    shipping_data['turbo_rango'] = ''
+                print(f"✅ MAPEADO A: Turbo")
+            else:
+                shipping_data['metodo_envio'] = 'Flex'
+                print(f"✅ MAPEADO A: Flex")
         
         elif logistic_type == 'xd_drop_off':
             shipping_data['metodo_envio'] = 'Colecta'
