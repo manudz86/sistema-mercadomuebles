@@ -29,7 +29,7 @@ load_dotenv('config/.env')
 
 # Configurar Flask
 app = Flask(__name__, template_folder='templates')
-app.secret_key = os.getenv('SECRET_KEY', 'cambiar-en-produccion-123456')
+app.secret_key = os.getenv('SECRET_KEY', '')
 
 limiter = Limiter(
     get_remote_address,
