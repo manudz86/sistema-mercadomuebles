@@ -137,8 +137,8 @@
                 <div class="col-md-4">
                     <label class="form-label">Tipo de Entrega *</label>
                     <select class="form-select" name="tipo_entrega" required>
-                        <option value="Envio" {% if venta.tipo_entrega == 'Envio' %}selected{% endif %}>Envío</option>
-                        <option value="Retiro" {% if venta.tipo_entrega == 'Retiro' %}selected{% endif %}>Retiro en local</option>
+                        <option value="envio" {% if venta.tipo_entrega in ('envio', 'Envio') %}selected{% endif %}>Envío</option>
+                        <option value="retiro" {% if venta.tipo_entrega in ('retiro', 'Retiro') %}selected{% endif %}>Retiro en local</option>
                     </select>
                 </div>
                 <div class="col-md-4">
