@@ -601,6 +601,158 @@ def detectar_alertas_stock_bajo(cursor, items_vendidos, venta_id_actual=None):
 
 
 
+@app.route('/ventas/activas/exportar-excel')
+@login_required
+def exportar_ventas_activas_excel():
+    """Exportar ventas activas filtradas a Excel"""
+    from flask import make_response
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from io import BytesIO
+
+    filtro_buscar       = request.args.get('buscar', '').strip()
+    filtro_tipo_entrega = request.args.get('tipo_entrega', '')
+    filtro_metodo_envio = request.args.get('metodo_envio', '')
+    filtro_zona         = request.args.get('zona', '')
+    filtro_canal        = request.args.get('canal', '')
+    filtro_estado_pago  = request.args.get('estado_pago', '')
+
+    query = '''
+        SELECT
+            v.id, v.numero_venta, v.fecha_venta, v.canal, v.mla_code,
+            v.nombre_cliente, v.telefono_cliente,
+            v.tipo_entrega, v.metodo_envio, v.zona_envio,
+            v.direccion_entrega, v.costo_flete,
+            v.metodo_pago, v.importe_total, v.importe_abonado,
+            v.estado_pago, v.notas
+        FROM ventas v
+        WHERE v.estado_entrega = 'pendiente'
+    '''
+    params = []
+
+    if filtro_buscar:
+        query += '''
+            AND (
+                v.mla_code LIKE %s
+                OR v.nombre_cliente LIKE %s
+                OR v.id IN (SELECT venta_id FROM items_venta WHERE sku LIKE %s)
+            )
+        '''
+        b = f'%{filtro_buscar}%'
+        params.extend([b, b, b])
+
+    if filtro_tipo_entrega:
+        query += ' AND v.tipo_entrega = %s'
+        params.append(filtro_tipo_entrega)
+
+    if filtro_metodo_envio:
+        query += ' AND v.metodo_envio = %s'
+        params.append(filtro_metodo_envio)
+
+    if filtro_zona:
+        query += ' AND v.zona_envio = %s'
+        params.append(filtro_zona)
+
+    if filtro_canal:
+        query += ' AND v.canal = %s'
+        params.append(filtro_canal)
+
+    if filtro_estado_pago:
+        if filtro_estado_pago == 'pagado':
+            query += ' AND v.importe_abonado >= v.importe_total'
+        elif filtro_estado_pago == 'pendiente':
+            query += ' AND v.importe_abonado = 0'
+        elif filtro_estado_pago == 'parcial':
+            query += ' AND v.importe_abonado > 0 AND v.importe_abonado < v.importe_total'
+
+    query += " ORDER BY CASE WHEN v.metodo_envio = 'Turbo' THEN 0 ELSE 1 END, v.fecha_venta DESC, v.id DESC"
+
+    ventas = query_db(query, tuple(params) if params else None)
+
+    for venta in ventas:
+        items = query_db('''
+            SELECT iv.sku, iv.cantidad, iv.precio_unitario,
+                   COALESCE(pb.nombre, pc.nombre, iv.sku) as nombre_producto
+            FROM items_venta iv
+            LEFT JOIN productos_base pb ON iv.sku = pb.sku
+            LEFT JOIN productos_compuestos pc ON iv.sku = pc.sku
+            WHERE iv.venta_id = %s
+            ORDER BY iv.id
+        ''', (venta['id'],))
+        venta['items'] = items
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Ventas Activas'
+
+    header_font = Font(bold=True, color='FFFFFF')
+    header_fill = PatternFill('solid', fgColor='2563EB')
+    center = Alignment(horizontal='center', vertical='center')
+
+    headers = [
+        'ID', 'N° Venta', 'Fecha', 'Hora', 'Canal', 'MLA/Código',
+        'Cliente', 'Teléfono', 'Tipo Entrega', 'Método Envío',
+        'Zona', 'Dirección', 'Costo Flete',
+        'Método Pago', 'Total', 'Abonado', 'Estado Pago',
+        'Productos', 'Notas'
+    ]
+
+    ws.append(headers)
+    for col_num, _ in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center
+
+    for venta in ventas:
+        fecha = venta['fecha_venta']
+        fecha_str = fecha.strftime('%d/%m/%Y') if fecha else ''
+        hora_str  = fecha.strftime('%H:%M')    if fecha else ''
+
+        productos_str = ' | '.join(
+            f"{item['nombre_producto']} x{item['cantidad']}"
+            for item in (venta.get('items') or [])
+        )
+
+        ws.append([
+            venta['id'],
+            venta['numero_venta'] or '',
+            fecha_str,
+            hora_str,
+            venta['canal'] or '',
+            venta['mla_code'] or '',
+            venta['nombre_cliente'] or '',
+            venta['telefono_cliente'] or '',
+            venta['tipo_entrega'] or '',
+            venta['metodo_envio'] or '',
+            venta['zona_envio'] or '',
+            venta['direccion_entrega'] or '',
+            float(venta['costo_flete']) if venta['costo_flete'] else 0,
+            venta['metodo_pago'] or '',
+            float(venta['importe_total']) if venta['importe_total'] else 0,
+            float(venta['importe_abonado']) if venta['importe_abonado'] else 0,
+            venta['estado_pago'] or '',
+            productos_str,
+            venta['notas'] or '',
+        ])
+
+    col_widths = [6, 12, 12, 8, 12, 16, 24, 14, 12, 14, 12, 30, 12, 14, 12, 12, 12, 50, 40]
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+
+    excel_file = BytesIO()
+    wb.save(excel_file)
+    excel_file.seek(0)
+
+    from datetime import datetime
+    nombre_archivo = f'ventas_activas_{datetime.now().strftime("%Y%m%d_%H%M")}.xlsx'
+
+    response = make_response(excel_file.read())
+    response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    response.headers['Content-Disposition'] = f'attachment; filename={nombre_archivo}'
+    return response
+
+
 @app.route('/ventas/activas')
 @login_required
 def ventas_activas():
