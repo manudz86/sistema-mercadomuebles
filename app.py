@@ -2104,11 +2104,20 @@ def editar_venta(venta_id):
         # 1. ACTUALIZAR DATOS GENERALES
         # ========================================
         numero_venta = request.form.get('numero_venta')
-        fecha_venta = request.form.get('fecha_venta')
+        fecha_venta_form = request.form.get('fecha_venta')
         canal = request.form.get('canal')
         mla_code = request.form.get('mla_code', '').strip()
         nombre_cliente = request.form.get('nombre_cliente', '').strip()
         telefono_cliente = request.form.get('telefono_cliente', '')
+
+        # Preservar hora original — solo actualizar la fecha, no la hora
+        if fecha_venta_form:
+            cursor.execute('SELECT fecha_venta FROM ventas WHERE id = %s', (venta_id,))
+            row_fecha = cursor.fetchone()
+            hora_original = row_fecha['fecha_venta'].strftime('%H:%M:%S') if row_fecha and row_fecha['fecha_venta'] else '00:00:00'
+            fecha_venta = f"{fecha_venta_form} {hora_original}"
+        else:
+            fecha_venta = None
         
         # Entrega
         tipo_entrega = request.form.get('tipo_entrega')
