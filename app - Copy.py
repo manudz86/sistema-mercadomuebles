@@ -13,8 +13,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 from dotenv import load_dotenv
 import pymysql
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 
 import threading
 
@@ -30,13 +28,6 @@ load_dotenv('config/.env')
 # Configurar Flask
 app = Flask(__name__, template_folder='templates')
 app.secret_key = os.getenv('SECRET_KEY', 'cambiar-en-produccion-123456')
-
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    default_limits=[],
-    storage_uri="memory://",
-)
 
 # Filtro personalizado para dashboard visual
 @app.template_filter('zero_dash')
@@ -152,7 +143,6 @@ def execute_db(query, params=None):
 # RUTAS DE LOGIN / LOGOUT
 # ============================================================================
 @app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("10 per minute; 30 per hour")
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('index'))
@@ -601,6 +591,163 @@ def detectar_alertas_stock_bajo(cursor, items_vendidos, venta_id_actual=None):
 
 
 
+@app.route('/ventas/activas/exportar-excel')
+@login_required
+def exportar_ventas_activas_excel():
+    """Exportar ventas activas filtradas a Excel"""
+    from flask import make_response
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from io import BytesIO
+
+    filtro_buscar       = request.args.get('buscar', '').strip()
+    filtro_tipo_entrega = request.args.get('tipo_entrega', '')
+    filtro_metodo_envio = request.args.get('metodo_envio', '')
+    filtro_zona         = request.args.get('zona', '')
+    filtro_canal        = request.args.get('canal', '')
+    filtro_estado_pago  = request.args.get('estado_pago', '')
+
+    query = '''
+        SELECT
+            v.id, v.numero_venta, v.fecha_venta, v.canal, v.mla_code,
+            v.nombre_cliente, v.telefono_cliente,
+            v.tipo_entrega, v.metodo_envio, v.zona_envio,
+            v.direccion_entrega, v.costo_flete,
+            v.metodo_pago, v.importe_total, v.importe_abonado,
+            v.estado_pago, v.notas
+        FROM ventas v
+        WHERE v.estado_entrega = 'pendiente'
+    '''
+    params = []
+
+    if filtro_buscar:
+        query += '''
+            AND (
+                v.mla_code LIKE %s
+                OR v.nombre_cliente LIKE %s
+                OR v.id IN (SELECT venta_id FROM items_venta WHERE sku LIKE %s)
+            )
+        '''
+        b = f'%{filtro_buscar}%'
+        params.extend([b, b, b])
+
+    if filtro_tipo_entrega:
+        query += ' AND v.tipo_entrega = %s'
+        params.append(filtro_tipo_entrega)
+
+    if filtro_metodo_envio:
+        query += ' AND v.metodo_envio = %s'
+        params.append(filtro_metodo_envio)
+
+    if filtro_zona:
+        query += ' AND v.zona_envio = %s'
+        params.append(filtro_zona)
+
+    if filtro_canal:
+        query += ' AND v.canal = %s'
+        params.append(filtro_canal)
+
+    if filtro_estado_pago:
+        if filtro_estado_pago == 'pagado':
+            query += ' AND v.importe_abonado >= v.importe_total'
+        elif filtro_estado_pago == 'pendiente':
+            query += ' AND v.importe_abonado = 0'
+        elif filtro_estado_pago == 'parcial':
+            query += ' AND v.importe_abonado > 0 AND v.importe_abonado < v.importe_total'
+
+    query += " ORDER BY CASE WHEN v.metodo_envio = 'Turbo' THEN 0 ELSE 1 END, v.fecha_venta DESC, v.id DESC"
+
+    ventas = query_db(query, tuple(params) if params else None)
+
+    # Obtener items de cada venta
+    for venta in ventas:
+        items = query_db('''
+            SELECT iv.sku, iv.cantidad, iv.precio_unitario,
+                   COALESCE(pb.nombre, pc.nombre, iv.sku) as nombre_producto
+            FROM items_venta iv
+            LEFT JOIN productos_base pb ON iv.sku = pb.sku
+            LEFT JOIN productos_compuestos pc ON iv.sku = pc.sku
+            WHERE iv.venta_id = %s
+            ORDER BY iv.id
+        ''', (venta['id'],))
+        venta['items'] = items
+
+    # Construir Excel
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Ventas Activas'
+
+    # Estilos
+    header_font = Font(bold=True, color='FFFFFF')
+    header_fill = PatternFill('solid', fgColor='2563EB')
+    center = Alignment(horizontal='center', vertical='center')
+
+    headers = [
+        'ID', 'N° Venta', 'Fecha', 'Hora', 'Canal', 'MLA/Código',
+        'Cliente', 'Teléfono', 'Tipo Entrega', 'Método Envío',
+        'Zona', 'Dirección', 'Costo Flete',
+        'Método Pago', 'Total', 'Abonado', 'Estado Pago',
+        'Productos', 'Notas'
+    ]
+
+    ws.append(headers)
+    for col_num, _ in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center
+
+    for venta in ventas:
+        fecha = venta['fecha_venta']
+        fecha_str = fecha.strftime('%d/%m/%Y') if fecha else ''
+        hora_str  = fecha.strftime('%H:%M')    if fecha else ''
+
+        # Armar string de productos
+        productos_str = ' | '.join(
+            f"{item['nombre_producto']} x{item['cantidad']}"
+            for item in (venta.get('items') or [])
+        )
+
+        ws.append([
+            venta['id'],
+            venta['numero_venta'] or '',
+            fecha_str,
+            hora_str,
+            venta['canal'] or '',
+            venta['mla_code'] or '',
+            venta['nombre_cliente'] or '',
+            venta['telefono_cliente'] or '',
+            venta['tipo_entrega'] or '',
+            venta['metodo_envio'] or '',
+            venta['zona_envio'] or '',
+            venta['direccion_entrega'] or '',
+            float(venta['costo_flete']) if venta['costo_flete'] else 0,
+            venta['metodo_pago'] or '',
+            float(venta['importe_total']) if venta['importe_total'] else 0,
+            float(venta['importe_abonado']) if venta['importe_abonado'] else 0,
+            venta['estado_pago'] or '',
+            productos_str,
+            venta['notas'] or '',
+        ])
+
+    # Anchos de columna
+    col_widths = [6, 12, 12, 8, 12, 16, 24, 14, 12, 14, 12, 30, 12, 14, 12, 12, 12, 50, 40]
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+
+    excel_file = BytesIO()
+    wb.save(excel_file)
+    excel_file.seek(0)
+
+    from datetime import datetime
+    nombre_archivo = f'ventas_activas_{datetime.now().strftime("%Y%m%d_%H%M")}.xlsx'
+
+    response = make_response(excel_file.read())
+    response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    response.headers['Content-Disposition'] = f'attachment; filename={nombre_archivo}'
+    return response
+
+
 @app.route('/ventas/activas')
 @login_required
 def ventas_activas():
@@ -677,7 +824,7 @@ metodo_pago, importe_total, importe_abonado,
                 query += ' AND importe_abonado > 0 AND importe_abonado < importe_total'
         
         # Ordenar: más recientes arriba por fecha real de compra
-        query += ' ORDER BY fecha_venta DESC, id DESC'
+        query += " ORDER BY CASE WHEN metodo_envio = 'Turbo' THEN 0 ELSE 1 END, fecha_venta DESC, id DESC"
         
         # Ejecutar query
         ventas = query_db(query, tuple(params) if params else None)
@@ -1309,7 +1456,7 @@ metodo_pago, importe_total, importe_abonado,
                 query += ' AND importe_abonado > 0 AND importe_abonado < importe_total'
         
         # Ordenar: más recientes arriba por fecha real de compra
-        query += ' ORDER BY fecha_venta DESC, id DESC'
+        query += " ORDER BY CASE WHEN metodo_envio = 'Turbo' THEN 0 ELSE 1 END, fecha_venta DESC, id DESC"
         
         # Ejecutar query
         ventas = query_db(query, tuple(params) if params else None)
@@ -5134,6 +5281,7 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
         'logistic_type_ml': '',
         'costo_envio': 0,
         'fecha_entrega_ml': '',
+        'turbo_rango': '',
         'direccion': '',
         'ciudad': '',
         'provincia': '',
@@ -5261,8 +5409,29 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
             print(f"✅ MAPEADO A: Full")
         
         elif logistic_type == 'self_service':
-            shipping_data['metodo_envio'] = 'Flex'
-            print(f"✅ MAPEADO A: Flex")
+            # Detectar Turbo: tag 'turbo' en el shipment
+            tags = shipment.get('tags', [])
+            if 'turbo' in tags:
+                shipping_data['metodo_envio'] = 'Turbo'
+                # Capturar rango horario desde offset
+                try:
+                    edt = shipment.get('shipping_option', {}).get('estimated_delivery_time', {})
+                    hora_desde_raw = edt.get('date', '')
+                    hora_hasta_raw = edt.get('offset', {}).get('date', '')
+                    if hora_desde_raw and hora_hasta_raw:
+                        from datetime import datetime, timezone, timedelta
+                        tz_ar = timezone(timedelta(hours=-3))
+                        h_desde = datetime.fromisoformat(hora_desde_raw).astimezone(tz_ar)
+                        h_hasta = datetime.fromisoformat(hora_hasta_raw).astimezone(tz_ar)
+                        shipping_data['turbo_rango'] = f"{h_desde.strftime('%H:%M')}-{h_hasta.strftime('%H:%M')}"
+                        shipping_data['fecha_entrega_ml'] = f"Turbo {h_desde.strftime('%H:%M')}-{h_hasta.strftime('%H:%M')}"
+                except Exception as e:
+                    print(f"⚠️ Error capturando rango Turbo: {e}")
+                    shipping_data['turbo_rango'] = ''
+                print(f"✅ MAPEADO A: Turbo")
+            else:
+                shipping_data['metodo_envio'] = 'Flex'
+                print(f"✅ MAPEADO A: Flex")
         
         elif logistic_type == 'xd_drop_off':
             shipping_data['metodo_envio'] = 'Colecta'
@@ -7181,11 +7350,13 @@ def bajar_stock_cero_masivo():
         flash('❌ No hay token de ML configurado', 'danger')
         return redirect(url_for('cargar_stock_ml'))
 
-    mlas = query_db(
-        "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku,)
-    )
-
-    exitos, errores = 0, []
+    mla_ids_form = request.form.getlist('mla_ids')
+    if mla_ids_form:
+        mlas = [{'mla_id': m} for m in mla_ids_form]
+    else:
+        mlas = query_db(
+            "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku,)
+        )
     for row in mlas:
         ok, msg = actualizar_stock_ml(row['mla_id'], 0, access_token)
         if ok:
@@ -7613,11 +7784,16 @@ def cargar_stock_masivo():
     try:
         stock_nuevo = int(stock_nuevo)
         
-        # Obtener todas las publicaciones del SKU
-        mlas = query_db(
-            "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE",
-            (sku,)
-        )
+        # Prioridad: MLA IDs enviados desde el form (publis visibles en pantalla)
+        # Fallback: consulta DB local (sku_mla_mapeo)
+        mla_ids_form = request.form.getlist('mla_ids')
+        if mla_ids_form:
+            mlas = [{'mla_id': m} for m in mla_ids_form]
+        else:
+            mlas = query_db(
+                "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE",
+                (sku,)
+            )
         
         exitos = 0
         errores = 0
@@ -8762,10 +8938,9 @@ app.register_blueprint(tienda_bp)
 def _crear_tablas_fletes():
     execute_db("""
         CREATE TABLE IF NOT EXISTS fleteros (
-            id        INT AUTO_INCREMENT PRIMARY KEY,
-            nombre    VARCHAR(100) NOT NULL UNIQUE,
-            activo    TINYINT DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            id     INT AUTO_INCREMENT PRIMARY KEY,
+            nombre VARCHAR(100) NOT NULL,
+            activo TINYINT DEFAULT 1
         )
     """)
     execute_db("""
@@ -8773,13 +8948,14 @@ def _crear_tablas_fletes():
             id          INT AUTO_INCREMENT PRIMARY KEY,
             fletero_id  INT NOT NULL,
             fecha       DATE NOT NULL,
-            descripcion VARCHAR(200) DEFAULT '',
+            descripcion VARCHAR(255) DEFAULT '',
             monto       DECIMAL(10,2) NOT NULL,
             pagado      TINYINT DEFAULT 0,
             created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (fletero_id) REFERENCES fleteros(id)
         )
     """)
+
 
 @app.route('/fletes', methods=['GET'])
 @login_required
@@ -8803,7 +8979,6 @@ def fletes():
         ORDER BY r.fecha, f.nombre, r.id
     """, (anio, nmes))
 
-    # Totales por fletero del mes
     totales_fletero = query_db("""
         SELECT f.nombre, f.id,
                SUM(r.monto) as total,
@@ -8851,7 +9026,6 @@ def fletes_guardar():
         elif accion == 'eliminar_registro':
             execute_db("DELETE FROM fletes_registros WHERE id=%s", (data.get('id'),))
         elif accion == 'toggle_pagado_grupo':
-            # Marcar/desmarcar todos los registros de un día+fletero
             nuevo = int(data.get('pagado', 0))
             execute_db("""
                 UPDATE fletes_registros SET pagado=%s
@@ -8866,7 +9040,7 @@ def fletes_guardar():
 
 
 # ============================================================================
-# PANEL TIENDA WEB — Precios y Ofertas
+# PANEL TIENDA WEB — Precios, Ofertas y Cupones
 # ============================================================================
 
 @app.route('/tienda-admin/precios', methods=['GET'])
@@ -8884,7 +9058,6 @@ def tienda_precios():
         WHERE activo = 1
         ORDER BY nombre
     """)
-    print(f"[tienda_precios] base={len(productos_base)} comp={len(productos_comp)} first={productos_base[0] if productos_base else 'VACIO'}", flush=True)
     return render_template('tienda_precios.html',
         productos_base=productos_base,
         productos_comp=productos_comp,
@@ -8924,7 +9097,7 @@ def tienda_precios_guardar():
 @login_required
 def tienda_precios_descuento():
     data = request.get_json()
-    accion = data.get('accion')  # 'set', 'quitar', 'set_todos', 'quitar_todos'
+    accion = data.get('accion')
     try:
         if accion == 'set':
             sku    = data.get('sku', '').strip()
@@ -9001,8 +9174,6 @@ def tienda_ofertas_guardar():
         return jsonify({'ok': False, 'error': str(e)})
     return jsonify({'ok': True})
 
-
-# ── CUPONES ──────────────────────────────────────────────────────────────────
 
 @app.route('/tienda-admin/cupones', methods=['GET'])
 @login_required
