@@ -5497,7 +5497,10 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
 
             if lt in ('cross_docking', 'xd_drop_off'):
                 # Fecha de colecta según hora de corte
-                hora_corte_str = session.get('hora_corte_colecta', '14:00')
+                try:
+                    hora_corte_str = session.get('hora_corte_colecta', '14:00')
+                except RuntimeError:
+                    hora_corte_str = '14:00'  # fuera de request context (scheduler)
                 try:
                     hh, mm = map(int, hora_corte_str.split(':'))
                 except:
@@ -9756,9 +9759,11 @@ def _init_auto_import_table():
                 errores TEXT DEFAULT NULL
             )
         """)
-        existe = query_db("SELECT id FROM auto_import_log LIMIT 1")
+        # Asegurar que solo existe 1 fila con id=1
+        execute_db("DELETE FROM auto_import_log WHERE id > 1")
+        existe = query_db("SELECT id FROM auto_import_log WHERE id = 1 LIMIT 1")
         if not existe:
-            execute_db("INSERT INTO auto_import_log (ventas_nuevas) VALUES (0)")
+            execute_db("INSERT INTO auto_import_log (id, ventas_nuevas) VALUES (1, 0)")
     except Exception as e:
         print(f"[AUTO-ML] Error init tabla: {e}")
 
@@ -9846,7 +9851,7 @@ def _importar_orden_automatica(orden, access_token):
         telefono_cliente = ''
         tipo_entrega = 'envio' if shipping.get('tiene_envio') else 'retiro'
         metodo_envio = shipping.get('metodo_envio', '')
-        ubicacion_despacho = 'FULL' if metodo_envio == 'Full' else ''
+        ubicacion_despacho = 'FULL' if metodo_envio == 'Full' else 'DEP'
         zona_envio = shipping.get('zona', '')
         direccion_entrega = shipping.get('direccion', '')
         costo_flete = float(shipping.get('costo_envio', 0) or 0)
