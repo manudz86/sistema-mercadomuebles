@@ -9889,8 +9889,8 @@ def _importar_orden_automatica(orden, access_token):
         # nombre_cliente guarda el nombre real — si ML no lo provee, queda vacío
         mla_code = orden_data.get('comprador_nickname', '') or f"ML-{orden_id}"
         nombre_real = orden_data.get('comprador_nombre', '').strip()
-        # Solo usar el nombre si es distinto al nickname (ML a veces devuelve el mismo)
-        nombre_cliente = nombre_real if (nombre_real and nombre_real.upper() != mla_code.upper()) else ''
+        # Solo dejar vacío si es idéntico al nickname o realmente vacío
+        nombre_cliente = nombre_real if nombre_real and nombre_real != mla_code else ''
         numero_venta = f"ML-{orden_id}"
         telefono_cliente = ''
         tipo_entrega = 'envio' if shipping.get('tiene_envio') else 'retiro'
