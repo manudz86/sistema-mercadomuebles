@@ -1156,6 +1156,20 @@ def cancelar_venta(venta_id):
         ''', (venta_id,))
         
         conn.commit()
+
+        # Actualizar publis ML — la cancelación libera disponible
+        try:
+            items_venta = query_db(
+                "SELECT sku, cantidad FROM items_venta WHERE venta_id = %s", (venta_id,)
+            )
+            skus_afectados = _extraer_skus_base_de_items(
+                [{'sku': i['sku'], 'cantidad': i['cantidad']} for i in items_venta]
+            )
+            if skus_afectados:
+                actualizar_publicaciones_ml(skus_afectados)
+        except Exception as e_ml:
+            print(f"[AUTO-ML] Error actualizando ML tras cancelación: {e_ml}")
+
         flash(f'✅ Venta {venta["numero_venta"]} cancelada. No se descontó stock.', 'info')
         
     except Exception as e:
@@ -4026,6 +4040,7 @@ def guardar_stock():
         
         # Procesar cada producto
         productos_cargados = 0
+        skus_cargados = set()
         for key, value in request.form.items():
             if key.startswith('agregar_'):
                 sku = key.replace('agregar_', '')
@@ -4057,11 +4072,17 @@ def guardar_stock():
                         ''', (sku, nombre_producto, 'carga', cantidad_agregar, stock_anterior, stock_nuevo, 'Carga de stock nuevo'))
                         
                         productos_cargados += 1
+                        skus_cargados.add(sku)
         
         conn.commit()
         
         if productos_cargados > 0:
             flash(f'✅ Stock cargado correctamente ({productos_cargados} productos)', 'success')
+            # Actualizar publicaciones ML con los SKUs base cargados
+            try:
+                actualizar_publicaciones_ml(skus_cargados)
+            except Exception as e_ml:
+                print(f"[AUTO-ML] Error actualizando ML tras carga stock: {e_ml}")
         else:
             flash('ℹ️ No se agregó stock. Ingresá cantidades mayores a 0.', 'info')
         
@@ -9537,6 +9558,503 @@ def tienda_cupones_guardar():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
     return jsonify({'ok': True})
+
+
+
+
+# ============================================================================
+# AUTOMATIZACIÓN ML — Auto-import + Actualización de publicaciones
+# ============================================================================
+
+# SKUs de almohadas a excluir de actualización ML
+SKUS_ALMOHADA = {
+    'CERVICAL', 'CLASICA', 'DORAL', 'DUAL', 'EXCLUSIVE', 'PLATINO',
+    'PRUEBA', 'RENOVATION', 'SUBLIME', 'DORALX2', 'DUALX2',
+    'EXCLUSIVEX2', 'PLATINOX2', 'PLATINOX4',
+    # combos con almohada como ÚNICO componente de sommier (CEX140+2 SÍ se actualiza)
+}
+
+# SKUs compac a excluir
+def _es_compac(sku):
+    return sku.upper().startswith('CCO')
+
+# SKU de almohada pura (no combos mixtos)
+def _es_almohada(sku):
+    return sku.upper() in SKUS_ALMOHADA
+
+# ¿Aplica lógica Z a este SKU? Solo sommiers (S*) todas las medidas
+# y colchones (C* no CCO) a partir de 140
+def _aplica_logica_z(sku):
+    sku = sku.upper()
+    if sku.startswith('S'):
+        return True
+    if sku.startswith('C') and not sku.startswith('CCO'):
+        # Extraer número de medida
+        import re
+        nums = re.findall(r'\d+', sku)
+        if nums:
+            medida = int(nums[0])
+            return medida >= 140
+    return False
+
+
+def _poner_demora_ml(mla_id, access_token, dias=7):
+    """Poner demora de manufacturing_time en una publi ML."""
+    payload = {"sale_terms": [{"id": "MANUFACTURING_TIME", "value_name": f"{dias} días"}]}
+    try:
+        r = ml_request('put', f'https://api.mercadolibre.com/items/{mla_id}',
+                       access_token, json_data=payload)
+        return r.status_code == 200
+    except Exception as e:
+        print(f"[AUTO-ML] Error poniendo demora en {mla_id}: {e}")
+        return False
+
+
+def _quitar_demora_ml(mla_id, access_token):
+    """Quitar demora de manufacturing_time en una publi ML."""
+    ok, msg = quitar_manufacturing_time_ml(mla_id, access_token)
+    return ok
+
+
+def actualizar_publicaciones_ml(skus_base_afectados):
+    """
+    Dado un set de SKUs base que cambiaron disponible, actualiza en ML
+    todas las publicaciones relacionadas (sin Z y con Z).
+
+    Exclusiones: almohadas puras, compac (CCO*).
+    Lógica Z: aplica solo a sommiers y colchones >= 140.
+    """
+    if not skus_base_afectados:
+        return
+
+    access_token = cargar_ml_token()
+    if not access_token:
+        print("[AUTO-ML] Sin access_token, abortando actualización.")
+        return
+
+    # Calcular stock disponible de todos los SKUs
+    try:
+        stock_todos = calcular_stock_por_sku()
+    except Exception as e:
+        print(f"[AUTO-ML] Error calculando stock: {e}")
+        return
+
+    # Para cada SKU base afectado, encontrar todos los combos/productos que lo usan
+    skus_a_actualizar = set()
+
+    for sku_base in skus_base_afectados:
+        sku_base = sku_base.upper()
+        # El propio SKU base (si tiene publis directas)
+        skus_a_actualizar.add(sku_base)
+        # Combos que lo contienen
+        try:
+            combos = query_db('''
+                SELECT pc.sku FROM productos_compuestos pc
+                JOIN componentes c ON c.producto_compuesto_id = pc.id
+                JOIN productos_base pb ON c.producto_base_id = pb.id
+                WHERE pb.sku = %s AND pc.activo = 1
+            ''', (sku_base,))
+            for combo in combos:
+                skus_a_actualizar.add(combo['sku'].upper())
+        except Exception as e:
+            print(f"[AUTO-ML] Error buscando combos de {sku_base}: {e}")
+
+    print(f"[AUTO-ML] SKUs a actualizar en ML: {skus_a_actualizar}")
+
+    for sku in skus_a_actualizar:
+        # Excluir almohadas puras y compac
+        if _es_almohada(sku) or _es_compac(sku):
+            print(f"[AUTO-ML] Excluido: {sku}")
+            continue
+
+        disponible = 0
+        if sku in stock_todos:
+            disponible = max(0, stock_todos[sku]['stock_disponible'])
+        else:
+            print(f"[AUTO-ML] SKU {sku} no encontrado en stock_todos, disponible=0")
+
+        # ── Publicaciones SIN Z ──────────────────────────────────────
+        try:
+            pubs_sin_z = query_db(
+                "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE",
+                (sku,)
+            )
+            for pub in pubs_sin_z:
+                mla = pub['mla_id']
+                ok, msg = actualizar_stock_ml(mla, disponible, access_token)
+                print(f"[AUTO-ML] {sku} sin Z → {mla} stock={disponible}: {'✅' if ok else '❌'} {msg}")
+                time.sleep(0.5)
+        except Exception as e:
+            print(f"[AUTO-ML] Error actualizando sin Z de {sku}: {e}")
+
+        # ── Publicaciones CON Z (solo si aplica lógica Z) ────────────
+        if not _aplica_logica_z(sku):
+            continue
+
+        sku_z = sku + 'Z'
+        try:
+            pubs_z = query_db(
+                "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE",
+                (sku_z,)
+            )
+            if not pubs_z:
+                continue
+
+            for pub in pubs_z:
+                mla = pub['mla_id']
+                if disponible > 0:
+                    # Hay stock: subir disponible y quitar demora
+                    ok, msg = actualizar_stock_ml(mla, disponible, access_token)
+                    print(f"[AUTO-ML] {sku_z} → {mla} stock={disponible}: {'✅' if ok else '❌'} {msg}")
+                    time.sleep(0.5)
+                    ok2 = _quitar_demora_ml(mla, access_token)
+                    print(f"[AUTO-ML] {sku_z} → {mla} quitar demora: {'✅' if ok2 else '❌'}")
+                    time.sleep(0.5)
+                else:
+                    # Sin stock: stock=1 + 7 días demora
+                    ok, msg = actualizar_stock_ml(mla, 1, access_token)
+                    print(f"[AUTO-ML] {sku_z} → {mla} stock=1: {'✅' if ok else '❌'} {msg}")
+                    time.sleep(0.5)
+                    ok2 = _poner_demora_ml(mla, access_token, dias=7)
+                    print(f"[AUTO-ML] {sku_z} → {mla} poner demora 7d: {'✅' if ok2 else '❌'}")
+                    time.sleep(0.5)
+        except Exception as e:
+            print(f"[AUTO-ML] Error actualizando con Z de {sku}: {e}")
+
+
+def _extraer_skus_base_de_items(items):
+    """
+    Dado una lista de items [{sku, cantidad}], devuelve el set de SKUs base
+    involucrados (expandiendo combos a sus componentes).
+    """
+    skus_base = set()
+    for item in items:
+        sku = item['sku'].upper()
+        # ¿Es combo?
+        combo = query_db("SELECT id FROM productos_compuestos WHERE sku = %s", (sku,))
+        if combo:
+            comps = query_db('''
+                SELECT pb.sku FROM componentes c
+                JOIN productos_base pb ON c.producto_base_id = pb.id
+                WHERE c.producto_compuesto_id = %s
+            ''', (combo[0]['id'],))
+            for c in comps:
+                skus_base.add(c['sku'].upper())
+        else:
+            skus_base.add(sku)
+    return skus_base
+
+
+# ── Tabla para tracking de auto-import ──────────────────────────────────────
+def _init_auto_import_table():
+    try:
+        execute_db("""
+            CREATE TABLE IF NOT EXISTS auto_import_log (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                ventas_nuevas INT DEFAULT 0,
+                ultima_ejecucion TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                errores TEXT DEFAULT NULL
+            )
+        """)
+        existe = query_db("SELECT id FROM auto_import_log LIMIT 1")
+        if not existe:
+            execute_db("INSERT INTO auto_import_log (ventas_nuevas) VALUES (0)")
+    except Exception as e:
+        print(f"[AUTO-ML] Error init tabla: {e}")
+
+
+def _importar_orden_automatica(orden, access_token):
+    """
+    Importa automáticamente una orden de ML sin intervención del usuario.
+    Retorna True si se importó, False si falló o requiere mapeo manual.
+    """
+    import re as _re
+    from datetime import timezone as _tz, timedelta as _td
+
+    try:
+        orden_id = str(orden['id'])
+        orden_data = procesar_orden_ml(orden)
+
+        # Verificar que todos los items tienen SKU mapeado en BD
+        items_bd = []
+        for item in orden_data['items']:
+            sku_ml = item.get('sku', '')
+            sku_norm = normalizar_sku_ml(sku_ml) if sku_ml else ''
+            if not sku_norm:
+                print(f"[AUTO-ML] Orden {orden_id}: item sin SKU, requiere mapeo manual")
+                return False
+            existe, tipo, nombre = verificar_sku_en_bd(sku_norm)
+            if not existe:
+                print(f"[AUTO-ML] Orden {orden_id}: SKU {sku_norm} no existe en BD, requiere mapeo manual")
+                return False
+            items_bd.append({'sku': sku_norm, 'cantidad': item['cantidad'], 'precio': item['precio']})
+
+        # Obtener shipping completo
+        shipping = {}
+        if orden_data['shipping'].get('shipping_id'):
+            shipping = obtener_shipping_completo(
+                orden_data['shipping']['shipping_id'],
+                access_token,
+                orden_data.get('fecha_iso', '')
+            )
+        else:
+            shipping = orden_data['shipping']
+
+        # Billing info
+        billing_info = {
+            'business_name': None, 'doc_type': None, 'doc_number': None,
+            'taxpayer_type': None, 'city': None, 'street': None,
+            'state': None, 'zip_code': None
+        }
+        try:
+            headers = {'Authorization': f'Bearer {access_token}'}
+            br = requests.get(
+                f'https://api.mercadolibre.com/orders/{orden_id}/billing_info',
+                headers=headers
+            )
+            if br.status_code == 200:
+                bd = br.json()
+                buyer_info = bd.get('buyer', {})
+                billing_doc = buyer_info.get('billing_info', {})
+                doc_type_raw = billing_doc.get('doc_type', '')
+                taxpayer_raw = billing_doc.get('taxpayer_type', {})
+                if isinstance(taxpayer_raw, dict):
+                    taxpayer_raw = taxpayer_raw.get('description', '')
+                iva_map = {
+                    'IVA Exento': 'Exento',
+                    'IVA Responsable Inscripto': 'Responsable Inscripto',
+                    'Monotributo': 'Responsable Monotributo',
+                }
+                billing_info = {
+                    'business_name': billing_doc.get('business_name'),
+                    'doc_type': doc_type_raw,
+                    'doc_number': billing_doc.get('doc_number'),
+                    'taxpayer_type': iva_map.get(taxpayer_raw, taxpayer_raw),
+                    'city': buyer_info.get('billing_info', {}).get('city'),
+                    'street': buyer_info.get('billing_info', {}).get('street'),
+                    'state': buyer_info.get('billing_info', {}).get('state'),
+                    'zip_code': buyer_info.get('billing_info', {}).get('zip_code'),
+                }
+        except Exception as e:
+            print(f"[AUTO-ML] Error obteniendo billing de {orden_id}: {e}")
+
+        # Datos de la venta
+        fecha_venta = orden_data['fecha']
+        canal = 'Mercado Libre'
+        mla_code = f"ML-{orden_id}"
+        nombre_cliente = orden_data.get('comprador_nombre', '') or orden_data.get('comprador_nickname', '')
+        telefono_cliente = ''
+        tipo_entrega = 'envio' if shipping.get('tiene_envio') else 'retiro'
+        metodo_envio = shipping.get('metodo_envio', '')
+        ubicacion_despacho = 'FULL' if metodo_envio == 'Full' else ''
+        zona_envio = shipping.get('zona', '')
+        direccion_entrega = shipping.get('direccion', '')
+        costo_flete = float(shipping.get('costo_envio', 0) or 0)
+        metodo_pago = 'Mercadopago'
+        importe_total = float(orden_data['total'])
+        importe_abonado = importe_total
+        pago_mp = importe_total
+        pago_efectivo = 0.0
+        estado_entrega = 'pendiente'
+        estado_pago = 'pagado'
+
+        # Notas
+        fecha_entrega_ml = shipping.get('fecha_entrega_ml', '')
+        notas_lines = [f"Importado desde ML - Orden: {orden_id}"]
+        if fecha_entrega_ml:
+            notas_lines.append(f"Fecha entrega ML: {fecha_entrega_ml}")
+        notas = '\n'.join(notas_lines)
+
+        # Numero venta
+        numero_venta = mla_code
+
+        # Insertar
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                INSERT INTO ventas (
+                    numero_venta, fecha_venta, canal, mla_code,
+                    nombre_cliente, telefono_cliente,
+                    tipo_entrega, metodo_envio, ubicacion_despacho,
+                    zona_envio, direccion_entrega,
+                    costo_flete, metodo_pago, importe_total, importe_abonado,
+                    pago_mercadopago, pago_efectivo,
+                    estado_entrega, estado_pago, notas,
+                    factura_business_name, factura_doc_type, factura_doc_number,
+                    factura_taxpayer_type, factura_city, factura_street,
+                    factura_state, factura_zip_code
+                ) VALUES (
+                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,%s,%s,%s
+                )
+            ''', (
+                numero_venta, fecha_venta, canal, mla_code,
+                nombre_cliente, telefono_cliente,
+                tipo_entrega, metodo_envio, ubicacion_despacho,
+                zona_envio, direccion_entrega,
+                costo_flete, metodo_pago, importe_total, importe_abonado,
+                pago_mp, pago_efectivo,
+                estado_entrega, estado_pago, notas,
+                billing_info['business_name'], billing_info['doc_type'],
+                billing_info['doc_number'], billing_info['taxpayer_type'],
+                billing_info['city'], billing_info['street'],
+                billing_info['state'], billing_info['zip_code'],
+            ))
+            venta_id = cursor.lastrowid
+
+            for item in items_bd:
+                cursor.execute('''
+                    INSERT INTO items_venta (venta_id, sku, cantidad, precio_unitario)
+                    VALUES (%s, %s, %s, %s)
+                ''', (venta_id, item['sku'], item['cantidad'], item['precio']))
+
+            conn.commit()
+
+            # Detectar alertas (por compatibilidad con flujo existente)
+            try:
+                detectar_alertas_stock_bajo(cursor, items_bd, venta_id)
+                conn.commit()
+            except Exception as e:
+                print(f"[AUTO-ML] Error detectando alertas: {e}")
+
+            print(f"[AUTO-ML] ✅ Venta importada: {mla_code}")
+            return True, items_bd
+
+        except Exception as e:
+            conn.rollback()
+            print(f"[AUTO-ML] Error insertando venta {orden_id}: {e}")
+            return False, []
+        finally:
+            cursor.close()
+            conn.close()
+
+    except Exception as e:
+        import traceback
+        print(f"[AUTO-ML] Error procesando orden: {e}")
+        traceback.print_exc()
+        return False, []
+
+
+def job_auto_importar_ml():
+    """
+    Job que corre cada 60 segundos.
+    Importa órdenes nuevas de ML y actualiza publicaciones.
+    """
+    with app.app_context():
+        try:
+            print("[AUTO-ML] 🔄 Iniciando auto-import...")
+            access_token = cargar_ml_token()
+            if not access_token:
+                print("[AUTO-ML] Sin token, saltando.")
+                return
+
+            success, result = obtener_ordenes_ml(access_token, limit=50)
+            if not success:
+                print(f"[AUTO-ML] Error obteniendo órdenes: {result}")
+                return
+
+            # Obtener IDs ya importados
+            import re as _re
+            ordenes_importadas = set()
+            try:
+                todas_ventas = query_db('''
+                    SELECT numero_venta FROM ventas
+                    ORDER BY fecha_venta DESC LIMIT 300
+                ''')
+                for v in todas_ventas:
+                    nums = _re.findall(r'\d+', v['numero_venta'] or '')
+                    for n in nums:
+                        if len(n) == 16 and n.startswith('2000'):
+                            ordenes_importadas.add(n)
+            except Exception as e:
+                print(f"[AUTO-ML] Error cargando importadas: {e}")
+
+            ventas_nuevas = 0
+            skus_base_afectados = set()
+
+            for orden in result:
+                orden_id = str(orden['id'])
+                if orden_id in ordenes_importadas:
+                    continue
+                if orden.get('status') not in ['paid']:
+                    continue
+
+                ok, items_bd = _importar_orden_automatica(orden, access_token)
+                if ok:
+                    ventas_nuevas += 1
+                    skus_afectados = _extraer_skus_base_de_items(items_bd)
+                    skus_base_afectados.update(skus_afectados)
+                    time.sleep(1)
+
+            # Actualizar log
+            try:
+                execute_db(
+                    "UPDATE auto_import_log SET ventas_nuevas = %s, ultima_ejecucion = NOW() WHERE id = 1",
+                    (ventas_nuevas,)
+                )
+            except Exception as e:
+                print(f"[AUTO-ML] Error actualizando log: {e}")
+
+            print(f"[AUTO-ML] ✅ Import completo. Ventas nuevas: {ventas_nuevas}")
+
+            # Actualizar publicaciones ML si hubo cambios
+            if skus_base_afectados:
+                print(f"[AUTO-ML] Actualizando ML para SKUs: {skus_base_afectados}")
+                actualizar_publicaciones_ml(skus_base_afectados)
+
+        except Exception as e:
+            import traceback
+            print(f"[AUTO-ML] Error en job: {e}")
+            traceback.print_exc()
+
+
+# ── Endpoint: cuántas ventas nuevas hay (para popup) ────────────────────────
+@app.route('/ventas/nuevas-count')
+@login_required
+def ventas_nuevas_count():
+    try:
+        row = query_db("SELECT ventas_nuevas FROM auto_import_log WHERE id = 1 LIMIT 1")
+        count = row[0]['ventas_nuevas'] if row else 0
+        return jsonify({'count': count})
+    except Exception:
+        return jsonify({'count': 0})
+
+
+@app.route('/ventas/nuevas-reset', methods=['POST'])
+@login_required
+def ventas_nuevas_reset():
+    try:
+        execute_db("UPDATE auto_import_log SET ventas_nuevas = 0 WHERE id = 1")
+    except Exception:
+        pass
+    return ('', 204)
+
+
+# ── Iniciar APScheduler ──────────────────────────────────────────────────────
+def iniciar_scheduler():
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        _init_auto_import_table()
+        scheduler = BackgroundScheduler(daemon=True)
+        scheduler.add_job(
+            job_auto_importar_ml,
+            'interval',
+            seconds=60,
+            id='auto_import_ml',
+            replace_existing=True,
+            max_instances=1
+        )
+        scheduler.start()
+        print("[AUTO-ML] ✅ Scheduler iniciado — auto-import cada 60s")
+        return scheduler
+    except Exception as e:
+        print(f"[AUTO-ML] Error iniciando scheduler: {e}")
+        return None
+
+
+# Iniciar al cargar el módulo (funciona con gunicorn y Flask dev)
+_scheduler = iniciar_scheduler()
 
 
 # ============================================================================
