@@ -705,6 +705,13 @@ metodo_pago, importe_total, importe_abonado,
             else:
                 venta['hora_venta_str'] = ''
         
+        # Leer estado auto-import
+        try:
+            row_ai = query_db("SELECT valor FROM configuracion WHERE clave = 'auto_import_activo' LIMIT 1")
+            auto_import_activo = (row_ai[0]['valor'] != '0') if row_ai else True
+        except Exception:
+            auto_import_activo = True
+
         return render_template('ventas_activas.html', 
                              ventas=ventas,
                              filtro_buscar=filtro_buscar,
@@ -713,7 +720,8 @@ metodo_pago, importe_total, importe_abonado,
                              filtro_zona=filtro_zona,
                              filtro_canal=filtro_canal,
                              filtro_estado_pago=filtro_estado_pago,
-                             hora_corte_colecta=session.get('hora_corte_colecta', '14:00'))
+                             hora_corte_colecta=session.get('hora_corte_colecta', '14:00'),
+                             auto_import_activo=auto_import_activo)
         
     except Exception as e:
         flash(f'Error al cargar ventas activas: {str(e)}', 'error')
@@ -5658,11 +5666,11 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
                 
                 if 'capital federal' in ciudad_lower or 'ciudad' in ciudad_lower or 'caba' in ciudad_lower or 'autonoma' in provincia_lower:
                     shipping_data['zona'] = 'Capital'
-                elif any(x in ciudad_lower for x in ['plata', 'quilmes', 'avellaneda', 'berazategui', 'florencio varela', 'lanus']):
+                elif any(x in ciudad_lower for x in ['plata', 'quilmes', 'avellaneda', 'berazategui', 'florencio varela', 'lanus', 'lomas', 'banfield', 'temperley', 'adrog', 'monte grande', 'bernal', 'wilde', 'dock sud', 'ezeiza', 'canning', 'longchamps', 'san francisco solano', 'varela']):
                     shipping_data['zona'] = 'Sur'
-                elif any(x in ciudad_lower for x in ['san isidro', 'tigre', 'pilar', 'escobar', 'san fernando']):
+                elif any(x in ciudad_lower for x in ['san isidro', 'tigre', 'pilar', 'escobar', 'san fernando', 'martinez', 'acassuso', 'beccar', 'olivos', 'vicente lopez', 'florida', 'munro', 'villa adelina', 'boulogne', 'jose c paz', 'malvinas', 'del viso', 'nordelta', 'pacheco', 'grand bourg']):
                     shipping_data['zona'] = 'Norte-Noroeste'
-                elif any(x in ciudad_lower for x in ['moron', 'merlo', 'ituzaingo', 'hurlingham', 'moreno']):
+                elif any(x in ciudad_lower for x in ['moron', 'merlo', 'ituzaingo', 'hurlingham', 'moreno', 'haedo', 'castelar', 'ramos mejia', 'san martin', 'ciudadela', 'lomas del mirador', 'villa luzuriaga', 'tapiales', 'laferrere', 'gonzalez catan', 'tres de febrero', 'liniers']):
                     shipping_data['zona'] = 'Oeste'
     
     except Exception as e:
@@ -9846,13 +9854,17 @@ def _importar_orden_automatica(orden, access_token):
         # Datos de la venta
         fecha_venta = orden_data['fecha']
         canal = 'Mercado Libre'
-        mla_code = f"ML-{orden_id}"
-        nombre_cliente = orden_data.get('comprador_nombre', '') or orden_data.get('comprador_nickname', '')
+        # mla_code guarda el APODO (nickname) — se muestra en negrita en la tabla
+        # nombre_cliente guarda el nombre real completo
+        mla_code = orden_data.get('comprador_nickname', '') or f"ML-{orden_id}"
+        nombre_cliente = orden_data.get('comprador_nombre', '') or mla_code
+        numero_venta = f"ML-{orden_id}"
         telefono_cliente = ''
         tipo_entrega = 'envio' if shipping.get('tiene_envio') else 'retiro'
         metodo_envio = shipping.get('metodo_envio', '')
         ubicacion_despacho = 'FULL' if metodo_envio == 'Full' else 'DEP'
-        zona_envio = shipping.get('zona', '')
+        # Zona solo para Flete Propio
+        zona_envio = shipping.get('zona', '') if metodo_envio == 'Flete Propio' else ''
         direccion_entrega = shipping.get('direccion', '')
         costo_flete = float(shipping.get('costo_envio', 0) or 0)
         metodo_pago = 'Mercadopago'
@@ -9863,15 +9875,12 @@ def _importar_orden_automatica(orden, access_token):
         estado_entrega = 'pendiente'
         estado_pago = 'pagado'
 
-        # Notas
+        # Notas: si hay fecha_entrega_ml solo esa fecha, sino el numero de orden
         fecha_entrega_ml = shipping.get('fecha_entrega_ml', '')
-        notas_lines = [f"Importado desde ML - Orden: {orden_id}"]
         if fecha_entrega_ml:
-            notas_lines.append(f"Fecha entrega ML: {fecha_entrega_ml}")
-        notas = '\n'.join(notas_lines)
-
-        # Numero venta
-        numero_venta = mla_code
+            notas = fecha_entrega_ml
+        else:
+            notas = f"Importado desde ML - Orden: {orden_id}"
 
         # Insertar
         conn = get_db_connection()
@@ -9948,6 +9957,15 @@ def job_auto_importar_ml():
     """
     with app.app_context():
         try:
+            # Chequear si el auto-import está activo
+            try:
+                row = query_db("SELECT valor FROM configuracion WHERE clave = 'auto_import_activo' LIMIT 1")
+                if row and row[0]['valor'] == '0':
+                    print("[AUTO-ML] Auto-import desactivado, saltando.")
+                    return
+            except Exception:
+                pass  # Si falla la consulta, continuar igual
+
             print("[AUTO-ML] 🔄 Iniciando auto-import...")
             access_token = cargar_ml_token()
             if not access_token:
@@ -10012,6 +10030,24 @@ def job_auto_importar_ml():
             import traceback
             print(f"[AUTO-ML] Error en job: {e}")
             traceback.print_exc()
+
+
+@app.route('/ventas/auto-import-toggle', methods=['POST'])
+@login_required
+def auto_import_toggle():
+    data = request.get_json()
+    activo = bool(data.get('activo', True))
+    try:
+        existe = query_db("SELECT valor FROM configuracion WHERE clave = 'auto_import_activo' LIMIT 1")
+        if existe:
+            execute_db("UPDATE configuracion SET valor = %s WHERE clave = 'auto_import_activo'",
+                       ('1' if activo else '0',))
+        else:
+            execute_db("INSERT INTO configuracion (clave, valor) VALUES ('auto_import_activo', %s)",
+                       ('1' if activo else '0',))
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+    return jsonify({'ok': True, 'activo': activo})
 
 
 # ── Endpoint: cuántas ventas nuevas hay (para popup) ────────────────────────

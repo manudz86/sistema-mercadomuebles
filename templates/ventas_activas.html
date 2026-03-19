@@ -75,6 +75,18 @@
                 <i class="bi bi-download"></i> Importar de ML
             </button>
         </form>
+
+        <!-- TOGGLE AUTO-IMPORT -->
+        <div class="d-flex align-items-center gap-2" title="Activar/desactivar importación automática cada 60 segundos">
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="toggleAutoImport"
+                       {% if auto_import_activo %}checked{% endif %}
+                       onchange="toggleAutoImport(this)">
+                <label class="form-check-label small text-muted" for="toggleAutoImport">
+                    Auto ML
+                </label>
+            </div>
+        </div>
         
         <span class="badge bg-primary" style="font-size: 1.1em; padding: 0.6em 1em;">
             {{ ventas|length }} venta{% if ventas|length != 1 %}s{% endif %}
@@ -1014,6 +1026,23 @@ function guardarTrid(ventaId) {
     });
 })();
 
+// Toggle auto-import
+function toggleAutoImport(checkbox) {
+    fetch('/ventas/auto-import-toggle', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({activo: checkbox.checked})
+    })
+    .then(r => r.json())
+    .then(data => {
+        const label = checkbox.nextElementSibling;
+        label.textContent = data.activo ? 'Auto ML' : 'Auto ML';
+        label.classList.toggle('text-muted', data.activo);
+        label.classList.toggle('text-danger', !data.activo);
+    })
+    .catch(() => { checkbox.checked = !checkbox.checked; }); // revertir si falla
+}
+
 // ── AUTO-IMPORT POPUP ────────────────────────────────────────────────────────
 (function() {
     const POLL_MS = 60000;
@@ -1068,8 +1097,11 @@ function guardarTrid(ventaId) {
             .then(function(data) {
                 if (data.count && data.count > 0) {
                     crearPopup(data.count);
-                    // Recargar tabla silenciosamente
-                    setTimeout(function() { location.reload(); }, 1500);
+                    // Resetear primero, luego recargar para no loop
+                    fetch('/ventas/nuevas-reset', { method: 'POST' })
+                        .then(function() {
+                            setTimeout(function() { location.reload(); }, 1500);
+                        });
                 }
             })
             .catch(function() {});
