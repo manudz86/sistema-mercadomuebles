@@ -5628,7 +5628,7 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
                     d = d[6:].strip()
                 return d
 
-            if address_line:
+            if address_line and 'X' * 3 not in address_line.upper():
                 shipping_data['direccion'] = limpiar_direccion(address_line)
             elif street_name and street_number:
                 direccion = f"{street_name} {street_number}"
@@ -9802,7 +9802,38 @@ def _importar_orden_automatica(orden, access_token):
                 return False
             items_bd.append({'sku': sku_norm, 'cantidad': item['cantidad'], 'precio': item['precio']})
 
-        # Obtener shipping completo
+        # Auto-agregar PLATINO si el título contiene "almohada" y el SKU no es almohada
+        SKUS_ALMOHADA_PURAS = {'CERVICAL','CLASICA','DORAL','DUAL','EXCLUSIVE','PLATINO','RENOVATION','SUBLIME'}
+        platino_a_agregar = 0
+        for item in orden_data['items']:
+            sku_ml = item.get('sku', '').upper()
+            titulo = item.get('titulo', '').lower()
+            es_almohada_sku = any(a in sku_ml for a in SKUS_ALMOHADA_PURAS)
+            if 'almohada' in titulo and not es_almohada_sku:
+                import re as _re2
+                ancho = 0
+                m = _re2.search(r'(\d{2,3})\s*x\s*(\d{2,3})', titulo)
+                if m:
+                    ancho = min(int(m.group(1)), int(m.group(2)))
+                if not ancho:
+                    cm = _re2.search(r'(\d{2,3})\s*cm', titulo)
+                    if cm: ancho = int(cm.group(1))
+                if not ancho:
+                    if '2 plaza' in titulo or 'doble' in titulo: ancho = 140
+                    elif 'queen' in titulo: ancho = 160
+                    elif 'king' in titulo: ancho = 180
+                    elif 'plaza y media' in titulo or '1.5' in titulo: ancho = 100
+                    elif '1 plaza' in titulo or 'individual' in titulo: ancho = 80
+                cant = 0
+                if ancho >= 140: cant = 2
+                elif 0 < ancho <= 100: cant = 1
+                platino_a_agregar = max(platino_a_agregar, cant)
+
+        if platino_a_agregar > 0:
+            existe_plat, _, _ = verificar_sku_en_bd('PLATINO')
+            if existe_plat:
+                items_bd.append({'sku': 'PLATINO', 'cantidad': platino_a_agregar, 'precio': 0})
+                print(f"[AUTO-ML] ✅ Auto-agregado PLATINO x{platino_a_agregar}")
         shipping = {}
         if orden_data['shipping'].get('shipping_id'):
             shipping = obtener_shipping_completo(
@@ -9855,9 +9886,11 @@ def _importar_orden_automatica(orden, access_token):
         fecha_venta = orden_data['fecha']
         canal = 'Mercado Libre'
         # mla_code guarda el APODO (nickname) — se muestra en negrita en la tabla
-        # nombre_cliente guarda el nombre real completo
+        # nombre_cliente guarda el nombre real — si ML no lo provee, queda vacío
         mla_code = orden_data.get('comprador_nickname', '') or f"ML-{orden_id}"
-        nombre_cliente = orden_data.get('comprador_nombre', '') or mla_code
+        nombre_real = orden_data.get('comprador_nombre', '').strip()
+        # Solo usar el nombre si es distinto al nickname (ML a veces devuelve el mismo)
+        nombre_cliente = nombre_real if (nombre_real and nombre_real.upper() != mla_code.upper()) else ''
         numero_venta = f"ML-{orden_id}"
         telefono_cliente = ''
         tipo_entrega = 'envio' if shipping.get('tiene_envio') else 'retiro'
