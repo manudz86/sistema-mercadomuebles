@@ -163,7 +163,51 @@
     </div>
 </div>
 
-<!-- Toast de resultado -->
+<!-- Modal de Progreso ML -->
+<div class="modal fade" id="modalProgresoML" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-cloud-upload"></i> Actualizando publicaciones en ML</h5>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span id="progLabel">Procesando...</span>
+                        <span id="progCount">0 / 0</span>
+                    </div>
+                    <div class="progress" style="height:20px">
+                        <div id="progBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+                             style="width:0%"></div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6 class="text-success">✅ Actualizadas (<span id="countOk">0</span>)</h6>
+                        <div id="listaOk" style="max-height:200px; overflow-y:auto; font-size:0.8rem;"
+                             class="border rounded p-2 bg-light"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="text-danger">❌ Errores (<span id="countErr">0</span>)</h6>
+                        <div id="listaErr" style="max-height:200px; overflow-y:auto; font-size:0.8rem;"
+                             class="border rounded p-2 bg-light"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span id="progStatus" class="text-muted me-auto">
+                    <span class="spinner-border spinner-border-sm me-1"></span> Procesando...
+                </span>
+                <button type="button" class="btn btn-success" id="btnCerrarProgreso"
+                        onclick="cerrarProgresoML()" style="display:none">
+                    <i class="bi bi-check-circle"></i> Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast de resultado rápido (stock BD) -->
 <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 9999">
     <div id="toastResultado" class="toast align-items-center text-white border-0" role="alert">
         <div class="d-flex">
@@ -386,13 +430,9 @@ function confirmarCarga() {
 }
 
 async function ejecutarCarga() {
-    // Deshabilitar botones y mostrar spinner
     const btnConfirmar = document.getElementById('btnConfirmarModal');
     const btnCancelar = document.getElementById('btnCancelarCarga');
-    if (btnConfirmar) {
-        btnConfirmar.disabled = true;
-        btnConfirmar.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Cargando...';
-    }
+    if (btnConfirmar) { btnConfirmar.disabled = true; btnConfirmar.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Cargando...'; }
     if (btnCancelar) btnCancelar.disabled = true;
 
     try {
@@ -401,34 +441,87 @@ async function ejecutarCarga() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ items: carrito })
         });
-
         const result = await response.json();
 
-        // Cerrar modal
-        const modalEl = document.getElementById('modalConfirmacionFinal');
-        if (modalEl) {
-            const modalInst = bootstrap.Modal.getInstance(modalEl);
-            if (modalInst) modalInst.hide();
-        }
+        // Cerrar modal de confirmación
+        const modalConfirm = document.getElementById('modalConfirmacionFinal');
+        if (modalConfirm) { const m = bootstrap.Modal.getInstance(modalConfirm); if (m) m.hide(); }
 
         if (result.success) {
-            mostrarToast('✅ Stock cargado. Actualizando ML en background...', 'bg-success');
+            mostrarToast('✅ Stock guardado en sistema. Actualizando ML...', 'bg-success');
             carrito = [];
             actualizarCarrito();
             await cargarProductos();
+            // Abrir modal de progreso ML
+            setTimeout(() => iniciarProgresoML(), 500);
         } else {
             mostrarToast('❌ Error: ' + (result.error || 'desconocido'), 'bg-danger');
         }
     } catch (error) {
-        console.error('Error:', error);
         mostrarToast('❌ Error de conexión: ' + error.message, 'bg-danger');
     } finally {
-        if (btnConfirmar) {
-            btnConfirmar.disabled = false;
-            btnConfirmar.innerHTML = '<i class="bi bi-check-circle"></i> Confirmar y Cargar';
-        }
+        if (btnConfirmar) { btnConfirmar.disabled = false; btnConfirmar.innerHTML = '<i class="bi bi-check-circle"></i> Confirmar y Cargar'; }
         if (btnCancelar) btnCancelar.disabled = false;
     }
+}
+
+let _pollingTimer = null;
+
+function iniciarProgresoML() {
+    // Reset UI
+    document.getElementById('progBar').style.width = '0%';
+    document.getElementById('progCount').textContent = '0 / 0';
+    document.getElementById('progLabel').textContent = 'Iniciando...';
+    document.getElementById('listaOk').innerHTML = '';
+    document.getElementById('listaErr').innerHTML = '';
+    document.getElementById('countOk').textContent = '0';
+    document.getElementById('countErr').textContent = '0';
+    document.getElementById('btnCerrarProgreso').style.display = 'none';
+    document.getElementById('progStatus').innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Procesando...';
+
+    const modal = new bootstrap.Modal(document.getElementById('modalProgresoML'));
+    modal.show();
+
+    _pollingTimer = setInterval(pollProgresoML, 1000);
+}
+
+async function pollProgresoML() {
+    try {
+        const r = await fetch('/ventas/ml-progress');
+        const d = await r.json();
+
+        const total = d.total || 1;
+        const done  = d.done  || 0;
+        const pct   = Math.min(100, Math.round(done / total * 100));
+
+        document.getElementById('progBar').style.width = pct + '%';
+        document.getElementById('progCount').textContent = `${done} / ${total}`;
+        document.getElementById('progLabel').textContent = d.running ? 'Actualizando publicaciones...' : 'Completado';
+        document.getElementById('countOk').textContent = d.ok.length;
+        document.getElementById('countErr').textContent = d.errors.length;
+
+        document.getElementById('listaOk').innerHTML = d.ok.map(x => `<div class="text-success">✅ ${x}</div>`).join('');
+        document.getElementById('listaErr').innerHTML = d.errors.map(x => `<div class="text-danger">❌ ${x}</div>`).join('');
+
+        if (!d.running) {
+            clearInterval(_pollingTimer);
+            document.getElementById('progBar').classList.remove('progress-bar-animated');
+            document.getElementById('progBar').style.width = '100%';
+            document.getElementById('btnCerrarProgreso').style.display = 'inline-block';
+            const errCount = d.errors.length;
+            document.getElementById('progStatus').innerHTML = errCount > 0
+                ? `<span class="text-warning">⚠️ Completado con ${errCount} error(es)</span>`
+                : '<span class="text-success">✅ Todas las publicaciones actualizadas</span>';
+        }
+    } catch (e) {
+        console.error('Error polling progreso:', e);
+    }
+}
+
+function cerrarProgresoML() {
+    clearInterval(_pollingTimer);
+    const modal = bootstrap.Modal.getInstance(document.getElementById('modalProgresoML'));
+    if (modal) modal.hide();
 }
 
 function mostrarToast(mensaje, bgClass) {
@@ -436,7 +529,7 @@ function mostrarToast(mensaje, bgClass) {
     const toastBody = document.getElementById('toastBody');
     toast.className = `toast align-items-center text-white border-0 ${bgClass}`;
     toastBody.textContent = mensaje;
-    const bsToast = new bootstrap.Toast(toast, { delay: 6000 });
+    const bsToast = new bootstrap.Toast(toast, { delay: 5000 });
     bsToast.show();
 }
 </script>

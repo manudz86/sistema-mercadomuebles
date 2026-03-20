@@ -601,6 +601,74 @@ def detectar_alertas_stock_bajo(cursor, items_vendidos, venta_id_actual=None):
 
 
 
+@app.route('/ventas/activas/exportar-excel')
+@login_required
+def exportar_ventas_activas_excel():
+    from flask import make_response
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from io import BytesIO
+    filtro_buscar       = request.args.get('buscar', '').strip()
+    filtro_tipo_entrega = request.args.get('tipo_entrega', '')
+    filtro_metodo_envio = request.args.get('metodo_envio', '')
+    filtro_zona         = request.args.get('zona', '')
+    filtro_canal        = request.args.get('canal', '')
+    filtro_estado_pago  = request.args.get('estado_pago', '')
+    query = '''SELECT v.id, v.numero_venta, v.fecha_venta, v.canal, v.mla_code,
+        v.nombre_cliente, v.telefono_cliente, v.tipo_entrega, v.metodo_envio, v.zona_envio,
+        v.direccion_entrega, v.costo_flete, v.metodo_pago, v.importe_total, v.importe_abonado,
+        v.estado_pago, v.notas FROM ventas v WHERE v.estado_entrega = 'pendiente' '''
+    params = []
+    if filtro_buscar:
+        query += ' AND (v.mla_code LIKE %s OR v.nombre_cliente LIKE %s OR v.id IN (SELECT venta_id FROM items_venta WHERE sku LIKE %s))'
+        b = f'%{filtro_buscar}%'; params.extend([b, b, b])
+    if filtro_tipo_entrega: query += ' AND v.tipo_entrega = %s'; params.append(filtro_tipo_entrega)
+    if filtro_metodo_envio: query += ' AND v.metodo_envio = %s'; params.append(filtro_metodo_envio)
+    if filtro_zona: query += ' AND v.zona_envio = %s'; params.append(filtro_zona)
+    if filtro_canal: query += ' AND v.canal = %s'; params.append(filtro_canal)
+    if filtro_estado_pago:
+        if filtro_estado_pago == 'pagado': query += ' AND v.importe_abonado >= v.importe_total'
+        elif filtro_estado_pago == 'pendiente': query += ' AND v.importe_abonado = 0'
+        elif filtro_estado_pago == 'parcial': query += ' AND v.importe_abonado > 0 AND v.importe_abonado < v.importe_total'
+    query += " ORDER BY CASE WHEN v.metodo_envio = 'Turbo' THEN 0 ELSE 1 END, v.fecha_venta DESC, v.id DESC"
+    ventas = query_db(query, tuple(params) if params else None)
+    for venta in ventas:
+        items = query_db('''SELECT iv.sku, iv.cantidad, iv.precio_unitario,
+            COALESCE(pb.nombre, pc.nombre, iv.sku) as nombre_producto
+            FROM items_venta iv LEFT JOIN productos_base pb ON iv.sku = pb.sku
+            LEFT JOIN productos_compuestos pc ON iv.sku = pc.sku
+            WHERE iv.venta_id = %s ORDER BY iv.id''', (venta['id'],))
+        venta['items'] = items
+    wb = Workbook(); ws = wb.active; ws.title = 'Ventas Activas'
+    hf = Font(bold=True, color='FFFFFF'); hfill = PatternFill('solid', fgColor='2563EB')
+    center = Alignment(horizontal='center', vertical='center')
+    headers = ['ID','N° Venta','Fecha','Hora','Canal','MLA/Código','Cliente','Teléfono',
+               'Tipo Entrega','Método Envío','Zona','Dirección','Costo Flete',
+               'Método Pago','Total','Abonado','Estado Pago','Productos','Notas']
+    ws.append(headers)
+    for i, _ in enumerate(headers, 1):
+        c = ws.cell(row=1, column=i); c.font = hf; c.fill = hfill; c.alignment = center
+    for v in ventas:
+        f = v['fecha_venta']
+        prods = ' | '.join(f"{i['nombre_producto']} x{i['cantidad']}" for i in (v.get('items') or []))
+        ws.append([v['id'], v['numero_venta'] or '', f.strftime('%d/%m/%Y') if f else '',
+            f.strftime('%H:%M') if f else '', v['canal'] or '', v['mla_code'] or '',
+            v['nombre_cliente'] or '', v['telefono_cliente'] or '', v['tipo_entrega'] or '',
+            v['metodo_envio'] or '', v['zona_envio'] or '', v['direccion_entrega'] or '',
+            float(v['costo_flete']) if v['costo_flete'] else 0, v['metodo_pago'] or '',
+            float(v['importe_total']) if v['importe_total'] else 0,
+            float(v['importe_abonado']) if v['importe_abonado'] else 0,
+            v['estado_pago'] or '', prods, v['notas'] or ''])
+    for i, w in enumerate([6,12,12,8,12,16,24,14,12,14,12,30,12,14,12,12,12,50,40], 1):
+        ws.column_dimensions[ws.cell(row=1,column=i).column_letter].width = w
+    buf = BytesIO(); wb.save(buf); buf.seek(0)
+    from datetime import datetime
+    resp = make_response(buf.read())
+    resp.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    resp.headers['Content-Disposition'] = f'attachment; filename=ventas_activas_{datetime.now().strftime("%Y%m%d_%H%M")}.xlsx'
+    return resp
+
+
 @app.route('/ventas/activas')
 @login_required
 def ventas_activas():
@@ -4014,12 +4082,12 @@ def cargar_stock():
             cursor.close()
             conn.close()
 
-            # Disparar actualización ML en background (no bloquea la respuesta)
+            # Disparar actualización ML en background con progreso
             import threading
             skus_cargados = {item['sku'] for item in items}
             def _update_ml_bg():
                 try:
-                    actualizar_publicaciones_ml(skus_cargados)
+                    actualizar_publicaciones_ml_con_progreso(skus_cargados)
                 except Exception as e_ml:
                     print(f"[AUTO-ML] Error actualizando ML tras carga stock: {e_ml}")
             threading.Thread(target=_update_ml_bg, daemon=True).start()
@@ -10162,6 +10230,76 @@ def auto_import_toggle():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
     return jsonify({'ok': True, 'activo': activo})
+
+
+# ── Progreso de actualización ML ────────────────────────────────────────────
+_ml_progress = {'running': False, 'total': 0, 'done': 0, 'ok': [], 'errors': [], 'skus': []}
+
+def actualizar_publicaciones_ml_con_progreso(skus_base_afectados):
+    """Wrapper de actualizar_publicaciones_ml que actualiza _ml_progress."""
+    global _ml_progress
+    _ml_progress = {'running': True, 'total': 0, 'done': 0, 'ok': [], 'errors': [], 'skus': list(skus_base_afectados)}
+
+    # Parchamos actualizar_stock_ml y las funciones de demora para capturar resultados
+    original_actualizar = actualizar_stock_ml
+    original_poner = _poner_demora_ml
+    original_quitar = _quitar_demora_ml
+
+    resultados_ok = []
+    resultados_err = []
+
+    import functools
+
+    def patched_actualizar(mla_id, cantidad, access_token):
+        ok, msg = original_actualizar(mla_id, cantidad, access_token)
+        if ok:
+            resultados_ok.append(f"{mla_id} stock={cantidad}")
+        else:
+            resultados_err.append(f"{mla_id}: {msg}")
+        _ml_progress['done'] += 1
+        _ml_progress['ok'] = resultados_ok[:]
+        _ml_progress['errors'] = resultados_err[:]
+        return ok, msg
+
+    try:
+        # Calcular total aproximado de publicaciones
+        pubs_count = 0
+        for sku in skus_base_afectados:
+            try:
+                pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku,)))
+                pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku + 'Z',)))
+                combos = query_db('''SELECT pc.sku FROM productos_compuestos pc
+                    JOIN componentes c ON c.producto_compuesto_id = pc.id
+                    JOIN productos_base pb ON c.producto_base_id = pb.id
+                    WHERE pb.sku = %s AND pc.activo = 1''', (sku,))
+                for combo in combos:
+                    pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (combo['sku'],)))
+                    pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (combo['sku'] + 'Z',)))
+            except Exception:
+                pass
+        _ml_progress['total'] = pubs_count or 1
+
+        # Monkey-patch temporal
+        import sys
+        mod = sys.modules[__name__]
+        setattr(mod, 'actualizar_stock_ml', patched_actualizar)
+        try:
+            actualizar_publicaciones_ml(skus_base_afectados)
+        finally:
+            setattr(mod, 'actualizar_stock_ml', original_actualizar)
+
+    except Exception as e:
+        resultados_err.append(f"Error general: {str(e)}")
+    finally:
+        _ml_progress['running'] = False
+        _ml_progress['ok'] = resultados_ok
+        _ml_progress['errors'] = resultados_err
+
+
+@app.route('/ventas/ml-progress')
+@login_required
+def ml_progress():
+    return jsonify(_ml_progress)
 
 
 # ── Endpoint: cuántas ventas nuevas hay (para popup) ────────────────────────
