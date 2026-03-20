@@ -4210,51 +4210,60 @@ def bajar_stock():
 @app.route('/bajar-stock/guardar', methods=['POST'])
 @login_required
 def bajar_stock_guardar():
-    """Guardar bajas de stock y registrar movimientos"""
+    """Guardar bajas de stock - acepta form o JSON"""
+    from flask import jsonify as _jsonify
+    es_json = request.is_json
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        motivo = request.form.get('motivo', 'Baja de stock manual')
-        
-        # Obtener datos del formulario
-        bajas = []
-        for key, value in request.form.items():
-            if key.startswith('baja_'):
-                sku = key.replace('baja_', '')
-                cantidad_baja = int(value) if value else 0
-                if cantidad_baja > 0:
-                    bajas.append((cantidad_baja, sku))
-        
-        # Descontar stock y registrar movimientos
+        if es_json:
+            data = request.get_json()
+            motivo = data.get('motivo', 'Baja de stock manual')
+            bajas = [(item['cantidad'], item['sku']) for item in data.get('items', []) if item.get('cantidad', 0) > 0]
+        else:
+            motivo = request.form.get('motivo', 'Baja de stock manual')
+            bajas = []
+            for key, value in request.form.items():
+                if key.startswith('baja_'):
+                    sku = key.replace('baja_', '')
+                    cantidad_baja = int(value) if value else 0
+                    if cantidad_baja > 0:
+                        bajas.append((cantidad_baja, sku))
+
         for cantidad_baja, sku in bajas:
-            # Obtener stock anterior
             cursor.execute('SELECT stock_actual, nombre FROM productos_base WHERE sku = %s', (sku,))
             resultado = cursor.fetchone()
             stock_anterior = resultado['stock_actual'] if resultado else 0
             nombre_producto = resultado['nombre'] if resultado else ''
             stock_nuevo = stock_anterior - cantidad_baja
-            
-            # Actualizar stock
-            cursor.execute('''
-                UPDATE productos_base 
-                SET stock_actual = stock_actual - %s 
-                WHERE sku = %s
-            ''', (cantidad_baja, sku))
-            
-            # Registrar movimiento
-            cursor.execute('''
-                INSERT INTO movimientos_stock 
+            cursor.execute('UPDATE productos_base SET stock_actual = stock_actual - %s WHERE sku = %s', (cantidad_baja, sku))
+            cursor.execute('''INSERT INTO movimientos_stock
                 (sku, nombre_producto, tipo_movimiento, cantidad, stock_anterior, stock_nuevo, motivo)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             ''', (sku, nombre_producto, 'baja', cantidad_baja, stock_anterior, stock_nuevo, motivo))
-        
+
         conn.commit()
-        
+
+        if bajas:
+            import threading
+            skus_bajados = {sku for _, sku in bajas}
+            def _update_ml_bg():
+                try:
+                    actualizar_publicaciones_ml_con_progreso(skus_bajados)
+                except Exception as e_ml:
+                    print(f"[AUTO-ML] Error ML tras baja stock: {e_ml}")
+            threading.Thread(target=_update_ml_bg, daemon=True).start()
+
+        if es_json:
+            return _jsonify({'success': True, 'message': f'Baja registrada: {len(bajas)} productos. Actualizando ML...'})
+
         motivo_msg = f' - {motivo}' if motivo else ''
         flash(f'✅ Stock dado de baja correctamente ({len(bajas)} productos){motivo_msg}', 'success')
-        
+
     except Exception as e:
         conn.rollback()
+        if es_json:
+            return _jsonify({'success': False, 'error': str(e)}), 500
         flash(f'❌ Error al dar de baja stock: {str(e)}', 'error')
     finally:
         conn.close()
