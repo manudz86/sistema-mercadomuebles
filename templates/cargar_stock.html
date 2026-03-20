@@ -452,8 +452,8 @@ async function ejecutarCarga() {
             carrito = [];
             actualizarCarrito();
             await cargarProductos();
-            // Abrir modal de progreso ML
-            setTimeout(() => iniciarProgresoML(), 500);
+            // Abrir modal de progreso ML inmediatamente
+            iniciarProgresoML();
         } else {
             mostrarToast('❌ Error: ' + (result.error || 'desconocido'), 'bg-danger');
         }
@@ -466,6 +466,8 @@ async function ejecutarCarga() {
 }
 
 let _pollingTimer = null;
+let _pollingStart = null;
+const _POLLING_TIMEOUT_MS = 180000; // 3 minutos máximo
 
 function iniciarProgresoML() {
     // Reset UI
@@ -482,6 +484,7 @@ function iniciarProgresoML() {
     const modal = new bootstrap.Modal(document.getElementById('modalProgresoML'));
     modal.show();
 
+    _pollingStart = Date.now();
     _pollingTimer = setInterval(pollProgresoML, 1000);
 }
 
@@ -504,6 +507,15 @@ async function pollProgresoML() {
         document.getElementById('listaErr').innerHTML = d.errors.map(x => `<div class="text-danger">❌ ${x}</div>`).join('');
 
         if (!d.running) {
+            // Si terminó pero no hubo nada procesado, esperar hasta timeout
+            if (done === 0 && d.ok.length === 0 && d.errors.length === 0) {
+                if (Date.now() - _pollingStart > _POLLING_TIMEOUT_MS) {
+                    clearInterval(_pollingTimer);
+                    document.getElementById('progStatus').innerHTML = '<span class="text-warning">⚠️ Timeout esperando respuesta</span>';
+                    document.getElementById('btnCerrarProgreso').style.display = 'inline-block';
+                }
+                return;
+            }
             clearInterval(_pollingTimer);
             document.getElementById('progBar').classList.remove('progress-bar-animated');
             document.getElementById('progBar').style.width = '100%';
