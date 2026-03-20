@@ -9868,34 +9868,54 @@ def _importar_orden_automatica(orden, access_token):
             'state': None, 'zip_code': None
         }
         try:
-            headers = {'Authorization': f'Bearer {access_token}'}
+            headers_ml = {'Authorization': f'Bearer {access_token}'}
             br = requests.get(
                 f'https://api.mercadolibre.com/orders/{orden_id}/billing_info',
-                headers=headers
+                headers=headers_ml
             )
             if br.status_code == 200:
                 bd = br.json()
-                buyer_info = bd.get('buyer', {})
-                billing_doc = buyer_info.get('billing_info', {})
-                doc_type_raw = billing_doc.get('doc_type', '')
-                taxpayer_raw = billing_doc.get('taxpayer_type', {})
-                if isinstance(taxpayer_raw, dict):
-                    taxpayer_raw = taxpayer_raw.get('description', '')
                 iva_map = {
                     'IVA Exento': 'Exento',
                     'IVA Responsable Inscripto': 'Responsable Inscripto',
                     'Monotributo': 'Responsable Monotributo',
                 }
-                billing_info = {
-                    'business_name': billing_doc.get('business_name'),
-                    'doc_type': doc_type_raw,
-                    'doc_number': billing_doc.get('doc_number'),
-                    'taxpayer_type': iva_map.get(taxpayer_raw, taxpayer_raw),
-                    'city': buyer_info.get('billing_info', {}).get('city'),
-                    'street': buyer_info.get('billing_info', {}).get('street'),
-                    'state': buyer_info.get('billing_info', {}).get('state'),
-                    'zip_code': buyer_info.get('billing_info', {}).get('zip_code'),
-                }
+                # Estructura nueva: billing_info.additional_info array [{type, value}]
+                bi_root = bd.get('billing_info', {})
+                add_info = bi_root.get('additional_info', [])
+                if add_info:
+                    ai = {item['type']: item['value'] for item in add_info}
+                    taxpayer_raw = ai.get('TAXPAYER_TYPE_ID', '')
+                    # Nombre de razón social (CUIT) o nombre físico
+                    business = ai.get('BUSINESS_NAME') or ''
+                    billing_info = {
+                        'business_name': business or None,
+                        'doc_type':      bi_root.get('doc_type') or ai.get('DOC_TYPE'),
+                        'doc_number':    bi_root.get('doc_number') or ai.get('DOC_NUMBER'),
+                        'taxpayer_type': iva_map.get(taxpayer_raw, taxpayer_raw) or None,
+                        'city':          ai.get('CITY_NAME'),
+                        'street':        ai.get('STREET_NAME'),
+                        'state':         ai.get('STATE_NAME'),
+                        'zip_code':      ai.get('ZIP_CODE'),
+                    }
+                else:
+                    # Estructura vieja: buyer.billing_info
+                    buyer_info = bd.get('buyer', {})
+                    billing_doc = buyer_info.get('billing_info', {})
+                    doc_type_raw = billing_doc.get('doc_type', '')
+                    taxpayer_raw = billing_doc.get('taxpayer_type', {})
+                    if isinstance(taxpayer_raw, dict):
+                        taxpayer_raw = taxpayer_raw.get('description', '')
+                    billing_info = {
+                        'business_name': billing_doc.get('business_name'),
+                        'doc_type':      doc_type_raw,
+                        'doc_number':    billing_doc.get('doc_number'),
+                        'taxpayer_type': iva_map.get(taxpayer_raw, taxpayer_raw),
+                        'city':          billing_doc.get('city'),
+                        'street':        billing_doc.get('street'),
+                        'state':         billing_doc.get('state'),
+                        'zip_code':      billing_doc.get('zip_code'),
+                    }
         except Exception as e:
             print(f"[AUTO-ML] Error obteniendo billing de {orden_id}: {e}")
 
