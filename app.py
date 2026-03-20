@@ -5592,46 +5592,60 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
             lt = logistic_type  # alias corto
 
             if lt in ('cross_docking', 'xd_drop_off'):
-                # Fecha de colecta según hora de corte
-                try:
-                    hora_corte_str = session.get('hora_corte_colecta', '14:00')
-                except RuntimeError:
-                    hora_corte_str = '14:00'  # fuera de request context (scheduler)
-                try:
-                    hh, mm = map(int, hora_corte_str.split(':'))
-                except:
-                    hh, mm = 14, 0
+                from datetime import timezone, timedelta
+                tz_ar = timezone(timedelta(hours=-3))
+                hoy_ar = datetime.now(tz_ar).date()
 
-                # Hora de la compra (fecha de la orden)
-                fecha_orden_raw = fecha_orden_iso
-                if fecha_orden_raw:
-                    dt_orden = datetime.fromisoformat(fecha_orden_raw.replace('Z', '+00:00'))
-                    from datetime import timezone, timedelta
-                    tz_ar = timezone(timedelta(hours=-3))
-                    dt_orden_ar = dt_orden.astimezone(tz_ar)
-                    corte = dt_orden_ar.replace(hour=hh, minute=mm, second=0, microsecond=0)
-                    # Si la compra fue 1h+ antes del corte → colecta hoy, sino mañana
-                    # Considerar fines de semana: sábado/domingo → lunes siguiente
-                    def proximo_dia_habil(fecha):
-                        # Si es sábado(5) o domingo(6) → siguiente lunes
-                        while fecha.weekday() >= 5:
-                            fecha = fecha + timedelta(days=1)
-                        return fecha
+                # Primero: intentar usar la fecha que ML calculó (estimated_delivery_time.date)
+                edt_raw = (
+                    shipment.get('shipping_option', {})
+                    .get('estimated_delivery_time', {})
+                    .get('date', '')
+                )
+                fecha_edt = None
+                if edt_raw:
+                    try:
+                        fecha_edt = datetime.fromisoformat(edt_raw).astimezone(tz_ar).date()
+                    except Exception:
+                        fecha_edt = None
 
-                    dia_orden = dt_orden_ar.date()
-                    dia_siguiente = dia_orden + timedelta(days=1)
+                if fecha_edt and fecha_edt > hoy_ar:
+                    # ML indica una fecha futura → usarla directamente
+                    shipping_data['fecha_entrega_ml'] = f"{fecha_edt.day:02d}/{fecha_edt.month:02d}"
+                    print(f"📅 Fecha colecta (de ML): {shipping_data['fecha_entrega_ml']}")
+                else:
+                    # Es hoy o no hay fecha → calcular por hora de corte
+                    try:
+                        hora_corte_str = session.get('hora_corte_colecta', '14:00')
+                    except RuntimeError:
+                        hora_corte_str = '14:00'
+                    try:
+                        hh, mm = map(int, hora_corte_str.split(':'))
+                    except:
+                        hh, mm = 14, 0
 
-                    if dia_orden.weekday() >= 5:
-                        # Compra en fin de semana → siempre lunes
-                        fecha_colecta = proximo_dia_habil(dia_orden + timedelta(days=1))
-                    elif (corte - dt_orden_ar).total_seconds() >= 3600:
-                        # Compra en día hábil, 1h+ antes del corte → hoy
-                        fecha_colecta = dia_orden
-                    else:
-                        # Compra después del corte → día hábil siguiente
-                        fecha_colecta = proximo_dia_habil(dia_siguiente)
-                    shipping_data['fecha_entrega_ml'] = f"{fecha_colecta.day:02d}/{fecha_colecta.month:02d}"
-                    print(f"📅 Fecha colecta (corte {hora_corte_str}): {shipping_data['fecha_entrega_ml']}")
+                    fecha_orden_raw = fecha_orden_iso
+                    if fecha_orden_raw:
+                        dt_orden = datetime.fromisoformat(fecha_orden_raw.replace('Z', '+00:00'))
+                        dt_orden_ar = dt_orden.astimezone(tz_ar)
+                        corte = dt_orden_ar.replace(hour=hh, minute=mm, second=0, microsecond=0)
+
+                        def proximo_dia_habil(fecha):
+                            while fecha.weekday() >= 5:
+                                fecha = fecha + timedelta(days=1)
+                            return fecha
+
+                        dia_orden = dt_orden_ar.date()
+                        dia_siguiente = dia_orden + timedelta(days=1)
+
+                        if dia_orden.weekday() >= 5:
+                            fecha_colecta = proximo_dia_habil(dia_orden + timedelta(days=1))
+                        elif (corte - dt_orden_ar).total_seconds() >= 3600:
+                            fecha_colecta = dia_orden
+                        else:
+                            fecha_colecta = proximo_dia_habil(dia_siguiente)
+                        shipping_data['fecha_entrega_ml'] = f"{fecha_colecta.day:02d}/{fecha_colecta.month:02d}"
+                        print(f"📅 Fecha colecta (corte {hora_corte_str}): {shipping_data['fecha_entrega_ml']}")
             else:
                 # Flex y otros: usar estimated_delivery_limit
                 fecha_entrega_raw = (
@@ -10242,73 +10256,144 @@ def auto_import_toggle():
 
 
 # ── Progreso de actualización ML ────────────────────────────────────────────
-_ml_progress = {'running': False, 'total': 0, 'done': 0, 'ok': [], 'errors': [], 'skus': []}
+def _ml_progress_save(data):
+    """Guarda el progreso en la BD para que sea compartido entre workers."""
+    try:
+        import json as _json
+        valor = _json.dumps(data)
+        existe = query_db("SELECT id FROM configuracion WHERE clave = 'ml_progress' LIMIT 1")
+        if existe:
+            execute_db("UPDATE configuracion SET valor = %s WHERE clave = 'ml_progress'", (valor,))
+        else:
+            execute_db("INSERT INTO configuracion (clave, valor) VALUES ('ml_progress', %s)", (valor,))
+    except Exception as e:
+        print(f"[AUTO-ML] Error guardando progreso: {e}")
+
+def _ml_progress_get():
+    """Lee el progreso desde la BD."""
+    try:
+        import json as _json
+        row = query_db("SELECT valor FROM configuracion WHERE clave = 'ml_progress' LIMIT 1")
+        if row:
+            return _json.loads(row[0]['valor'])
+    except Exception:
+        pass
+    return {'running': False, 'total': 0, 'done': 0, 'ok': [], 'errors': [], 'skus': []}
+
 
 def actualizar_publicaciones_ml_con_progreso(skus_base_afectados):
-    """Wrapper de actualizar_publicaciones_ml que actualiza _ml_progress."""
-    global _ml_progress
-    _ml_progress = {'running': True, 'total': 0, 'done': 0, 'ok': [], 'errors': [], 'skus': list(skus_base_afectados)}
-
-    # Parchamos actualizar_stock_ml y las funciones de demora para capturar resultados
-    original_actualizar = actualizar_stock_ml
-    original_poner = _poner_demora_ml
-    original_quitar = _quitar_demora_ml
-
+    """Corre la actualización de ML guardando progreso en BD (compartido entre workers)."""
     resultados_ok = []
     resultados_err = []
 
-    import functools
+    # Calcular total de publicaciones
+    pubs_count = 0
+    for sku in skus_base_afectados:
+        try:
+            pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku,)))
+            pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku + 'Z',)))
+            combos = query_db('''SELECT pc.sku FROM productos_compuestos pc
+                JOIN componentes c ON c.producto_compuesto_id = pc.id
+                JOIN productos_base pb ON c.producto_base_id = pb.id
+                WHERE pb.sku = %s AND pc.activo = 1''', (sku,))
+            for combo in combos:
+                pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (combo['sku'],)))
+                pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (combo['sku'] + 'Z',)))
+        except Exception:
+            pass
 
-    def patched_actualizar(mla_id, cantidad, access_token):
-        ok, msg = original_actualizar(mla_id, cantidad, access_token)
-        if ok:
-            resultados_ok.append(f"{mla_id} stock={cantidad}")
-        else:
-            resultados_err.append(f"{mla_id}: {msg}")
-        _ml_progress['done'] += 1
-        _ml_progress['ok'] = resultados_ok[:]
-        _ml_progress['errors'] = resultados_err[:]
-        return ok, msg
+    _ml_progress_save({'running': True, 'total': pubs_count or 1, 'done': 0,
+                       'ok': [], 'errors': [], 'skus': list(skus_base_afectados)})
+
+    access_token = cargar_ml_token()
+    if not access_token:
+        _ml_progress_save({'running': False, 'total': 0, 'done': 0,
+                           'ok': [], 'errors': ['Sin access token ML'], 'skus': []})
+        return
 
     try:
-        # Calcular total aproximado de publicaciones
-        pubs_count = 0
-        for sku in skus_base_afectados:
-            try:
-                pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku,)))
-                pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku + 'Z',)))
-                combos = query_db('''SELECT pc.sku FROM productos_compuestos pc
-                    JOIN componentes c ON c.producto_compuesto_id = pc.id
-                    JOIN productos_base pb ON c.producto_base_id = pb.id
-                    WHERE pb.sku = %s AND pc.activo = 1''', (sku,))
-                for combo in combos:
-                    pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (combo['sku'],)))
-                    pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (combo['sku'] + 'Z',)))
-            except Exception:
-                pass
-        _ml_progress['total'] = pubs_count or 1
-
-        # Monkey-patch temporal
-        import sys
-        mod = sys.modules[__name__]
-        setattr(mod, 'actualizar_stock_ml', patched_actualizar)
-        try:
-            actualizar_publicaciones_ml(skus_base_afectados)
-        finally:
-            setattr(mod, 'actualizar_stock_ml', original_actualizar)
-
+        stock_todos = calcular_stock_por_sku()
     except Exception as e:
-        resultados_err.append(f"Error general: {str(e)}")
-    finally:
-        _ml_progress['running'] = False
-        _ml_progress['ok'] = resultados_ok
-        _ml_progress['errors'] = resultados_err
+        _ml_progress_save({'running': False, 'total': 0, 'done': 0,
+                           'ok': [], 'errors': [f'Error calculando stock: {e}'], 'skus': []})
+        return
+
+    skus_a_actualizar = set()
+    for sku_base in skus_base_afectados:
+        sku_base = sku_base.upper()
+        skus_a_actualizar.add(sku_base)
+        try:
+            combos = query_db('''SELECT pc.sku FROM productos_compuestos pc
+                JOIN componentes c ON c.producto_compuesto_id = pc.id
+                JOIN productos_base pb ON c.producto_base_id = pb.id
+                WHERE pb.sku = %s AND pc.activo = 1''', (sku_base,))
+            for combo in combos:
+                skus_a_actualizar.add(combo['sku'].upper())
+        except Exception:
+            pass
+
+    done = 0
+    for sku in skus_a_actualizar:
+        if _es_almohada(sku) or _es_compac(sku):
+            continue
+        disponible = max(0, stock_todos.get(sku, {}).get('stock_disponible', 0))
+
+        # Sin Z
+        try:
+            pubs_sin_z = query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku,))
+            for pub in pubs_sin_z:
+                mla = pub['mla_id']
+                ok, msg = actualizar_stock_ml(mla, disponible, access_token)
+                if ok:
+                    resultados_ok.append(f"{sku} \u2192 {mla} stock={disponible}")
+                else:
+                    resultados_err.append(f"{mla}: {msg}")
+                done += 1
+                _ml_progress_save({'running': True, 'total': pubs_count or 1, 'done': done,
+                                   'ok': resultados_ok[:], 'errors': resultados_err[:], 'skus': list(skus_base_afectados)})
+                time.sleep(0.1)
+        except Exception as e:
+            resultados_err.append(f"Error sin Z {sku}: {e}")
+
+        # Con Z
+        if not _aplica_logica_z(sku):
+            continue
+        sku_z = sku + 'Z'
+        try:
+            pubs_z = query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku_z,))
+            for pub in pubs_z:
+                mla = pub['mla_id']
+                if disponible > 0:
+                    ok, msg = actualizar_stock_ml(mla, disponible, access_token)
+                    label = f"{sku_z} \u2192 {mla} stock={disponible}"
+                    time.sleep(0.1)
+                    _quitar_demora_ml(mla, access_token)
+                    label += ' + quitar demora'
+                else:
+                    ok, msg = actualizar_stock_ml(mla, 1, access_token)
+                    label = f"{sku_z} \u2192 {mla} stock=1+demora"
+                    time.sleep(0.1)
+                    _poner_demora_ml(mla, access_token, dias=7)
+                if ok:
+                    resultados_ok.append(label)
+                else:
+                    resultados_err.append(f"{mla}: {msg}")
+                done += 1
+                _ml_progress_save({'running': True, 'total': pubs_count or 1, 'done': done,
+                                   'ok': resultados_ok[:], 'errors': resultados_err[:], 'skus': list(skus_base_afectados)})
+                time.sleep(0.1)
+        except Exception as e:
+            resultados_err.append(f"Error con Z {sku_z}: {e}")
+
+    _ml_progress_save({'running': False, 'total': pubs_count or done, 'done': done,
+                       'ok': resultados_ok, 'errors': resultados_err, 'skus': list(skus_base_afectados)})
 
 
 @app.route('/ventas/ml-progress')
 @login_required
 def ml_progress():
-    return jsonify(_ml_progress)
+    return jsonify(_ml_progress_get())
+
 
 
 # ── Endpoint: cuántas ventas nuevas hay (para popup) ────────────────────────
