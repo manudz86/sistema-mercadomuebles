@@ -155,7 +155,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="btnCancelarCarga">Cancelar</button>
-                <button type="button" class="btn btn-success" onclick="ejecutarCarga()" id="btnConfirmarCarga">
+                <button type="button" class="btn btn-success" onclick="ejecutarCarga()" id="btnConfirmarModal">
                     <i class="bi bi-check-circle"></i> Confirmar y Cargar
                 </button>
             </div>
@@ -387,11 +387,13 @@ function confirmarCarga() {
 
 async function ejecutarCarga() {
     // Deshabilitar botones y mostrar spinner
-    const btnConfirmar = document.getElementById('btnConfirmarCarga');
+    const btnConfirmar = document.getElementById('btnConfirmarModal');
     const btnCancelar = document.getElementById('btnCancelarCarga');
-    btnConfirmar.disabled = true;
-    btnCancelar.disabled = true;
-    btnConfirmar.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Cargando...';
+    if (btnConfirmar) {
+        btnConfirmar.disabled = true;
+        btnConfirmar.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Cargando...';
+    }
+    if (btnCancelar) btnCancelar.disabled = true;
 
     try {
         const response = await fetch('/cargar-stock', {
@@ -399,29 +401,33 @@ async function ejecutarCarga() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ items: carrito })
         });
-        
+
         const result = await response.json();
-        
+
         // Cerrar modal
-        bootstrap.Modal.getInstance(document.getElementById('modalConfirmacionFinal')).hide();
-        
+        const modalEl = document.getElementById('modalConfirmacionFinal');
+        if (modalEl) {
+            const modalInst = bootstrap.Modal.getInstance(modalEl);
+            if (modalInst) modalInst.hide();
+        }
+
         if (result.success) {
-            // Mostrar toast verde
-            mostrarToast('✅ ' + result.message, 'bg-success');
+            mostrarToast('✅ Stock cargado. Actualizando ML en background...', 'bg-success');
             carrito = [];
             actualizarCarrito();
             await cargarProductos();
         } else {
-            mostrarToast('❌ Error: ' + result.error, 'bg-danger');
+            mostrarToast('❌ Error: ' + (result.error || 'desconocido'), 'bg-danger');
         }
     } catch (error) {
         console.error('Error:', error);
-        mostrarToast('❌ Error al cargar stock', 'bg-danger');
+        mostrarToast('❌ Error de conexión: ' + error.message, 'bg-danger');
     } finally {
-        // Restaurar botón
-        btnConfirmar.disabled = false;
-        btnCancelar.disabled = false;
-        btnConfirmar.innerHTML = '<i class="bi bi-check-circle"></i> Confirmar y Cargar';
+        if (btnConfirmar) {
+            btnConfirmar.disabled = false;
+            btnConfirmar.innerHTML = '<i class="bi bi-check-circle"></i> Confirmar y Cargar';
+        }
+        if (btnCancelar) btnCancelar.disabled = false;
     }
 }
 
