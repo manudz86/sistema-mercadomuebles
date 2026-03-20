@@ -9934,11 +9934,11 @@ def _importar_orden_automatica(orden, access_token):
             sku_norm = normalizar_sku_ml(sku_ml) if sku_ml else ''
             if not sku_norm:
                 print(f"[AUTO-ML] Orden {orden_id}: item sin SKU, requiere mapeo manual")
-                return False
+                return False, []
             existe, tipo, nombre = verificar_sku_en_bd(sku_norm)
             if not existe:
                 print(f"[AUTO-ML] Orden {orden_id}: SKU {sku_norm} no existe en BD, requiere mapeo manual")
-                return False
+                return False, []
             items_bd.append({'sku': sku_norm, 'cantidad': item['cantidad'], 'precio': item['precio']})
 
         # Auto-agregar PLATINO si el título contiene "almohada" y el SKU no es almohada
