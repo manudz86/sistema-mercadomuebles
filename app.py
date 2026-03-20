@@ -4013,6 +4013,14 @@ def cargar_stock():
             conn.commit()
             cursor.close()
             conn.close()
+
+            # Actualizar publicaciones ML con los SKUs base cargados
+            try:
+                skus_cargados = {item['sku'] for item in items}
+                actualizar_publicaciones_ml(skus_cargados)
+            except Exception as e_ml:
+                print(f"[AUTO-ML] Error actualizando ML tras carga stock: {e_ml}")
+
             return jsonify({'success': True, 'message': f'Stock cargado: {len(items)} productos'})
         except Exception as e:
             conn.rollback()
