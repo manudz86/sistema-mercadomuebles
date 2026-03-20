@@ -282,6 +282,7 @@
                                                id="precio_{{ pub.mla }}"
                                                data-mla="{{ pub.mla }}"
                                                data-tipo="{{ pub.listing_type or 'Sin cuotas propias' }}"
+                                               data-precio-original="{{ pub.precio|int if pub.precio else '' }}"
                                                placeholder="Precio" min="0" step="1000" style="width:95px"
                                                value="{{ pub.precio|int if pub.precio else '' }}"
                                                oninput="onPrecioInputChange(this)">
@@ -317,6 +318,7 @@
                                            id="precio_{{ pub.mla }}"
                                            data-mla="{{ pub.mla }}"
                                            data-tipo="{{ pub.listing_type or 'Sin cuotas propias' }}"
+                                           data-precio-original="{{ pub.precio|int if pub.precio else '' }}"
                                            placeholder="Precio" min="0" step="1000" style="width:95px"
                                            value="{{ pub.precio|int if pub.precio else '' }}"
                                            oninput="onPrecioInputChange(this)">
@@ -790,11 +792,13 @@ function confirmarActualizarTodosPrecios(sku) {
     const preciosMap = {};  // deduplicar por MLA
     inputs.forEach(input => {
         const mla = input.id.replace('precio_', '');
-        const precio = input.value;
-        if (precio && precio > 0) preciosMap[mla] = precio;  // último valor gana
+        const precio = parseInt(input.value) || 0;
+        const original = parseInt(input.dataset.precioOriginal) || 0;
+        // Solo incluir si el precio fue modificado respecto al original
+        if (precio > 0 && precio !== original) preciosMap[mla] = precio;
     });
     const precios = Object.entries(preciosMap).map(([mla, precio]) => ({ mla, precio }));
-    if (precios.length === 0) { alert('No hay precios cargados en ninguna fila'); return; }
+    if (precios.length === 0) { alert('No hay precios modificados para actualizar'); return; }
     const resumen = precios.map(p => `${p.mla}: $${Number(p.precio).toLocaleString('es-AR')}`).join('\n');
     if (confirm(`¿Actualizar los siguientes precios?\n\n${resumen}`)) {
         const form = document.createElement('form');
