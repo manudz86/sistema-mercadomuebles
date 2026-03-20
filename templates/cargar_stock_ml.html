@@ -788,17 +788,17 @@ function confirmarCambiarPrecioMasivo(sku) {
     }
 }
 function confirmarActualizarTodosPrecios(sku) {
-    const inputs = document.querySelectorAll('input[id^="precio_MLA"]');
-    const preciosMap = {};  // deduplicar por MLA
+    // Tomar todos los inputs precio-input, deduplicar por MLA tomando el primero con valor
+    const inputs = document.querySelectorAll('input.precio-input');
+    const preciosMap = {};
     inputs.forEach(input => {
-        const mla = input.id.replace('precio_', '');
+        const mla = input.dataset.mla;
+        if (!mla || preciosMap[mla]) return; // ya tenemos este MLA
         const precio = parseInt(input.value) || 0;
-        const original = parseInt(input.dataset.precioOriginal) || 0;
-        // Solo incluir si el precio fue modificado respecto al original
-        if (precio > 0 && precio !== original) preciosMap[mla] = precio;
+        if (precio > 0) preciosMap[mla] = precio;
     });
     const precios = Object.entries(preciosMap).map(([mla, precio]) => ({ mla, precio }));
-    if (precios.length === 0) { alert('No hay precios modificados para actualizar'); return; }
+    if (precios.length === 0) { alert('No hay precios cargados para actualizar'); return; }
     const resumen = precios.map(p => `${p.mla}: $${Number(p.precio).toLocaleString('es-AR')}`).join('\n');
     if (confirm(`¿Actualizar los siguientes precios?\n\n${resumen}`)) {
         const form = document.createElement('form');
