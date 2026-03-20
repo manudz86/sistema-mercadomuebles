@@ -5592,60 +5592,40 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
             lt = logistic_type  # alias corto
 
             if lt in ('cross_docking', 'xd_drop_off'):
-                from datetime import timezone, timedelta
-                tz_ar = timezone(timedelta(hours=-3))
-                hoy_ar = datetime.now(tz_ar).date()
+                # Fecha de colecta según hora de corte
+                try:
+                    hora_corte_str = session.get('hora_corte_colecta', '14:00')
+                except RuntimeError:
+                    hora_corte_str = '14:00'  # fuera de request context (scheduler)
+                try:
+                    hh, mm = map(int, hora_corte_str.split(':'))
+                except:
+                    hh, mm = 14, 0
 
-                # Primero: intentar usar la fecha que ML calculó (estimated_delivery_time.date)
-                edt_raw = (
-                    shipment.get('shipping_option', {})
-                    .get('estimated_delivery_time', {})
-                    .get('date', '')
-                )
-                fecha_edt = None
-                if edt_raw:
-                    try:
-                        fecha_edt = datetime.fromisoformat(edt_raw).astimezone(tz_ar).date()
-                    except Exception:
-                        fecha_edt = None
+                fecha_orden_raw = fecha_orden_iso
+                if fecha_orden_raw:
+                    dt_orden = datetime.fromisoformat(fecha_orden_raw.replace('Z', '+00:00'))
+                    from datetime import timezone, timedelta
+                    tz_ar = timezone(timedelta(hours=-3))
+                    dt_orden_ar = dt_orden.astimezone(tz_ar)
+                    corte = dt_orden_ar.replace(hour=hh, minute=mm, second=0, microsecond=0)
 
-                if fecha_edt and fecha_edt > hoy_ar:
-                    # ML indica una fecha futura → usarla directamente
-                    shipping_data['fecha_entrega_ml'] = f"{fecha_edt.day:02d}/{fecha_edt.month:02d}"
-                    print(f"📅 Fecha colecta (de ML): {shipping_data['fecha_entrega_ml']}")
-                else:
-                    # Es hoy o no hay fecha → calcular por hora de corte
-                    try:
-                        hora_corte_str = session.get('hora_corte_colecta', '14:00')
-                    except RuntimeError:
-                        hora_corte_str = '14:00'
-                    try:
-                        hh, mm = map(int, hora_corte_str.split(':'))
-                    except:
-                        hh, mm = 14, 0
+                    def proximo_dia_habil(fecha):
+                        while fecha.weekday() >= 5:
+                            fecha = fecha + timedelta(days=1)
+                        return fecha
 
-                    fecha_orden_raw = fecha_orden_iso
-                    if fecha_orden_raw:
-                        dt_orden = datetime.fromisoformat(fecha_orden_raw.replace('Z', '+00:00'))
-                        dt_orden_ar = dt_orden.astimezone(tz_ar)
-                        corte = dt_orden_ar.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                    dia_orden = dt_orden_ar.date()
+                    dia_siguiente = dia_orden + timedelta(days=1)
 
-                        def proximo_dia_habil(fecha):
-                            while fecha.weekday() >= 5:
-                                fecha = fecha + timedelta(days=1)
-                            return fecha
-
-                        dia_orden = dt_orden_ar.date()
-                        dia_siguiente = dia_orden + timedelta(days=1)
-
-                        if dia_orden.weekday() >= 5:
-                            fecha_colecta = proximo_dia_habil(dia_orden + timedelta(days=1))
-                        elif (corte - dt_orden_ar).total_seconds() >= 3600:
-                            fecha_colecta = dia_orden
-                        else:
-                            fecha_colecta = proximo_dia_habil(dia_siguiente)
-                        shipping_data['fecha_entrega_ml'] = f"{fecha_colecta.day:02d}/{fecha_colecta.month:02d}"
-                        print(f"📅 Fecha colecta (corte {hora_corte_str}): {shipping_data['fecha_entrega_ml']}")
+                    if dia_orden.weekday() >= 5:
+                        fecha_colecta = proximo_dia_habil(dia_orden + timedelta(days=1))
+                    elif (corte - dt_orden_ar).total_seconds() >= 3600:
+                        fecha_colecta = dia_orden
+                    else:
+                        fecha_colecta = proximo_dia_habil(dia_siguiente)
+                    shipping_data['fecha_entrega_ml'] = f"{fecha_colecta.day:02d}/{fecha_colecta.month:02d}"
+                    print(f"📅 Fecha colecta (corte {hora_corte_str}): {shipping_data['fecha_entrega_ml']}")
             else:
                 # Flex y otros: usar estimated_delivery_limit
                 fecha_entrega_raw = (
