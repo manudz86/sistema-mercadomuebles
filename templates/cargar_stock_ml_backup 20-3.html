@@ -787,13 +787,12 @@ function confirmarCambiarPrecioMasivo(sku) {
 }
 function confirmarActualizarTodosPrecios(sku) {
     const inputs = document.querySelectorAll('input[id^="precio_MLA"]');
-    const preciosMap = {};  // deduplicar por MLA
+    const precios = [];
     inputs.forEach(input => {
         const mla = input.id.replace('precio_', '');
         const precio = input.value;
-        if (precio && precio > 0) preciosMap[mla] = precio;  // último valor gana
+        if (precio && precio > 0) precios.push({ mla, precio });
     });
-    const precios = Object.entries(preciosMap).map(([mla, precio]) => ({ mla, precio }));
     if (precios.length === 0) { alert('No hay precios cargados en ninguna fila'); return; }
     const resumen = precios.map(p => `${p.mla}: $${Number(p.precio).toLocaleString('es-AR')}`).join('\n');
     if (confirm(`¿Actualizar los siguientes precios?\n\n${resumen}`)) {
