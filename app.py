@@ -9889,15 +9889,28 @@ def _importar_orden_automatica(orden, access_token):
         # nombre_cliente guarda el nombre real — si ML no lo provee, queda vacío
         mla_code = orden_data.get('comprador_nickname', '') or f"ML-{orden_id}"
         nombre_real = orden_data.get('comprador_nombre', '').strip()
-        # Solo dejar vacío si es idéntico al nickname o realmente vacío
-        nombre_cliente = nombre_real if nombre_real and nombre_real != mla_code else ''
+        # Si hay nombre real distinto al nickname, usarlo; sino usar el nickname (igual que flujo manual)
+        nombre_cliente = nombre_real if nombre_real else mla_code
         numero_venta = f"ML-{orden_id}"
         telefono_cliente = ''
         tipo_entrega = 'envio' if shipping.get('tiene_envio') else 'retiro'
         metodo_envio = shipping.get('metodo_envio', '')
         ubicacion_despacho = 'FULL' if metodo_envio == 'Full' else 'DEP'
+        # Flex → Delega si todos los productos son almohadas o compac (igual que flujo manual)
+        if metodo_envio == 'Flex':
+            SKUS_ALM = {'CERVICAL','CLASICA','DORAL','DUAL','EXCLUSIVE','PLATINO','RENOVATION','SUBLIME'}
+            es_todo_alm_o_compac = all(
+                item['sku'].upper().startswith('CCO') or
+                '_DEP' in item['sku'].upper() or
+                '_FULL' in item['sku'].upper() or
+                any(a in item['sku'].upper() for a in SKUS_ALM)
+                for item in items_bd
+            )
+            if es_todo_alm_o_compac:
+                metodo_envio = 'Delega'
+                zona_envio = ''
         # Zona solo para Flete Propio
-        zona_envio = shipping.get('zona', '') if metodo_envio == 'Flete Propio' else ''
+        zona_envio = shipping.get('zona', '') if metodo_envio == 'Flete Propio' else zona_envio if metodo_envio == 'Delega' else ''
         direccion_entrega = shipping.get('direccion', '')
         costo_flete = float(shipping.get('costo_envio', 0) or 0)
         metodo_pago = 'Mercadopago'
