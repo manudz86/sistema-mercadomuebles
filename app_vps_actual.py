@@ -9694,7 +9694,7 @@ def actualizar_publicaciones_ml(skus_base_afectados):
                 mla = pub['mla_id']
                 ok, msg = actualizar_stock_ml(mla, disponible, access_token)
                 print(f"[AUTO-ML] {sku} sin Z → {mla} stock={disponible}: {'✅' if ok else '❌'} {msg}")
-                time.sleep(0.1)
+                time.sleep(0.5)
         except Exception as e:
             print(f"[AUTO-ML] Error actualizando sin Z de {sku}: {e}")
 
@@ -9717,18 +9717,18 @@ def actualizar_publicaciones_ml(skus_base_afectados):
                     # Hay stock: subir disponible y quitar demora
                     ok, msg = actualizar_stock_ml(mla, disponible, access_token)
                     print(f"[AUTO-ML] {sku_z} → {mla} stock={disponible}: {'✅' if ok else '❌'} {msg}")
-                    time.sleep(0.1)
+                    time.sleep(0.5)
                     ok2 = _quitar_demora_ml(mla, access_token)
                     print(f"[AUTO-ML] {sku_z} → {mla} quitar demora: {'✅' if ok2 else '❌'}")
-                    time.sleep(0.1)
+                    time.sleep(0.5)
                 else:
                     # Sin stock: stock=1 + 7 días demora
                     ok, msg = actualizar_stock_ml(mla, 1, access_token)
                     print(f"[AUTO-ML] {sku_z} → {mla} stock=1: {'✅' if ok else '❌'} {msg}")
-                    time.sleep(0.1)
+                    time.sleep(0.5)
                     ok2 = _poner_demora_ml(mla, access_token, dias=7)
                     print(f"[AUTO-ML] {sku_z} → {mla} poner demora 7d: {'✅' if ok2 else '❌'}")
-                    time.sleep(0.1)
+                    time.sleep(0.5)
         except Exception as e:
             print(f"[AUTO-ML] Error actualizando con Z de {sku}: {e}")
 
@@ -9886,10 +9886,10 @@ def _importar_orden_automatica(orden, access_token):
         fecha_venta = orden_data['fecha']
         canal = 'Mercado Libre'
         # mla_code guarda el APODO (nickname) — se muestra en negrita en la tabla
-        # nombre_cliente guarda el nombre real con capitalización correcta
+        # nombre_cliente guarda el nombre real — si ML no lo provee, queda vacío
         mla_code = orden_data.get('comprador_nickname', '') or f"ML-{orden_id}"
-        nombre_real = orden_data.get('comprador_nombre', '').strip().title()
-        # Si hay nombre real usarlo; sino repetir el nickname (igual que flujo manual)
+        nombre_real = orden_data.get('comprador_nombre', '').strip()
+        # Si hay nombre real distinto al nickname, usarlo; sino usar el nickname (igual que flujo manual)
         nombre_cliente = nombre_real if nombre_real else mla_code
         numero_venta = f"ML-{orden_id}"
         telefono_cliente = ''
@@ -10054,7 +10054,7 @@ def job_auto_importar_ml():
                     ventas_nuevas += 1
                     skus_afectados = _extraer_skus_base_de_items(items_bd)
                     skus_base_afectados.update(skus_afectados)
-                    time.sleep(0.3)
+                    time.sleep(1)
 
             # Actualizar log
             try:
