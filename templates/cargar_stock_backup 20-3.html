@@ -154,8 +154,8 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="btnCancelarCarga">Cancelar</button>
-                <button type="button" class="btn btn-success" onclick="ejecutarCarga()" id="btnConfirmarCarga">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-success" onclick="ejecutarCarga()">
                     <i class="bi bi-check-circle"></i> Confirmar y Cargar
                 </button>
             </div>
@@ -163,15 +163,6 @@
     </div>
 </div>
 
-<!-- Toast de resultado -->
-<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 9999">
-    <div id="toastResultado" class="toast align-items-center text-white border-0" role="alert">
-        <div class="d-flex">
-            <div class="toast-body" id="toastBody"></div>
-            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-        </div>
-    </div>
-</div>
 <script>
 // ============================================
 // VARIABLES GLOBALES
@@ -386,52 +377,34 @@ function confirmarCarga() {
 }
 
 async function ejecutarCarga() {
-    // Deshabilitar botones y mostrar spinner
-    const btnConfirmar = document.getElementById('btnConfirmarCarga');
-    const btnCancelar = document.getElementById('btnCancelarCarga');
-    btnConfirmar.disabled = true;
-    btnCancelar.disabled = true;
-    btnConfirmar.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Cargando...';
-
     try {
         const response = await fetch('/cargar-stock', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify({ items: carrito })
         });
         
         const result = await response.json();
         
-        // Cerrar modal
-        bootstrap.Modal.getInstance(document.getElementById('modalConfirmacionFinal')).hide();
-        
         if (result.success) {
-            // Mostrar toast verde
-            mostrarToast('✅ ' + result.message, 'bg-success');
+            alert('✅ Stock cargado exitosamente');
             carrito = [];
             actualizarCarrito();
+            
+            // Cerrar modal
+            bootstrap.Modal.getInstance(document.getElementById('modalConfirmacionFinal')).hide();
+            
+            // Recargar productos
             await cargarProductos();
         } else {
-            mostrarToast('❌ Error: ' + result.error, 'bg-danger');
+            alert('❌ Error: ' + result.error);
         }
     } catch (error) {
         console.error('Error:', error);
-        mostrarToast('❌ Error al cargar stock', 'bg-danger');
-    } finally {
-        // Restaurar botón
-        btnConfirmar.disabled = false;
-        btnCancelar.disabled = false;
-        btnConfirmar.innerHTML = '<i class="bi bi-check-circle"></i> Confirmar y Cargar';
+        alert('❌ Error al cargar stock');
     }
-}
-
-function mostrarToast(mensaje, bgClass) {
-    const toast = document.getElementById('toastResultado');
-    const toastBody = document.getElementById('toastBody');
-    toast.className = `toast align-items-center text-white border-0 ${bgClass}`;
-    toastBody.textContent = mensaje;
-    const bsToast = new bootstrap.Toast(toast, { delay: 6000 });
-    bsToast.show();
 }
 </script>
 

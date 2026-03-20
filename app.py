@@ -4014,14 +4014,17 @@ def cargar_stock():
             cursor.close()
             conn.close()
 
-            # Actualizar publicaciones ML con los SKUs base cargados
-            try:
-                skus_cargados = {item['sku'] for item in items}
-                actualizar_publicaciones_ml(skus_cargados)
-            except Exception as e_ml:
-                print(f"[AUTO-ML] Error actualizando ML tras carga stock: {e_ml}")
+            # Disparar actualización ML en background (no bloquea la respuesta)
+            import threading
+            skus_cargados = {item['sku'] for item in items}
+            def _update_ml_bg():
+                try:
+                    actualizar_publicaciones_ml(skus_cargados)
+                except Exception as e_ml:
+                    print(f"[AUTO-ML] Error actualizando ML tras carga stock: {e_ml}")
+            threading.Thread(target=_update_ml_bg, daemon=True).start()
 
-            return jsonify({'success': True, 'message': f'Stock cargado: {len(items)} productos'})
+            return jsonify({'success': True, 'message': f'Stock cargado: {len(items)} productos. Actualizando publicaciones ML en background...'})
         except Exception as e:
             conn.rollback()
             cursor.close()
@@ -9604,16 +9607,36 @@ def _es_almohada(sku):
 # ¿Aplica lógica Z a este SKU? Solo sommiers (S*) todas las medidas
 # y colchones (C* no CCO) a partir de 140
 def _aplica_logica_z(sku):
+    """
+    Determina si aplica lógica Z (demora) para un SKU.
+    Sommiers (S*): siempre.
+    Colchones (C*, no CCO): solo si el ANCHO >= 140.
+    El ancho está en los primeros dígitos del SKU antes del modelo.
+    Ej: CPR8020 → ancho=80, CPR14020 → ancho=140, CEX140 → ancho=140
+    """
     sku = sku.upper()
     if sku.startswith('S'):
         return True
     if sku.startswith('C') and not sku.startswith('CCO'):
-        # Extraer número de medida
         import re
+        # Buscar el primer grupo de dígitos que sea el ancho (80, 90, 100, 140, 150, 160, 180, 200)
         nums = re.findall(r'\d+', sku)
         if nums:
-            medida = int(nums[0])
-            return medida >= 140
+            # El ancho es el primer número del SKU
+            # Para CPR8020: nums=['8020'] → tomar los primeros 2-3 dígitos
+            # Para CEX140: nums=['140'] → 140
+            # Para CPR14020: nums=['14020'] → primeros 3 dígitos = 140
+            primer_num = nums[0]
+            # Si tiene 4+ dígitos, los primeros 2-3 son el ancho
+            if len(primer_num) >= 4:
+                # Probar con 3 dígitos primero (140, 150, 160, 180, 200)
+                ancho = int(primer_num[:3])
+                if ancho not in (80, 90, 100, 140, 150, 160, 180, 200):
+                    # Probar con 2 dígitos (80, 90)
+                    ancho = int(primer_num[:2])
+            else:
+                ancho = int(primer_num)
+            return ancho >= 140
     return False
 
 
