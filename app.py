@@ -10055,9 +10055,9 @@ def _importar_orden_automatica(orden, access_token):
         direccion_entrega = shipping.get('direccion', '')
         costo_flete = float(shipping.get('costo_envio', 0) or 0)
         metodo_pago = 'Mercadopago'
-        importe_total = float(orden_data.get('paid_amount') or orden_data['total'])
-        importe_abonado = importe_total
-        pago_mp = importe_total
+        importe_total = float(orden_data['total'])          # solo productos
+        importe_abonado = float(orden_data.get('paid_amount') or orden_data['total'])  # productos + flete
+        pago_mp = importe_abonado
         pago_efectivo = 0.0
         estado_entrega = 'pendiente'
         estado_pago = 'pagado'
