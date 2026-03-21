@@ -5475,6 +5475,7 @@ def procesar_orden_ml(orden):
     
     # Total
     total = orden['total_amount']
+    paid_amount = orden.get('paid_amount', total)  # incluye flete
     
     # Estado
     estado = orden['status']
@@ -5504,6 +5505,7 @@ def procesar_orden_ml(orden):
         'comprador_nickname': comprador_nickname,
         'items': items,
         'total': total,
+        'paid_amount': paid_amount,
         'estado': estado,
         'shipping': shipping_data
     }
@@ -10053,7 +10055,7 @@ def _importar_orden_automatica(orden, access_token):
         direccion_entrega = shipping.get('direccion', '')
         costo_flete = float(shipping.get('costo_envio', 0) or 0)
         metodo_pago = 'Mercadopago'
-        importe_total = float(orden_data['total'])
+        importe_total = float(orden_data.get('paid_amount') or orden_data['total'])
         importe_abonado = importe_total
         pago_mp = importe_total
         pago_efectivo = 0.0
