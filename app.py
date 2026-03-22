@@ -10230,7 +10230,7 @@ def job_auto_importar_ml():
             # Actualizar publicaciones ML si hubo cambios
             if skus_base_afectados:
                 print(f"[AUTO-ML] Actualizando ML para SKUs: {skus_base_afectados}")
-                actualizar_publicaciones_ml(skus_base_afectados)
+                actualizar_publicaciones_ml_con_progreso(skus_base_afectados)
 
         except Exception as e:
             import traceback
