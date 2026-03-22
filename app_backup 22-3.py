@@ -1242,13 +1242,7 @@ def cancelar_venta(venta_id):
                 [{'sku': i['sku'], 'cantidad': i['cantidad']} for i in items_venta]
             )
             if skus_afectados:
-                import threading
-                def _cancel_ml_bg():
-                    try:
-                        actualizar_publicaciones_ml_con_progreso(skus_afectados)
-                    except Exception as e_ml:
-                        print(f"[AUTO-ML] Error actualizando ML tras cancelación: {e_ml}")
-                threading.Thread(target=_cancel_ml_bg, daemon=True).start()
+                actualizar_publicaciones_ml(skus_afectados)
         except Exception as e_ml:
             print(f"[AUTO-ML] Error actualizando ML tras cancelación: {e_ml}")
 
@@ -1284,34 +1278,14 @@ def eliminar_venta(venta_id):
         
         numero_venta = venta['numero_venta']
         
-        # Obtener items antes de borrar para actualizar ML después
-        cursor.execute('SELECT sku, cantidad FROM items_venta WHERE venta_id = %s', (venta_id,))
-        items_venta = cursor.fetchall()
-
         # 1. Eliminar items de venta
         cursor.execute('DELETE FROM items_venta WHERE venta_id = %s', (venta_id,))
         items_eliminados = cursor.rowcount
-
+        
         # 2. Eliminar venta
         cursor.execute('DELETE FROM ventas WHERE id = %s', (venta_id,))
-
+        
         conn.commit()
-
-        # Actualizar ML — la eliminación libera disponible
-        try:
-            import threading
-            skus_afectados = _extraer_skus_base_de_items(
-                [{'sku': i['sku'], 'cantidad': i['cantidad']} for i in items_venta]
-            )
-            if skus_afectados:
-                def _elim_ml_bg():
-                    try:
-                        actualizar_publicaciones_ml_con_progreso(skus_afectados)
-                    except Exception as e_ml:
-                        print(f"[AUTO-ML] Error actualizando ML tras eliminación: {e_ml}")
-                threading.Thread(target=_elim_ml_bg, daemon=True).start()
-        except Exception as e_ml2:
-            print(f"[AUTO-ML] Error iniciando thread eliminación: {e_ml2}")
         
         flash(f'✅ Venta {numero_venta} eliminada correctamente ({items_eliminados} items borrados). No se descontó stock.', 'success')
         
@@ -4525,28 +4499,12 @@ def transferir_stock_guardar():
                         transferencias += 1
         
         conn.commit()
-
+        
         if transferencias > 0:
             flash(f'✅ Transferencia completada ({transferencias} productos)', 'success')
-            # Actualizar stock DEP en ML para compacs transferidos
-            try:
-                import threading
-                skus_dep_transferidos = set()
-                for key, value in request.form.items():
-                    if key.startswith('transferir_compac_') and (int(value) if value else 0) > 0:
-                        skus_dep_transferidos.add(key.replace('transferir_compac_', ''))
-                if skus_dep_transferidos:
-                    def _transfer_ml_bg():
-                        try:
-                            actualizar_publicaciones_ml_con_progreso(skus_dep_transferidos)
-                        except Exception as e_ml:
-                            print(f"[AUTO-ML] Error actualizando ML tras transferencia: {e_ml}")
-                    threading.Thread(target=_transfer_ml_bg, daemon=True).start()
-            except Exception as e_t:
-                print(f"[AUTO-ML] Error iniciando thread transferencia: {e_t}")
         else:
             flash('ℹ️ No se realizaron transferencias', 'info')
-
+        
     except Exception as e:
         conn.rollback()
         flash(f'❌ Error: {str(e)}', 'error')
