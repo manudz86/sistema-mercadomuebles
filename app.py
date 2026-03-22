@@ -10307,8 +10307,9 @@ def actualizar_stock_compac_dep_ml(sku_dep, cantidad_disponible, access_token):
             # Verificar si tiene selling_address
             locations = stock_data.get('locations', [])
             tiene_dep = any(loc['type'] == 'selling_address' for loc in locations)
-            if not tiene_dep:
-                print(f"[COMPAC-ML] {mla} ({up_id}): sin selling_address, es solo FULL, saltando")
+            solo_full = all(loc['type'] == 'meli_facility' for loc in locations) if locations else False
+            if not tiene_dep or solo_full:
+                print(f"[COMPAC-ML] {mla} ({up_id}): solo FULL, saltando")
                 continue
 
             # Actualizar stock DEP
@@ -10347,11 +10348,11 @@ def _ml_progress_save(data):
     try:
         import json as _json
         valor = _json.dumps(data)
-        existe = query_db("SELECT id FROM configuracion WHERE clave = 'ml_progress' LIMIT 1")
-        if existe:
-            execute_db("UPDATE configuracion SET valor = %s WHERE clave = 'ml_progress'", (valor,))
-        else:
-            execute_db("INSERT INTO configuracion (clave, valor) VALUES ('ml_progress', %s)", (valor,))
+        execute_db(
+            "INSERT INTO configuracion (clave, valor) VALUES ('ml_progress', %s) "
+            "ON DUPLICATE KEY UPDATE valor = %s",
+            (valor, valor)
+        )
     except Exception as e:
         print(f"[AUTO-ML] Error guardando progreso: {e}")
 
