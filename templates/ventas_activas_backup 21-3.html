@@ -1045,20 +1045,11 @@ function toggleAutoImport(checkbox) {
 (function() {
     const POLL_MS = 60000;
     let pollingTimer = null;
-    let popupCount = 0;  // count actual del popup abierto
 
     function crearPopup(count) {
-        // Si ya existe y el nuevo count es mayor, solo actualizar el número
         const existe = document.getElementById('popup-auto-import');
-        if (existe && count > popupCount) {
-            popupCount = count;
-            const strong = existe.querySelector('strong');
-            if (strong) strong.textContent = count + ' venta' + (count > 1 ? 's' : '') + ' nueva' + (count > 1 ? 's' : '');
-            return;
-        }
-        if (existe) return; // ya abierto con mismo o mayor count, no hacer nada
+        if (existe) existe.remove();
 
-        popupCount = count;
         const div = document.createElement('div');
         div.id = 'popup-auto-import';
         div.style.cssText = `
@@ -1085,10 +1076,17 @@ function toggleAutoImport(checkbox) {
 
         document.getElementById('btn-cerrar-popup').addEventListener('click', function() {
             div.remove();
-            popupCount = 0;
+            // Resetear contador en servidor
             fetch('/ventas/nuevas-reset', { method: 'POST' });
         });
-        // Sin auto-cerrar — queda hasta que el usuario apriete ✕
+
+        // Auto-cerrar tras 15s si no lo cierra el usuario
+        setTimeout(function() {
+            if (document.getElementById('popup-auto-import')) {
+                div.remove();
+                fetch('/ventas/nuevas-reset', { method: 'POST' });
+            }
+        }, 15000);
     }
 
     function pollNuevasVentas() {

@@ -2222,7 +2222,7 @@ def editar_venta(venta_id):
             ubicacion_despacho = 'DEP'
         
         responsable_entrega = request.form.get('responsable_entrega', '')
-        costo_flete = float(request.form.get('costo_flete') or 0)
+        costo_flete = float(request.form.get('costo_flete', 0))
         
         # ========================================
         # 2. PRODUCTOS Y CÁLCULO DE TOTAL
@@ -4787,7 +4787,7 @@ def guardar_venta():
             ubicacion_despacho = 'DEP'
         
         responsable_entrega = request.form.get('responsable_entrega', '')
-        costo_flete = float(request.form.get('costo_flete') or 0)
+        costo_flete = float(request.form.get('costo_flete', 0))
         
         # ========================================
         # 3. PRODUCTOS - calcular importe_total desde items reales
@@ -9917,20 +9917,8 @@ def _importar_orden_automatica(orden, access_token):
             if not sku_norm:
                 print(f"[AUTO-ML] Orden {orden_id}: item sin SKU, requiere mapeo manual")
                 return False, []
-            # Mapear compac según ubicacion_despacho (se determina después del shipping,
-            # pero podemos pre-calcular basándonos en el logistic_type del shipment)
-            # El mapeo final se hace más abajo cuando ya tenemos ubicacion_despacho
             existe, tipo, nombre = verificar_sku_en_bd(sku_norm)
-            # Para compac, buscar con sufijo _DEP o _FULL si el SKU base no existe
-            if not existe and sku_norm.upper().startswith('CCO'):
-                existe_dep, _, _ = verificar_sku_en_bd(sku_norm + '_DEP')
-                existe_full, _, _ = verificar_sku_en_bd(sku_norm + '_FULL')
-                if existe_dep or existe_full:
-                    existe = True  # se mapea más abajo
-                else:
-                    print(f"[AUTO-ML] Orden {orden_id}: SKU compac {sku_norm} sin _DEP/_FULL en BD")
-                    return False, []
-            elif not existe:
+            if not existe:
                 print(f"[AUTO-ML] Orden {orden_id}: SKU {sku_norm} no existe en BD, requiere mapeo manual")
                 return False, []
             items_bd.append({'sku': sku_norm, 'cantidad': item['cantidad'], 'precio': item['precio']})
@@ -10065,13 +10053,6 @@ def _importar_orden_automatica(orden, access_token):
         # Zona solo para Flete Propio
         zona_envio = shipping.get('zona', '') if metodo_envio == 'Flete Propio' else zona_envio if metodo_envio == 'Delega' else ''
         direccion_entrega = shipping.get('direccion', '')
-
-        # Mapear SKUs compac a _DEP o _FULL ahora que conocemos ubicacion_despacho
-        sufijo = '_FULL' if ubicacion_despacho == 'FULL' else '_DEP'
-        items_bd = [
-            dict(item, sku=item['sku'] + sufijo) if item['sku'].upper().startswith('CCO') and '_DEP' not in item['sku'] and '_FULL' not in item['sku'] else item
-            for item in items_bd
-        ]
         costo_flete = float(shipping.get('costo_envio', 0) or 0)
         metodo_pago = 'Mercadopago'
         importe_total = float(orden_data['total'])          # solo productos
@@ -10257,91 +10238,6 @@ def auto_import_toggle():
 
 
 # ── Progreso de actualización ML ────────────────────────────────────────────
-def actualizar_stock_compac_dep_ml(sku_dep, cantidad_disponible, access_token):
-    """
-    Actualiza el stock selling_address (DEP) en ML para todas las publicaciones
-    del SKU compac base (ej: CCO140_DEP → busca CCO140 en ML).
-    Usa el endpoint user-products/stock/type/selling_address.
-    """
-    import requests as _req
-    sku_base = sku_dep.replace('_DEP', '').replace('_FULL', '')
-    headers = {'Authorization': f'Bearer {access_token}'}
-
-    try:
-        me = _req.get('https://api.mercadolibre.com/users/me', headers=headers, timeout=10).json()
-        user_id = me.get('id')
-        if not user_id:
-            print(f"[COMPAC-ML] No se pudo obtener user_id")
-            return
-    except Exception as e:
-        print(f"[COMPAC-ML] Error obteniendo user_id: {e}")
-        return
-
-    # Buscar MLAs activas con ese seller_sku
-    try:
-        r = _req.get(
-            f'https://api.mercadolibre.com/users/{user_id}/items/search?seller_sku={sku_base}&status=active',
-            headers=headers, timeout=10
-        ).json()
-        mlas = r.get('results', [])
-    except Exception as e:
-        print(f"[COMPAC-ML] Error buscando MLAs de {sku_base}: {e}")
-        return
-
-    print(f"[COMPAC-ML] {sku_dep} → disponible={cantidad_disponible} | MLAs: {mlas}")
-
-    for mla in mlas:
-        try:
-            # Obtener user_product_id y x-version
-            item_r = _req.get(f'https://api.mercadolibre.com/items/{mla}', headers=headers, timeout=10).json()
-            up_id = item_r.get('user_product_id')
-            if not up_id:
-                print(f"[COMPAC-ML] {mla}: sin user_product_id, saltando")
-                continue
-
-            stock_r = _req.get(f'https://api.mercadolibre.com/user-products/{up_id}/stock',
-                               headers=headers, timeout=10)
-            x_version = stock_r.headers.get('x-version', '1')
-            stock_data = stock_r.json()
-
-            # Verificar si tiene selling_address
-            locations = stock_data.get('locations', [])
-            tiene_dep = any(loc['type'] == 'selling_address' for loc in locations)
-            if not tiene_dep:
-                print(f"[COMPAC-ML] {mla} ({up_id}): sin selling_address, es solo FULL, saltando")
-                continue
-
-            # Actualizar stock DEP
-            put_r = _req.put(
-                f'https://api.mercadolibre.com/user-products/{up_id}/stock/type/selling_address',
-                headers={**headers, 'Content-Type': 'application/json', 'x-version': str(x_version)},
-                json={'quantity': int(cantidad_disponible)},
-                timeout=10
-            )
-            if put_r.status_code in (200, 204):
-                print(f"[COMPAC-ML] {mla} ({up_id}): ✅ DEP stock={cantidad_disponible}")
-            elif put_r.status_code == 409:
-                # x-version desactualizada, reintentar una vez
-                stock_r2 = _req.get(f'https://api.mercadolibre.com/user-products/{up_id}/stock',
-                                    headers=headers, timeout=10)
-                x_version2 = stock_r2.headers.get('x-version', '1')
-                put_r2 = _req.put(
-                    f'https://api.mercadolibre.com/user-products/{up_id}/stock/type/selling_address',
-                    headers={**headers, 'Content-Type': 'application/json', 'x-version': str(x_version2)},
-                    json={'quantity': int(cantidad_disponible)},
-                    timeout=10
-                )
-                if put_r2.status_code in (200, 204):
-                    print(f"[COMPAC-ML] {mla} ({up_id}): ✅ DEP stock={cantidad_disponible} (retry)")
-                else:
-                    print(f"[COMPAC-ML] {mla} ({up_id}): ❌ {put_r2.status_code} {put_r2.text[:100]}")
-            else:
-                print(f"[COMPAC-ML] {mla} ({up_id}): ❌ {put_r.status_code} {put_r.text[:100]}")
-            time.sleep(0.3)
-        except Exception as e:
-            print(f"[COMPAC-ML] Error procesando {mla}: {e}")
-
-
 def _ml_progress_save(data):
     """Guarda el progreso en la BD para que sea compartido entre workers."""
     try:
@@ -10420,26 +10316,7 @@ def actualizar_publicaciones_ml_con_progreso(skus_base_afectados):
 
     done = 0
     for sku in skus_a_actualizar:
-        if _es_almohada(sku):
-            continue
-        # Compac _DEP → actualizar selling_address en ML
-        if '_DEP' in sku.upper() and sku.upper().startswith('CCO'):
-            disponible = max(0, stock_todos.get(sku, {}).get('stock_disponible', 0))
-            try:
-                actualizar_stock_compac_dep_ml(sku, disponible, access_token)
-                resultados_ok.append(f"{sku} DEP stock={disponible}")
-            except Exception as e:
-                resultados_err.append(f"{sku}: {e}")
-            done += 1
-            _ml_progress_save({'running': True, 'total': pubs_count or 1, 'done': done,
-                               'ok': resultados_ok[:], 'errors': resultados_err[:], 'skus': list(skus_base_afectados)})
-            continue
-        # Compac _FULL → ML lo gestiona solo
-        if '_FULL' in sku.upper() and sku.upper().startswith('CCO'):
-            print(f"[AUTO-ML] {sku} es FULL, ML gestiona el stock solo")
-            continue
-        # Compac base sin sufijo → también saltar
-        if _es_compac(sku):
+        if _es_almohada(sku) or _es_compac(sku):
             continue
         disponible = max(0, stock_todos.get(sku, {}).get('stock_disponible', 0))
 
