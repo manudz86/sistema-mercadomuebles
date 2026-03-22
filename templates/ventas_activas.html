@@ -1056,7 +1056,7 @@ function toggleAutoImport(checkbox) {
             if (strong) strong.textContent = count + ' venta' + (count > 1 ? 's' : '') + ' nueva' + (count > 1 ? 's' : '');
             return;
         }
-        if (existe) return; // ya abierto con mismo o mayor count, no hacer nada
+        if (existe) return;
 
         popupCount = count;
         const div = document.createElement('div');
@@ -1086,7 +1086,8 @@ function toggleAutoImport(checkbox) {
         document.getElementById('btn-cerrar-popup').addEventListener('click', function() {
             div.remove();
             popupCount = 0;
-            fetch('/ventas/nuevas-reset', { method: 'POST' });
+            fetch('/ventas/nuevas-reset', { method: 'POST' })
+                .then(function() { location.reload(); });
         });
         // Sin auto-cerrar — queda hasta que el usuario apriete ✕
     }
@@ -1097,11 +1098,7 @@ function toggleAutoImport(checkbox) {
             .then(function(data) {
                 if (data.count && data.count > 0) {
                     crearPopup(data.count);
-                    // Resetear primero, luego recargar para no loop
-                    fetch('/ventas/nuevas-reset', { method: 'POST' })
-                        .then(function() {
-                            setTimeout(function() { location.reload(); }, 1500);
-                        });
+                    // NO recargar acá — se recarga cuando el usuario cierra el popup
                 }
             })
             .catch(function() {});
