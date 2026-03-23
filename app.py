@@ -833,16 +833,24 @@ def etiqueta_ml(venta_id):
     if label_r.status_code != 200:
         flash(f'Error obteniendo etiqueta: {label_r.status_code} — {label_r.text[:200]}', 'error')
         return redirect(url_for('ventas_activas'))
-    content_type = 'application/pdf' if formato == 'pdf' else 'application/octet-stream'
-    ext = 'pdf' if formato == 'pdf' else 'zpl'
-    filename = f'etiqueta_{numero}.{ext}'
-    return Response(
-        label_r.content,
-        headers={
-            'Content-Type': content_type,
-            'Content-Disposition': f'attachment; filename="{filename}"'
-        }
-    )
+    if formato == 'pdf':
+        return Response(label_r.content, headers={
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': f'attachment; filename="etiqueta_{numero}.pdf"'
+        })
+    else:
+        # ML devuelve un ZIP con el archivo ZPL adentro — descomprimir
+        import zipfile, io as _io
+        try:
+            z = zipfile.ZipFile(_io.BytesIO(label_r.content))
+            zpl_name = z.namelist()[0]
+            zpl_content = z.read(zpl_name)
+        except Exception:
+            zpl_content = label_r.content  # fallback si no es zip
+        return Response(zpl_content, headers={
+            'Content-Type': 'application/octet-stream',
+            'Content-Disposition': f'attachment; filename="etiqueta_{numero}.zpl"'
+        })
 
 
 @app.route('/ventas/etiquetas-ml-masivo', methods=['POST'])
@@ -886,15 +894,22 @@ def etiquetas_ml_masivo():
     if label_r.status_code != 200:
         flash(f'Error obteniendo etiquetas: {label_r.status_code}', 'error')
         return redirect(url_for('ventas_activas'))
-    content_type = 'application/pdf' if formato == 'pdf' else 'application/octet-stream'
-    ext = 'pdf' if formato == 'pdf' else 'zpl'
-    return Response(
-        label_r.content,
-        headers={
-            'Content-Type': content_type,
-            'Content-Disposition': f'attachment; filename="etiquetas_ml.{ext}"'
-        }
-    )
+    if formato == 'pdf':
+        return Response(label_r.content, headers={
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': 'attachment; filename="etiquetas_ml.pdf"'
+        })
+    else:
+        import zipfile, io as _io
+        try:
+            z = zipfile.ZipFile(_io.BytesIO(label_r.content))
+            zpl_content = b''.join(z.read(n) for n in z.namelist())
+        except Exception:
+            zpl_content = label_r.content
+        return Response(zpl_content, headers={
+            'Content-Type': 'application/octet-stream',
+            'Content-Disposition': 'attachment; filename="etiquetas_ml.zpl"'
+        })
 
 
 @app.route('/ventas/activas/<int:venta_id>/orden-retiro')
