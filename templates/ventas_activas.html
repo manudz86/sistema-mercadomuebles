@@ -342,6 +342,8 @@
                         </div>
                         {% endif %}
                         {% if venta.metodo_envio in ['Flete Propio', 'Zippin'] and venta.costo_flete and venta.costo_flete > 0 %}
+                            <br>
+                            {% if venta.importe_abonado + 5 >= venta.importe_total + venta.costo_flete %}
                                 <small class="text-success fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</small>
                             {% elif venta.importe_abonado > venta.importe_total %}
                                 <small class="text-warning fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</small>
