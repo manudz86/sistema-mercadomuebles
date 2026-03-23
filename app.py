@@ -808,7 +808,7 @@ def etiqueta_ml(venta_id):
     if not venta:
         flash('Venta no encontrada', 'error')
         return redirect(url_for('ventas_activas'))
-    numero = venta['numero_venta']  # ML-2000015XXXXXXXXX
+    numero = venta['numero_venta']
     orden_id = numero.replace('ML-', '').strip()
     access_token = cargar_ml_token()
     if not access_token:
@@ -824,6 +824,28 @@ def etiqueta_ml(venta_id):
     if not shipping_id:
         flash('Esta venta no tiene envío ML asociado', 'error')
         return redirect(url_for('ventas_activas'))
+    # Calcular copias ZPL según SKUs de la venta (solo para sommiers)
+    def _copias_zpl(venta_id):
+        import re as _re
+        items = query_db("SELECT sku, cantidad FROM items_venta WHERE venta_id = %s", (venta_id,))
+        copias = 1
+        for item in items:
+            sku = item['sku'].upper()
+            if not sku.startswith('S'):  # solo sommiers
+                continue
+            nums = _re.findall(r'\d+', sku)
+            if not nums:
+                continue
+            primer_num = nums[0]
+            if len(primer_num) >= 4:
+                ancho = int(primer_num[:3]) if int(primer_num[:3]) in (140, 150, 160, 180, 200) else int(primer_num[:2])
+            else:
+                ancho = int(primer_num)
+            if ancho in (160, 180, 200):
+                copias = max(copias, 4)
+            elif ancho in (80, 90, 100, 140, 150):
+                copias = max(copias, 3)
+        return copias
     # Obtener etiqueta
     fmt = 'pdf' if formato == 'pdf' else 'zpl2'
     label_r = _req.get(
@@ -839,14 +861,17 @@ def etiqueta_ml(venta_id):
             'Content-Disposition': f'attachment; filename="etiqueta_{numero}.pdf"'
         })
     else:
-        # ML devuelve un ZIP con el archivo ZPL adentro — descomprimir
         import zipfile, io as _io
         try:
             z = zipfile.ZipFile(_io.BytesIO(label_r.content))
-            zpl_name = z.namelist()[0]
-            zpl_content = z.read(zpl_name)
+            zpl_content = z.read(z.namelist()[0])
         except Exception:
-            zpl_content = label_r.content  # fallback si no es zip
+            zpl_content = label_r.content
+        # Multiplicar etiqueta según tipo de sommier
+        copias = _copias_zpl(venta_id)
+        if copias > 1:
+            zpl_str = zpl_content.decode('utf-8', errors='replace')
+            zpl_content = (zpl_str * copias).encode('utf-8')
         return Response(zpl_content, headers={
             'Content-Type': 'application/octet-stream',
             'Content-Disposition': f'attachment; filename="etiqueta_{numero}.zpl"'
