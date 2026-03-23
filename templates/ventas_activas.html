@@ -356,7 +356,11 @@
                                 📄 PDF
                             </a>
                             <a href="{{ url_for('etiqueta_ml', venta_id=venta.id, formato='zpl') }}"
-                               class="btn btn-sm btn-outline-secondary py-0 px-1" style="font-size:0.72rem;" title="Descargar etiqueta ZPL">
+                               class="btn btn-sm btn-outline-secondary py-0 px-1 btn-zpl-etiqueta" 
+                               style="font-size:0.72rem;" 
+                               title="Descargar etiqueta ZPL"
+                               data-venta-id="{{ venta.id }}"
+                               onclick="marcarZplDescargado({{ venta.id }}, this)">
                                 🖨️ ZPL
                             </a>
                         </div>
@@ -777,6 +781,31 @@ function sincronizarDesdeMovil(el) {
     const desk = document.querySelector('.venta-checkbox-desktop[value="' + el.value + '"]');
     if (desk) { desk.checked = el.checked; actualizarContador(); }
 }
+
+function marcarZplDescargado(ventaId, btn) {
+    // Guardar en localStorage
+    const key = 'zpl_descargado_' + ventaId;
+    localStorage.setItem(key, '1');
+    // Aplicar estilo inmediatamente
+    aplicarEstiloZpl(btn);
+}
+
+function aplicarEstiloZpl(btn) {
+    btn.classList.remove('btn-outline-secondary');
+    btn.classList.add('btn-success');
+    btn.title = '✅ Etiqueta ZPL ya descargada';
+    btn.innerHTML = '✅ ZPL';
+}
+
+// Al cargar la página, marcar los botones ZPL ya descargados
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.btn-zpl-etiqueta').forEach(function(btn) {
+        const ventaId = btn.dataset.ventaId;
+        if (ventaId && localStorage.getItem('zpl_descargado_' + ventaId)) {
+            aplicarEstiloZpl(btn);
+        }
+    });
+});
 
 function descargarEtiquetasML(formato) {
     const ids = Array.from(document.querySelectorAll('.venta-checkbox-desktop:checked')).map(cb => cb.value);
