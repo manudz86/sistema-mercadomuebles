@@ -5775,41 +5775,57 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
             from datetime import datetime, timedelta
             lt = logistic_type  # alias corto
 
-            if lt in ('cross_docking', 'xd_drop_off'):
-                # Fecha de colecta según hora de corte
+            if lt in ('cross_docking', 'xd_drop_off', 'self_service'):
+                # Fecha de despacho según /sla de ML (expected_date = fecha límite de despacho)
+                from datetime import timezone as _tz, timedelta as _td
+                tz_ar = _tz(_td(hours=-3))
                 try:
-                    hora_corte_str = session.get('hora_corte_colecta', '14:00')
-                except RuntimeError:
-                    hora_corte_str = '14:00'  # fuera de request context (scheduler)
-                try:
-                    hh, mm = map(int, hora_corte_str.split(':'))
-                except:
-                    hh, mm = 14, 0
-
-                fecha_orden_raw = fecha_orden_iso
-                if fecha_orden_raw:
-                    dt_orden = datetime.fromisoformat(fecha_orden_raw.replace('Z', '+00:00'))
-                    from datetime import timezone, timedelta
-                    tz_ar = timezone(timedelta(hours=-3))
-                    dt_orden_ar = dt_orden.astimezone(tz_ar)
-                    corte = dt_orden_ar.replace(hour=hh, minute=mm, second=0, microsecond=0)
-
-                    def proximo_dia_habil(fecha):
-                        while fecha.weekday() >= 5:
-                            fecha = fecha + timedelta(days=1)
-                        return fecha
-
-                    dia_orden = dt_orden_ar.date()
-                    dia_siguiente = dia_orden + timedelta(days=1)
-
-                    if dia_orden.weekday() >= 5:
-                        fecha_colecta = proximo_dia_habil(dia_orden + timedelta(days=1))
-                    elif (corte - dt_orden_ar).total_seconds() >= 3600:
-                        fecha_colecta = dia_orden
+                    import requests as _req2
+                    sla_r = _req2.get(
+                        f'https://api.mercadolibre.com/shipments/{shipping_id}/sla',
+                        headers={'Authorization': f'Bearer {access_token}'},
+                        timeout=10
+                    )
+                    if sla_r.status_code == 200:
+                        expected_raw = sla_r.json().get('expected_date', '')
+                        if expected_raw:
+                            fecha_sla = datetime.fromisoformat(expected_raw).astimezone(tz_ar).date()
+                            shipping_data['fecha_entrega_ml'] = f"{fecha_sla.day:02d}/{fecha_sla.month:02d}"
+                            print(f"📅 Fecha despacho (SLA): {shipping_data['fecha_entrega_ml']}")
+                        else:
+                            raise ValueError("expected_date vacío")
                     else:
-                        fecha_colecta = proximo_dia_habil(dia_siguiente)
-                    shipping_data['fecha_entrega_ml'] = f"{fecha_colecta.day:02d}/{fecha_colecta.month:02d}"
-                    print(f"📅 Fecha colecta (corte {hora_corte_str}): {shipping_data['fecha_entrega_ml']}")
+                        raise ValueError(f"SLA status {sla_r.status_code}")
+                except Exception as e_sla:
+                    print(f"⚠️ SLA falló ({e_sla}), usando hora de corte como fallback")
+                    # ── FALLBACK: lógica hora de corte (comentada como respaldo) ──
+                    try:
+                        hora_corte_str = session.get('hora_corte_colecta', '14:00')
+                    except RuntimeError:
+                        hora_corte_str = '14:00'
+                    try:
+                        hh, mm = map(int, hora_corte_str.split(':'))
+                    except:
+                        hh, mm = 14, 0
+                    fecha_orden_raw = fecha_orden_iso
+                    if fecha_orden_raw:
+                        dt_orden = datetime.fromisoformat(fecha_orden_raw.replace('Z', '+00:00'))
+                        dt_orden_ar = dt_orden.astimezone(tz_ar)
+                        corte = dt_orden_ar.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                        def proximo_dia_habil(fecha):
+                            while fecha.weekday() >= 5:
+                                fecha = fecha + timedelta(days=1)
+                            return fecha
+                        dia_orden = dt_orden_ar.date()
+                        dia_siguiente = dia_orden + timedelta(days=1)
+                        if dia_orden.weekday() >= 5:
+                            fecha_colecta = proximo_dia_habil(dia_orden + timedelta(days=1))
+                        elif (corte - dt_orden_ar).total_seconds() >= 3600:
+                            fecha_colecta = dia_orden
+                        else:
+                            fecha_colecta = proximo_dia_habil(dia_siguiente)
+                        shipping_data['fecha_entrega_ml'] = f"{fecha_colecta.day:02d}/{fecha_colecta.month:02d}"
+                        print(f"📅 Fecha colecta (fallback corte {hora_corte_str}): {shipping_data['fecha_entrega_ml']}")
             else:
                 # Flex y otros: usar estimated_delivery_limit
                 fecha_entrega_raw = (
