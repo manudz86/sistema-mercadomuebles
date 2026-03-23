@@ -811,6 +811,16 @@ function descargarEtiquetasML(formato) {
     const ids = Array.from(document.querySelectorAll('.venta-checkbox-desktop:checked')).map(cb => cb.value);
     if (ids.length === 0) { alert('Seleccioná al menos una venta'); return; }
     if (ids.length > 50) { alert('Máximo 50 etiquetas por descarga'); return; }
+
+    // Si es ZPL, marcar todos los botones de esas ventas en verde
+    if (formato === 'zpl') {
+        ids.forEach(id => {
+            localStorage.setItem('zpl_descargado_' + id, '1');
+            const btn = document.querySelector('.btn-zpl-etiqueta[data-venta-id="' + id + '"]');
+            if (btn) aplicarEstiloZpl(btn);
+        });
+    }
+
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '/ventas/etiquetas-ml-masivo';

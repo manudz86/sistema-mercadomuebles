@@ -881,9 +881,9 @@ def etiqueta_ml(venta_id):
 @app.route('/ventas/etiquetas-ml-masivo', methods=['POST'])
 @login_required
 def etiquetas_ml_masivo():
-    """Descarga etiquetas ML para múltiples ventas en un solo PDF."""
+    """Descarga etiquetas ML para múltiples ventas en un solo ZPL/PDF."""
     from flask import Response
-    import requests as _req
+    import requests as _req, re as _re, zipfile, io as _io
     formato = request.form.get('formato', 'pdf')
     venta_ids = request.form.getlist('venta_ids')
     if not venta_ids:
@@ -894,24 +894,45 @@ def etiquetas_ml_masivo():
         flash('Sin token ML', 'error')
         return redirect(url_for('ventas_activas'))
     headers = {'Authorization': f'Bearer {access_token}'}
-    shipping_ids = []
-    for vid in venta_ids[:50]:  # máximo 50
+
+    def copias_para_venta(vid):
+        items = query_db("SELECT sku FROM items_venta WHERE venta_id = %s", (int(vid),))
+        copias = 1
+        for item in items:
+            sku = item['sku'].upper()
+            if not sku.startswith('S'):
+                continue
+            nums = _re.findall(r'\d+', sku)
+            if not nums: continue
+            primer_num = nums[0]
+            if len(primer_num) >= 4:
+                ancho = int(primer_num[:3]) if int(primer_num[:3]) in (140,150,160,180,200) else int(primer_num[:2])
+            else:
+                ancho = int(primer_num)
+            if ancho in (160, 180, 200): copias = max(copias, 4)
+            elif ancho in (80, 90, 100, 140, 150): copias = max(copias, 3)
+        return copias
+
+    # Recopilar shipping_ids y copias por venta
+    ventas_info = []  # [(shipping_id, copias)]
+    for vid in venta_ids[:50]:
         venta = query_one("SELECT numero_venta FROM ventas WHERE id = %s", (int(vid),))
-        if not venta:
-            continue
+        if not venta: continue
         orden_id = venta['numero_venta'].replace('ML-', '').strip()
         try:
             r = _req.get(f'https://api.mercadolibre.com/orders/{orden_id}', headers=headers, timeout=10)
             sid = r.json().get('shipping', {}).get('id') if r.status_code == 200 else None
             if sid:
-                shipping_ids.append(str(sid))
+                ventas_info.append((str(sid), copias_para_venta(vid)))
         except Exception:
             continue
-    if not shipping_ids:
+
+    if not ventas_info:
         flash('No se encontraron shipments válidos', 'error')
         return redirect(url_for('ventas_activas'))
+
     fmt = 'pdf' if formato == 'pdf' else 'zpl2'
-    ids_str = ','.join(shipping_ids)
+    ids_str = ','.join(sid for sid, _ in ventas_info)
     label_r = _req.get(
         f'https://api.mercadolibre.com/shipment_labels?shipment_ids={ids_str}&response_type={fmt}',
         headers=headers, timeout=30
@@ -919,18 +940,29 @@ def etiquetas_ml_masivo():
     if label_r.status_code != 200:
         flash(f'Error obteniendo etiquetas: {label_r.status_code}', 'error')
         return redirect(url_for('ventas_activas'))
+
     if formato == 'pdf':
         return Response(label_r.content, headers={
             'Content-Type': 'application/pdf',
             'Content-Disposition': 'attachment; filename="etiquetas_ml.pdf"'
         })
     else:
-        import zipfile, io as _io
+        # ML devuelve un ZIP — extraer y multiplicar por sommier
         try:
             z = zipfile.ZipFile(_io.BytesIO(label_r.content))
-            zpl_content = b''.join(z.read(n) for n in z.namelist())
+            # ML devuelve un archivo por shipment en orden
+            archivos = z.namelist()
+            zpl_parts = []
+            for i, (sid, copias) in enumerate(ventas_info):
+                if i < len(archivos):
+                    contenido = z.read(archivos[i]).decode('utf-8', errors='replace')
+                else:
+                    break
+                zpl_parts.append(contenido * copias)
+            zpl_content = ''.join(zpl_parts).encode('utf-8')
         except Exception:
             zpl_content = label_r.content
+
         return Response(zpl_content, headers={
             'Content-Type': 'application/octet-stream',
             'Content-Disposition': 'attachment; filename="etiquetas_ml.zpl"'
