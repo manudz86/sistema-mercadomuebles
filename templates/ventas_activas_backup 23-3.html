@@ -197,12 +197,6 @@
                 <button type="button" class="btn btn-danger" onclick="cancelarMultiple()">
                     <i class="bi bi-x-circle"></i> Cancelar
                 </button>
-                <button type="button" class="btn btn-outline-danger" onclick="descargarEtiquetasML('pdf')" title="Descargar etiquetas PDF de ventas ML seleccionadas">
-                    📄 Etiquetas PDF
-                </button>
-                <button type="button" class="btn btn-outline-secondary" onclick="descargarEtiquetasML('zpl')" title="Descargar etiquetas ZPL de ventas ML seleccionadas">
-                    🖨️ Etiquetas ZPL
-                </button>
                 <button type="button" class="btn btn-secondary" onclick="limpiarSeleccion()">
                     <i class="bi bi-x"></i> Limpiar
                 </button>
@@ -328,19 +322,8 @@
                     {% else %}
                         <strong>Envío</strong>
                         <br><span class="badge bg-secondary">{{ venta.metodo_envio }}</span>
-                        {% if venta.metodo_envio in ['Colecta', 'Flex', 'Delega'] and venta.canal == 'Mercado Libre' %}
-                        <br>
-                        <div class="d-flex gap-1 mt-1">
-                            <a href="{{ url_for('etiqueta_ml', venta_id=venta.id, formato='pdf') }}"
-                               class="btn btn-sm btn-outline-danger py-0 px-1" style="font-size:0.72rem;" title="Descargar etiqueta PDF">
-                                📄 PDF
-                            </a>
-                            <a href="{{ url_for('etiqueta_ml', venta_id=venta.id, formato='zpl') }}"
-                               class="btn btn-sm btn-outline-secondary py-0 px-1" style="font-size:0.72rem;" title="Descargar etiqueta ZPL">
-                                🖨️ ZPL
-                            </a>
-                        </div>
-                        {% endif %}
+                        
+                        {% if venta.metodo_envio in ['Flete Propio', 'Zippin'] and venta.costo_flete and venta.costo_flete > 0 %}
                             <br>
                             {% if venta.importe_abonado + 5 >= venta.importe_total + venta.costo_flete %}
                                 <small class="text-success fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</small>
@@ -774,26 +757,6 @@ function actualizarContador() {
 function sincronizarDesdeMovil(el) {
     const desk = document.querySelector('.venta-checkbox-desktop[value="' + el.value + '"]');
     if (desk) { desk.checked = el.checked; actualizarContador(); }
-}
-
-function descargarEtiquetasML(formato) {
-    const ids = getSelectedIds();
-    if (ids.length === 0) { alert('Seleccioná al menos una venta'); return; }
-    if (ids.length > 50) { alert('Máximo 50 etiquetas por descarga'); return; }
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/ventas/etiquetas-ml-masivo';
-    const fmtInput = document.createElement('input');
-    fmtInput.type = 'hidden'; fmtInput.name = 'formato'; fmtInput.value = formato;
-    form.appendChild(fmtInput);
-    ids.forEach(id => {
-        const inp = document.createElement('input');
-        inp.type = 'hidden'; inp.name = 'venta_ids'; inp.value = id;
-        form.appendChild(inp);
-    });
-    document.body.appendChild(form);
-    form.submit();
-    setTimeout(() => form.remove(), 1000);
 }
 
 function limpiarSeleccion() {
