@@ -38,8 +38,12 @@
                     <label class="form-label">Canal *</label>
                     <select class="form-select" name="canal" required>
                         <option value="Mercado Libre" {% if venta.canal == 'Mercado Libre' %}selected{% endif %}>Mercado Libre</option>
-                        <option value="Fuera de ML" {% if venta.canal == 'Fuera de ML' %}selected{% endif %}>Fuera de ML</option>
                         <option value="tienda_web" {% if venta.canal == 'tienda_web' %}selected{% endif %}>Tienda Web</option>
+                        <option value="Instagram" {% if venta.canal == 'Instagram' %}selected{% endif %}>Instagram</option>
+                        <option value="Facebook" {% if venta.canal == 'Facebook' %}selected{% endif %}>Facebook</option>
+                        <option value="WhatsApp" {% if venta.canal == 'WhatsApp' %}selected{% endif %}>WhatsApp</option>
+                        <option value="Presencial" {% if venta.canal == 'Presencial' %}selected{% endif %}>Presencial</option>
+                        <option value="Otro" {% if venta.canal == 'Otro' %}selected{% endif %}>Otro</option>
                     </select>
                 </div>
             </div>

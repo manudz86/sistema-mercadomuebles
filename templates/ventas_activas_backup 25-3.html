@@ -268,7 +268,7 @@
                     {% if venta.telefono_cliente %}
                         <br><small class="text-muted"><i class="bi bi-telephone"></i> {{ venta.telefono_cliente }}</small>
                     {% endif %}
-                    {% if venta.canal in ['tienda_web', 'Fuera de ML'] %}
+                    {% if venta.canal == 'tienda_web' %}
                         <br><a href="/ventas/{{ venta.id }}/nota-pedido" target="_blank"
                            class="btn btn-outline-secondary btn-sm py-0 px-1 mt-1" style="font-size:0.7rem;">
                             🧾 Nota de Pedido
