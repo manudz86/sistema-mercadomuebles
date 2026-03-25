@@ -312,11 +312,6 @@
                 </li>
                 <div class="section-title">TIENDA WEB</div>
                 <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint in ('productos_lista','productos_nuevo','productos_editar','productos_fotos','productos_fotos_subir','productos_fotos_eliminar','productos_fotos_reordenar') %}active{% endif %}" href="/productos">
-                        <i class="bi bi-grid"></i> Catálogo
-                    </a>
-                </li>
-                <li class="nav-item">
                     <a class="nav-link {% if request.endpoint in ('tienda_precios','tienda_precios_guardar') %}active{% endif %}" href="/tienda-admin/precios">
                         <i class="bi bi-tag"></i> Precios
                     </a>
@@ -452,11 +447,6 @@
                             </a>
                         </li>
                         <div class="section-title">TIENDA WEB</div>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint in ('productos_lista','productos_nuevo','productos_editar','productos_fotos','productos_fotos_subir','productos_fotos_eliminar','productos_fotos_reordenar') %}active{% endif %}" href="/productos">
-                                <i class="bi bi-grid"></i> Catálogo
-                            </a>
-                        </li>
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint in ('tienda_precios','tienda_precios_guardar') %}active{% endif %}" href="/tienda-admin/precios">
                                 <i class="bi bi-tag"></i> Precios
