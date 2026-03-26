@@ -11236,6 +11236,73 @@ def costos_envio():
     return render_template('costos_envio.html', skus=skus)
 
 
+# SKUs para barrido de costos colecta ML
+SKUS_COLECTA_BARRIDO = [
+    'CTR80','CPR8020','CPR9020','CPR10020','CPR8023','CPR9023','CPR10023',
+    'CEX80','CEX100','CEXP80','CEXP90','CEXP100',
+    'CRE80','CRE100','CREP80','CREP90','CREP100',
+    'CSO80','CSO100','CDO80','CDO90','CDO100',
+]
+
+@app.route('/costos/envio/barrido-ml', methods=['GET'])
+@login_required
+def costos_envio_barrido_ml():
+    """Consulta costos de colecta ML para los SKUs de barrido y compara con lo guardado."""
+    import requests as _requests
+
+    access_token = cargar_ml_token()
+    if not access_token:
+        return jsonify(ok=False, error='Sin token ML'), 400
+
+    resultados = []
+    for sku in SKUS_COLECTA_BARRIDO:
+        # Buscar MLA gold_special para este SKU
+        r = ml_request('get',
+            f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/items/search',
+            access_token, params={'seller_sku': sku})
+        if r.status_code != 200:
+            resultados.append({'sku': sku, 'error': f'ML error {r.status_code}'})
+            continue
+
+        mla_ids = r.json().get('results', [])
+        if not mla_ids:
+            resultados.append({'sku': sku, 'error': 'Sin publicaciones'})
+            continue
+
+        # Tomar el primer MLA disponible
+        mla = mla_ids[0]
+
+        # Consultar costo de colecta
+        r2 = ml_request('get',
+            f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/shipping_options/free',
+            access_token,
+            params={'item_id': mla, 'verbose': 'true', 'free_shipping': 'False',
+                    'mode': 'me2', 'logistic_type': 'cross_docking'})
+
+        if r2.status_code != 200:
+            resultados.append({'sku': sku, 'mla': mla, 'error': f'Shipping error {r2.status_code}'})
+            continue
+
+        costo_ml = r2.json().get('coverage', {}).get('all_country', {}).get('list_cost', 0)
+        costo_ml = round(float(costo_ml))
+
+        # Costo actual guardado
+        ce = query_one("SELECT costo FROM cannon_costos_envio WHERE sku = %s AND tipo = 'colecta'", (sku,))
+        costo_actual = float(ce['costo']) if ce else None
+        diferencia = round(costo_ml - costo_actual) if costo_actual is not None else None
+
+        resultados.append({
+            'sku':          sku,
+            'mla':          mla,
+            'costo_ml':     costo_ml,
+            'costo_actual': costo_actual,
+            'diferencia':   diferencia,
+            'cambio':       diferencia != 0 if diferencia is not None else True,
+        })
+
+    return jsonify(ok=True, resultados=resultados)
+
+
 @app.route('/costos/calcular')
 @login_required
 def costos_calcular():

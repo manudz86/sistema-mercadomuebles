@@ -8,12 +8,56 @@
   </div>
 
   <div class="alert alert-info small mb-3">
-    <strong>Colecta:</strong> colchones ≤100cm, ML lo cobra al vendedor.<br>
-    <strong>Flex:</strong> colchones >100cm y sommiers, costo propio por producto (SKU sin Z).<br>
-    <strong>SKU con Z:</strong> mismo precio que web, sin costo de envío adicional.
+    <strong>Colecta:</strong> colchones ≤100cm, ML lo cobra al vendedor según tarifario.<br>
+    <strong>Flex:</strong> colchones >100cm y sommiers, costo propio por producto (SKU sin Z). Cargarlo manualmente.<br>
+    <strong>SKU con Z:</strong> mismo precio que la tienda web, sin costo de envío adicional.
   </div>
 
+  <!-- Barrido ML -->
+  <div class="card border-0 shadow-sm mb-4" style="border-left:4px solid #0d6efd !important;">
+    <div class="card-header fw-semibold bg-light d-flex justify-content-between align-items-center">
+      <span>📡 Consultar costos colecta desde ML</span>
+      <button class="btn btn-primary btn-sm" id="btn-barrido" onclick="ejecutarBarrido()">
+        <i class="bi bi-cloud-download me-1"></i> Consultar ML ahora
+      </button>
+    </div>
+    <div class="card-body" id="barrido-container" style="display:none">
+      <div id="barrido-loading" class="text-center py-3">
+        <div class="spinner-border text-primary me-2"></div>
+        <span>Consultando publicaciones en ML... esto puede tardar unos segundos.</span>
+      </div>
+      <div id="barrido-resultado" style="display:none">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-2 align-middle" id="tabla-barrido">
+            <thead class="table-dark">
+              <tr>
+                <th>SKU</th>
+                <th>MLA</th>
+                <th class="text-end">Costo ML</th>
+                <th class="text-end">Costo actual</th>
+                <th class="text-end">Diferencia</th>
+                <th class="text-center">Estado</th>
+                <th class="text-center">
+                  <input type="checkbox" id="check-barrido-all" onclick="toggleBarrido(this)">
+                </th>
+              </tr>
+            </thead>
+            <tbody id="tbody-barrido"></tbody>
+          </table>
+        </div>
+        <div class="d-flex gap-2 mt-2">
+          <button class="btn btn-success btn-sm" onclick="aplicarBarrido()">
+            ✅ Aplicar seleccionados
+          </button>
+          <span class="text-muted small align-self-center" id="barrido-summary"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabla manual -->
   <div class="card border-0 shadow-sm">
+    <div class="card-header fw-semibold bg-light">Edición manual de costos</div>
     <div class="card-body p-0">
       <div class="table-responsive">
         <table class="table table-sm table-hover mb-0 align-middle" id="tabla-envio">
@@ -69,6 +113,97 @@
 <div id="toast-container" style="position:fixed;bottom:20px;right:20px;z-index:9999"></div>
 
 <script>
+// ── Barrido ML ────────────────────────────────────────────────────────────────
+async function ejecutarBarrido() {
+  const cont = document.getElementById('barrido-container');
+  const loading = document.getElementById('barrido-loading');
+  const resultado = document.getElementById('barrido-resultado');
+  const btn = document.getElementById('btn-barrido');
+
+  cont.style.display = 'block';
+  loading.style.display = 'block';
+  resultado.style.display = 'none';
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Consultando...';
+
+  try {
+    const res = await fetch('/costos/envio/barrido-ml');
+    const data = await res.json();
+    loading.style.display = 'none';
+
+    if (!data.ok) { toast('❌ ' + data.error, 'danger'); return; }
+
+    const tbody = document.getElementById('tbody-barrido');
+    let conCambios = 0;
+    tbody.innerHTML = data.resultados.map(r => {
+      if (r.error) {
+        return `<tr class="table-secondary">
+          <td><code>${r.sku}</code></td>
+          <td colspan="5" class="text-muted small">${r.error}</td>
+          <td></td>
+        </tr>`;
+      }
+      const diff = r.diferencia;
+      const diffStr = diff === null ? '—' :
+        diff === 0 ? '<span class="text-success">Sin cambios</span>' :
+        `<span class="${diff > 0 ? 'text-danger' : 'text-success'} fw-bold">${diff > 0 ? '+' : ''}$${Math.abs(diff).toLocaleString('es-AR')}</span>`;
+      const estado = r.cambio ?
+        '<span class="badge bg-warning text-dark">Cambió</span>' :
+        '<span class="badge bg-success">OK</span>';
+      if (r.cambio) conCambios++;
+      return `<tr class="${r.cambio ? 'table-warning' : ''}">
+        <td><code>${r.sku}</code></td>
+        <td><a href="https://www.mercadolibre.com.ar/p/${r.mla}" target="_blank" class="small">${r.mla}</a></td>
+        <td class="text-end fw-bold">$${r.costo_ml.toLocaleString('es-AR')}</td>
+        <td class="text-end text-muted">${r.costo_actual !== null ? '$' + r.costo_actual.toLocaleString('es-AR') : '—'}</td>
+        <td class="text-end">${diffStr}</td>
+        <td class="text-center">${estado}</td>
+        <td class="text-center">
+          ${r.cambio ? `<input type="checkbox" class="barrido-check" data-sku="${r.sku}" data-costo="${r.costo_ml}" checked>` : ''}
+        </td>
+      </tr>`;
+    }).join('');
+
+    document.getElementById('barrido-summary').textContent =
+      `${conCambios} SKU con cambios de ${data.resultados.length} consultados`;
+    resultado.style.display = 'block';
+  } catch(e) {
+    toast('❌ Error: ' + e.message, 'danger');
+    loading.style.display = 'none';
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i> Consultar ML ahora';
+}
+
+function toggleBarrido(cb) {
+  document.querySelectorAll('.barrido-check').forEach(c => c.checked = cb.checked);
+}
+
+async function aplicarBarrido() {
+  const cambios = [];
+  document.querySelectorAll('.barrido-check:checked').forEach(c => {
+    cambios.push({sku: c.dataset.sku, tipo: 'colecta', costo: parseFloat(c.dataset.costo)});
+  });
+  if (!cambios.length) { toast('Sin SKUs seleccionados', 'warning'); return; }
+  const res = await fetch('/costos/envio', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({cambios})
+  });
+  const data = await res.json();
+  if (data.ok) {
+    toast(`✅ ${data.actualizados} costos de colecta actualizados`, 'success');
+    // Actualizar tabla manual
+    cambios.forEach(c => {
+      const row = document.querySelector(`#tabla-envio tr[data-sku="${c.sku}"]`);
+      if (row) row.querySelector('.costo-input').value = c.costo;
+    });
+  } else {
+    toast('❌ ' + data.error, 'danger');
+  }
+}
+
+// ── Manual ────────────────────────────────────────────────────────────────────
 async function guardarTodos() {
   const cambios = [];
   document.querySelectorAll('#tabla-envio tbody tr').forEach(row => {
@@ -80,7 +215,7 @@ async function guardarTodos() {
   if (!cambios.length) { toast('Sin datos para guardar', 'warning'); return; }
   const res = await fetch('/costos/envio', {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({cambios})
   });
   const data = await res.json();
@@ -94,7 +229,7 @@ function toast(msg, tipo) {
   t.className = `alert alert-${tipo} shadow mb-2`;
   t.textContent = msg;
   c.appendChild(t);
-  setTimeout(() => t.remove(), 3000);
+  setTimeout(() => t.remove(), 4000);
 }
 </script>
 {% endblock %}
