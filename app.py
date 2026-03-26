@@ -11284,7 +11284,7 @@ def costos_envio_barrido_ml():
             continue
 
         costo_ml = r2.json().get('coverage', {}).get('all_country', {}).get('list_cost', 0)
-        costo_ml = round(float(costo_ml))
+        costo_ml = round(float(costo_ml) / 0.86)
 
         # Costo actual guardado
         ce = query_one("SELECT costo FROM cannon_costos_envio WHERE sku = %s AND tipo = 'colecta'", (sku,))
