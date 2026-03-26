@@ -10,9 +10,6 @@
     <button class="btn btn-outline-secondary" onclick="mostrarModalAumento()">
       <i class="bi bi-arrow-up-circle me-1"></i> Aumentar todos
     </button>
-    <button class="btn btn-outline-info" onclick="aplicarTodosCostos()" title="Carga el precio sugerido por costos en todos los productos y los marca como pendientes">
-      <i class="bi bi-calculator me-1"></i> Cargar precios por costos
-    </button>
     <button class="btn btn-success" id="btn-guardar" onclick="mostrarPreviewGuardar()">
       <i class="bi bi-floppy me-1"></i> Guardar cambios (<span id="contador">0</span>)
     </button>
@@ -41,7 +38,6 @@
               <th>Nombre</th>
               <th>Tipo</th>
               <th style="width:150px">Precio ($)</th>
-              <th style="width:120px" class="text-info">P. Costos 💡</th>
               <th style="width:130px">Descuento cat.</th>
             </tr>
           </thead>
@@ -49,9 +45,7 @@
 
             {# ── COLCHONES Y ALMOHADAS ── #}
             {% for p in productos_base %}
-            {% set pc = precio_costos_map.get(p.sku) %}
-            <tr data-sku="{{ p.sku }}" data-origen="base" data-tipo="{{ p.tipo }}" data-nombre="{{ p.nombre }}"
-                data-precio-costos="{{ pc or '' }}">
+            <tr data-sku="{{ p.sku }}" data-origen="base" data-tipo="{{ p.tipo }}" data-nombre="{{ p.nombre }}">
               <td><small class="text-muted font-monospace">{{ p.sku }}</small></td>
               <td>{{ p.nombre }}</td>
               <td><span class="badge bg-secondary">{{ p.tipo }}</span></td>
@@ -61,15 +55,6 @@
                   data-original="{{ p.precio_base | float | int }}"
                   data-nombre="{{ p.nombre }}"
                   min="0" step="1000" style="max-width:130px">
-              </td>
-              <td>
-                {% if pc %}
-                <div class="d-flex align-items-center gap-1">
-                  <span class="text-info fw-semibold small">${{ "{:,.0f}".format(pc).replace(",",".") }}</span>
-                  <button class="btn btn-xs btn-outline-info py-0 px-1" title="Aplicar precio costos"
-                    onclick="aplicarPrecioCostos(this, {{ pc }})">↙</button>
-                </div>
-                {% else %}<span class="text-muted small">—</span>{% endif %}
               </td>
               <td>
                 <div class="input-group input-group-sm">
@@ -90,9 +75,7 @@
 
             {# ── BASES ── #}
             {% for b in bases %}
-            {% set pc = precio_costos_map.get(b.sku) %}
-            <tr data-sku="{{ b.sku }}" data-origen="base" data-tipo="base" data-nombre="{{ b.nombre }}"
-                data-precio-costos="{{ pc or '' }}">
+            <tr data-sku="{{ b.sku }}" data-origen="base" data-tipo="base" data-nombre="{{ b.nombre }}">
               <td><small class="text-muted font-monospace">{{ b.sku }}</small></td>
               <td>{{ b.nombre }}</td>
               <td><span class="badge bg-warning text-dark">Base</span></td>
@@ -103,25 +86,14 @@
                   data-nombre="{{ b.nombre }}"
                   min="0" step="1000" style="max-width:130px">
               </td>
-              <td>
-                {% if pc %}
-                <div class="d-flex align-items-center gap-1">
-                  <span class="text-info fw-semibold small">${{ "{:,.0f}".format(pc).replace(",",".") }}</span>
-                  <button class="btn btn-xs btn-outline-info py-0 px-1" title="Aplicar precio costos"
-                    onclick="aplicarPrecioCostos(this, {{ pc }})">↙</button>
-                </div>
-                {% else %}<span class="text-muted small">—</span>{% endif %}
-              </td>
               <td><span class="text-muted small">—</span></td>
             </tr>
             {% endfor %}
 
             {# ── CONJUNTOS (precio calculado, solo descuento editable) ── #}
             {% for c in conjuntos_calc %}
-            {% set pc = precio_costos_map.get(c.sku) %}
             <tr data-sku="{{ c.sku }}" data-origen="conjunto" data-tipo="conjunto" data-nombre="{{ c.nombre }}"
-                data-colchon="{{ c.sku_colchon }}" data-base="{{ c.base_sku }}" data-cant="{{ c.cantidad_bases }}"
-                data-precio-costos="{{ pc or '' }}">
+                data-colchon="{{ c.sku_colchon }}" data-base="{{ c.base_sku }}" data-cant="{{ c.cantidad_bases }}">
               <td><small class="text-muted font-monospace">{{ c.sku }}</small></td>
               <td>
                 {{ c.nombre }}
@@ -142,12 +114,6 @@
                 <small class="text-muted d-block" style="font-size:0.7rem;">calculado automático</small>
               </td>
               <td>
-                {% if pc %}
-                <div class="d-flex align-items-center gap-1">
-                  <span class="text-info fw-semibold small">${{ "{:,.0f}".format(pc).replace(",",".") }}</span>
-                </div>
-                {% else %}<span class="text-muted small">—</span>{% endif %}
-              </td>
                 <div class="input-group input-group-sm">
                   <input type="number" class="form-control descuento-input"
                     value="{{ c.descuento_catalogo | float | int if c.descuento_catalogo else '' }}"
@@ -605,40 +571,6 @@ function toast(msg, tipo) {
   t.textContent = msg;
   c.appendChild(t);
   setTimeout(() => t.remove(), 3500);
-}
-
-// ── Precio Costos ──────────────────────────────────────────────────────────
-function aplicarPrecioCostos(btn, precio) {
-  const row   = btn.closest('tr');
-  const input = row.querySelector('.precio-input');
-  if (!input) return;
-  const sku    = row.dataset.sku;
-  const origen = row.dataset.origen;
-  const nombre = input.dataset.nombre || sku;
-  const orig   = parseInt(input.dataset.original);
-  input.value  = precio;
-  input.style.borderColor = '#0dcaf0';
-  if (precio !== orig) {
-    cambios[sku] = {sku, precio, origen, nombre, original: orig};
-  } else {
-    delete cambios[sku];
-    input.style.borderColor = '';
-  }
-  actualizarPanelCambios();
-}
-
-function aplicarTodosCostos() {
-  let n = 0;
-  document.querySelectorAll('#tabla-precios tbody tr[data-precio-costos]').forEach(row => {
-    const pc = parseInt(row.dataset.precioCostos);
-    if (!pc) return;
-    const input = row.querySelector('.precio-input');
-    if (!input) return;
-    aplicarPrecioCostos({ closest: (s) => row }, pc);
-    n++;
-  });
-  if (n) toast(`✅ ${n} precios cargados desde costos — revisá y guardá`, 'info');
-  else toast('Sin precios de costos disponibles', 'warning');
 }
 </script>
 {% endblock %}

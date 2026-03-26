@@ -170,32 +170,6 @@
                 </div>
             </div>
 
-            {% if precio_costos %}
-            <!-- PRECIO DESDE COSTOS -->
-            <div class="card mb-3" style="border:2px solid #0dcaf0; background:#e8f8ff">
-                <div class="card-body py-2">
-                    <div class="d-flex align-items-center gap-3 flex-wrap">
-                        <span class="fw-bold" style="color:#0a6ebd">
-                            <i class="bi bi-calculator-fill me-1"></i> Precio por costos
-                        </span>
-                        <div class="d-flex gap-2 flex-wrap align-items-center">
-                            <span class="badge bg-secondary">S/cuotas: ${{ "{:,.0f}".format(precio_costos.precio_sin_cuotas).replace(",",".") }}</span>
-                            <span class="badge bg-light text-dark border">1c: ${{ "{:,.0f}".format(precio_costos.precio_1c).replace(",",".") }}</span>
-                            <span class="badge bg-light text-dark border">3c: ${{ "{:,.0f}".format(precio_costos.precio_3c).replace(",",".") }}</span>
-                            <span class="badge bg-light text-dark border">6c: ${{ "{:,.0f}".format(precio_costos.precio_6c).replace(",",".") }}</span>
-                            <span class="badge bg-light text-dark border">9c: ${{ "{:,.0f}".format(precio_costos.precio_9c).replace(",",".") }}</span>
-                            <span class="badge bg-light text-dark border">12c: ${{ "{:,.0f}".format(precio_costos.precio_12c).replace(",",".") }}</span>
-                        </div>
-                        <button class="btn btn-info btn-sm text-white fw-bold"
-                                onclick="cargarDesdeCostos({{ precio_costos.precio_sin_cuotas }})"
-                                title="Carga el precio s/cuotas en la calculadora y calcula todos">
-                            <i class="bi bi-tags-fill me-1"></i> Calcular y aplicar desde costos
-                        </button>
-                    </div>
-                </div>
-            </div>
-            {% endif %}
-
             <!-- TABLA DE PUBLICACIONES (solo desktop) -->
             <div class="table-responsive d-none d-md-block">
                 <table class="table table-hover table-bordered">
@@ -887,12 +861,5 @@ document.addEventListener('submit', function(e) {
     const field = e.target.querySelector('.pubs-json-field');
     if (field) field.value = getPubsJson();
 });
-
-// ── Cargar desde costos y aplicar todos ──────────────────────────
-function cargarDesdeCostos(precioSinCuotas) {
-    document.getElementById('precio_base_calc').value = precioSinCuotas;
-    calcularPrecios();
-    calcularYAplicarTodos();
-}
 </script>
 {% endblock %}
