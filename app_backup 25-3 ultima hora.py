@@ -9517,50 +9517,16 @@ def tienda_precios():
         WHERE tipo IN ('colchon','almohada')
         ORDER BY tipo, linea, modelo, medida
     """)
-    bases = query_db("""
-        SELECT sku, nombre, precio_base, descuento_catalogo
-        FROM productos_base
-        WHERE tipo = 'base'
+    productos_comp = query_db("""
+        SELECT sku, nombre, precio_base, descuento_catalogo, 'compuesto' as origen
+        FROM productos_compuestos
+        WHERE activo = 1
         ORDER BY nombre
     """)
-    # Calcular precio de conjuntos dinámicamente = colchon + base * cantidad
-    colchones_map = {p['sku']: p for p in productos_base if p['tipo'] == 'colchon'}
-    bases_map     = {b['sku']: b for b in bases}
-    conjuntos_cfg = query_db("SELECT colchon_sku, base_sku_default, cantidad_bases FROM conjunto_configuracion WHERE activo = 1")
-    # Descuentos actuales de productos_compuestos (para poder editarlos)
-    desc_comp = {r['sku']: r for r in query_db("SELECT sku, descuento_catalogo FROM productos_compuestos WHERE activo = 1")}
-
-    conjuntos_calc = []
-    for cfg in conjuntos_cfg:
-        col = colchones_map.get(cfg['colchon_sku'])
-        base = bases_map.get(cfg['base_sku_default'])
-        if not col or not base:
-            continue
-        precio_col  = float(col['precio_base'] or 0)
-        precio_base = float(base['precio_base'] or 0)
-        cant        = int(cfg['cantidad_bases'] or 1)
-        precio_conj = precio_col + precio_base * cant
-        # SKU conjunto = S + resto del SKU colchon (ej: CTR80 -> STR80)
-        sku_col  = cfg['colchon_sku']
-        sku_conj = 'S' + sku_col[1:] if sku_col.startswith('C') else 'S' + sku_col
-        desc_actual = desc_comp.get(sku_conj, {}).get('descuento_catalogo', None)
-        conjuntos_calc.append({
-            'sku':                sku_conj,
-            'sku_colchon':        sku_col,
-            'base_sku':           cfg['base_sku_default'],
-            'nombre':             f"Sommier y Colchón {col['modelo']} {col['medida']}cm",
-            'precio_colchon':     precio_col,
-            'precio_base_unit':   precio_base,
-            'cantidad_bases':     cant,
-            'precio_conjunto':    precio_conj,
-            'descuento_catalogo': desc_actual,
-        })
-    conjuntos_calc.sort(key=lambda x: (x['nombre']))
-
+    print(f"[tienda_precios] base={len(productos_base)} comp={len(productos_comp)} first={productos_base[0] if productos_base else 'VACIO'}", flush=True)
     return render_template('tienda_precios.html',
         productos_base=productos_base,
-        bases=bases,
-        conjuntos_calc=conjuntos_calc,
+        productos_comp=productos_comp,
     )
 
 
@@ -10826,3 +10792,250 @@ if __name__ == '__main__':
         debug=False,          # Desactivar debug en producción
         threaded=True         # Permitir múltiples usuarios simultáneos
     )
+
+# ============================================================================
+# PANEL PRODUCTOS — GESTIÓN CATÁLOGO TIENDA WEB
+# ============================================================================
+import os as _os
+from werkzeug.utils import secure_filename as _secure_filename
+
+FOTOS_BASE_DIR = _os.path.join(_os.path.dirname(__file__), 'static', 'img', 'productos')
+ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
+
+def _allowed_foto(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def _get_fotos(sku):
+    """Retorna lista de nombres de archivo ordenados: 1.jpg, 2.jpg..."""
+    folder = _os.path.join(FOTOS_BASE_DIR, sku)
+    if not _os.path.isdir(folder):
+        return []
+    files = sorted(
+        [f for f in _os.listdir(folder) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))],
+        key=lambda x: int(x.rsplit('.', 1)[0]) if x.rsplit('.', 1)[0].isdigit() else 999
+    )
+    return files
+
+def _renumerar_fotos(sku):
+    """Renumera archivos como 1.jpg, 2.jpg, ... manteniendo el orden actual."""
+    folder = _os.path.join(FOTOS_BASE_DIR, sku)
+    files = _get_fotos(sku)
+    for i, f in enumerate(files):
+        ext = f.rsplit('.', 1)[1].lower()
+        if ext == 'jpeg': ext = 'jpg'
+        _os.rename(_os.path.join(folder, f), _os.path.join(folder, f'tmp_{i+1}.{ext}'))
+    for i, f in enumerate(files):
+        ext = f.rsplit('.', 1)[1].lower()
+        if ext == 'jpeg': ext = 'jpg'
+        _os.rename(_os.path.join(folder, f'tmp_{i+1}.{ext}'), _os.path.join(folder, f'{i+1}.{ext}'))
+
+
+@app.route('/productos')
+@login_required
+def productos_lista():
+    filtro = request.args.get('filtro', 'todos')
+    busq   = request.args.get('q', '').strip()
+    linea  = request.args.get('linea', '')
+    where  = []
+    params = []
+    if filtro == 'activos':
+        where.append('activo = 1')
+    elif filtro == 'inactivos':
+        where.append('activo = 0')
+    if busq:
+        where.append('(sku LIKE %s OR nombre LIKE %s OR modelo LIKE %s)')
+        params += [f'%{busq}%', f'%{busq}%', f'%{busq}%']
+    if linea:
+        where.append('linea = %s')
+        params.append(linea)
+    sql = "SELECT * FROM productos_base"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY linea, modelo, medida"
+    productos = query_db(sql, params)
+    lineas    = query_db("SELECT DISTINCT linea FROM productos_base WHERE linea IS NOT NULL ORDER BY linea")
+    for p in productos:
+        fotos = _get_fotos(p['sku'])
+        p['foto_thumb'] = f"/static/img/productos/{p['sku']}/1.jpg" if fotos else None
+        p['cant_fotos'] = len(fotos)
+    return render_template('productos_lista.html',
+        productos=productos,
+        lineas=[r['linea'] for r in lineas],
+        filtro=filtro,
+        busq=busq,
+        linea_sel=linea,
+    )
+
+
+@app.route('/productos/toggle/<int:pid>', methods=['POST'])
+@login_required
+def productos_toggle(pid):
+    p = query_one("SELECT sku, activo FROM productos_base WHERE id = %s", (pid,))
+    if not p:
+        return jsonify(ok=False, msg='Producto no encontrado'), 404
+    nuevo = 0 if p['activo'] else 1
+    execute_db("UPDATE productos_base SET activo = %s WHERE id = %s", (nuevo, pid))
+    estado = 'activo' if nuevo else 'inactivo'
+    return jsonify(ok=True, activo=nuevo, msg=f"{p['sku']} → {estado}")
+
+
+@app.route('/productos/nuevo', methods=['GET', 'POST'])
+@login_required
+def productos_nuevo():
+    if request.method == 'POST':
+        f = request.form
+        try:
+            execute_db("""
+                INSERT INTO productos_base
+                (sku, nombre, tipo, linea, modelo, medida, tipo_base, modelo_almohada,
+                 precio_base, descuento_catalogo, peso_gramos, alto_cm, ancho_cm, largo_cm,
+                 stock_actual, stock_minimo_pausar, stock_minimo_reactivar, activo)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (
+                f['sku'].strip().upper(),
+                f['nombre'].strip(),
+                f['tipo'],
+                f.get('linea', '') or None,
+                f.get('modelo', '') or None,
+                f.get('medida', '') or None,
+                f.get('tipo_base', '') or None,
+                f.get('modelo_almohada', '') or None,
+                float(f.get('precio_base') or 0),
+                float(f.get('descuento_catalogo') or 0) or None,
+                int(f.get('peso_gramos') or 0) or None,
+                int(f.get('alto_cm') or 0) or None,
+                int(f.get('ancho_cm') or 0) or None,
+                int(f.get('largo_cm') or 0) or None,
+                int(f.get('stock_actual') or 0),
+                int(f.get('stock_minimo_pausar') or 0),
+                int(f.get('stock_minimo_reactivar') or 1),
+                1,
+            ))
+            flash(f"✅ Producto {f['sku'].upper()} creado correctamente", 'success')
+            return redirect(url_for('productos_lista'))
+        except Exception as e:
+            flash(f'❌ Error: {e}', 'danger')
+    return render_template('productos_form.html', producto=None, modo='nuevo')
+
+
+@app.route('/productos/editar/<int:pid>', methods=['GET', 'POST'])
+@login_required
+def productos_editar(pid):
+    producto = query_one("SELECT * FROM productos_base WHERE id = %s", (pid,))
+    if not producto:
+        flash('Producto no encontrado', 'danger')
+        return redirect(url_for('productos_lista'))
+    if request.method == 'POST':
+        f = request.form
+        try:
+            execute_db("""
+                UPDATE productos_base SET
+                    nombre=%s, tipo=%s, linea=%s, modelo=%s, medida=%s,
+                    tipo_base=%s, modelo_almohada=%s, precio_base=%s,
+                    descuento_catalogo=%s, peso_gramos=%s, alto_cm=%s,
+                    ancho_cm=%s, largo_cm=%s, stock_minimo_pausar=%s,
+                    stock_minimo_reactivar=%s
+                WHERE id=%s
+            """, (
+                f['nombre'].strip(),
+                f['tipo'],
+                f.get('linea', '') or None,
+                f.get('modelo', '') or None,
+                f.get('medida', '') or None,
+                f.get('tipo_base', '') or None,
+                f.get('modelo_almohada', '') or None,
+                float(f.get('precio_base') or 0),
+                float(f.get('descuento_catalogo') or 0) or None,
+                int(f.get('peso_gramos') or 0) or None,
+                int(f.get('alto_cm') or 0) or None,
+                int(f.get('ancho_cm') or 0) or None,
+                int(f.get('largo_cm') or 0) or None,
+                int(f.get('stock_minimo_pausar') or 0),
+                int(f.get('stock_minimo_reactivar') or 1),
+                pid,
+            ))
+            flash('✅ Producto actualizado', 'success')
+            return redirect(url_for('productos_lista'))
+        except Exception as e:
+            flash(f'❌ Error: {e}', 'danger')
+    return render_template('productos_form.html', producto=producto, modo='editar')
+
+
+@app.route('/productos/<sku>/fotos', methods=['GET'])
+@login_required
+def productos_fotos(sku):
+    producto = query_one("SELECT * FROM productos_base WHERE sku = %s", (sku,))
+    if not producto:
+        flash('Producto no encontrado', 'danger')
+        return redirect(url_for('productos_lista'))
+    fotos = _get_fotos(sku)
+    return render_template('productos_fotos.html', producto=producto, fotos=fotos)
+
+
+@app.route('/productos/<sku>/fotos/subir', methods=['POST'])
+@login_required
+def productos_fotos_subir(sku):
+    producto = query_one("SELECT id FROM productos_base WHERE sku = %s", (sku,))
+    if not producto:
+        return jsonify(ok=False, msg='SKU no encontrado'), 404
+    folder = _os.path.join(FOTOS_BASE_DIR, sku)
+    _os.makedirs(folder, exist_ok=True)
+    files = request.files.getlist('fotos')
+    if not files or all(f.filename == '' for f in files):
+        return jsonify(ok=False, msg='No se recibieron archivos'), 400
+    subidas = 0
+    errores = []
+    for file in files:
+        if not file or file.filename == '':
+            continue
+        if not _allowed_foto(file.filename):
+            errores.append(f"{file.filename}: formato no permitido")
+            continue
+        existing = _get_fotos(sku)
+        nums = [int(f.rsplit('.', 1)[0]) for f in existing if f.rsplit('.', 1)[0].isdigit()]
+        next_num = max(nums) + 1 if nums else 1
+        ext = file.filename.rsplit('.', 1)[1].lower()
+        if ext == 'jpeg': ext = 'jpg'
+        dest = _os.path.join(folder, f'{next_num}.{ext}')
+        file.save(dest)
+        subidas += 1
+    if subidas:
+        return jsonify(ok=True, msg=f'{subidas} foto(s) subida(s)', fotos=_get_fotos(sku))
+    return jsonify(ok=False, msg='; '.join(errores) or 'Error al subir'), 400
+
+
+@app.route('/productos/<sku>/fotos/eliminar', methods=['POST'])
+@login_required
+def productos_fotos_eliminar(sku):
+    filename = request.json.get('filename', '')
+    if not filename:
+        return jsonify(ok=False, msg='Filename requerido'), 400
+    folder = _os.path.join(FOTOS_BASE_DIR, sku)
+    path   = _os.path.join(folder, _secure_filename(filename))
+    if not _os.path.isfile(path):
+        return jsonify(ok=False, msg='Archivo no encontrado'), 404
+    _os.remove(path)
+    _renumerar_fotos(sku)
+    return jsonify(ok=True, fotos=_get_fotos(sku))
+
+
+@app.route('/productos/<sku>/fotos/reordenar', methods=['POST'])
+@login_required
+def productos_fotos_reordenar(sku):
+    orden = request.json.get('orden', [])
+    if not orden:
+        return jsonify(ok=False, msg='Lista de orden requerida'), 400
+    folder = _os.path.join(FOTOS_BASE_DIR, sku)
+    for i, fname in enumerate(orden):
+        src = _os.path.join(folder, _secure_filename(fname))
+        if _os.path.isfile(src):
+            ext = fname.rsplit('.', 1)[1].lower()
+            if ext == 'jpeg': ext = 'jpg'
+            _os.rename(src, _os.path.join(folder, f'tmp_{i+1}.{ext}'))
+    for i, fname in enumerate(orden):
+        ext = fname.rsplit('.', 1)[1].lower()
+        if ext == 'jpeg': ext = 'jpg'
+        tmp = _os.path.join(folder, f'tmp_{i+1}.{ext}')
+        if _os.path.isfile(tmp):
+            _os.rename(tmp, _os.path.join(folder, f'{i+1}.{ext}'))
+    return jsonify(ok=True, fotos=_get_fotos(sku))
