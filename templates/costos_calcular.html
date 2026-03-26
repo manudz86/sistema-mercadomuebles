@@ -7,15 +7,19 @@
       <a href="{{ url_for('costos_index') }}" class="btn btn-sm btn-outline-secondary">← Costos</a>
       <h5 class="mb-0 fw-bold">🧮 Precios calculados</h5>
     </div>
-    <div class="d-flex gap-2">
+    <div class="d-flex gap-2 align-items-center">
+      <input type="text" id="buscador-vivo" placeholder="Buscar SKU o descripción..."
+             class="form-control form-control-sm" style="width:220px">
       <select class="form-select form-select-sm" id="filtro-tipo" onchange="filtrar()" style="width:160px">
         <option value="">Todos</option>
         <option value="colchon">Colchón ≤100cm</option>
-        <option value="flex">Flex / Z</option>
+        <option value="flex">Flex</option>
+        <option value="conjunto">Sommiers</option>
         <option value="almohada">Almohadas</option>
+        <option value="z">SKU con Z</option>
       </select>
       <button class="btn btn-success btn-sm" id="btn-aplicar" onclick="aplicarSeleccionados()" disabled>
-        ✅ Aplicar seleccionados (<span id="sel-count">0</span>)
+        ✅ Aplicar (<span id="sel-count">0</span>)
       </button>
     </div>
   </div>
@@ -23,6 +27,7 @@
   <!-- Config resumen -->
   <div class="alert alert-light border small mb-3">
     Multiplicador: <strong>{{ multiplicador }}</strong> ·
+    Desc. cliente: <strong>{{ desc_cliente_pct }}%</strong> ·
     Prontopago: <strong>{{ prontopago_pct }}%</strong> ·
     Cuotas ML: 3c={{ porcentajes_ml.cuotas_3 }}% · 6c={{ porcentajes_ml.cuotas_6 }}% · 12c={{ porcentajes_ml.cuotas_12 }}%
   </div>
@@ -38,7 +43,7 @@
               <th>Descripción</th>
               <th>Modelo</th>
               <th class="text-end">P. Cannon</th>
-              <th class="text-end">Desc. línea</th>
+              <th class="text-end">Descuentos</th>
               <th class="text-end">Costo envío</th>
               <th class="text-end text-success">P. Lista / Web</th>
               <th class="text-end">Actual</th>
@@ -46,31 +51,59 @@
               <th class="text-end">ML 3c</th>
               <th class="text-end">ML 6c</th>
               <th class="text-end">ML 12c</th>
-              <th class="text-center">Publicación</th>
+              <th class="text-center">Tipo pub.</th>
             </tr>
           </thead>
           <tbody>
             {% for p in productos %}
             {% set diff = ((p.precio_lista - p.precio_actual) / p.precio_actual * 100) if p.precio_actual else 0 %}
-            <tr data-tipo="{{ 'almohada' if 'ALM' in p.descripcion.upper() else ('colchon' if p.tipo_pub == 'colecta' else 'flex') }}"
-                class="{{ 'table-warning' if diff | abs > 5 else '' }}">
+            {% if p.es_conjunto %}
+              {% set tipo_row = 'conjunto' %}
+            {% elif 'ALM' in p.descripcion.upper() or p.clave_descuento == 'almohadas' %}
+              {% set tipo_row = 'almohada' %}
+            {% elif p.es_z %}
+              {% set tipo_row = 'z' %}
+            {% elif p.tipo_pub == 'colecta' %}
+              {% set tipo_row = 'colchon' %}
+            {% else %}
+              {% set tipo_row = 'flex' %}
+            {% endif %}
+            <tr data-tipo="{{ tipo_row }}"
+                data-sku="{{ p.sku | lower }}"
+                data-desc="{{ p.descripcion | lower }}"
+                class="{{ 'table-warning' if diff | abs > 5 and p.precio_actual else '' }}
+                       {{ 'table-info bg-opacity-25' if p.es_conjunto else '' }}">
               <td>
+                {% if p.id or p.es_conjunto %}
                 <input type="checkbox" class="row-check"
                        data-sku="{{ p.sku }}" data-precio="{{ p.precio_lista }}"
                        onchange="actualizarContador()">
+                {% endif %}
               </td>
               <td><code class="small">{{ p.sku }}</code></td>
-              <td style="max-width:200px; font-size:0.78rem">{{ p.descripcion }}</td>
-              <td><small class="badge bg-secondary">{{ p.clave_descuento or '—' }}</small></td>
-              <td class="text-end small">${{ "{:,.0f}".format(p.precio_cannon).replace(",",".") }}</td>
+              <td style="max-width:220px; font-size:0.78rem">{{ p.descripcion }}</td>
+              <td>
+                <small class="badge
+                  {{ 'bg-info text-dark' if p.es_conjunto else 'bg-secondary' }}">
+                  {{ p.clave_descuento or '—' }}
+                </small>
+              </td>
+              <td class="text-end small">
+                {% if p.precio_cannon %}${{ "{:,.0f}".format(p.precio_cannon).replace(",",".") }}
+                {% else %}<span class="text-muted">calc.</span>{% endif %}
+              </td>
               <td class="text-end small text-danger">
-                -{{ p.desc_linea | int }}%
-                {% if p.desc_adi %}<br><small>-{{ p.desc_adi | int }}% adi</small>{% endif %}
+                {% if p.desc_linea is not none %}
+                  -{{ p.desc_linea | int }}% línea
+                  {% if desc_cliente_pct %}<br>-{{ desc_cliente_pct | int }}% cliente{% endif %}
+                  {% if p.desc_adi %}<br>-{{ p.desc_adi | int }}% adic.{% endif %}
+                {% else %}
+                  <span class="text-muted">sumatorio</span>
+                {% endif %}
               </td>
               <td class="text-end small">
                 {% if p.costo_envio_ml %}
                   ${{ "{:,.0f}".format(p.costo_envio_ml).replace(",",".") }}
-                  <small class="text-muted">({{ p.tipo_pub }})</small>
                 {% else %}—{% endif %}
               </td>
               <td class="text-end fw-bold text-success">
@@ -82,21 +115,25 @@
                 {% endif %}
               </td>
               <td class="text-end small text-muted">
-                {% if p.precio_actual %}${{ "{:,.0f}".format(p.precio_actual).replace(",",".") }}{% else %}—{% endif %}
+                {% if p.precio_actual %}${{ "{:,.0f}".format(p.precio_actual).replace(",",".") }}
+                {% else %}—{% endif %}
               </td>
               <td class="text-end small">
-                {% if not p.es_z %}${{ "{:,.0f}".format(p.precio_ml_sin_cuotas).replace(",",".") }}{% else %}=web{% endif %}
+                {% if p.es_z %}=web
+                {% else %}${{ "{:,.0f}".format(p.precio_ml_sin_cuotas).replace(",",".") }}{% endif %}
               </td>
               <td class="text-end small">${{ "{:,.0f}".format(p.precio_ml_3c).replace(",",".") }}</td>
               <td class="text-end small">${{ "{:,.0f}".format(p.precio_ml_6c).replace(",",".") }}</td>
               <td class="text-end small">${{ "{:,.0f}".format(p.precio_ml_12c).replace(",",".") }}</td>
               <td class="text-center">
                 {% if p.es_z %}
-                  <span class="badge bg-primary">Z — mismo web</span>
+                  <span class="badge bg-primary">Z — web</span>
                 {% elif p.tipo_pub == 'colecta' %}
                   <span class="badge bg-info text-dark">Colecta</span>
                 {% elif p.tipo_pub == 'flex' %}
                   <span class="badge bg-warning text-dark">Flex</span>
+                {% elif p.es_conjunto %}
+                  <span class="badge bg-secondary">Conjunto</span>
                 {% else %}
                   <span class="badge bg-secondary">—</span>
                 {% endif %}
@@ -108,8 +145,9 @@
       </div>
     </div>
     <div class="card-footer text-muted small">
-      {{ productos | length }} productos calculados ·
-      <span class="text-warning">Fila amarilla = variación >5% respecto al precio actual</span>
+      <span id="footer-count">{{ productos | length }} productos</span> ·
+      <span class="text-warning">⚠ Fila amarilla = variación >5% vs precio actual</span> ·
+      <span class="text-info">🔵 Fila azul = sommier calculado</span>
     </div>
   </div>
 </div>
@@ -117,12 +155,22 @@
 <div id="toast-container" style="position:fixed;bottom:20px;right:20px;z-index:9999"></div>
 
 <script>
+// Búsqueda en vivo + filtro tipo
 function filtrar() {
+  const q    = document.getElementById('buscador-vivo').value.toLowerCase().trim();
   const tipo = document.getElementById('filtro-tipo').value;
+  let visible = 0;
   document.querySelectorAll('#tabla-calc tbody tr').forEach(row => {
-    row.style.display = (!tipo || row.dataset.tipo === tipo) ? '' : 'none';
+    const matchQ    = !q || row.dataset.sku.includes(q) || row.dataset.desc.includes(q);
+    const matchTipo = !tipo || row.dataset.tipo === tipo;
+    const show = matchQ && matchTipo;
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
   });
+  document.getElementById('footer-count').textContent = visible + ' productos';
 }
+
+document.getElementById('buscador-vivo').addEventListener('input', filtrar);
 
 function toggleAll(cb) {
   document.querySelectorAll('.row-check').forEach(c => {
@@ -164,7 +212,7 @@ async function aplicarSeleccionados() {
     toast('❌ ' + data.error, 'danger');
   }
   btn.disabled = false;
-  btn.innerHTML = '✅ Aplicar seleccionados (<span id="sel-count">0</span>)';
+  btn.innerHTML = '✅ Aplicar (<span id="sel-count">0</span>)';
 }
 
 function toast(msg, tipo) {

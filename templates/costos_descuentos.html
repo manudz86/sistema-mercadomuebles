@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Descuentos Cannon{% endblock %}
 {% block content %}
-<div class="container py-4" style="max-width:700px">
+<div class="container py-4" style="max-width:800px">
   <div class="d-flex align-items-center gap-2 mb-4">
     <a href="{{ url_for('costos_index') }}" class="btn btn-sm btn-outline-secondary">← Costos</a>
     <h5 class="mb-0 fw-bold">🏷️ Descuentos y configuración</h5>
@@ -11,7 +11,12 @@
     <div class="card-body p-0">
       <table class="table table-sm table-hover mb-0 align-middle">
         <thead class="table-dark">
-          <tr><th>Concepto</th><th>Tipo</th><th style="width:140px">Valor</th></tr>
+          <tr>
+            <th>Concepto</th>
+            <th>Tipo</th>
+            <th style="width:150px">Descuento línea</th>
+            <th style="width:150px">Desc. adicional</th>
+          </tr>
         </thead>
         <tbody>
           {% for d in descuentos %}
@@ -24,9 +29,25 @@
                        value="{{ d.valor | float }}"
                        data-original="{{ d.valor | float }}"
                        data-clave="{{ d.clave }}"
+                       data-campo="valor"
                        step="0.01" min="0" max="100" style="max-width:90px">
                 {% if d.tipo != 'multiplicador' %}<span class="input-group-text">%</span>{% endif %}
               </div>
+            </td>
+            <td>
+              {% if d.tipo == 'descuento_linea' %}
+              <div class="input-group input-group-sm">
+                <input type="number" class="form-control desc-input"
+                       value="{{ d.desc_adicional | float if d.desc_adicional else 0 }}"
+                       data-original="{{ d.desc_adicional | float if d.desc_adicional else 0 }}"
+                       data-clave="{{ d.clave }}"
+                       data-campo="desc_adicional"
+                       step="0.01" min="0" max="100" style="max-width:90px">
+                <span class="input-group-text">%</span>
+              </div>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
             </td>
           </tr>
           {% endfor %}
@@ -50,14 +71,16 @@ let cambios = {};
 
 document.querySelectorAll('.desc-input').forEach(input => {
   input.addEventListener('input', function() {
-    const clave = this.dataset.clave;
-    const orig  = parseFloat(this.dataset.original);
-    const nuevo = parseFloat(this.value);
+    const clave  = this.dataset.clave;
+    const campo  = this.dataset.campo;
+    const orig   = parseFloat(this.dataset.original);
+    const nuevo  = parseFloat(this.value) || 0;
+    const key    = `${clave}__${campo}`;
     if (nuevo !== orig) {
-      cambios[clave] = {clave, valor: nuevo};
+      cambios[key] = {clave, campo, valor: nuevo};
       this.style.borderColor = '#198754';
     } else {
-      delete cambios[clave];
+      delete cambios[key];
       this.style.borderColor = '';
     }
     const n = Object.keys(cambios).length;
@@ -79,7 +102,8 @@ async function guardar() {
   if (data.ok) {
     toast(`✅ ${data.actualizados} valores guardados`, 'success');
     document.querySelectorAll('.desc-input').forEach(i => {
-      if (cambios[i.dataset.clave]) {
+      const key = `${i.dataset.clave}__${i.dataset.campo}`;
+      if (cambios[key]) {
         i.dataset.original = i.value;
         i.style.borderColor = '';
       }

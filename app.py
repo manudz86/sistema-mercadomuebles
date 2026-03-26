@@ -10843,19 +10843,22 @@ def _get_config_costos():
     rows = query_db("SELECT clave, valor, tipo FROM cannon_descuentos")
     return {r['clave']: float(r['valor']) for r in rows}
 
-def _calcular_precio_lista(precio_cannon, desc_linea_pct, desc_adicional_pct, prontopago_pct, multiplicador):
+def _calcular_precio_lista(precio_cannon, desc_linea_pct, desc_cliente_pct, desc_adicional_pct, prontopago_pct, multiplicador):
     """
     precio_lista = precio_cannon
                    × (1 - desc_linea/100)
+                   × (1 - desc_cliente/100)
                    × (1 - desc_adicional/100)
-                   × (1 - 1/(1 + prontopago/100))
+                   × 1/(1 + prontopago/100)   ← prontopago correcto
                    × multiplicador
     """
     costo = precio_cannon
     costo *= (1 - desc_linea_pct / 100)
+    if desc_cliente_pct:
+        costo *= (1 - desc_cliente_pct / 100)
     if desc_adicional_pct:
         costo *= (1 - desc_adicional_pct / 100)
-    costo *= (1 - 1 / (1 + prontopago_pct / 100))
+    costo *= 1 / (1 + prontopago_pct / 100)
     return round(costo * multiplicador)
 
 
@@ -10911,14 +10914,21 @@ def costos_descuentos():
         cambios = data.get('cambios', [])
         try:
             for c in cambios:
-                execute_db(
-                    "UPDATE cannon_descuentos SET valor = %s WHERE clave = %s",
-                    (float(c['valor']), c['clave'])
-                )
+                campo = c.get('campo', 'valor')
+                if campo == 'desc_adicional':
+                    execute_db(
+                        "UPDATE cannon_descuentos SET desc_adicional = %s WHERE clave = %s",
+                        (float(c['valor']), c['clave'])
+                    )
+                else:
+                    execute_db(
+                        "UPDATE cannon_descuentos SET valor = %s WHERE clave = %s",
+                        (float(c['valor']), c['clave'])
+                    )
             return jsonify(ok=True, actualizados=len(cambios))
         except Exception as e:
             return jsonify(ok=False, error=str(e))
-    rows = query_db("SELECT clave, descripcion, valor, tipo FROM cannon_descuentos ORDER BY tipo, descripcion")
+    rows = query_db("SELECT clave, descripcion, valor, desc_adicional, tipo FROM cannon_descuentos ORDER BY tipo, descripcion")
     return render_template('costos_descuentos.html', descuentos=rows)
 
 
@@ -10996,8 +11006,8 @@ def costos_productos():
             return jsonify(ok=False, error=str(e))
 
     q = request.args.get('q', '').strip()
-    where = "WHERE cp.descripcion LIKE %s" if q else ""
-    params = (f'%{q}%',) if q else ()
+    where = "WHERE (cp.descripcion LIKE %s OR cp.sku LIKE %s)" if q else ""
+    params = (f'%{q}%', f'%{q}%') if q else ()
     productos = query_db(f"""
         SELECT cp.*, clp.precio_lista,
                cd.valor as desc_adicional
@@ -11044,8 +11054,9 @@ def costos_envio():
 def costos_calcular():
     """Tabla de precios calculados con opción de aplicar a productos_base."""
     cfg = _get_config_costos()
-    multiplicador  = cfg.get('multiplicador', 1.85)
-    prontopago_pct = cfg.get('prontopago', 5.0)
+    multiplicador   = cfg.get('multiplicador', 1.85)
+    prontopago_pct  = cfg.get('prontopago', 5.0)
+    desc_cliente_pct = cfg.get('cliente', 0.0)
 
     try:
         row = query_one("SELECT valor FROM configuracion WHERE clave = 'porcentajes_ml'")
@@ -11053,7 +11064,7 @@ def costos_calcular():
     except Exception:
         porcentajes_ml = PORCENTAJES_ML_DEFAULT
 
-    # Solo productos con SKU y precio cargado
+    # Productos base (colchones y almohadas) con SKU y precio cargado
     productos_raw = query_db("""
         SELECT cp.id, cp.codigo_material, cp.descripcion, cp.sku,
                clp.precio_lista as precio_cannon, clp.vigencia,
@@ -11071,27 +11082,29 @@ def costos_calcular():
         ORDER BY cp.descripcion
     """)
 
-    descuentos = {r['clave']: float(r['valor']) for r in
-                  query_db("SELECT clave, valor FROM cannon_descuentos WHERE tipo = 'descuento_linea'")}
+    descuentos = {r['clave']: {'valor': float(r['valor']), 'desc_adicional': float(r['desc_adicional'] or 0)} for r in
+                  query_db("SELECT clave, valor, desc_adicional FROM cannon_descuentos WHERE tipo = 'descuento_linea'")}
 
-    # Mapeo descripcion → clave de descuento
-    MODELO_MAP = {
-        'TROPICAL': 'tropical',
-        'PRINCESS 20': 'princess_20', 'PRINCESS 23': 'princess_23',
-        'ESPECIAL DE LUJO': 'especial_de_lujo',
-        'EXCLUSIVE': 'exclusive', 'EXCLUSIVE PILLOW': 'exclusive_pillow',
-        'EXCLUSIVE PIL': 'exclusive_pillow',
-        'RENOVATION': 'renovation', 'EUROPILLOW': 'renovation_europillow',
-        'SONAR': 'sonar', 'SOÑAR': 'sonar',
-        'PLATINO': 'platino',
-        'DORAL': 'doral', 'DORAL PIL': 'doral_pillow',
-        'SUBLIME': 'sublime', 'SUBLIME EUR': 'sublime_europillow',
-        'BASE': 'bases', 'ALM': 'almohadas',
-    }
+    # Configuración de conjuntos para calcular precio sommier
+    conjuntos_cfg = {r['colchon_sku']: r for r in
+                     query_db("SELECT colchon_sku, base_sku_default, cantidad_bases FROM conjunto_configuracion WHERE activo=1")}
+    # Precios de bases desde cannon_lista_precios + cannon_productos
+    bases_precio = {r['sku']: float(r['precio_lista'] or 0) for r in query_db("""
+        SELECT cp.sku, clp.precio_lista
+        FROM cannon_productos cp
+        JOIN cannon_lista_precios clp ON clp.codigo_material = cp.codigo_material
+        WHERE cp.sku IS NOT NULL AND cp.sku LIKE 'BASE%'
+    """)}
 
-    def _detectar_clave(descripcion):
+    def _detectar_clave(descripcion, sku=''):
         desc = (descripcion or '').upper()
-        # Orden importa: más específicos primero
+        sku_up = (sku or '').upper()
+        # Almohadas primero — SKU o descripción
+        if sku_up in ('CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE'):
+            return 'almohadas'
+        if desc.startswith('ALM'):
+            return 'almohadas'
+        # Europillow antes que pillow
         if 'EUROPILLOW' in desc or 'EURO PILLOW' in desc:
             if 'SUBLIME' in desc: return 'sublime_europillow'
             if 'RENOVATION' in desc: return 'renovation_europillow'
@@ -11109,31 +11122,46 @@ def costos_calcular():
         if 'DORAL' in desc: return 'doral'
         if 'SUBLIME' in desc: return 'sublime'
         if 'BASE' in desc or desc.startswith('SOM'): return 'bases'
-        if 'ALM' in desc: return 'almohadas'
         return None
+
+    def _precio_cuotas(base, pct):
+        factor = 0.76 - (0.76 - pct / 100)
+        return round(base * (1 + factor))
+
+    # Mapa colchon_sku → precio_lista calculado (para sommiers)
+    colchones_precio_lista = {}
 
     productos = []
     for p in productos_raw:
         precio_cannon = float(p['precio_cannon'] or 0)
         if not precio_cannon:
             continue
-        clave = _detectar_clave(p['descripcion'])
-        desc_linea = descuentos.get(clave, 0) if clave else 0
-        desc_adi   = float(p['desc_adicional'] or 0)
-        precio_lista = _calcular_precio_lista(
-            precio_cannon, desc_linea, desc_adi, prontopago_pct, multiplicador
-        )
-        # SKU termina en Z → precio web directo
         sku = p['sku'] or ''
+        clave = _detectar_clave(p['descripcion'], sku)
+        desc_entry = descuentos.get(clave, {'valor': 0, 'desc_adicional': 0}) if clave else {'valor': 0, 'desc_adicional': 0}
+        desc_linea = desc_entry['valor']
+        desc_adi_linea = desc_entry['desc_adicional']
+        desc_adi_sku = float(p['desc_adicional'] or 0)
+        desc_adi   = desc_adi_linea + desc_adi_sku  # acumulativo
+        precio_lista = _calcular_precio_lista(
+            precio_cannon, desc_linea, desc_cliente_pct, desc_adi, prontopago_pct, multiplicador
+        )
+
+        # Guardar precio colchon para calcular sommiers después
+        if clave != 'bases' and clave != 'almohadas':
+            colchones_precio_lista[sku] = precio_lista
+
         es_z = sku.endswith('Z')
-        # ancho_cm para detectar colecta (≤100cm)
-        ancho = int(sku[-3:]) if sku[-3:].isdigit() else 0
-        es_colecta = (not es_z) and (ancho <= 100) and ('BASE' not in p['descripcion'].upper())
+        # Detectar ancho desde SKU (últimos 3 dígitos antes de Z si aplica)
+        sku_base = sku[:-1] if es_z else sku
+        ancho = int(sku_base[-3:]) if sku_base[-3:].isdigit() else 0
+        es_colecta = (not es_z) and (ancho <= 100) and (clave not in ('bases','almohadas'))
+        es_almohada = clave == 'almohadas'
 
         costo_envio_ml = 0
         tipo_pub = None
-        if not es_z:
-            if es_colecta:
+        if not es_z and not clave == 'bases':
+            if es_colecta or es_almohada:
                 costo_envio_ml = float(p['costo_colecta'] or 0)
                 tipo_pub = 'colecta'
             else:
@@ -11142,11 +11170,6 @@ def costos_calcular():
 
         precio_ml_sin_cuotas = precio_lista + costo_envio_ml if not es_z else precio_lista
 
-        # Precios con cuotas
-        def _precio_cuotas(base, pct):
-            factor = 0.76 - (0.76 - pct / 100)
-            return round(base * (1 + factor))
-
         productos.append({
             'id':              p['id'],
             'sku':             sku,
@@ -11154,17 +11177,104 @@ def costos_calcular():
             'precio_cannon':   precio_cannon,
             'clave_descuento': clave,
             'desc_linea':      desc_linea,
+            'desc_cliente':    desc_cliente_pct,
             'desc_adi':        desc_adi,
             'precio_lista':    precio_lista,
             'precio_actual':   float(p['precio_actual'] or 0),
             'costo_envio_ml':  costo_envio_ml,
             'tipo_pub':        tipo_pub,
             'es_z':            es_z,
+            'es_conjunto':     False,
             'precio_ml_sin_cuotas': precio_ml_sin_cuotas,
             'precio_ml_3c':    _precio_cuotas(precio_ml_sin_cuotas, porcentajes_ml.get('cuotas_3', 9.4)),
             'precio_ml_6c':    _precio_cuotas(precio_ml_sin_cuotas, porcentajes_ml.get('cuotas_6', 15.1)),
             'precio_ml_12c':   _precio_cuotas(precio_ml_sin_cuotas, porcentajes_ml.get('cuotas_12', 25.9)),
         })
+
+    # ── Agregar sommiers ──────────────────────────────────────────────────────
+    for sku_col, cfg_conj in conjuntos_cfg.items():
+        precio_col = colchones_precio_lista.get(sku_col)
+        if not precio_col:
+            continue
+        base_sku  = cfg_conj['base_sku_default']
+        cant      = int(cfg_conj['cantidad_bases'] or 1)
+
+        # Precio base calculado (costo_base * (1-desc_bases) * (1-cliente) * (1/1+pp) * mult)
+        precio_cannon_base = bases_precio.get(base_sku, 0)
+        if precio_cannon_base:
+            precio_base_calc = _calcular_precio_lista(
+                precio_cannon_base,
+                descuentos.get('bases', {'valor': 40})['valor'],
+                desc_cliente_pct, 0, prontopago_pct, multiplicador
+            )
+        else:
+            precio_base_calc = 0
+
+        precio_conjunto = precio_col + precio_base_calc * cant
+
+        # SKU conjunto
+        sku_conj = 'S' + sku_col[1:] if sku_col.startswith('C') else 'S' + sku_col
+        sku_conj_z = sku_conj + 'Z'
+
+        # Precio actual del conjunto en productos_base
+        pb_conj = query_one("SELECT precio_base FROM productos_base WHERE sku = %s", (sku_conj,))
+        precio_actual_conj = float(pb_conj['precio_base'] or 0) if pb_conj else 0
+
+        # Obtener ancho del SKU colchon
+        sku_base_col = sku_col
+        ancho = int(sku_base_col[-3:]) if sku_base_col[-3:].isdigit() else 999
+
+        # Flex para sin Z
+        ce_flex = query_one("SELECT costo FROM cannon_costos_envio WHERE sku = %s AND tipo = 'flex'", (sku_conj,))
+        costo_flex = float(ce_flex['costo'] or 0) if ce_flex else 0
+
+        precio_ml_flex = precio_conjunto + costo_flex
+
+        productos.append({
+            'id':              None,
+            'sku':             sku_conj,
+            'descripcion':     f'SOMMIER + {sku_col} ({base_sku} ×{cant})',
+            'precio_cannon':   None,
+            'clave_descuento': 'conjunto',
+            'desc_linea':      None,
+            'desc_cliente':    None,
+            'desc_adi':        None,
+            'precio_lista':    precio_conjunto,
+            'precio_actual':   precio_actual_conj,
+            'costo_envio_ml':  costo_flex,
+            'tipo_pub':        'flex',
+            'es_z':            False,
+            'es_conjunto':     True,
+            'precio_ml_sin_cuotas': precio_ml_flex,
+            'precio_ml_3c':    _precio_cuotas(precio_ml_flex, porcentajes_ml.get('cuotas_3', 9.4)),
+            'precio_ml_6c':    _precio_cuotas(precio_ml_flex, porcentajes_ml.get('cuotas_6', 15.1)),
+            'precio_ml_12c':   _precio_cuotas(precio_ml_flex, porcentajes_ml.get('cuotas_12', 25.9)),
+        })
+        # SKU con Z — mismo precio web
+        pb_conj_z = query_one("SELECT precio_base FROM productos_base WHERE sku = %s", (sku_conj_z,))
+        precio_actual_z = float(pb_conj_z['precio_base'] or 0) if pb_conj_z else 0
+        productos.append({
+            'id':              None,
+            'sku':             sku_conj_z,
+            'descripcion':     f'SOMMIER Z + {sku_col} ({base_sku} ×{cant})',
+            'precio_cannon':   None,
+            'clave_descuento': 'conjunto_z',
+            'desc_linea':      None,
+            'desc_cliente':    None,
+            'desc_adi':        None,
+            'precio_lista':    precio_conjunto,
+            'precio_actual':   precio_actual_z,
+            'costo_envio_ml':  0,
+            'tipo_pub':        None,
+            'es_z':            True,
+            'es_conjunto':     True,
+            'precio_ml_sin_cuotas': precio_conjunto,
+            'precio_ml_3c':    _precio_cuotas(precio_conjunto, porcentajes_ml.get('cuotas_3', 9.4)),
+            'precio_ml_6c':    _precio_cuotas(precio_conjunto, porcentajes_ml.get('cuotas_6', 15.1)),
+            'precio_ml_12c':   _precio_cuotas(precio_conjunto, porcentajes_ml.get('cuotas_12', 25.9)),
+        })
+
+    productos.sort(key=lambda x: x['sku'])
 
     return render_template('costos_calcular.html',
         productos=productos,
@@ -11172,6 +11282,7 @@ def costos_calcular():
         porcentajes_ml=porcentajes_ml,
         multiplicador=multiplicador,
         prontopago_pct=prontopago_pct,
+        desc_cliente_pct=desc_cliente_pct,
     )
 
 
