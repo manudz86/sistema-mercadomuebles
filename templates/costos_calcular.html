@@ -49,8 +49,10 @@
               <th class="text-end text-success">P. Lista / Web</th>
               <th class="text-end">Actual</th>
               <th class="text-end">ML s/cuotas</th>
+              <th class="text-end">ML 1c</th>
               <th class="text-end">ML 3c</th>
               <th class="text-end">ML 6c</th>
+              <th class="text-end">ML 9c</th>
               <th class="text-end">ML 12c</th>
               <th class="text-center">Tipo pub.</th>
             </tr>
@@ -123,11 +125,11 @@
                 {% if p.precio_actual %}${{ "{:,.0f}".format(p.precio_actual).replace(",",".") }}
                 {% else %}—{% endif %}
               </td>
-              <td class="text-end small">
-                ${{ "{:,.0f}".format(p.precio_ml_sin_cuotas).replace(",",".") }}
-              </td>
+              <td class="text-end small">${{ "{:,.0f}".format(p.precio_ml_sin_cuotas).replace(",",".") }}</td>
+              <td class="text-end small">${{ "{:,.0f}".format(p.precio_ml_1c).replace(",",".") }}</td>
               <td class="text-end small">${{ "{:,.0f}".format(p.precio_ml_3c).replace(",",".") }}</td>
               <td class="text-end small">${{ "{:,.0f}".format(p.precio_ml_6c).replace(",",".") }}</td>
+              <td class="text-end small">${{ "{:,.0f}".format(p.precio_ml_9c).replace(",",".") }}</td>
               <td class="text-end small">${{ "{:,.0f}".format(p.precio_ml_12c).replace(",",".") }}</td>
               <td class="text-center">
                 {% if p.es_z and p.tipo_pub == 'me1' %}
