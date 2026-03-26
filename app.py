@@ -9956,14 +9956,15 @@ def papel_azul_pdf(venta_id):
             c.drawString(x, y, text)
         return y - size * 1.3
 
-    # ── Fecha (izq) y Nombre (der) en la misma línea ──
+    # ── Fecha (línea 1) y Nombre (línea 2), ambos izquierda ──
     fecha_hoy = datetime.now().strftime('%d-%m-%Y')
     nombre_cliente = venta.get('nombre_cliente') or '-'
     c.setFont('Helvetica', 10)
     c.drawString(MARGIN_L, y, fecha_hoy)
+    y -= 6 * mm
     c.setFont('Helvetica-Bold', 12)
-    c.drawRightString(PAGE_W - MARGIN_R, y, nombre_cliente)
-    y -= 14 * mm
+    c.drawString(MARGIN_L, y, nombre_cliente)
+    y -= 10 * mm
 
     # ── Producto ── (bold, grande, centrado, 2 líneas)
     cx = PAGE_W / 2
@@ -9971,7 +9972,6 @@ def papel_azul_pdf(venta_id):
         font = 'Helvetica-Bold'
         size = 13 if i == 0 else 11
         c.setFont(font, size)
-        # wrap si es muy largo
         lines = simpleSplit(linea, font, size, TXT_W)
         for ln in lines:
             c.drawCentredString(cx, y, ln)
@@ -9984,19 +9984,19 @@ def papel_azul_pdf(venta_id):
     c.drawCentredString(cx, y, saldo_str)
     y -= 12 * mm
 
-    # ── Dirección ──
+    # ── Dirección ── (+30% = 17pt)
     direccion = venta.get('direccion_entrega') or ''
     if direccion:
-        c.setFont('Helvetica-Bold', 13)
-        lines = simpleSplit(direccion, 'Helvetica-Bold', 13, TXT_W)
+        c.setFont('Helvetica-Bold', 17)
+        lines = simpleSplit(direccion, 'Helvetica-Bold', 17, TXT_W)
         for ln in lines:
             c.drawCentredString(cx, y, ln)
-            y -= 13 * 1.4
-    y -= 6 * mm
+            y -= 17 * 1.4
+    y -= 12 * mm
 
-    # ── FLEX ── grande centrado
+    # ── FLEX ── (~10% menor = 38pt)
     if es_flex:
-        c.setFont('Helvetica-Bold', 42)
+        c.setFont('Helvetica-Bold', 38)
         c.drawCentredString(cx, y, 'FLEX')
 
     c.save()
