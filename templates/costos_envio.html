@@ -1,0 +1,100 @@
+{% extends 'base.html' %}
+{% block title %}Costos de Envío{% endblock %}
+{% block content %}
+<div class="container-fluid px-4 py-3">
+  <div class="d-flex align-items-center gap-2 mb-3">
+    <a href="{{ url_for('costos_index') }}" class="btn btn-sm btn-outline-secondary">← Costos</a>
+    <h5 class="mb-0 fw-bold">🚚 Costos de envío por SKU</h5>
+  </div>
+
+  <div class="alert alert-info small mb-3">
+    <strong>Colecta:</strong> colchones ≤100cm, ML lo cobra al vendedor.<br>
+    <strong>Flex:</strong> colchones >100cm y sommiers, costo propio por producto (SKU sin Z).<br>
+    <strong>SKU con Z:</strong> mismo precio que web, sin costo de envío adicional.
+  </div>
+
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0 align-middle" id="tabla-envio">
+          <thead class="table-dark">
+            <tr>
+              <th>SKU</th>
+              <th>Nombre</th>
+              <th>Tipo pub.</th>
+              <th style="width:120px">Tipo envío</th>
+              <th style="width:150px">Costo ($)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in skus %}
+            {% set es_z = s.sku.endswith('Z') %}
+            {% if not es_z %}
+            <tr data-sku="{{ s.sku }}">
+              <td><code>{{ s.sku }}</code></td>
+              <td>{{ s.nombre }}</td>
+              <td>
+                {% set ancho = s.medida.split('x')[0] | int if s.medida and 'x' in s.medida else 0 %}
+                {% if ancho <= 100 and s.tipo == 'colchon' %}
+                  <span class="badge bg-info text-dark">Colecta</span>
+                {% else %}
+                  <span class="badge bg-warning text-dark">Flex</span>
+                {% endif %}
+              </td>
+              <td>
+                <select class="form-select form-select-sm tipo-select" style="max-width:100px">
+                  <option value="colecta" {{ 'selected' if s.envio_tipo == 'colecta' else '' }}>Colecta</option>
+                  <option value="flex" {{ 'selected' if s.envio_tipo == 'flex' else '' }}>Flex</option>
+                </select>
+              </td>
+              <td>
+                <input type="number" class="form-control form-control-sm costo-input"
+                       value="{{ s.envio_costo | int if s.envio_costo else '' }}"
+                       placeholder="0" min="0" step="100">
+              </td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-3">
+    <button class="btn btn-success" onclick="guardarTodos()">💾 Guardar todos</button>
+  </div>
+</div>
+
+<div id="toast-container" style="position:fixed;bottom:20px;right:20px;z-index:9999"></div>
+
+<script>
+async function guardarTodos() {
+  const cambios = [];
+  document.querySelectorAll('#tabla-envio tbody tr').forEach(row => {
+    const sku   = row.dataset.sku;
+    const tipo  = row.querySelector('.tipo-select').value;
+    const costo = row.querySelector('.costo-input').value;
+    if (sku && costo) cambios.push({sku, tipo, costo: parseFloat(costo)});
+  });
+  if (!cambios.length) { toast('Sin datos para guardar', 'warning'); return; }
+  const res = await fetch('/costos/envio', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({cambios})
+  });
+  const data = await res.json();
+  toast(data.ok ? `✅ ${data.actualizados} registros guardados` : '❌ ' + data.error,
+        data.ok ? 'success' : 'danger');
+}
+
+function toast(msg, tipo) {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = `alert alert-${tipo} shadow mb-2`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+</script>
+{% endblock %}

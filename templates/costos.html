@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+{% block title %}Costos Cannon{% endblock %}
+{% block content %}
+<div class="container-fluid px-4 py-3">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h4 class="mb-0 fw-bold">💰 Módulo de Costos</h4>
+      <small class="text-muted">Calculadora de precios basada en lista Cannon</small>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-md-3">
+      <a href="{{ url_for('costos_calcular') }}" class="card border-0 shadow-sm text-decoration-none h-100">
+        <div class="card-body text-center py-4">
+          <div style="font-size:2.5rem">🧮</div>
+          <h5 class="mt-2 fw-bold text-dark">Calcular precios</h5>
+          <p class="text-muted small mb-0">Ver precios sugeridos y aplicar a la tienda</p>
+        </div>
+      </a>
+    </div>
+    <div class="col-md-3">
+      <a href="{{ url_for('costos_importar') }}" class="card border-0 shadow-sm text-decoration-none h-100">
+        <div class="card-body text-center py-4">
+          <div style="font-size:2.5rem">📤</div>
+          <h5 class="mt-2 fw-bold text-dark">Importar lista</h5>
+          <p class="text-muted small mb-0">Subir Excel de precios Cannon</p>
+        </div>
+      </a>
+    </div>
+    <div class="col-md-3">
+      <a href="{{ url_for('costos_descuentos') }}" class="card border-0 shadow-sm text-decoration-none h-100">
+        <div class="card-body text-center py-4">
+          <div style="font-size:2.5rem">🏷️</div>
+          <h5 class="mt-2 fw-bold text-dark">Descuentos</h5>
+          <p class="text-muted small mb-0">Configurar % por modelo y prontopago</p>
+        </div>
+      </a>
+    </div>
+    <div class="col-md-3">
+      <a href="{{ url_for('costos_envio') }}" class="card border-0 shadow-sm text-decoration-none h-100">
+        <div class="card-body text-center py-4">
+          <div style="font-size:2.5rem">🚚</div>
+          <h5 class="mt-2 fw-bold text-dark">Costos de envío</h5>
+          <p class="text-muted small mb-0">Colecta y flex por SKU</p>
+        </div>
+      </a>
+    </div>
+    <div class="col-md-3">
+      <a href="{{ url_for('costos_productos') }}" class="card border-0 shadow-sm text-decoration-none h-100">
+        <div class="card-body text-center py-4">
+          <div style="font-size:2.5rem">📦</div>
+          <h5 class="mt-2 fw-bold text-dark">Productos Cannon</h5>
+          <p class="text-muted small mb-0">Asignar SKU y descuentos adicionales</p>
+        </div>
+      </a>
+    </div>
+  </div>
+
+  <!-- Resumen config actual -->
+  <div class="card border-0 shadow-sm mt-4">
+    <div class="card-header fw-semibold bg-light">Configuración actual</div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-auto">
+          <small class="text-muted d-block">Multiplicador</small>
+          <span class="fw-bold fs-5">× {{ cfg.multiplicador }}</span>
+        </div>
+        <div class="col-auto">
+          <small class="text-muted d-block">Prontopago</small>
+          <span class="fw-bold fs-5">{{ cfg.prontopago }}%</span>
+        </div>
+        {% for clave in COSTOS_MODELOS_CLAVES %}
+        <div class="col-auto">
+          <small class="text-muted d-block">{{ clave | replace('_',' ') | title }}</small>
+          <span class="fw-bold">{{ descuentos.get(clave, 0) | int }}%</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

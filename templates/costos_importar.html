@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block title %}Importar Lista Cannon{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width:600px">
+  <div class="d-flex align-items-center gap-2 mb-4">
+    <a href="{{ url_for('costos_index') }}" class="btn btn-sm btn-outline-secondary">← Costos</a>
+    <h5 class="mb-0 fw-bold">📤 Importar lista de precios Cannon</h5>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+    <div class="alert alert-{{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  {% if ultima_vigencia %}
+  <div class="alert alert-info">
+    Última lista cargada con vigencia: <strong>{{ ultima_vigencia }}</strong>
+  </div>
+  {% endif %}
+
+  <!-- Lista general -->
+  <div class="card border-0 shadow-sm mb-3">
+    <div class="card-header fw-semibold bg-light">Lista de precios general (colchones, bases)</div>
+    <div class="card-body">
+      <form method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="tipo" value="lista">
+        <div class="mb-3">
+          <label class="form-label">Archivo Excel (.xlsx)</label>
+          <input type="file" name="archivo" class="form-control" accept=".xlsx" required>
+          <small class="text-muted">Columnas: Material | Descripción | Importe</small>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Fecha de vigencia</label>
+          <input type="date" name="vigencia" class="form-control" value="{{ now.date().isoformat() }}">
+        </div>
+        <button class="btn btn-primary">📤 Importar lista general</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Almohadas -->
+  <div class="card border-0 shadow-sm">
+    <div class="card-header fw-semibold bg-light">Lista de precios almohadas (precio neto mayorista)</div>
+    <div class="card-body">
+      <form method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="tipo" value="almohadas">
+        <div class="mb-3">
+          <label class="form-label">Archivo Excel (.xlsx)</label>
+          <input type="file" name="archivo" class="form-control" accept=".xlsx" required>
+          <small class="text-muted">Columnas: Material | Descripción | Precio Lista | Precio Neto | Con PP</small>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Fecha de vigencia</label>
+          <input type="date" name="vigencia" class="form-control" value="{{ now.date().isoformat() }}">
+        </div>
+        <button class="btn btn-primary">📤 Importar almohadas</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

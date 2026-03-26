@@ -1,0 +1,179 @@
+{% extends 'base.html' %}
+{% block title %}Calcular Precios{% endblock %}
+{% block content %}
+<div class="container-fluid px-4 py-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex align-items-center gap-2">
+      <a href="{{ url_for('costos_index') }}" class="btn btn-sm btn-outline-secondary">← Costos</a>
+      <h5 class="mb-0 fw-bold">🧮 Precios calculados</h5>
+    </div>
+    <div class="d-flex gap-2">
+      <select class="form-select form-select-sm" id="filtro-tipo" onchange="filtrar()" style="width:160px">
+        <option value="">Todos</option>
+        <option value="colchon">Colchón ≤100cm</option>
+        <option value="flex">Flex / Z</option>
+        <option value="almohada">Almohadas</option>
+      </select>
+      <button class="btn btn-success btn-sm" id="btn-aplicar" onclick="aplicarSeleccionados()" disabled>
+        ✅ Aplicar seleccionados (<span id="sel-count">0</span>)
+      </button>
+    </div>
+  </div>
+
+  <!-- Config resumen -->
+  <div class="alert alert-light border small mb-3">
+    Multiplicador: <strong>{{ multiplicador }}</strong> ·
+    Prontopago: <strong>{{ prontopago_pct }}%</strong> ·
+    Cuotas ML: 3c={{ porcentajes_ml.cuotas_3 }}% · 6c={{ porcentajes_ml.cuotas_6 }}% · 12c={{ porcentajes_ml.cuotas_12 }}%
+  </div>
+
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0 align-middle" id="tabla-calc">
+          <thead class="table-dark" style="font-size:0.78rem">
+            <tr>
+              <th><input type="checkbox" id="check-all" onclick="toggleAll(this)"></th>
+              <th>SKU</th>
+              <th>Descripción</th>
+              <th>Modelo</th>
+              <th class="text-end">P. Cannon</th>
+              <th class="text-end">Desc. línea</th>
+              <th class="text-end">Costo envío</th>
+              <th class="text-end text-success">P. Lista / Web</th>
+              <th class="text-end">Actual</th>
+              <th class="text-end">ML s/cuotas</th>
+              <th class="text-end">ML 3c</th>
+              <th class="text-end">ML 6c</th>
+              <th class="text-end">ML 12c</th>
+              <th class="text-center">Publicación</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in productos %}
+            {% set diff = ((p.precio_lista - p.precio_actual) / p.precio_actual * 100) if p.precio_actual else 0 %}
+            <tr data-tipo="{{ 'almohada' if 'ALM' in p.descripcion.upper() else ('colchon' if p.tipo_pub == 'colecta' else 'flex') }}"
+                class="{{ 'table-warning' if diff | abs > 5 else '' }}">
+              <td>
+                <input type="checkbox" class="row-check"
+                       data-sku="{{ p.sku }}" data-precio="{{ p.precio_lista }}"
+                       onchange="actualizarContador()">
+              </td>
+              <td><code class="small">{{ p.sku }}</code></td>
+              <td style="max-width:200px; font-size:0.78rem">{{ p.descripcion }}</td>
+              <td><small class="badge bg-secondary">{{ p.clave_descuento or '—' }}</small></td>
+              <td class="text-end small">${{ "{:,.0f}".format(p.precio_cannon).replace(",",".") }}</td>
+              <td class="text-end small text-danger">
+                -{{ p.desc_linea | int }}%
+                {% if p.desc_adi %}<br><small>-{{ p.desc_adi | int }}% adi</small>{% endif %}
+              </td>
+              <td class="text-end small">
+                {% if p.costo_envio_ml %}
+                  ${{ "{:,.0f}".format(p.costo_envio_ml).replace(",",".") }}
+                  <small class="text-muted">({{ p.tipo_pub }})</small>
+                {% else %}—{% endif %}
+              </td>
+              <td class="text-end fw-bold text-success">
+                ${{ "{:,.0f}".format(p.precio_lista).replace(",",".") }}
+                {% if p.precio_actual and diff | abs > 0.5 %}
+                <br><small class="{{ 'text-danger' if diff > 0 else 'text-success' }}">
+                  {{ '+' if diff > 0 else '' }}{{ diff | round(1) }}%
+                </small>
+                {% endif %}
+              </td>
+              <td class="text-end small text-muted">
+                {% if p.precio_actual %}${{ "{:,.0f}".format(p.precio_actual).replace(",",".") }}{% else %}—{% endif %}
+              </td>
+              <td class="text-end small">
+                {% if not p.es_z %}${{ "{:,.0f}".format(p.precio_ml_sin_cuotas).replace(",",".") }}{% else %}=web{% endif %}
+              </td>
+              <td class="text-end small">${{ "{:,.0f}".format(p.precio_ml_3c).replace(",",".") }}</td>
+              <td class="text-end small">${{ "{:,.0f}".format(p.precio_ml_6c).replace(",",".") }}</td>
+              <td class="text-end small">${{ "{:,.0f}".format(p.precio_ml_12c).replace(",",".") }}</td>
+              <td class="text-center">
+                {% if p.es_z %}
+                  <span class="badge bg-primary">Z — mismo web</span>
+                {% elif p.tipo_pub == 'colecta' %}
+                  <span class="badge bg-info text-dark">Colecta</span>
+                {% elif p.tipo_pub == 'flex' %}
+                  <span class="badge bg-warning text-dark">Flex</span>
+                {% else %}
+                  <span class="badge bg-secondary">—</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card-footer text-muted small">
+      {{ productos | length }} productos calculados ·
+      <span class="text-warning">Fila amarilla = variación >5% respecto al precio actual</span>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container" style="position:fixed;bottom:20px;right:20px;z-index:9999"></div>
+
+<script>
+function filtrar() {
+  const tipo = document.getElementById('filtro-tipo').value;
+  document.querySelectorAll('#tabla-calc tbody tr').forEach(row => {
+    row.style.display = (!tipo || row.dataset.tipo === tipo) ? '' : 'none';
+  });
+}
+
+function toggleAll(cb) {
+  document.querySelectorAll('.row-check').forEach(c => {
+    const row = c.closest('tr');
+    if (row.style.display !== 'none') c.checked = cb.checked;
+  });
+  actualizarContador();
+}
+
+function actualizarContador() {
+  const n = document.querySelectorAll('.row-check:checked').length;
+  document.getElementById('sel-count').textContent = n;
+  document.getElementById('btn-aplicar').disabled = n === 0;
+}
+
+async function aplicarSeleccionados() {
+  const cambios = [];
+  document.querySelectorAll('.row-check:checked').forEach(c => {
+    cambios.push({sku: c.dataset.sku, precio: parseFloat(c.dataset.precio)});
+  });
+  if (!cambios.length) return;
+  if (!confirm(`¿Aplicar ${cambios.length} precios a productos_base?`)) return;
+
+  const btn = document.getElementById('btn-aplicar');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Aplicando...';
+
+  const res = await fetch('/costos/aplicar', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({cambios})
+  });
+  const data = await res.json();
+  if (data.ok) {
+    toast(`✅ ${data.aplicados} precios actualizados en productos_base`, 'success');
+    document.querySelectorAll('.row-check:checked').forEach(c => c.checked = false);
+    actualizarContador();
+  } else {
+    toast('❌ ' + data.error, 'danger');
+  }
+  btn.disabled = false;
+  btn.innerHTML = '✅ Aplicar seleccionados (<span id="sel-count">0</span>)';
+}
+
+function toast(msg, tipo) {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = `alert alert-${tipo} shadow mb-2`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+</script>
+{% endblock %}
