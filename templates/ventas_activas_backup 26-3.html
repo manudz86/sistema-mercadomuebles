@@ -396,17 +396,6 @@
                                        title="Abrir en Google Maps">
                                         <i class="bi bi-geo-alt-fill"></i>
                                     </a>
-
-                                    <!-- Botón Papel Azul -->
-                                    {% if venta.metodo_envio in ['Flete Propio', 'Flex'] %}
-                                    <a href="{{ url_for('papel_azul_pdf', venta_id=venta.id) }}"
-                                       target="_blank"
-                                       class="btn btn-sm btn-outline-dark p-0"
-                                       style="width: 24px; height: 24px; font-size: 0.7em;"
-                                       title="Imprimir papel azul">
-                                        🖨️
-                                    </a>
-                                    {% endif %}
                                 </div>
                             </div>
                         {% endif %}
