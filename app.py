@@ -11093,8 +11093,8 @@ def costos_calcular():
         SELECT cp.sku, clp.precio_lista
         FROM cannon_productos cp
         JOIN cannon_lista_precios clp ON clp.codigo_material = cp.codigo_material
-        WHERE cp.sku IS NOT NULL AND cp.sku LIKE 'BASE%'
-    """)}
+        WHERE cp.sku IS NOT NULL AND cp.sku LIKE %s
+    """, ('BASE%',))}
 
     def _detectar_clave(descripcion, sku=''):
         desc = (descripcion or '').upper()
