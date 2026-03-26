@@ -9860,12 +9860,10 @@ def papel_azul_pdf(venta_id):
     from flask import make_response
     import io
     from datetime import datetime
-    from reportlab.lib.pagesizes import landscape
-    from reportlab.lib import colors
     from reportlab.lib.units import mm
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-    from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from reportlab.lib import colors
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.utils import simpleSplit
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -9890,110 +9888,118 @@ def papel_azul_pdf(venta_id):
     es_flex = (venta.get('metodo_envio') or '').lower() == 'flex'
 
     # Calcular saldo
-    importe_total  = float(venta.get('importe_total') or 0)
+    importe_total   = float(venta.get('importe_total') or 0)
     importe_abonado = float(venta.get('importe_abonado') or 0)
-    costo_flete    = float(venta.get('costo_flete') or 0)
-    if es_flex:
-        saldo = 0
-    else:
-        saldo = max(0, importe_total + costo_flete - importe_abonado)
+    costo_flete     = float(venta.get('costo_flete') or 0)
+    saldo = 0 if es_flex else max(0, importe_total + costo_flete - importe_abonado)
 
-    # Desglosar items en componentes
+    # Desglosar items
     def desglosar_item(sku, nombre, cantidad):
-        """Retorna lista de líneas descriptivas para el papel."""
         sku_up = sku.upper()
-        lineas = []
-        # Es sommier/conjunto (SKU empieza con S + letras)
         if sku_up.startswith('S') and len(sku_up) > 1 and sku_up[1].isalpha() and not sku_up.startswith('SU'):
             sku_col = 'C' + sku_up[1:]
-            # Buscar config conjunto
             conn2 = get_db_connection()
             cur2 = conn2.cursor()
             cur2.execute("""
-                SELECT cc.base_sku_default, cc.cantidad_bases,
-                       pb_col.nombre as nombre_col,
-                       pb_base.nombre as nombre_base
+                SELECT cc.cantidad_bases, pb_col.nombre as nombre_col
                 FROM conjunto_configuracion cc
                 JOIN productos_base pb_col ON pb_col.sku = cc.colchon_sku
-                JOIN productos_base pb_base ON pb_base.sku = cc.base_sku_default
                 WHERE cc.colchon_sku = %s AND cc.activo = 1
             """, (sku_col,))
             cfg = cur2.fetchone()
-            # Patas
-            cur2.execute("SELECT nombre FROM productos_base WHERE sku = %s", (sku_col,))
-            col_row = cur2.fetchone()
             cur2.close(); conn2.close()
             if cfg:
                 cant_bases = int(cfg['cantidad_bases'] or 1)
-                nombre_col  = cfg['nombre_col'] or nombre
-                nombre_base = cfg['nombre_base'] or cfg['base_sku_default']
-                for _ in range(cantidad):
-                    lineas.append(f"{cantidad} Sommier {nombre} ({cantidad} colchón + {cant_bases} base{'s' if cant_bases > 1 else ''} + 1 pata x6)")
-                return lineas
-        # Producto simple
-        lineas.append(f"{cantidad} {nombre}")
-        return lineas
+                # patas = cant_bases (1 pata x6 por base ≤100cm)
+                patas = cant_bases
+                nombre_col = cfg['nombre_col'] or nombre
+                bases_str = f"{cant_bases} base{'s' if cant_bases > 1 else ''}"
+                patas_str = f"{patas} pata x6" if patas == 1 else f"{patas} patas x6"
+                linea1 = f"{cantidad} Sommier {nombre_col}"
+                linea2 = f"({cantidad} colchón + {bases_str} + {patas_str})"
+                return [linea1, linea2]
+        return [f"{cantidad} {nombre}"]
 
-    # Armar descripción del pedido
     descripcion_items = []
     for item in items:
-        lineas = desglosar_item(item['sku'], item['nombre'], item['cantidad'])
-        descripcion_items.extend(lineas)
+        descripcion_items.extend(desglosar_item(item['sku'], item['nombre'], item['cantidad']))
 
-    # ── Generar PDF ───────────────────────────────────────────────────────────
-    # Medidas: 165mm ancho x 215mm alto
-    # Márgenes: top 70mm, bottom 27mm, left/right 7mm
+    # ── Canvas PDF ───────────────────────────────────────────────────────────
     PAGE_W = 165 * mm
     PAGE_H = 215 * mm
+    MARGIN_L = 7 * mm
+    MARGIN_R = 7 * mm
+    MARGIN_TOP = 70 * mm     # área imprimible empieza en y = PAGE_H - 70mm
+    MARGIN_BOT = 27 * mm
+    TXT_W = PAGE_W - MARGIN_L - MARGIN_R  # ancho útil
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf,
-        pagesize=(PAGE_W, PAGE_H),
-        leftMargin=7*mm, rightMargin=7*mm,
-        topMargin=70*mm, bottomMargin=27*mm)
+    c = canvas.Canvas(buf, pagesize=(PAGE_W, PAGE_H))
 
-    st_fecha   = ParagraphStyle('fecha',   fontSize=9,  fontName='Helvetica',      spaceAfter=2)
-    st_nombre  = ParagraphStyle('nombre',  fontSize=11, fontName='Helvetica-Bold', spaceAfter=6)
-    st_item    = ParagraphStyle('item',    fontSize=10, fontName='Helvetica',      spaceAfter=4, leading=14)
-    st_saldo   = ParagraphStyle('saldo',   fontSize=12, fontName='Helvetica-Bold', spaceAfter=8)
-    st_dir     = ParagraphStyle('dir',     fontSize=11, fontName='Helvetica',      spaceAfter=4)
-    st_flex    = ParagraphStyle('flex',    fontSize=36, fontName='Helvetica-Bold', alignment=TA_CENTER, spaceAfter=0, textColor=colors.black)
+    # Posición Y inicial (desde arriba del área imprimible)
+    y = PAGE_H - MARGIN_TOP
 
-    story = []
+    def draw_text(text, x, y, font, size, align='left', max_width=None):
+        """Dibuja texto y retorna nueva y."""
+        c.setFont(font, size)
+        if align == 'right':
+            c.drawRightString(x, y, text)
+        elif align == 'center':
+            c.drawCentredString(x, y, text)
+        else:
+            if max_width:
+                lines = simpleSplit(text, font, size, max_width)
+                for line in lines:
+                    c.drawString(x, y, line)
+                    y -= size * 1.3
+                return y
+            c.drawString(x, y, text)
+        return y - size * 1.3
 
-    # Fecha
+    # ── Fecha (izq) y Nombre (der) en la misma línea ──
     fecha_hoy = datetime.now().strftime('%d-%m-%Y')
-    story.append(Paragraph(fecha_hoy, st_fecha))
-    story.append(Spacer(1, 2*mm))
-
-    # Nombre cliente
     nombre_cliente = venta.get('nombre_cliente') or '-'
-    story.append(Paragraph(nombre_cliente, st_nombre))
-    story.append(Spacer(1, 3*mm))
+    c.setFont('Helvetica', 10)
+    c.drawString(MARGIN_L, y, fecha_hoy)
+    c.setFont('Helvetica-Bold', 12)
+    c.drawRightString(PAGE_W - MARGIN_R, y, nombre_cliente)
+    y -= 14 * mm
 
-    # Items desglosados
-    for linea in descripcion_items:
-        story.append(Paragraph(linea, st_item))
-    story.append(Spacer(1, 4*mm))
+    # ── Producto ── (bold, grande, centrado, 2 líneas)
+    cx = PAGE_W / 2
+    for i, linea in enumerate(descripcion_items):
+        font = 'Helvetica-Bold'
+        size = 13 if i == 0 else 11
+        c.setFont(font, size)
+        # wrap si es muy largo
+        lines = simpleSplit(linea, font, size, TXT_W)
+        for ln in lines:
+            c.drawCentredString(cx, y, ln)
+            y -= size * 1.4
+    y -= 6 * mm
 
-    # Saldo
-    if saldo > 0:
-        story.append(Paragraph(f'Total: ${"{:,.0f}".format(saldo).replace(",",".")}.-', st_saldo))
-    else:
-        story.append(Paragraph('Total: $0.-', st_saldo))
-    story.append(Spacer(1, 3*mm))
+    # ── Total ──
+    saldo_str = f'Total: ${"{:,.0f}".format(saldo).replace(",",".")}.-'
+    c.setFont('Helvetica-Bold', 13)
+    c.drawCentredString(cx, y, saldo_str)
+    y -= 12 * mm
 
-    # Dirección
+    # ── Dirección ──
     direccion = venta.get('direccion_entrega') or ''
     if direccion:
-        story.append(Paragraph(direccion, st_dir))
-    story.append(Spacer(1, 4*mm))
+        c.setFont('Helvetica-Bold', 13)
+        lines = simpleSplit(direccion, 'Helvetica-Bold', 13, TXT_W)
+        for ln in lines:
+            c.drawCentredString(cx, y, ln)
+            y -= 13 * 1.4
+    y -= 6 * mm
 
-    # FLEX grande
+    # ── FLEX ── grande centrado
     if es_flex:
-        story.append(Paragraph('FLEX', st_flex))
+        c.setFont('Helvetica-Bold', 42)
+        c.drawCentredString(cx, y, 'FLEX')
 
-    doc.build(story)
+    c.save()
     buf.seek(0)
     response = make_response(buf.read())
     response.headers['Content-Type'] = 'application/pdf'
