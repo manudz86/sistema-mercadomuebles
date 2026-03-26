@@ -11126,7 +11126,11 @@ def costos_calcular():
 
     def _precio_cuotas(base, pct):
         factor = 0.76 - (0.76 - pct / 100)
-        return round(base * (1 + factor))
+        return round(base * (1 + factor) / 1000) * 1000
+
+    def _mil(n):
+        """Redondea al millar más cercano."""
+        return round(n / 1000) * 1000
 
     # Mapa colchon_sku → precio_lista calculado (para sommiers)
     colchones_precio_lista = {}
@@ -11142,17 +11146,16 @@ def costos_calcular():
         desc_linea = desc_entry['valor']
         desc_adi_linea = desc_entry['desc_adicional']
         desc_adi_sku = float(p['desc_adicional'] or 0)
-        desc_adi   = desc_adi_linea + desc_adi_sku  # acumulativo
-        precio_lista = _calcular_precio_lista(
+        desc_adi   = desc_adi_linea + desc_adi_sku
+        precio_lista = _mil(_calcular_precio_lista(
             precio_cannon, desc_linea, desc_cliente_pct, desc_adi, prontopago_pct, multiplicador
-        )
+        ))
 
         # Guardar precio colchon para calcular sommiers después
         if clave != 'bases' and clave != 'almohadas':
             colchones_precio_lista[sku] = precio_lista
 
         es_z = sku.endswith('Z')
-        # Detectar ancho desde SKU (últimos 3 dígitos antes de Z si aplica)
         sku_base = sku[:-1] if es_z else sku
         ancho = int(sku_base[-3:]) if sku_base[-3:].isdigit() else 0
         es_colecta = (not es_z) and (ancho <= 100) and (clave not in ('bases','almohadas'))
@@ -11168,7 +11171,7 @@ def costos_calcular():
                 costo_envio_ml = float(p['costo_flex'] or 0)
                 tipo_pub = 'flex'
 
-        precio_ml_sin_cuotas = precio_lista + costo_envio_ml if not es_z else precio_lista
+        precio_ml_sin_cuotas = _mil(precio_lista + costo_envio_ml) if not es_z else precio_lista
 
         productos.append({
             'id':              p['id'],
@@ -11191,6 +11194,32 @@ def costos_calcular():
             'precio_ml_12c':   _precio_cuotas(precio_ml_sin_cuotas, porcentajes_ml.get('cuotas_12', 25.9)),
         })
 
+        # Colchones >100cm sin Z: agregar entrada Z (ME1/Flex Propio = mismo precio web)
+        if not es_z and ancho > 100 and clave not in ('bases', 'almohadas'):
+            sku_z = sku + 'Z'
+            pb_z = query_one("SELECT precio_base FROM productos_base WHERE sku = %s", (sku_z,))
+            precio_actual_z = float(pb_z['precio_base'] or 0) if pb_z else 0
+            productos.append({
+                'id':              None,
+                'sku':             sku_z,
+                'descripcion':     p['descripcion'] + ' (ME1/Flex propio)',
+                'precio_cannon':   precio_cannon,
+                'clave_descuento': clave,
+                'desc_linea':      desc_linea,
+                'desc_cliente':    desc_cliente_pct,
+                'desc_adi':        desc_adi,
+                'precio_lista':    precio_lista,
+                'precio_actual':   precio_actual_z,
+                'costo_envio_ml':  0,
+                'tipo_pub':        'me1',
+                'es_z':            True,
+                'es_conjunto':     False,
+                'precio_ml_sin_cuotas': precio_lista,
+                'precio_ml_3c':    _precio_cuotas(precio_lista, porcentajes_ml.get('cuotas_3', 9.4)),
+                'precio_ml_6c':    _precio_cuotas(precio_lista, porcentajes_ml.get('cuotas_6', 15.1)),
+                'precio_ml_12c':   _precio_cuotas(precio_lista, porcentajes_ml.get('cuotas_12', 25.9)),
+            })
+
     # ── Agregar sommiers ──────────────────────────────────────────────────────
     for sku_col, cfg_conj in conjuntos_cfg.items():
         precio_col = colchones_precio_lista.get(sku_col)
@@ -11199,36 +11228,35 @@ def costos_calcular():
         base_sku  = cfg_conj['base_sku_default']
         cant      = int(cfg_conj['cantidad_bases'] or 1)
 
-        # Precio base calculado (costo_base * (1-desc_bases) * (1-cliente) * (1/1+pp) * mult)
         precio_cannon_base = bases_precio.get(base_sku, 0)
         if precio_cannon_base:
-            precio_base_calc = _calcular_precio_lista(
+            precio_base_calc = _mil(_calcular_precio_lista(
                 precio_cannon_base,
                 descuentos.get('bases', {'valor': 40})['valor'],
                 desc_cliente_pct, 0, prontopago_pct, multiplicador
-            )
+            ))
         else:
             precio_base_calc = 0
 
-        precio_conjunto = precio_col + precio_base_calc * cant
+        precio_conjunto = _mil(precio_col + precio_base_calc * cant)
 
-        # SKU conjunto
-        sku_conj = 'S' + sku_col[1:] if sku_col.startswith('C') else 'S' + sku_col
+        sku_conj   = 'S' + sku_col[1:] if sku_col.startswith('C') else 'S' + sku_col
         sku_conj_z = sku_conj + 'Z'
 
-        # Precio actual del conjunto en productos_base
-        pb_conj = query_one("SELECT precio_base FROM productos_base WHERE sku = %s", (sku_conj,))
-        precio_actual_conj = float(pb_conj['precio_base'] or 0) if pb_conj else 0
+        # Precio actual del conjunto = colchon + base en productos_base
+        pb_col  = query_one("SELECT precio_base FROM productos_base WHERE sku = %s", (sku_col,))
+        pb_base = query_one("SELECT precio_base FROM productos_base WHERE sku = %s", (base_sku,))
+        precio_col_actual  = float(pb_col['precio_base'] or 0) if pb_col else 0
+        precio_base_actual = float(pb_base['precio_base'] or 0) if pb_base else 0
+        precio_actual_conj = precio_col_actual + precio_base_actual * cant
 
-        # Obtener ancho del SKU colchon
         sku_base_col = sku_col
         ancho = int(sku_base_col[-3:]) if sku_base_col[-3:].isdigit() else 999
 
-        # Flex para sin Z
         ce_flex = query_one("SELECT costo FROM cannon_costos_envio WHERE sku = %s AND tipo = 'flex'", (sku_conj,))
         costo_flex = float(ce_flex['costo'] or 0) if ce_flex else 0
 
-        precio_ml_flex = precio_conjunto + costo_flex
+        precio_ml_flex = _mil(precio_conjunto + costo_flex)
 
         productos.append({
             'id':              None,
@@ -11252,7 +11280,7 @@ def costos_calcular():
         })
         # SKU con Z — mismo precio web
         pb_conj_z = query_one("SELECT precio_base FROM productos_base WHERE sku = %s", (sku_conj_z,))
-        precio_actual_z = float(pb_conj_z['precio_base'] or 0) if pb_conj_z else 0
+        precio_actual_z = float(pb_conj_z['precio_base'] or 0) if pb_conj_z else precio_actual_conj
         productos.append({
             'id':              None,
             'sku':             sku_conj_z,
@@ -11265,7 +11293,7 @@ def costos_calcular():
             'precio_lista':    precio_conjunto,
             'precio_actual':   precio_actual_z,
             'costo_envio_ml':  0,
-            'tipo_pub':        None,
+            'tipo_pub':        'me1',
             'es_z':            True,
             'es_conjunto':     True,
             'precio_ml_sin_cuotas': precio_conjunto,

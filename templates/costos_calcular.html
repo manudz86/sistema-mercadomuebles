@@ -14,6 +14,7 @@
         <option value="">Todos</option>
         <option value="colchon">Colchón ≤100cm</option>
         <option value="flex">Flex</option>
+        <option value="me1">ME1 / Flex propio</option>
         <option value="conjunto">Sommiers</option>
         <option value="almohada">Almohadas</option>
         <option value="z">SKU con Z</option>
@@ -61,6 +62,8 @@
               {% set tipo_row = 'conjunto' %}
             {% elif 'ALM' in p.descripcion.upper() or p.clave_descuento == 'almohadas' %}
               {% set tipo_row = 'almohada' %}
+            {% elif p.tipo_pub == 'me1' %}
+              {% set tipo_row = 'me1' %}
             {% elif p.es_z %}
               {% set tipo_row = 'z' %}
             {% elif p.tipo_pub == 'colecta' %}
@@ -126,7 +129,9 @@
               <td class="text-end small">${{ "{:,.0f}".format(p.precio_ml_6c).replace(",",".") }}</td>
               <td class="text-end small">${{ "{:,.0f}".format(p.precio_ml_12c).replace(",",".") }}</td>
               <td class="text-center">
-                {% if p.es_z %}
+                {% if p.es_z and p.tipo_pub == 'me1' %}
+                  <span class="badge bg-dark">ME1/Flex propio</span>
+                {% elif p.es_z %}
                   <span class="badge bg-primary">Z — web</span>
                 {% elif p.tipo_pub == 'colecta' %}
                   <span class="badge bg-info text-dark">Colecta</span>
