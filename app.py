@@ -9513,68 +9513,6 @@ def fletes_guardar():
 # PANEL TIENDA WEB — Precios y Ofertas
 # ============================================================================
 
-def _build_precio_costos_map():
-    """Construye un mapa sku → precio_lista_costos para mostrar en tienda_precios."""
-    try:
-        cfg = _get_config_costos()
-        multiplicador    = cfg.get('multiplicador', 1.85)
-        prontopago_pct   = cfg.get('prontopago', 5.0)
-        desc_cliente_pct = cfg.get('cliente', 0.0)
-        descuentos = {r['clave']: {'valor': float(r['valor']), 'desc_adicional': float(r['desc_adicional'] or 0)}
-                      for r in query_db("SELECT clave, valor, desc_adicional FROM cannon_descuentos WHERE tipo = 'descuento_linea'")}
-        rows = query_db("""
-            SELECT cp.sku, clp.precio_lista, cp.descripcion,
-                   cd_adi.valor as desc_adicional
-            FROM cannon_productos cp
-            JOIN cannon_lista_precios clp ON clp.codigo_material = cp.codigo_material
-            LEFT JOIN cannon_descuentos cd_adi ON cd_adi.clave = CONCAT('adicional_', cp.sku)
-            WHERE cp.sku IS NOT NULL
-        """)
-        mapa = {}
-        for r in rows:
-            sku = r['sku']
-            desc = (r['descripcion'] or '').upper()
-            # detectar clave simple
-            clave = None
-            if sku in ('CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE') or desc.startswith('ALM'):
-                clave = 'almohadas'
-            elif 'EUROPILLOW' in desc:
-                clave = 'sublime_europillow' if 'SUBLIME' in desc else 'renovation_europillow'
-            elif 'PILLOW' in desc or 'PIL' in desc:
-                clave = 'exclusive_pillow' if 'EXCLUSIVE' in desc else 'doral_pillow'
-            elif 'PRINCESS' in desc: clave = 'princess_23' if '23' in desc else 'princess_20'
-            elif 'ESPECIAL DE LUJO' in desc: clave = 'especial_de_lujo'
-            elif 'EXCLUSIVE' in desc: clave = 'exclusive'
-            elif 'RENOVATION' in desc: clave = 'renovation'
-            elif 'TROPICAL' in desc: clave = 'tropical'
-            elif 'SONAR' in desc or 'SOÑAR' in desc: clave = 'sonar'
-            elif 'PLATINO' in desc: clave = 'platino'
-            elif 'DORAL' in desc: clave = 'doral'
-            elif 'SUBLIME' in desc: clave = 'sublime'
-            elif 'BASE' in desc: clave = 'bases'
-            desc_entry = descuentos.get(clave, {'valor': 0, 'desc_adicional': 0}) if clave else {'valor': 0, 'desc_adicional': 0}
-            desc_adi = desc_entry['desc_adicional'] + float(r['desc_adicional'] or 0)
-            precio = round(_calcular_precio_lista(
-                float(r['precio_lista']), desc_entry['valor'], desc_cliente_pct, desc_adi, prontopago_pct, multiplicador
-            ) / 1000) * 1000
-            mapa[sku] = precio
-        # Agregar sommiers
-        conjuntos = query_db("SELECT colchon_sku, base_sku_default, cantidad_bases FROM conjunto_configuracion WHERE activo=1")
-        for c in conjuntos:
-            sku_col = c['colchon_sku']
-            base_sku = c['base_sku_default']
-            cant = int(c['cantidad_bases'] or 1)
-            precio_col = mapa.get(sku_col, 0)
-            precio_base = mapa.get(base_sku, 0)
-            if precio_col and precio_base:
-                sku_conj = 'S' + sku_col[1:] if sku_col.startswith('C') else 'S' + sku_col
-                mapa[sku_conj] = round((precio_col + precio_base * cant) / 1000) * 1000
-        return mapa
-    except Exception as e:
-        print(f"[_build_precio_costos_map] Error: {e}")
-        return {}
-
-
 @app.route('/tienda-admin/precios', methods=['GET'])
 @login_required
 def tienda_precios():
@@ -11048,6 +10986,67 @@ def _calcular_precio_lista(precio_cannon, desc_linea_pct, desc_cliente_pct, desc
         costo *= (1 - desc_adicional_pct / 100)
     costo *= 1 / (1 + prontopago_pct / 100)
     return round(costo * multiplicador)
+
+
+def _build_precio_costos_map():
+    """Construye un mapa sku → precio_lista_costos para mostrar en tienda_precios."""
+    try:
+        cfg = _get_config_costos()
+        multiplicador    = cfg.get('multiplicador', 1.85)
+        prontopago_pct   = cfg.get('prontopago', 5.0)
+        desc_cliente_pct = cfg.get('cliente', 0.0)
+        descuentos = {r['clave']: {'valor': float(r['valor']), 'desc_adicional': float(r['desc_adicional'] or 0)}
+                      for r in query_db("SELECT clave, valor, desc_adicional FROM cannon_descuentos WHERE tipo = 'descuento_linea'")}
+        rows = query_db("""
+            SELECT cp.sku, clp.precio_lista, cp.descripcion,
+                   cd_adi.valor as desc_adicional
+            FROM cannon_productos cp
+            JOIN cannon_lista_precios clp ON clp.codigo_material = cp.codigo_material
+            LEFT JOIN cannon_descuentos cd_adi ON cd_adi.clave = CONCAT('adicional_', cp.sku)
+            WHERE cp.sku IS NOT NULL
+        """)
+        mapa = {}
+        for r in rows:
+            sku = r['sku']
+            desc = (r['descripcion'] or '').upper()
+            clave = None
+            if sku in ('CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE') or desc.startswith('ALM'):
+                clave = 'almohadas'
+            elif 'EUROPILLOW' in desc:
+                clave = 'sublime_europillow' if 'SUBLIME' in desc else 'renovation_europillow'
+            elif 'PILLOW' in desc or 'PIL' in desc:
+                clave = 'exclusive_pillow' if 'EXCLUSIVE' in desc else 'doral_pillow'
+            elif 'PRINCESS' in desc: clave = 'princess_23' if '23' in desc else 'princess_20'
+            elif 'ESPECIAL DE LUJO' in desc: clave = 'especial_de_lujo'
+            elif 'EXCLUSIVE' in desc: clave = 'exclusive'
+            elif 'RENOVATION' in desc: clave = 'renovation'
+            elif 'TROPICAL' in desc: clave = 'tropical'
+            elif 'SONAR' in desc or 'SOÑAR' in desc: clave = 'sonar'
+            elif 'PLATINO' in desc: clave = 'platino'
+            elif 'DORAL' in desc: clave = 'doral'
+            elif 'SUBLIME' in desc: clave = 'sublime'
+            elif 'BASE' in desc: clave = 'bases'
+            desc_entry = descuentos.get(clave, {'valor': 0, 'desc_adicional': 0}) if clave else {'valor': 0, 'desc_adicional': 0}
+            desc_adi = desc_entry['desc_adicional'] + float(r['desc_adicional'] or 0)
+            precio = round(_calcular_precio_lista(
+                float(r['precio_lista']), desc_entry['valor'], desc_cliente_pct, desc_adi, prontopago_pct, multiplicador
+            ) / 1000) * 1000
+            mapa[sku] = precio
+        # Agregar sommiers
+        conjuntos = query_db("SELECT colchon_sku, base_sku_default, cantidad_bases FROM conjunto_configuracion WHERE activo=1")
+        for c in conjuntos:
+            sku_col = c['colchon_sku']
+            base_sku = c['base_sku_default']
+            cant = int(c['cantidad_bases'] or 1)
+            precio_col = mapa.get(sku_col, 0)
+            precio_base = mapa.get(base_sku, 0)
+            if precio_col and precio_base:
+                sku_conj = 'S' + sku_col[1:] if sku_col.startswith('C') else 'S' + sku_col
+                mapa[sku_conj] = round((precio_col + precio_base * cant) / 1000) * 1000
+        return mapa
+    except Exception as e:
+        print(f"[_build_precio_costos_map] Error: {e}")
+        return {}
 
 
 @app.route('/costos')

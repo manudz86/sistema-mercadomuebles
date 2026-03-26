@@ -77,7 +77,9 @@
                 class="{{ 'table-warning' if diff | abs > 5 and p.precio_actual else '' }}
                        {{ 'table-info bg-opacity-25' if p.es_conjunto else '' }}">
               <td>
-                {% if p.id or p.es_conjunto %}
+                {% set es_base = p.clave_descuento == 'bases' %}
+                {% set es_colchon_z = p.es_z and not p.es_conjunto and p.clave_descuento not in ('almohadas', 'bases', None) %}
+                {% if es_base or es_colchon_z %}
                 <input type="checkbox" class="row-check"
                        data-sku="{{ p.sku }}" data-precio="{{ p.precio_lista }}"
                        onchange="actualizarContador()">
@@ -122,8 +124,7 @@
                 {% else %}—{% endif %}
               </td>
               <td class="text-end small">
-                {% if p.es_z %}=web
-                {% else %}${{ "{:,.0f}".format(p.precio_ml_sin_cuotas).replace(",",".") }}{% endif %}
+                ${{ "{:,.0f}".format(p.precio_ml_sin_cuotas).replace(",",".") }}
               </td>
               <td class="text-end small">${{ "{:,.0f}".format(p.precio_ml_3c).replace(",",".") }}</td>
               <td class="text-end small">${{ "{:,.0f}".format(p.precio_ml_6c).replace(",",".") }}</td>
