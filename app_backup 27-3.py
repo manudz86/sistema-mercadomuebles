@@ -9901,28 +9901,20 @@ def papel_azul_pdf(venta_id):
             conn2 = get_db_connection()
             cur2 = conn2.cursor()
             cur2.execute("""
-                SELECT cc.cantidad_bases, cc.base_sku_default,
-                       pb_col.nombre as nombre_col,
-                       pb_base.medida as medida_base
+                SELECT cc.cantidad_bases, pb_col.nombre as nombre_col
                 FROM conjunto_configuracion cc
                 JOIN productos_base pb_col ON pb_col.sku = cc.colchon_sku
-                LEFT JOIN productos_base pb_base ON pb_base.sku = cc.base_sku_default
                 WHERE cc.colchon_sku = %s AND cc.activo = 1
             """, (sku_col,))
             cfg = cur2.fetchone()
             cur2.close(); conn2.close()
             if cfg:
                 cant_bases = int(cfg['cantidad_bases'] or 1)
+                # patas = cant_bases (1 pata x6 por base ≤100cm)
+                patas = cant_bases
                 nombre_col = cfg['nombre_col'] or nombre
-                # Determinar patas según ancho de base
-                medida_base = cfg['medida_base'] or ''
-                try:
-                    ancho_base = int(medida_base.split('x')[0])
-                except:
-                    ancho_base = 0
-                tipo_pata = 'x7' if ancho_base > 100 else 'x6'
                 bases_str = f"{cant_bases} base{'s' if cant_bases > 1 else ''}"
-                patas_str = f"{cant_bases} pata {tipo_pata}" if cant_bases == 1 else f"{cant_bases} patas {tipo_pata}"
+                patas_str = f"{patas} pata x6" if patas == 1 else f"{patas} patas x6"
                 linea1 = f"{cantidad} Sommier {nombre_col}"
                 linea2 = f"({cantidad} colchón + {bases_str} + {patas_str})"
                 return [linea1, linea2]
