@@ -71,10 +71,10 @@ def inject_alertas_pendientes():
                     AND m.activo = TRUE
                 )
             """)
-            return {'alertas_pendientes_count': result['total'] if result else 0, 'now': datetime.now()}
+            return {'alertas_pendientes_count': result['total'] if result else 0}
     except:
         pass
-    return {'alertas_pendientes_count': 0, 'now': datetime.now()}
+    return {'alertas_pendientes_count': 0}
 
 class User(UserMixin):
     def __init__(self, id, username, rol, activo):
