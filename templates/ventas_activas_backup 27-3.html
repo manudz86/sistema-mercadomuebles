@@ -92,8 +92,8 @@
     </div>
 </div>
 
-<!-- FILTROS DESKTOP (sin cambios) -->
-<div class="card mb-3 d-none d-md-block">
+<!-- FILTROS -->
+<div class="card mb-3">
     <div class="card-body">
         <form method="GET" action="/ventas/activas" class="row g-3">
             <div class="col-md-3">
@@ -178,134 +178,9 @@
     </div>
 </div>
 
-<!-- FILTROS MOBILE (chips) -->
-<div class="d-md-none mb-3">
-  <style>
-    .filtros-mobile-panel { background:#fff; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.08); overflow:hidden; }
-    .filtros-mobile-toggle { width:100%; background:#1a1a2e; color:#fff; border:none; padding:10px 16px; font-size:.95rem; font-weight:600; display:flex; justify-content:space-between; align-items:center; cursor:pointer; }
-    .filtros-mobile-toggle .arrow { transition:transform .25s; }
-    .filtros-mobile-toggle.open .arrow { transform:rotate(180deg); }
-    .filtros-mobile-body { display:none; padding:12px 14px 16px; }
-    .filtros-mobile-body.open { display:block; }
-    .fm-section-label { font-size:.75rem; font-weight:700; text-transform:uppercase; color:#666; letter-spacing:.05em; margin-bottom:6px; margin-top:10px; }
-    .fm-section-label:first-child { margin-top:0; }
-    .fm-chips { display:flex; flex-wrap:wrap; gap:6px; }
-    .fm-chip { display:inline-flex; align-items:center; padding:5px 12px; border-radius:20px; font-size:.82rem; font-weight:500; background:#f0f0f0; color:#333; border:1.5px solid #ddd; cursor:pointer; transition:all .15s; white-space:nowrap; }
-    .fm-chip.active { background:#1a1a2e; color:#fff; border-color:#1a1a2e; }
-    .fm-buscar { width:100%; border:1.5px solid #ddd; border-radius:8px; padding:8px 12px; font-size:.9rem; margin-bottom:4px; }
-    .fm-buscar:focus { outline:none; border-color:#1a1a2e; }
-    .fm-actions { display:flex; gap:8px; margin-top:14px; }
-    .fm-btn { flex:1; padding:9px; border-radius:8px; border:none; font-size:.88rem; font-weight:600; cursor:pointer; }
-    .fm-btn-primary { background:#1a1a2e; color:#fff; }
-    .fm-btn-clear { background:#f0f0f0; color:#555; }
-    {% set hay_filtro_mob = filtro_buscar or filtro_tipo_entrega or filtro_metodo_envio or filtro_zona or filtro_canal or filtro_estado_pago %}
-    .filtros-activos-badges { display:flex; flex-wrap:wrap; gap:5px; padding:8px 14px; border-top:1px solid #eee; }
-    .filtro-activo-tag { background:#e8eaf6; color:#1a1a2e; border-radius:12px; padding:3px 10px; font-size:.78rem; font-weight:600; }
-  </style>
-
-  <form method="GET" action="/ventas/activas" id="filtros-mobile-form">
-    <input type="hidden" name="buscar" id="mob-buscar-hidden" value="{{ filtro_buscar }}">
-    <input type="hidden" name="tipo_entrega" id="mob-tipo-hidden" value="{{ filtro_tipo_entrega }}">
-    <input type="hidden" name="metodo_envio" id="mob-metodo-hidden" value="{{ filtro_metodo_envio }}">
-    <input type="hidden" name="zona" id="mob-zona-hidden" value="{{ filtro_zona }}">
-    <input type="hidden" name="canal" id="mob-canal-hidden" value="{{ filtro_canal }}">
-    <input type="hidden" name="estado_pago" id="mob-estado-hidden" value="{{ filtro_estado_pago }}">
-
-    <div class="filtros-mobile-panel">
-      <button type="button" class="filtros-mobile-toggle {% if hay_filtro_mob %}open{% endif %}" id="mob-toggle" onclick="toggleMobFiltros()">
-        <span>🔍 Filtros{% if hay_filtro_mob %} <span style="background:#e74c3c;border-radius:10px;padding:1px 7px;font-size:.75rem;">activos</span>{% endif %}</span>
-        <span class="arrow">▼</span>
-      </button>
-
-      <div class="filtros-mobile-body {% if hay_filtro_mob %}open{% endif %}" id="mob-body">
-
-        <!-- Buscar -->
-        <div class="fm-section-label">Buscar</div>
-        <input type="text" class="fm-buscar" id="mob-buscar-input" placeholder="Nombre, SKU..."
-               value="{{ filtro_buscar }}" oninput="document.getElementById('mob-buscar-hidden').value=this.value">
-
-        <!-- Tipo entrega -->
-        <div class="fm-section-label">Tipo entrega</div>
-        <div class="fm-chips">
-          {% for val, label in [('','Todos'),('retiro','Retiro'),('envio','Envío')] %}
-          <span class="fm-chip {% if filtro_tipo_entrega == val %}active{% endif %}"
-                onclick="setChip('mob-tipo-hidden','{{ val }}',this)">{{ label }}</span>
-          {% endfor %}
-        </div>
-
-        <!-- Método envío -->
-        <div class="fm-section-label">Método envío</div>
-        <div class="fm-chips">
-          {% for val, label in [('','Todos'),('Colecta','Colecta'),('Flex','Flex'),('Full','Full'),('Flete Propio','Flete Propio'),('Delega','Delega'),('Zippin','Zippin'),('ME2','ME2'),('ME1','ME1'),('Turbo','🚀 Turbo')] %}
-          <span class="fm-chip {% if filtro_metodo_envio == val %}active{% endif %}"
-                onclick="setChip('mob-metodo-hidden','{{ val }}',this)">{{ label }}</span>
-          {% endfor %}
-        </div>
-
-        <!-- Zona -->
-        <div class="fm-section-label">Zona</div>
-        <div class="fm-chips">
-          {% for val, label in [('','Todas'),('Capital','Capital'),('Sur','Sur'),('Norte-Noroeste','Norte'),('Oeste','Oeste')] %}
-          <span class="fm-chip {% if filtro_zona == val %}active{% endif %}"
-                onclick="setChip('mob-zona-hidden','{{ val }}',this)">{{ label }}</span>
-          {% endfor %}
-        </div>
-
-        <!-- Canal -->
-        <div class="fm-section-label">Canal</div>
-        <div class="fm-chips">
-          {% for val, label in [('','Todos'),('Mercado Libre','ML'),('Fuera de ML','Fuera ML'),('tienda_web','Tienda Web')] %}
-          <span class="fm-chip {% if filtro_canal == val %}active{% endif %}"
-                onclick="setChip('mob-canal-hidden','{{ val }}',this)">{{ label }}</span>
-          {% endfor %}
-        </div>
-
-        <!-- Estado pago -->
-        <div class="fm-section-label">Estado pago</div>
-        <div class="fm-chips">
-          {% for val, label in [('','Todos'),('pagado','Pagado'),('pendiente','Pendiente'),('parcial','Parcial')] %}
-          <span class="fm-chip {% if filtro_estado_pago == val %}active{% endif %}"
-                onclick="setChip('mob-estado-hidden','{{ val }}',this)">{{ label }}</span>
-          {% endfor %}
-        </div>
-
-        <div class="fm-actions">
-          <button type="submit" class="fm-btn fm-btn-primary">Aplicar filtros</button>
-          <button type="button" class="fm-btn fm-btn-clear" onclick="window.location='/ventas/activas'">Limpiar</button>
-        </div>
-      </div>
-
-      {% if hay_filtro_mob %}
-      <div class="filtros-activos-badges">
-        {% if filtro_tipo_entrega %}<span class="filtro-activo-tag">{{ filtro_tipo_entrega }}</span>{% endif %}
-        {% if filtro_metodo_envio %}<span class="filtro-activo-tag">{{ filtro_metodo_envio }}</span>{% endif %}
-        {% if filtro_zona %}<span class="filtro-activo-tag">{{ filtro_zona }}</span>{% endif %}
-        {% if filtro_canal %}<span class="filtro-activo-tag">{{ filtro_canal }}</span>{% endif %}
-        {% if filtro_estado_pago %}<span class="filtro-activo-tag">{{ filtro_estado_pago }}</span>{% endif %}
-        {% if filtro_buscar %}<span class="filtro-activo-tag">"{{ filtro_buscar }}"</span>{% endif %}
-      </div>
-      {% endif %}
-    </div>
-  </form>
-
-  <script>
-  function toggleMobFiltros() {
-    const btn = document.getElementById('mob-toggle');
-    const body = document.getElementById('mob-body');
-    btn.classList.toggle('open');
-    body.classList.toggle('open');
-  }
-  function setChip(hiddenId, val, el) {
-    document.getElementById(hiddenId).value = val;
-    // Deactivate siblings, activate clicked
-    el.closest('.fm-chips').querySelectorAll('.fm-chip').forEach(c => c.classList.remove('active'));
-    el.classList.add('active');
-  }
-  </script>
-</div>
+{% if ventas %}
 
 <!-- ✅ NUEVO: BARRA DE ACCIONES MÚLTIPLES -->
-{% if ventas %}
 <div class="card mb-3" id="accionesMultiples" style="display: none;">
     <div class="card-body">
         <div class="d-flex justify-content-between align-items-center">
