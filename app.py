@@ -9956,18 +9956,28 @@ def papel_azul_pdf(venta_id):
             c.drawString(x, y, text)
         return y - size * 1.3
 
-    # ── Fecha (línea 1) y Nombre (línea 2), ambos izquierda ──
+    # ── Fecha (línea 1) y Nombre (línea 2), centrados ──
     fecha_hoy = datetime.now().strftime('%d-%m-%Y')
     nombre_cliente = venta.get('nombre_cliente') or '-'
+    cx = PAGE_W / 2
     c.setFont('Helvetica', 10)
-    c.drawString(MARGIN_L, y, fecha_hoy)
+    c.drawCentredString(cx, y, fecha_hoy)
     y -= 6 * mm
     c.setFont('Helvetica-Bold', 12)
-    c.drawString(MARGIN_L, y, nombre_cliente)
-    y -= 10 * mm
+    c.drawCentredString(cx, y, nombre_cliente)
+    y -= 6 * mm
+
+    # Teléfono — solo para Flete Propio
+    if not es_flex:
+        telefono = venta.get('telefono_cliente') or ''
+        if telefono:
+            c.setFont('Helvetica', 10)
+            c.drawCentredString(cx, y, telefono)
+            y -= 6 * mm
+
+    y -= 4 * mm
 
     # ── Producto ── (bold, grande, centrado, 2 líneas)
-    cx = PAGE_W / 2
     for i, linea in enumerate(descripcion_items):
         font = 'Helvetica-Bold'
         size = 13 if i == 0 else 11
@@ -9984,7 +9994,7 @@ def papel_azul_pdf(venta_id):
     c.drawCentredString(cx, y, saldo_str)
     y -= 12 * mm
 
-    # ── Dirección ── (+30% = 17pt)
+    # ── Dirección ── (17pt)
     direccion = venta.get('direccion_entrega') or ''
     if direccion:
         c.setFont('Helvetica-Bold', 17)
@@ -9994,7 +10004,7 @@ def papel_azul_pdf(venta_id):
             y -= 17 * 1.4
     y -= 12 * mm
 
-    # ── FLEX ── (~10% menor = 38pt)
+    # ── FLEX ── (38pt)
     if es_flex:
         c.setFont('Helvetica-Bold', 38)
         c.drawCentredString(cx, y, 'FLEX')
