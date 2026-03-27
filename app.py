@@ -94,7 +94,17 @@ def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not current_user.is_authenticated or current_user.rol != 'admin':
-            flash('❌ No tenés permisos para realizar esta acción', 'danger')
+            flash('❌ No tenés permisos para acceder a esta sección', 'danger')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated
+
+def vendedor_required(f):
+    """Admin y vendedor pueden acceder. Solo viewer no puede."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated or current_user.rol not in ('admin', 'vendedor'):
+            flash('❌ No tenés permisos para acceder a esta sección', 'danger')
             return redirect(url_for('index'))
         return f(*args, **kwargs)
     return decorated
@@ -9514,7 +9524,7 @@ def fletes_guardar():
 # ============================================================================
 
 @app.route('/tienda-admin/precios', methods=['GET'])
-@login_required
+@admin_required
 def tienda_precios():
     productos_base = query_db("""
         SELECT sku, nombre, tipo, linea, modelo, medida, precio_base, descuento_catalogo, 'base' as origen
@@ -9571,7 +9581,7 @@ def tienda_precios():
 
 
 @app.route('/tienda-admin/precios/guardar', methods=['POST'])
-@login_required
+@admin_required
 def tienda_precios_guardar():
     data = request.get_json()
     cambios = data.get('cambios', [])
@@ -9600,7 +9610,7 @@ def tienda_precios_guardar():
 
 
 @app.route('/tienda-admin/precios/descuento', methods=['POST'])
-@login_required
+@admin_required
 def tienda_precios_descuento():
     data = request.get_json()
     accion = data.get('accion')  # 'set', 'quitar', 'set_todos', 'quitar_todos'
@@ -11219,7 +11229,7 @@ def _build_precio_costos_map():
 
 
 @app.route('/costos')
-@login_required
+@admin_required
 def costos_index():
     """Calculadora de precios — vista principal."""
     cfg = _get_config_costos()
@@ -11262,7 +11272,7 @@ def costos_index():
 
 
 @app.route('/costos/descuentos', methods=['GET', 'POST'])
-@login_required
+@admin_required
 def costos_descuentos():
     """Configurar descuentos por modelo, prontopago y multiplicador."""
     if request.method == 'POST':
@@ -11289,7 +11299,7 @@ def costos_descuentos():
 
 
 @app.route('/costos/importar', methods=['GET', 'POST'])
-@login_required
+@admin_required
 def costos_importar():
     """Subir Excel de lista de precios Cannon."""
     if request.method == 'POST':
@@ -11339,7 +11349,7 @@ def costos_importar():
 
 
 @app.route('/costos/productos', methods=['GET', 'POST'])
-@login_required
+@admin_required
 def costos_productos():
     """Ver/editar SKU de productos Cannon y descuentos adicionales."""
     if request.method == 'POST':
@@ -11377,7 +11387,7 @@ def costos_productos():
 
 
 @app.route('/costos/envio', methods=['GET', 'POST'])
-@login_required
+@admin_required
 def costos_envio():
     """Gestionar costos de envío colecta/flex por SKU."""
     if request.method == 'POST':
@@ -11414,7 +11424,7 @@ SKUS_COLECTA_BARRIDO = [
 ]
 
 @app.route('/costos/envio/barrido-ml', methods=['GET'])
-@login_required
+@admin_required
 def costos_envio_barrido_ml():
     """Consulta costos de colecta ML para los SKUs de barrido y compara con lo guardado."""
     import requests as _requests
@@ -11473,7 +11483,7 @@ def costos_envio_barrido_ml():
 
 
 @app.route('/costos/calcular')
-@login_required
+@admin_required
 def costos_calcular():
     """Tabla de precios calculados con opción de aplicar a productos_base."""
     cfg = _get_config_costos()
@@ -11746,7 +11756,7 @@ def costos_calcular():
 
 
 @app.route('/costos/aplicar', methods=['POST'])
-@login_required
+@admin_required
 def costos_aplicar():
     """Aplica precios calculados a productos_base."""
     data = request.get_json() or {}
