@@ -11888,51 +11888,17 @@ def productos_lista():
         ORDER BY pc.nombre
     """, params_c)
 
-    # ── Precio y stock real de sommiers ──────────────────────────────────────
-    if productos_c:
-        conjuntos_cfg_cat = {r['colchon_sku']: r for r in query_db(
-            "SELECT colchon_sku, base_sku_default, cantidad_bases FROM conjunto_configuracion WHERE activo=1"
-        )}
-        pb_map_cat = {r['sku']: r for r in query_db(
-            "SELECT sku, precio_base, stock_actual FROM productos_base"
-        )}
-        for p in productos_c:
-            sku_conj = p['sku']
-            sku_col = ('C' + sku_conj[1:]) if (sku_conj.startswith('S') and len(sku_conj) > 1 and sku_conj[1].isalpha()) else None
-            if sku_col and sku_col in conjuntos_cfg_cat:
-                cfg_c = conjuntos_cfg_cat[sku_col]
-                base_sku = cfg_c['base_sku_default']
-                cant = int(cfg_c['cantidad_bases'] or 1)
-                pb_col  = pb_map_cat.get(sku_col, {})
-                pb_base = pb_map_cat.get(base_sku, {})
-                precio_col  = float(pb_col.get('precio_base') or 0)
-                precio_b_u  = float(pb_base.get('precio_base') or 0)
-                p['precio_base']  = precio_col + precio_b_u * cant
-                p['stock_actual'] = min(
-                    int(pb_col.get('stock_actual') or 0),
-                    int(pb_base.get('stock_actual') or 0)
-                )
-
     productos = list(productos_b) + list(productos_c)
 
-    # Fix N+1: una sola query para todas las fotos principales
-    if productos:
-        placeholders = ','.join(['%s'] * len(productos))
-        todos_skus = [p['sku'] for p in productos]
-        fotos_rows = query_db(f"""
-            SELECT sku,
-                   SUBSTRING_INDEX(GROUP_CONCAT(filename ORDER BY orden, id SEPARATOR '|'), '|', 1) AS filename
-            FROM productos_fotos
-            WHERE sku IN ({placeholders})
-            GROUP BY sku
-        """, todos_skus)
-        fotos_map = {{r['sku']: r['filename'] for r in fotos_rows}}
-    else:
-        fotos_map = {{}}
-
+    # foto_thumb: primera foto de cada producto
     for p in productos:
-        fn = fotos_map.get(p['sku'])
-        p['foto_thumb'] = f"/static/img/productos/{p['sku']}/{fn}" if fn else None
+        f = query_one(
+            "SELECT filename FROM productos_fotos WHERE sku=%s ORDER BY orden,id LIMIT 1",
+            (p['sku'],)
+        )
+        p['foto_thumb'] = (
+            f"/static/img/productos/{p['sku']}/{f['filename']}" if f else None
+        )
 
     # Líneas disponibles para el filtro
     lineas_rows = query_db("""
