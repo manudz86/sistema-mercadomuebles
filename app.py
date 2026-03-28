@@ -11926,9 +11926,9 @@ def productos_lista():
             WHERE sku IN ({placeholders})
             GROUP BY sku
         """, todos_skus)
-        fotos_map = {{r['sku']: r['filename'] for r in fotos_rows}}
+        fotos_map = {r['sku']: r['filename'] for r in fotos_rows}
     else:
-        fotos_map = {{}}
+        fotos_map = {}
 
     for p in productos:
         fn = fotos_map.get(p['sku'])
