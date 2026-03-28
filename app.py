@@ -11075,7 +11075,7 @@ def _get_precio_costos_sku(sku, porcentajes_ml=None):
             if 'PLATINO' in desc: return 'platino'
             if 'DORAL' in desc: return 'doral'
             if 'SUBLIME' in desc: return 'sublime'
-            if 'BASE' in desc or sku_up.startswith('BASE_') or desc.startswith('SOM UNIF'): return 'bases'
+            if 'BASE' in desc or sku_up.startswith('BASE_') or desc.startswith('SOM '): return 'bases'
             return None
 
         clave = _detectar_clave_simple(cp['descripcion'], sku_col.upper())
@@ -11203,7 +11203,7 @@ def _build_precio_costos_map():
             elif 'PLATINO' in desc: clave = 'platino'
             elif 'DORAL' in desc: clave = 'doral'
             elif 'SUBLIME' in desc: clave = 'sublime'
-            elif 'BASE' in desc or sku.startswith('BASE_') or desc.startswith('SOM UNIF'): clave = 'bases'
+            elif 'BASE' in desc or sku.startswith('BASE_') or desc.startswith('SOM '): clave = 'bases'
             desc_entry = descuentos.get(clave, {'valor': 0, 'desc_adicional': 0}) if clave else {'valor': 0, 'desc_adicional': 0}
             desc_adi = desc_entry['desc_adicional'] + float(r['desc_adicional'] or 0)
             precio = round(_calcular_precio_lista(
