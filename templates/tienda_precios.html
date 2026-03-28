@@ -148,6 +148,7 @@
                 </div>
                 {% else %}<span class="text-muted small">—</span>{% endif %}
               </td>
+              <td>
                 <div class="input-group input-group-sm">
                   <input type="number" class="form-control descuento-input"
                     value="{{ c.descuento_catalogo | float | int if c.descuento_catalogo else '' }}"
