@@ -37,12 +37,12 @@
         <table class="table table-hover table-sm mb-0" id="tabla-precios">
           <thead class="table-dark">
             <tr>
-              <th>SKU</th>
+              <th style="width:100px">SKU</th>
               <th style="width:160px">Nombre</th>
-              <th>Tipo</th>
-              <th style="width:130px">Precio ($)</th>
+              <th style="width:80px">Tipo</th>
+              <th style="width:120px">Precio ($)</th>
               <th style="width:110px" class="text-info">P. Costos 💡</th>
-              <th style="width:120px">Descuento cat.</th>
+              <th style="width:130px">Descuento cat.</th>
             </tr>
           </thead>
           <tbody>
@@ -124,7 +124,7 @@
                 data-precio-costos="{{ pc or '' }}">
               <td><small class="text-muted font-monospace">{{ c.sku }}</small></td>
               <td>
-                <span style="display:block;width:160px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ c.nombre }}">{{ c.nombre }}</span>
+                {{ c.nombre }}
                 <br>
                 <small class="text-muted">
                   Colchón {{ "${:,.0f}".format(c.precio_colchon).replace(",",".") }}
