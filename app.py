@@ -12137,11 +12137,11 @@ def productos_nuevo():
     return render_template('productos_form.html', producto=None, modo='nuevo')
 
 
-@app.route('/productos/editar/<int:pid>', methods=['GET', 'POST'])
+@app.route('/productos/editar/<sku>', methods=['GET', 'POST'])
 @admin_required
-def productos_editar(pid):
+def productos_editar(sku):
     _crear_tablas_productos()
-    producto = query_one("SELECT * FROM productos_base WHERE id=%s", (pid,))
+    producto = query_one("SELECT * FROM productos_base WHERE sku=%s", (sku,))
     if not producto:
         flash('Producto no encontrado', 'error')
         return redirect(url_for('productos_lista'))
@@ -12169,13 +12169,13 @@ def productos_editar(pid):
                 precio_base=%s, descuento_catalogo=%s,
                 stock_minimo_pausar=%s, stock_minimo_reactivar=%s,
                 peso_gramos=%s, alto_cm=%s, ancho_cm=%s, largo_cm=%s
-            WHERE id=%s
+            WHERE sku=%s
         """, (nombre, linea, modelo, medida,
               tipo_base, modelo_almohada,
               precio_base, descuento_catalogo,
               stock_min_pausar, stock_min_reactiv,
               peso_gramos, alto_cm, ancho_cm, largo_cm,
-              pid))
+              sku))
         flash('Producto actualizado correctamente', 'success')
         return redirect(url_for('productos_lista'))
 

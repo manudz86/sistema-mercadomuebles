@@ -125,7 +125,7 @@
                 </div>
               </td>
               <td class="text-center">
-                <a href="{{ url_for('productos_editar', pid=p.id) }}"
+                <a href="{{ url_for('productos_editar', sku=p.sku) }}"
                    class="btn btn-xs btn-outline-secondary" title="Editar">✏️</a>
                 <a href="{{ url_for('productos_fotos', sku=p.sku) }}"
                    class="btn btn-xs btn-outline-info" title="Fotos">🖼️</a>
@@ -192,7 +192,7 @@ function renderFila(p) {
       </div>
     </td>
     <td class="text-center">
-      <a href="/productos/editar/${p.id}" class="btn btn-xs btn-outline-secondary">✏️</a>
+      <a href="/productos/editar/${p.sku}" class="btn btn-xs btn-outline-secondary">✏️</a>
       <a href="/productos/${p.sku}/fotos" class="btn btn-xs btn-outline-info">🖼️</a>
     </td>
   </tr>`;
