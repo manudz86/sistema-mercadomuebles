@@ -11921,24 +11921,9 @@ def productos_lista():
 
     productos = list(productos_b) + list(productos_c)
 
-    # Fix N+1: una sola query para todas las fotos principales
-    if productos:
-        placeholders = ','.join(['%s'] * len(productos))
-        todos_skus = [p['sku'] for p in productos]
-        fotos_rows = query_db(f"""
-            SELECT sku,
-                   SUBSTRING_INDEX(GROUP_CONCAT(filename ORDER BY orden, id SEPARATOR '|'), '|', 1) AS filename
-            FROM productos_fotos
-            WHERE sku IN ({placeholders})
-            GROUP BY sku
-        """, todos_skus)
-        fotos_map = {r['sku']: r['filename'] for r in fotos_rows}
-    else:
-        fotos_map = {}
-
+    # Sin miniatura — se ve desde la sección de fotos de cada SKU
     for p in productos:
-        fn = fotos_map.get(p['sku'])
-        p['foto_thumb'] = f"/static/img/productos/{p['sku']}/{fn}" if fn else None
+        p['foto_thumb'] = None
 
     # Líneas disponibles para el filtro
     lineas_rows = query_db("""
