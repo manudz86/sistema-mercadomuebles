@@ -11322,10 +11322,8 @@ def costos_importar():
             insertados = 0
             for row in ws.iter_rows(values_only=True):
                 codigo = row[0]
-                if tipo == 'lista':
-                    precio = row[2]
-                else:
-                    precio = row[3]  # precio neto almohadas
+                # Siempre usar columna D (índice 3) = Precio Neto
+                precio = row[3]
                 if not codigo or not isinstance(codigo, (int, float)):
                     continue
                 if not precio or not isinstance(precio, (int, float)):
