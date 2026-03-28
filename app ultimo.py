@@ -11775,3 +11775,363 @@ def costos_aplicar():
         return jsonify(ok=True, aplicados=aplicados)
     except Exception as e:
         return jsonify(ok=False, error=str(e))
+
+
+
+# ============================================================================
+# CATÁLOGO DE PRODUCTOS
+# ============================================================================
+
+def _crear_tablas_productos():
+    """Tabla de fotos y columnas opcionales en productos_base."""
+    execute_db("""
+        CREATE TABLE IF NOT EXISTS productos_fotos (
+            id         INT AUTO_INCREMENT PRIMARY KEY,
+            sku        VARCHAR(50) NOT NULL,
+            filename   VARCHAR(255) NOT NULL,
+            orden      INT DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_sku_fotos (sku),
+            UNIQUE KEY uq_sku_file (sku, filename)
+        )
+    """)
+    # Columnas opcionales — ignorar si ya existen
+    _cols = [
+        ('activo',                 'TINYINT DEFAULT 1'),
+        ('tipo_base',              'VARCHAR(50) DEFAULT NULL'),
+        ('modelo_almohada',        'VARCHAR(100) DEFAULT NULL'),
+        ('peso_gramos',            'INT DEFAULT NULL'),
+        ('alto_cm',                'DECIMAL(6,1) DEFAULT NULL'),
+        ('ancho_cm',               'DECIMAL(6,1) DEFAULT NULL'),
+        ('largo_cm',               'DECIMAL(6,1) DEFAULT NULL'),
+        ('stock_minimo_pausar',    'INT DEFAULT 0'),
+        ('stock_minimo_reactivar', 'INT DEFAULT 1'),
+    ]
+    for col, defn in _cols:
+        try:
+            execute_db(f"ALTER TABLE productos_base ADD COLUMN {col} {defn}")
+        except Exception:
+            pass  # columna ya existe
+
+
+def _get_fotos(sku):
+    """Devuelve lista de filenames ordenados para un SKU."""
+    rows = query_db(
+        "SELECT filename FROM productos_fotos WHERE sku=%s ORDER BY orden, id",
+        (sku,)
+    )
+    return [r['filename'] for r in rows]
+
+
+@app.route('/productos')
+@admin_required
+def productos_lista():
+    _crear_tablas_productos()
+
+    busq      = request.args.get('q', '').strip()
+    linea_sel = request.args.get('linea', '').strip()
+    filtro    = request.args.get('filtro', 'todos')
+
+    # ── Productos base ────────────────────────────────────────────────────────
+    where_b  = "WHERE 1=1"
+    params_b = []
+    if busq:
+        where_b += " AND (pb.nombre LIKE %s OR pb.sku LIKE %s OR pb.modelo LIKE %s)"
+        params_b += [f'%{busq}%', f'%{busq}%', f'%{busq}%']
+    if linea_sel:
+        where_b += " AND pb.linea = %s"
+        params_b.append(linea_sel)
+    if filtro == 'activos':
+        where_b += " AND COALESCE(pb.activo,1) = 1"
+    elif filtro == 'inactivos':
+        where_b += " AND COALESCE(pb.activo,1) = 0"
+
+    productos_b = query_db(f"""
+        SELECT pb.id, pb.sku, pb.nombre, pb.tipo,
+               COALESCE(pb.linea,'')              AS linea,
+               COALESCE(pb.modelo,'')             AS modelo,
+               COALESCE(pb.medida,'')             AS medida,
+               COALESCE(pb.precio_base,0)         AS precio_base,
+               COALESCE(pb.descuento_catalogo,0)  AS descuento_catalogo,
+               COALESCE(pb.stock_actual,0)        AS stock_actual,
+               COALESCE(pb.activo,1)              AS activo,
+               COUNT(pf.id)                       AS cant_fotos
+        FROM productos_base pb
+        LEFT JOIN productos_fotos pf ON pf.sku = pb.sku
+        {where_b}
+        GROUP BY pb.id
+        ORDER BY pb.tipo, pb.linea, pb.nombre
+    """, params_b)
+
+    # ── Sommiers ──────────────────────────────────────────────────────────────
+    where_c  = "WHERE 1=1"
+    params_c = []
+    if busq:
+        where_c += " AND (pc.nombre LIKE %s OR pc.sku LIKE %s)"
+        params_c += [f'%{busq}%', f'%{busq}%']
+    if filtro == 'activos':
+        where_c += " AND pc.activo = 1"
+    elif filtro == 'inactivos':
+        where_c += " AND pc.activo = 0"
+
+    productos_c = [] if linea_sel else query_db(f"""
+        SELECT pc.id, pc.sku, pc.nombre, 'sommier' AS tipo,
+               'sommier' AS linea, '' AS modelo, '' AS medida,
+               0 AS precio_base, 0 AS descuento_catalogo,
+               0 AS stock_actual, pc.activo,
+               COUNT(pf.id) AS cant_fotos
+        FROM productos_compuestos pc
+        LEFT JOIN productos_fotos pf ON pf.sku = pc.sku
+        {where_c}
+        GROUP BY pc.id
+        ORDER BY pc.nombre
+    """, params_c)
+
+    productos = list(productos_b) + list(productos_c)
+
+    # foto_thumb: primera foto de cada producto
+    for p in productos:
+        f = query_one(
+            "SELECT filename FROM productos_fotos WHERE sku=%s ORDER BY orden,id LIMIT 1",
+            (p['sku'],)
+        )
+        p['foto_thumb'] = (
+            f"/static/img/productos/{p['sku']}/{f['filename']}" if f else None
+        )
+
+    # Líneas disponibles para el filtro
+    lineas_rows = query_db("""
+        SELECT DISTINCT linea FROM productos_base
+        WHERE linea IS NOT NULL AND linea != ''
+        ORDER BY linea
+    """)
+    lineas = [r['linea'] for r in lineas_rows]
+
+    return render_template('productos_lista.html',
+        productos = productos,
+        busq      = busq,
+        linea_sel = linea_sel,
+        lineas    = lineas,
+        filtro    = filtro,
+    )
+
+
+@app.route('/productos/toggle/<sku>', methods=['POST'])
+@admin_required
+def productos_toggle(sku):
+    _crear_tablas_productos()
+    try:
+        # Buscar por SKU — evita colisión de IDs entre tablas
+        pb = query_one("SELECT sku, COALESCE(activo,1) AS activo FROM productos_base WHERE sku=%s", (sku,))
+        if pb:
+            nuevo = 0 if pb['activo'] else 1
+            execute_db("UPDATE productos_base SET activo=%s WHERE sku=%s", (nuevo, sku))
+            verb = 'Activado' if nuevo else 'Desactivado'
+            return jsonify(ok=True, activo=bool(nuevo), msg=f"{verb}: {sku}")
+
+        pc = query_one("SELECT sku, activo FROM productos_compuestos WHERE sku=%s", (sku,))
+        if pc:
+            nuevo = 0 if pc['activo'] else 1
+            execute_db("UPDATE productos_compuestos SET activo=%s WHERE sku=%s", (nuevo, sku))
+            verb = 'Activado' if nuevo else 'Desactivado'
+            return jsonify(ok=True, activo=bool(nuevo), msg=f"{verb}: {sku}")
+
+        return jsonify(ok=False, msg='Producto no encontrado')
+    except Exception as e:
+        return jsonify(ok=False, msg=str(e))
+
+
+@app.route('/productos/<sku>/fotos')
+@admin_required
+def productos_fotos(sku):
+    _crear_tablas_productos()
+    prod = query_one("SELECT id, sku, nombre, tipo FROM productos_base WHERE sku=%s", (sku,))
+    if not prod:
+        prod = query_one(
+            "SELECT id, sku, nombre, 'sommier' AS tipo FROM productos_compuestos WHERE sku=%s", (sku,)
+        )
+    if not prod:
+        flash('Producto no encontrado', 'error')
+        return redirect(url_for('productos_lista'))
+
+    fotos = _get_fotos(sku)
+    return render_template('productos_fotos.html', producto=prod, fotos=fotos)
+
+
+@app.route('/productos/<sku>/fotos/subir', methods=['POST'])
+@admin_required
+def productos_fotos_subir(sku):
+    from werkzeug.utils import secure_filename
+    import uuid
+    _crear_tablas_productos()
+
+    archivos = request.files.getlist('fotos')
+    if not archivos or all(a.filename == '' for a in archivos):
+        return jsonify(ok=False, msg='Sin archivos')
+
+    carpeta = os.path.join(app.root_path, 'static', 'img', 'productos', sku)
+    os.makedirs(carpeta, exist_ok=True)
+
+    subidos = 0
+    errores = []
+    for archivo in archivos:
+        if not archivo or archivo.filename == '':
+            continue
+        ext = os.path.splitext(secure_filename(archivo.filename))[1].lower()
+        if ext not in ('.jpg', '.jpeg', '.png', '.webp'):
+            errores.append(f"{archivo.filename}: formato no válido")
+            continue
+        if archivo.content_length and archivo.content_length > 5 * 1024 * 1024:
+            errores.append(f"{archivo.filename}: supera 5 MB")
+            continue
+
+        nombre = f"{uuid.uuid4().hex}{ext}"
+        archivo.save(os.path.join(carpeta, nombre))
+
+        max_o = query_one(
+            "SELECT COALESCE(MAX(orden),0)+1 AS o FROM productos_fotos WHERE sku=%s", (sku,)
+        )
+        execute_db(
+            "INSERT IGNORE INTO productos_fotos (sku, filename, orden) VALUES (%s,%s,%s)",
+            (sku, nombre, max_o['o'] if max_o else 1)
+        )
+        subidos += 1
+
+    fotos = _get_fotos(sku)
+    if subidos:
+        return jsonify(ok=True, fotos=fotos, msg=f'{subidos} foto(s) subida(s)')
+    else:
+        return jsonify(ok=False, fotos=fotos, msg='; '.join(errores) or 'No se pudo subir ninguna foto')
+
+
+@app.route('/productos/<sku>/fotos/eliminar', methods=['POST'])
+@admin_required
+def productos_fotos_eliminar(sku):
+    _crear_tablas_productos()
+    data     = request.get_json() or {}
+    filename = (data.get('filename') or '').strip()
+    if not filename:
+        return jsonify(ok=False, msg='Sin filename')
+
+    ruta = os.path.join(app.root_path, 'static', 'img', 'productos', sku, filename)
+    try:
+        os.remove(ruta)
+    except Exception:
+        pass
+
+    execute_db(
+        "DELETE FROM productos_fotos WHERE sku=%s AND filename=%s", (sku, filename)
+    )
+    fotos = _get_fotos(sku)
+    return jsonify(ok=True, fotos=fotos, msg='Foto eliminada')
+
+
+@app.route('/productos/<sku>/fotos/reordenar', methods=['POST'])
+@admin_required
+def productos_fotos_reordenar(sku):
+    _crear_tablas_productos()
+    data  = request.get_json() or {}
+    orden = data.get('orden', [])  # lista de filenames en nuevo orden
+    for i, filename in enumerate(orden):
+        execute_db(
+            "UPDATE productos_fotos SET orden=%s WHERE sku=%s AND filename=%s",
+            (i + 1, sku, filename)
+        )
+    return jsonify(ok=True, fotos=_get_fotos(sku))
+
+
+@app.route('/productos/nuevo', methods=['GET', 'POST'])
+@admin_required
+def productos_nuevo():
+    _crear_tablas_productos()
+    if request.method == 'POST':
+        sku    = request.form.get('sku', '').strip().upper()
+        nombre = request.form.get('nombre', '').strip()
+        tipo   = request.form.get('tipo', 'colchon')
+        linea  = request.form.get('linea', '').strip()
+        modelo = request.form.get('modelo', '').strip()
+        medida = request.form.get('medida', '').strip()
+        tipo_base         = request.form.get('tipo_base', '').strip() or None
+        modelo_almohada   = request.form.get('modelo_almohada', '').strip() or None
+        precio_base       = float(request.form.get('precio_base', 0) or 0)
+        descuento_catalogo = float(request.form.get('descuento_catalogo', 0) or 0) or None
+        stock_inicial     = int(request.form.get('stock_actual', 0) or 0)
+        stock_min_pausar  = int(request.form.get('stock_minimo_pausar', 0) or 0)
+        stock_min_reactiv = int(request.form.get('stock_minimo_reactivar', 1) or 1)
+        peso_gramos       = int(request.form.get('peso_gramos', 0) or 0) or None
+        alto_cm           = float(request.form.get('alto_cm', 0) or 0) or None
+        ancho_cm          = float(request.form.get('ancho_cm', 0) or 0) or None
+        largo_cm          = float(request.form.get('largo_cm', 0) or 0) or None
+
+        if not sku or not nombre:
+            flash('SKU y nombre son obligatorios', 'error')
+            return render_template('productos_form.html', producto=None, modo='nuevo')
+
+        if query_one("SELECT sku FROM productos_base WHERE sku=%s", (sku,)):
+            flash(f'Ya existe un producto con SKU {sku}', 'error')
+            return render_template('productos_form.html', producto=None, modo='nuevo')
+
+        execute_db("""
+            INSERT INTO productos_base
+                (sku, nombre, tipo, linea, modelo, medida,
+                 tipo_base, modelo_almohada,
+                 precio_base, descuento_catalogo,
+                 stock_actual, activo,
+                 stock_minimo_pausar, stock_minimo_reactivar,
+                 peso_gramos, alto_cm, ancho_cm, largo_cm)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1,%s,%s,%s,%s,%s,%s)
+        """, (sku, nombre, tipo, linea, modelo, medida,
+              tipo_base, modelo_almohada,
+              precio_base, descuento_catalogo,
+              stock_inicial,
+              stock_min_pausar, stock_min_reactiv,
+              peso_gramos, alto_cm, ancho_cm, largo_cm))
+        flash(f'Producto {sku} creado correctamente', 'success')
+        return redirect(url_for('productos_lista'))
+
+    return render_template('productos_form.html', producto=None, modo='nuevo')
+
+
+@app.route('/productos/editar/<int:pid>', methods=['GET', 'POST'])
+@admin_required
+def productos_editar(pid):
+    _crear_tablas_productos()
+    producto = query_one("SELECT * FROM productos_base WHERE id=%s", (pid,))
+    if not producto:
+        flash('Producto no encontrado', 'error')
+        return redirect(url_for('productos_lista'))
+
+    if request.method == 'POST':
+        nombre            = request.form.get('nombre', '').strip()
+        linea             = request.form.get('linea', '').strip()
+        modelo            = request.form.get('modelo', '').strip()
+        medida            = request.form.get('medida', '').strip()
+        tipo_base         = request.form.get('tipo_base', '').strip() or None
+        modelo_almohada   = request.form.get('modelo_almohada', '').strip() or None
+        precio_base       = float(request.form.get('precio_base', 0) or 0)
+        descuento_catalogo = float(request.form.get('descuento_catalogo', 0) or 0) or None
+        stock_min_pausar  = int(request.form.get('stock_minimo_pausar', 0) or 0)
+        stock_min_reactiv = int(request.form.get('stock_minimo_reactivar', 1) or 1)
+        peso_gramos       = int(request.form.get('peso_gramos', 0) or 0) or None
+        alto_cm           = float(request.form.get('alto_cm', 0) or 0) or None
+        ancho_cm          = float(request.form.get('ancho_cm', 0) or 0) or None
+        largo_cm          = float(request.form.get('largo_cm', 0) or 0) or None
+
+        execute_db("""
+            UPDATE productos_base SET
+                nombre=%s, linea=%s, modelo=%s, medida=%s,
+                tipo_base=%s, modelo_almohada=%s,
+                precio_base=%s, descuento_catalogo=%s,
+                stock_minimo_pausar=%s, stock_minimo_reactivar=%s,
+                peso_gramos=%s, alto_cm=%s, ancho_cm=%s, largo_cm=%s
+            WHERE id=%s
+        """, (nombre, linea, modelo, medida,
+              tipo_base, modelo_almohada,
+              precio_base, descuento_catalogo,
+              stock_min_pausar, stock_min_reactiv,
+              peso_gramos, alto_cm, ancho_cm, largo_cm,
+              pid))
+        flash('Producto actualizado correctamente', 'success')
+        return redirect(url_for('productos_lista'))
+
+    return render_template('productos_form.html', producto=producto, modo='editar')
