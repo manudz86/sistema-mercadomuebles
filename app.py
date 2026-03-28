@@ -11916,26 +11916,25 @@ def productos_lista():
     )
 
 
-@app.route('/productos/toggle/<int:pid>', methods=['POST'])
+@app.route('/productos/toggle/<sku>', methods=['POST'])
 @admin_required
-def productos_toggle(pid):
+def productos_toggle(sku):
     _crear_tablas_productos()
     try:
-        # Buscar primero en productos_base
-        pb = query_one("SELECT id, sku, COALESCE(activo,1) AS activo FROM productos_base WHERE id=%s", (pid,))
+        # Buscar por SKU — evita colisión de IDs entre tablas
+        pb = query_one("SELECT sku, COALESCE(activo,1) AS activo FROM productos_base WHERE sku=%s", (sku,))
         if pb:
             nuevo = 0 if pb['activo'] else 1
-            execute_db("UPDATE productos_base SET activo=%s WHERE id=%s", (nuevo, pid))
+            execute_db("UPDATE productos_base SET activo=%s WHERE sku=%s", (nuevo, sku))
             verb = 'Activado' if nuevo else 'Desactivado'
-            return jsonify(ok=True, activo=bool(nuevo), msg=f"{verb}: {pb['sku']}")
+            return jsonify(ok=True, activo=bool(nuevo), msg=f"{verb}: {sku}")
 
-        # Si no, buscar en productos_compuestos
-        pc = query_one("SELECT id, sku, activo FROM productos_compuestos WHERE id=%s", (pid,))
+        pc = query_one("SELECT sku, activo FROM productos_compuestos WHERE sku=%s", (sku,))
         if pc:
             nuevo = 0 if pc['activo'] else 1
-            execute_db("UPDATE productos_compuestos SET activo=%s WHERE id=%s", (nuevo, pid))
+            execute_db("UPDATE productos_compuestos SET activo=%s WHERE sku=%s", (nuevo, sku))
             verb = 'Activado' if nuevo else 'Desactivado'
-            return jsonify(ok=True, activo=bool(nuevo), msg=f"{verb}: {pc['sku']}")
+            return jsonify(ok=True, activo=bool(nuevo), msg=f"{verb}: {sku}")
 
         return jsonify(ok=False, msg='Producto no encontrado')
     except Exception as e:

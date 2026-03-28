@@ -157,7 +157,7 @@ document.querySelectorAll('.toggle-activo').forEach(function(sw) {
     const id  = this.dataset.id;
     const sku = this.dataset.sku;
     const row = document.getElementById('row-' + id);
-    fetch('/productos/toggle/' + id, { method: 'POST' })
+    fetch('/productos/toggle/' + encodeURIComponent(sku), { method: 'POST' })
       .then(r => r.json())
       .then(data => {
         if (data.ok) {
