@@ -11202,8 +11202,8 @@ def _build_precio_costos_map():
             elif 'SONAR' in desc or 'SOÑAR' in desc: clave = 'sonar'
             elif 'PLATINO' in desc: clave = 'platino'
             elif 'DORAL' in desc: clave = 'doral'
-            elif 'SUBLIME' in desc: clave = 'sublime'
             elif 'BASE' in desc or sku.startswith('BASE_') or desc.startswith('SOM '): clave = 'bases'
+            elif 'SUBLIME' in desc: clave = 'sublime'
             desc_entry = descuentos.get(clave, {'valor': 0, 'desc_adicional': 0}) if clave else {'valor': 0, 'desc_adicional': 0}
             desc_adi = desc_entry['desc_adicional'] + float(r['desc_adicional'] or 0)
             precio = round(_calcular_precio_lista(
