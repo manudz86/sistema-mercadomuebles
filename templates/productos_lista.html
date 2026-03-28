@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Catálogo de Productos{% endblock %}
+{% block content %}
+<div class="container-fluid px-4 py-3">
+
+  <!-- Header -->
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h4 class="mb-0 fw-bold">🛍️ Catálogo de Productos</h4>
+      <small class="text-muted">Tienda web — activar/desactivar, editar y gestionar fotos</small>
+    </div>
+    <a href="{{ url_for('productos_nuevo') }}" class="btn btn-primary btn-sm">
+      <i class="bi bi-plus-lg"></i> Nuevo producto
+    </a>
+  </div>
+
+  <!-- Filtros -->
+  <div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+      <form method="GET" class="row g-2 align-items-center">
+        <div class="col-auto">
+          <input type="text" name="q" value="{{ busq }}" placeholder="SKU, nombre o modelo..."
+            class="form-control form-control-sm" style="width:220px">
+        </div>
+        <div class="col-auto">
+          <select name="linea" class="form-select form-select-sm" onchange="this.form.submit()">
+            <option value="">Todas las líneas</option>
+            {% for l in lineas %}
+            <option value="{{ l }}" {% if l == linea_sel %}selected{% endif %}>{{ l | title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-auto">
+          <div class="btn-group btn-group-sm">
+            <a href="?filtro=todos&q={{ busq }}&linea={{ linea_sel }}"
+               class="btn {{ 'btn-dark' if filtro=='todos' else 'btn-outline-secondary' }}">Todos</a>
+            <a href="?filtro=activos&q={{ busq }}&linea={{ linea_sel }}"
+               class="btn {{ 'btn-success' if filtro=='activos' else 'btn-outline-secondary' }}">Activos</a>
+            <a href="?filtro=inactivos&q={{ busq }}&linea={{ linea_sel }}"
+               class="btn {{ 'btn-danger' if filtro=='inactivos' else 'btn-outline-secondary' }}">Inactivos</a>
+          </div>
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-sm btn-primary">Buscar</button>
+          <a href="{{ url_for('productos_lista') }}" class="btn btn-sm btn-outline-secondary">Limpiar</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Tabla -->
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover table-sm mb-0 align-middle">
+          <thead class="table-light">
+            <tr>
+              <th style="width:60px">Foto</th>
+              <th>SKU</th>
+              <th>Nombre</th>
+              <th>Línea</th>
+              <th>Medida</th>
+              <th class="text-end">Precio</th>
+              <th class="text-center">Desc %</th>
+              <th class="text-center">Stock</th>
+              <th class="text-center">Fotos</th>
+              <th class="text-center">Estado</th>
+              <th class="text-center">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in productos %}
+            <tr id="row-{{ p.id }}" class="{{ '' if p.activo else 'table-secondary opacity-60' }}">
+              <td>
+                {% if p.foto_thumb %}
+                <img src="{{ p.foto_thumb }}" width="44" height="44"
+                     style="object-fit:cover; border-radius:6px; border:1px solid #e0e0e0;">
+                {% else %}
+                <div style="width:44px;height:44px;background:#f5f5f5;border-radius:6px;
+                            display:flex;align-items:center;justify-content:center;color:#bbb;font-size:18px;">📷</div>
+                {% endif %}
+              </td>
+              <td><code class="text-dark fw-semibold">{{ p.sku }}</code></td>
+              <td>
+                <span class="fw-medium">{{ p.nombre }}</span>
+                {% if p.modelo %}<br><small class="text-muted">{{ p.modelo }}</small>{% endif %}
+              </td>
+              <td>
+                {% if p.linea %}
+                <span class="badge rounded-pill
+                  {{ 'bg-success' if p.linea=='espuma' else
+                     'bg-primary' if p.linea=='resortes' else
+                     'bg-warning text-dark' if p.linea=='box' else
+                     'bg-secondary' }}">{{ p.linea }}</span>
+                {% endif %}
+              </td>
+              <td><small>{{ p.medida or '—' }}</small></td>
+              <td class="text-end fw-semibold">
+                ${{ "{:,.0f}".format(p.precio_base).replace(",",".") }}
+              </td>
+              <td class="text-center">
+                {% if p.descuento_catalogo %}
+                <span class="badge bg-danger">-{{ p.descuento_catalogo | int }}%</span>
+                {% else %}—{% endif %}
+              </td>
+              <td class="text-center">
+                <span class="{{ 'text-success fw-bold' if p.stock_actual > 3 else
+                                'text-warning fw-bold' if p.stock_actual > 0 else
+                                'text-danger' }}">{{ p.stock_actual }}</span>
+              </td>
+              <td class="text-center">
+                <a href="{{ url_for('productos_fotos', sku=p.sku) }}"
+                   class="text-decoration-none">
+                  {% if p.cant_fotos > 0 %}
+                  <span class="badge bg-info text-dark">{{ p.cant_fotos }} 📷</span>
+                  {% else %}
+                  <span class="badge bg-light text-danger border">Sin fotos</span>
+                  {% endif %}
+                </a>
+              </td>
+              <td class="text-center">
+                <div class="form-check form-switch d-flex justify-content-center mb-0">
+                  <input class="form-check-input toggle-activo" type="checkbox" role="switch"
+                         data-id="{{ p.id }}" data-sku="{{ p.sku }}"
+                         {{ 'checked' if p.activo else '' }}
+                         style="cursor:pointer; width:2.2em; height:1.2em;">
+                </div>
+              </td>
+              <td class="text-center">
+                <a href="{{ url_for('productos_editar', pid=p.id) }}"
+                   class="btn btn-xs btn-outline-secondary" title="Editar">✏️</a>
+                <a href="{{ url_for('productos_fotos', sku=p.sku) }}"
+                   class="btn btn-xs btn-outline-info" title="Fotos">🖼️</a>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="11" class="text-center text-muted py-4">Sin resultados</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card-footer text-muted small">
+      {{ productos | length }} producto(s) encontrado(s)
+    </div>
+  </div>
+</div>
+
+<style>
+.btn-xs { padding: 2px 7px; font-size: 12px; border-radius: 5px; }
+.opacity-60 { opacity: 0.55; }
+</style>
+
+<script>
+document.querySelectorAll('.toggle-activo').forEach(function(sw) {
+  sw.addEventListener('change', function() {
+    const id  = this.dataset.id;
+    const sku = this.dataset.sku;
+    const row = document.getElementById('row-' + id);
+    fetch('/productos/toggle/' + id, { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) {
+          if (data.activo) {
+            row.classList.remove('table-secondary', 'opacity-60');
+          } else {
+            row.classList.add('table-secondary', 'opacity-60');
+          }
+          // Toast rápido
+          const t = document.createElement('div');
+          t.className = 'alert alert-success alert-dismissible position-fixed bottom-0 end-0 m-3 py-2 px-3';
+          t.style.zIndex = 9999;
+          t.innerHTML = data.msg + '<button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>';
+          document.body.appendChild(t);
+          setTimeout(() => t.remove(), 2500);
+        } else {
+          alert('Error: ' + data.msg);
+          this.checked = !this.checked;
+        }
+      })
+      .catch(() => { alert('Error de conexión'); this.checked = !this.checked; });
+  });
+});
+</script>
+{% endblock %}

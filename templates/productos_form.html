@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Nuevo Producto' if modo=='nuevo' else 'Editar ' + producto.sku }}{% endblock %}
+{% block content %}
+<div class="container py-4" style="max-width:720px">
+
+  <div class="d-flex align-items-center gap-2 mb-4">
+    <a href="{{ url_for('productos_lista') }}" class="btn btn-sm btn-outline-secondary">← Volver</a>
+    <h5 class="mb-0 fw-bold">
+      {{ '➕ Nuevo producto' if modo=='nuevo' else '✏️ Editar ' + producto.sku }}
+    </h5>
+  </div>
+
+  <form method="POST">
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header fw-semibold bg-light">Datos básicos</div>
+      <div class="card-body">
+        <div class="row g-3">
+
+          <div class="col-md-4">
+            <label class="form-label">SKU *</label>
+            <input type="text" name="sku" class="form-control"
+                   value="{{ producto.sku if producto else '' }}"
+                   {{ 'readonly' if modo=='editar' else '' }} required
+                   placeholder="Ej: CTR80" style="text-transform:uppercase">
+          </div>
+
+          <div class="col-md-8">
+            <label class="form-label">Nombre *</label>
+            <input type="text" name="nombre" class="form-control"
+                   value="{{ producto.nombre if producto else '' }}" required
+                   placeholder="Ej: Colchón Cannon Tropical 80x190">
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Tipo *</label>
+            <select name="tipo" class="form-select" required>
+              {% for val, lbl in [('colchon','Colchón'),('conjunto','Conjunto (con sommier)'),('almohada','Almohada'),('base','Base/Sommier')] %}
+              <option value="{{ val }}"
+                {{ 'selected' if producto and producto.tipo == val else '' }}>{{ lbl }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Línea</label>
+            <select name="linea" class="form-select">
+              <option value="">— Sin línea —</option>
+              {% for val, lbl in [('espuma','Espuma'),('resortes','Resortes'),('box','Colchón en Caja'),('almohadas','Almohadas')] %}
+              <option value="{{ val }}"
+                {{ 'selected' if producto and producto.linea == val else '' }}>{{ lbl }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Modelo</label>
+            <input type="text" name="modelo" class="form-control"
+                   value="{{ producto.modelo if producto else '' }}"
+                   placeholder="Ej: Tropical">
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Medida</label>
+            <input type="text" name="medida" class="form-control"
+                   value="{{ producto.medida if producto else '' }}"
+                   placeholder="Ej: 80x190">
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Tipo base</label>
+            <select name="tipo_base" class="form-select">
+              <option value="">— N/A —</option>
+              {% for val in ['normal','tapizada','dividida'] %}
+              <option value="{{ val }}"
+                {{ 'selected' if producto and producto.tipo_base == val else '' }}>{{ val | title }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Modelo almohada</label>
+            <input type="text" name="modelo_almohada" class="form-control"
+                   value="{{ producto.modelo_almohada if producto else '' }}"
+                   placeholder="Solo si es almohada">
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header fw-semibold bg-light">Precio y stock</div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Precio base * ($)</label>
+            <input type="number" name="precio_base" class="form-control"
+                   value="{{ producto.precio_base if producto else '' }}"
+                   step="0.01" min="0" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Descuento catálogo (%)</label>
+            <input type="number" name="descuento_catalogo" class="form-control"
+                   value="{{ producto.descuento_catalogo if producto else '' }}"
+                   step="0.01" min="0" max="100" placeholder="Ej: 7">
+          </div>
+          {% if modo == 'nuevo' %}
+          <div class="col-md-4">
+            <label class="form-label">Stock inicial</label>
+            <input type="number" name="stock_actual" class="form-control"
+                   value="0" min="0">
+          </div>
+          {% endif %}
+          <div class="col-md-4">
+            <label class="form-label">Stock mín. para pausar</label>
+            <input type="number" name="stock_minimo_pausar" class="form-control"
+                   value="{{ producto.stock_minimo_pausar if producto else '0' }}" min="0">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Stock mín. para reactivar</label>
+            <input type="number" name="stock_minimo_reactivar" class="form-control"
+                   value="{{ producto.stock_minimo_reactivar if producto else '1' }}" min="1">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-header fw-semibold bg-light">Dimensiones y peso <small class="text-muted">(para cotización de envío)</small></div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label class="form-label">Peso (gramos)</label>
+            <input type="number" name="peso_gramos" class="form-control"
+                   value="{{ producto.peso_gramos if producto else '' }}" min="0">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Alto (cm)</label>
+            <input type="number" name="alto_cm" class="form-control"
+                   value="{{ producto.alto_cm if producto else '' }}" min="0">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Ancho (cm)</label>
+            <input type="number" name="ancho_cm" class="form-control"
+                   value="{{ producto.ancho_cm if producto else '' }}" min="0">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Largo (cm)</label>
+            <input type="number" name="largo_cm" class="form-control"
+                   value="{{ producto.largo_cm if producto else '' }}" min="0">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">
+        {{ '✅ Crear producto' if modo=='nuevo' else '💾 Guardar cambios' }}
+      </button>
+      <a href="{{ url_for('productos_lista') }}" class="btn btn-outline-secondary">Cancelar</a>
+      {% if modo == 'editar' %}
+      <a href="{{ url_for('productos_fotos', sku=producto.sku) }}"
+         class="btn btn-outline-info ms-auto">🖼️ Gestionar fotos</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+{% endblock %}
