@@ -38,7 +38,7 @@
           <thead class="table-dark">
             <tr>
               <th>SKU</th>
-              <th>Nombre</th>
+              <th style="max-width:140px">Nombre</th>
               <th>Tipo</th>
               <th style="width:130px">Precio ($)</th>
               <th style="width:110px" class="text-info">P. Costos 💡</th>
@@ -53,7 +53,7 @@
             <tr data-sku="{{ p.sku }}" data-origen="base" data-tipo="{{ p.tipo }}" data-nombre="{{ p.nombre }}"
                 data-precio-costos="{{ pc or '' }}">
               <td><small class="text-muted font-monospace">{{ p.sku }}</small></td>
-              <td>{{ p.nombre }}</td>
+              <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ p.nombre }}">{{ p.nombre }}</td>
               <td><span class="badge bg-secondary">{{ p.tipo }}</span></td>
               <td>
                 <input type="number" class="form-control form-control-sm precio-input"
@@ -94,7 +94,7 @@
             <tr data-sku="{{ b.sku }}" data-origen="base" data-tipo="base" data-nombre="{{ b.nombre }}"
                 data-precio-costos="{{ pc or '' }}">
               <td><small class="text-muted font-monospace">{{ b.sku }}</small></td>
-              <td>{{ b.nombre }}</td>
+              <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ b.nombre }}">{{ b.nombre }}</td>
               <td><span class="badge bg-warning text-dark">Base</span></td>
               <td>
                 <input type="number" class="form-control form-control-sm precio-input"
