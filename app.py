@@ -12141,42 +12141,59 @@ def productos_nuevo():
 @admin_required
 def productos_editar(sku):
     _crear_tablas_productos()
+    # Buscar en productos_base primero, luego en productos_compuestos
     producto = query_one("SELECT * FROM productos_base WHERE sku=%s", (sku,))
+    es_sommier = False
     if not producto:
-        flash('Producto no encontrado', 'error')
-        return redirect(url_for('productos_lista'))
+        pc = query_one("SELECT id, sku, nombre, activo FROM productos_compuestos WHERE sku=%s", (sku,))
+        if not pc:
+            flash('Producto no encontrado', 'error')
+            return redirect(url_for('productos_lista'))
+        # Normalizar como dict compatible con el form
+        producto = {
+            'id': pc['id'], 'sku': pc['sku'], 'nombre': pc['nombre'],
+            'tipo': 'sommier', 'linea': None, 'modelo': None, 'medida': None,
+            'tipo_base': None, 'modelo_almohada': None,
+            'precio_base': 0, 'descuento_catalogo': None,
+            'stock_actual': 0, 'activo': pc['activo'],
+            'stock_minimo_pausar': 0, 'stock_minimo_reactivar': 1,
+            'peso_gramos': None, 'alto_cm': None, 'ancho_cm': None, 'largo_cm': None,
+        }
+        es_sommier = True
 
     if request.method == 'POST':
-        nombre            = request.form.get('nombre', '').strip()
-        linea             = request.form.get('linea', '').strip()
-        modelo            = request.form.get('modelo', '').strip()
-        medida            = request.form.get('medida', '').strip()
-        tipo_base         = request.form.get('tipo_base', '').strip() or None
-        modelo_almohada   = request.form.get('modelo_almohada', '').strip() or None
-        precio_base       = float(request.form.get('precio_base', 0) or 0)
-        descuento_catalogo = float(request.form.get('descuento_catalogo', 0) or 0) or None
-        stock_min_pausar  = int(request.form.get('stock_minimo_pausar', 0) or 0)
-        stock_min_reactiv = int(request.form.get('stock_minimo_reactivar', 1) or 1)
-        peso_gramos       = int(request.form.get('peso_gramos', 0) or 0) or None
-        alto_cm           = float(request.form.get('alto_cm', 0) or 0) or None
-        ancho_cm          = float(request.form.get('ancho_cm', 0) or 0) or None
-        largo_cm          = float(request.form.get('largo_cm', 0) or 0) or None
-
-        execute_db("""
-            UPDATE productos_base SET
-                nombre=%s, linea=%s, modelo=%s, medida=%s,
-                tipo_base=%s, modelo_almohada=%s,
-                precio_base=%s, descuento_catalogo=%s,
-                stock_minimo_pausar=%s, stock_minimo_reactivar=%s,
-                peso_gramos=%s, alto_cm=%s, ancho_cm=%s, largo_cm=%s
-            WHERE sku=%s
-        """, (nombre, linea, modelo, medida,
-              tipo_base, modelo_almohada,
-              precio_base, descuento_catalogo,
-              stock_min_pausar, stock_min_reactiv,
-              peso_gramos, alto_cm, ancho_cm, largo_cm,
-              sku))
+        nombre = request.form.get('nombre', '').strip()
+        if es_sommier:
+            execute_db("UPDATE productos_compuestos SET nombre=%s WHERE sku=%s", (nombre, sku))
+        else:
+            linea             = request.form.get('linea', '').strip()
+            modelo            = request.form.get('modelo', '').strip()
+            medida            = request.form.get('medida', '').strip()
+            tipo_base         = request.form.get('tipo_base', '').strip() or None
+            modelo_almohada   = request.form.get('modelo_almohada', '').strip() or None
+            precio_base       = float(request.form.get('precio_base', 0) or 0)
+            descuento_catalogo = float(request.form.get('descuento_catalogo', 0) or 0) or None
+            stock_min_pausar  = int(request.form.get('stock_minimo_pausar', 0) or 0)
+            stock_min_reactiv = int(request.form.get('stock_minimo_reactivar', 1) or 1)
+            peso_gramos       = int(request.form.get('peso_gramos', 0) or 0) or None
+            alto_cm           = float(request.form.get('alto_cm', 0) or 0) or None
+            ancho_cm          = float(request.form.get('ancho_cm', 0) or 0) or None
+            largo_cm          = float(request.form.get('largo_cm', 0) or 0) or None
+            execute_db("""
+                UPDATE productos_base SET
+                    nombre=%s, linea=%s, modelo=%s, medida=%s,
+                    tipo_base=%s, modelo_almohada=%s,
+                    precio_base=%s, descuento_catalogo=%s,
+                    stock_minimo_pausar=%s, stock_minimo_reactivar=%s,
+                    peso_gramos=%s, alto_cm=%s, ancho_cm=%s, largo_cm=%s
+                WHERE sku=%s
+            """, (nombre, linea, modelo, medida,
+                  tipo_base, modelo_almohada,
+                  precio_base, descuento_catalogo,
+                  stock_min_pausar, stock_min_reactiv,
+                  peso_gramos, alto_cm, ancho_cm, largo_cm,
+                  sku))
         flash('Producto actualizado correctamente', 'success')
         return redirect(url_for('productos_lista'))
 
-    return render_template('productos_form.html', producto=producto, modo='editar')
+    return render_template('productos_form.html', producto=producto, modo='editar', es_sommier=es_sommier)
