@@ -11075,11 +11075,10 @@ def _get_precio_costos_sku(sku, porcentajes_ml=None):
             if 'PLATINO' in desc: return 'platino'
             if 'DORAL' in desc: return 'doral'
             if 'SUBLIME' in desc: return 'sublime'
-            if 'BASE' in desc: return 'bases'
+            if 'BASE' in desc or sku_up.startswith('BASE_') or desc.startswith('SOM '): return 'bases'
             return None
 
         clave = _detectar_clave_simple(cp['descripcion'], sku_col.upper())
-        desc_entry = descuentos.get(clave, {'valor': 0, 'desc_adicional': 0}) if clave else {'valor': 0, 'desc_adicional': 0}
         desc_linea = desc_entry['valor']
         desc_adi = desc_entry['desc_adicional'] + float(cp['desc_adicional'] or 0)
 
@@ -11203,8 +11202,8 @@ def _build_precio_costos_map():
             elif 'SONAR' in desc or 'SOÑAR' in desc: clave = 'sonar'
             elif 'PLATINO' in desc: clave = 'platino'
             elif 'DORAL' in desc: clave = 'doral'
+            elif 'BASE' in desc or sku.startswith('BASE_') or desc.startswith('SOM '): clave = 'bases'
             elif 'SUBLIME' in desc: clave = 'sublime'
-            elif 'BASE' in desc: clave = 'bases'
             desc_entry = descuentos.get(clave, {'valor': 0, 'desc_adicional': 0}) if clave else {'valor': 0, 'desc_adicional': 0}
             desc_adi = desc_entry['desc_adicional'] + float(r['desc_adicional'] or 0)
             precio = round(_calcular_precio_lista(
@@ -11323,10 +11322,8 @@ def costos_importar():
             insertados = 0
             for row in ws.iter_rows(values_only=True):
                 codigo = row[0]
-                if tipo == 'lista':
-                    precio = row[2]
-                else:
-                    precio = row[3]  # precio neto almohadas
+                # Siempre usar columna D (índice 3) = Precio Neto
+                precio = row[3]
                 if not codigo or not isinstance(codigo, (int, float)):
                     continue
                 if not precio or not isinstance(precio, (int, float)):
