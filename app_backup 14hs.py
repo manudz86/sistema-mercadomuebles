@@ -11952,35 +11952,13 @@ def productos_lista():
             }
         return jsonify(productos=[p_json(p) for p in productos], total=len(productos))
 
-    demora_row = query_one("SELECT valor FROM configuracion WHERE clave='demora_sin_stock'")
-    demora_dias = int(demora_row['valor']) if demora_row and demora_row['valor'] else 0
-
     return render_template('productos_lista.html',
-        productos   = productos,
-        busq        = busq,
-        linea_sel   = linea_sel,
-        lineas      = lineas,
-        filtro      = filtro,
-        demora_dias = demora_dias,
+        productos = productos,
+        busq      = busq,
+        linea_sel = linea_sel,
+        lineas    = lineas,
+        filtro    = filtro,
     )
-
-
-@app.route('/productos/demora', methods=['POST'])
-@admin_required
-def productos_demora_guardar():
-    dias = request.form.get('dias', '').strip()
-    try:
-        if dias == '' or int(dias) == 0:
-            execute_db("INSERT INTO configuracion (clave, valor) VALUES ('demora_sin_stock', '0') ON DUPLICATE KEY UPDATE valor='0'")
-            return jsonify(ok=True, dias=0, msg='Demora desactivada')
-        dias_int = max(1, int(dias))
-        execute_db(
-            "INSERT INTO configuracion (clave, valor) VALUES ('demora_sin_stock', %s) ON DUPLICATE KEY UPDATE valor=%s",
-            (str(dias_int), str(dias_int))
-        )
-        return jsonify(ok=True, dias=dias_int, msg=f'Demora guardada: {dias_int} días')
-    except Exception as e:
-        return jsonify(ok=False, msg=str(e))
 
 
 @app.route('/productos/toggle/<sku>', methods=['POST'])

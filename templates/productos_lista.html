@@ -14,6 +14,33 @@
     </a>
   </div>
 
+  <!-- Config demora sin stock -->
+  <div class="card border-0 shadow-sm mb-3" style="border-left:4px solid #f59e0b!important;">
+    <div class="card-body py-2">
+      <div class="row g-2 align-items-center">
+        <div class="col-auto">
+          <span class="fw-semibold">⏳ Demora sin stock</span>
+          <small class="text-muted ms-1">días que se muestran al cliente cuando no hay stock inmediato</small>
+        </div>
+        <div class="col-auto ms-auto d-flex align-items-center gap-2">
+          <div class="input-group input-group-sm" style="width:160px">
+            <input type="number" id="demora-input" class="form-control" min="0" max="60"
+                   value="{{ demora_dias }}" placeholder="0 = desactivado">
+            <span class="input-group-text">días</span>
+          </div>
+          <button id="btn-demora-guardar" class="btn btn-sm btn-warning">Guardar</button>
+          {% if demora_dias %}
+          <button id="btn-demora-desactivar" class="btn btn-sm btn-outline-secondary">Desactivar</button>
+          {% endif %}
+          <span id="demora-status" class="small ms-1
+            {{ 'text-success' if demora_dias else 'text-muted' }}">
+            {{ '✅ Activa: ' ~ demora_dias ~ ' días' if demora_dias else '⛔ Desactivada' }}
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Filtros -->
   <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-2">
@@ -276,5 +303,40 @@ function bindToggles() {
   });
 }
 bindToggles();
+
+// ── Demora sin stock ──────────────────────────────────────────────────────────
+document.getElementById('btn-demora-guardar').addEventListener('click', function() {
+  const dias = document.getElementById('demora-input').value;
+  const fd = new FormData();
+  fd.append('dias', dias);
+  fetch('/productos/demora', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(d => {
+      const st = document.getElementById('demora-status');
+      if (d.ok) {
+        st.className = 'small ms-1 ' + (d.dias > 0 ? 'text-success' : 'text-muted');
+        st.textContent = d.dias > 0 ? '✅ Activa: ' + d.dias + ' días' : '⛔ Desactivada';
+        // Mostrar/ocultar botón desactivar
+        const btnDes = document.getElementById('btn-demora-desactivar');
+        if (btnDes) btnDes.style.display = d.dias > 0 ? '' : 'none';
+        const t = document.createElement('div');
+        t.className = 'alert alert-success alert-dismissible position-fixed bottom-0 end-0 m-3 py-2 px-3';
+        t.style.zIndex = 9999;
+        t.innerHTML = d.msg + '<button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>';
+        document.body.appendChild(t);
+        setTimeout(() => t.remove(), 2500);
+      } else {
+        alert('Error: ' + d.msg);
+      }
+    });
+});
+
+const btnDes = document.getElementById('btn-demora-desactivar');
+if (btnDes) {
+  btnDes.addEventListener('click', function() {
+    document.getElementById('demora-input').value = '0';
+    document.getElementById('btn-demora-guardar').click();
+  });
+}
 </script>
 {% endblock %}
