@@ -17,13 +17,15 @@
   <!-- Filtros -->
   <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-2">
-      <form method="GET" class="row g-2 align-items-center">
-        <div class="col-auto">
-          <input type="text" name="q" value="{{ busq }}" placeholder="SKU, nombre o modelo..."
-            class="form-control form-control-sm" style="width:220px">
+      <div class="row g-2 align-items-center">
+        <div class="col-auto position-relative">
+          <input type="text" id="buscador" value="{{ busq }}" placeholder="SKU, nombre o modelo..."
+            class="form-control form-control-sm" style="width:240px" autocomplete="off">
+          <span id="spinner-busq" class="position-absolute"
+                style="right:10px;top:50%;transform:translateY(-50%);display:none;font-size:12px">⏳</span>
         </div>
         <div class="col-auto">
-          <select name="linea" class="form-select form-select-sm" onchange="this.form.submit()">
+          <select id="sel-linea" class="form-select form-select-sm">
             <option value="">Todas las líneas</option>
             {% for l in lineas %}
             <option value="{{ l }}" {% if l == linea_sel %}selected{% endif %}>{{ l | title }}</option>
@@ -31,20 +33,22 @@
           </select>
         </div>
         <div class="col-auto">
-          <div class="btn-group btn-group-sm">
-            <a href="?filtro=todos&q={{ busq }}&linea={{ linea_sel }}"
-               class="btn {{ 'btn-dark' if filtro=='todos' else 'btn-outline-secondary' }}">Todos</a>
-            <a href="?filtro=activos&q={{ busq }}&linea={{ linea_sel }}"
-               class="btn {{ 'btn-success' if filtro=='activos' else 'btn-outline-secondary' }}">Activos</a>
-            <a href="?filtro=inactivos&q={{ busq }}&linea={{ linea_sel }}"
-               class="btn {{ 'btn-danger' if filtro=='inactivos' else 'btn-outline-secondary' }}">Inactivos</a>
+          <div class="btn-group btn-group-sm" id="btn-filtro">
+            <button type="button" data-filtro="todos"
+               class="btn {{ 'btn-dark' if filtro=='todos' else 'btn-outline-secondary' }}">Todos</button>
+            <button type="button" data-filtro="activos"
+               class="btn {{ 'btn-success' if filtro=='activos' else 'btn-outline-secondary' }}">Activos</button>
+            <button type="button" data-filtro="inactivos"
+               class="btn {{ 'btn-danger' if filtro=='inactivos' else 'btn-outline-secondary' }}">Inactivos</button>
           </div>
         </div>
         <div class="col-auto">
-          <button class="btn btn-sm btn-primary">Buscar</button>
-          <a href="{{ url_for('productos_lista') }}" class="btn btn-sm btn-outline-secondary">Limpiar</a>
+          <button id="btn-limpiar" class="btn btn-sm btn-outline-secondary">Limpiar</button>
         </div>
-      </form>
+        <div class="col-auto ms-auto">
+          <span id="contador" class="text-muted small">{{ productos|length }} producto(s)</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -55,7 +59,7 @@
         <table class="table table-hover table-sm mb-0 align-middle">
           <thead class="table-light">
             <tr>
-              <th style="width:60px">Foto</th>
+              <th style="width:44px"></th>
               <th>SKU</th>
               <th>Nombre</th>
               <th>Línea</th>
@@ -68,17 +72,12 @@
               <th class="text-center">Acciones</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody id="tbody-productos">
             {% for p in productos %}
             <tr id="row-{{ p.id }}" class="{{ '' if p.activo else 'table-secondary opacity-60' }}">
               <td>
-                {% if p.foto_thumb %}
-                <img src="{{ p.foto_thumb }}" width="44" height="44"
-                     style="object-fit:cover; border-radius:6px; border:1px solid #e0e0e0;">
-                {% else %}
                 <div style="width:44px;height:44px;background:#f5f5f5;border-radius:6px;
                             display:flex;align-items:center;justify-content:center;color:#bbb;font-size:18px;">📷</div>
-                {% endif %}
               </td>
               <td><code class="text-dark fw-semibold">{{ p.sku }}</code></td>
               <td>
@@ -109,8 +108,7 @@
                                 'text-danger' }}">{{ p.stock_actual }}</span>
               </td>
               <td class="text-center">
-                <a href="{{ url_for('productos_fotos', sku=p.sku) }}"
-                   class="text-decoration-none">
+                <a href="{{ url_for('productos_fotos', sku=p.sku) }}" class="text-decoration-none">
                   {% if p.cant_fotos > 0 %}
                   <span class="badge bg-info text-dark">{{ p.cant_fotos }} 📷</span>
                   {% else %}
@@ -140,9 +138,6 @@
         </table>
       </div>
     </div>
-    <div class="card-footer text-muted small">
-      {{ productos | length }} producto(s) encontrado(s)
-    </div>
   </div>
 </div>
 
@@ -152,34 +147,134 @@
 </style>
 
 <script>
-document.querySelectorAll('.toggle-activo').forEach(function(sw) {
-  sw.addEventListener('change', function() {
-    const id  = this.dataset.id;
-    const sku = this.dataset.sku;
-    const row = document.getElementById('row-' + id);
-    fetch('/productos/toggle/' + encodeURIComponent(sku), { method: 'POST' })
-      .then(r => r.json())
-      .then(data => {
-        if (data.ok) {
-          if (data.activo) {
-            row.classList.remove('table-secondary', 'opacity-60');
-          } else {
-            row.classList.add('table-secondary', 'opacity-60');
-          }
-          // Toast rápido
-          const t = document.createElement('div');
-          t.className = 'alert alert-success alert-dismissible position-fixed bottom-0 end-0 m-3 py-2 px-3';
-          t.style.zIndex = 9999;
-          t.innerHTML = data.msg + '<button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>';
-          document.body.appendChild(t);
-          setTimeout(() => t.remove(), 2500);
-        } else {
-          alert('Error: ' + data.msg);
-          this.checked = !this.checked;
-        }
-      })
-      .catch(() => { alert('Error de conexión'); this.checked = !this.checked; });
-  });
+let filtroActual = '{{ filtro }}';
+let lineaActual  = '{{ linea_sel }}';
+let debounceTimer = null;
+
+function fmt(n) {
+  return '$' + Math.round(n).toLocaleString('es-AR');
+}
+function lineaBadge(linea) {
+  if (!linea) return '';
+  const cls = linea === 'espuma'   ? 'bg-success' :
+              linea === 'resortes' ? 'bg-primary'  :
+              linea === 'box'      ? 'bg-warning text-dark' : 'bg-secondary';
+  return `<span class="badge rounded-pill ${cls}">${linea}</span>`;
+}
+function stockClass(s) {
+  return s > 3 ? 'text-success fw-bold' : s > 0 ? 'text-warning fw-bold' : 'text-danger';
+}
+function renderFila(p) {
+  const rowCls = p.activo ? '' : 'table-secondary opacity-60';
+  const chk    = p.activo ? 'checked' : '';
+  const fotos  = p.cant_fotos > 0
+    ? `<span class="badge bg-info text-dark">${p.cant_fotos} 📷</span>`
+    : `<span class="badge bg-light text-danger border">Sin fotos</span>`;
+  const desc   = p.descuento_catalogo
+    ? `<span class="badge bg-danger">-${Math.round(p.descuento_catalogo)}%</span>` : '—';
+  const modelo = p.modelo ? `<br><small class="text-muted">${p.modelo}</small>` : '';
+  return `<tr id="row-${p.id}" class="${rowCls}">
+    <td><div style="width:44px;height:44px;background:#f5f5f5;border-radius:6px;
+        display:flex;align-items:center;justify-content:center;color:#bbb;font-size:18px;">📷</div></td>
+    <td><code class="text-dark fw-semibold">${p.sku}</code></td>
+    <td><span class="fw-medium">${p.nombre}</span>${modelo}</td>
+    <td>${lineaBadge(p.linea)}</td>
+    <td><small>${p.medida || '—'}</small></td>
+    <td class="text-end fw-semibold">${fmt(p.precio_base)}</td>
+    <td class="text-center">${desc}</td>
+    <td class="text-center"><span class="${stockClass(p.stock_actual)}">${p.stock_actual}</span></td>
+    <td class="text-center"><a href="/productos/${p.sku}/fotos" class="text-decoration-none">${fotos}</a></td>
+    <td class="text-center">
+      <div class="form-check form-switch d-flex justify-content-center mb-0">
+        <input class="form-check-input toggle-activo" type="checkbox" role="switch"
+               data-id="${p.id}" data-sku="${p.sku}" ${chk}
+               style="cursor:pointer;width:2.2em;height:1.2em;">
+      </div>
+    </td>
+    <td class="text-center">
+      <a href="/productos/editar/${p.id}" class="btn btn-xs btn-outline-secondary">✏️</a>
+      <a href="/productos/${p.sku}/fotos" class="btn btn-xs btn-outline-info">🖼️</a>
+    </td>
+  </tr>`;
+}
+
+function buscar() {
+  const q = document.getElementById('buscador').value.trim();
+  const params = new URLSearchParams({ json: 1, filtro: filtroActual });
+  if (q)           params.set('q', q);
+  if (lineaActual) params.set('linea', lineaActual);
+  document.getElementById('spinner-busq').style.display = 'inline';
+  fetch('/productos?' + params.toString())
+    .then(r => r.json())
+    .then(data => {
+      const tbody = document.getElementById('tbody-productos');
+      tbody.innerHTML = data.productos.length
+        ? data.productos.map(renderFila).join('')
+        : '<tr><td colspan="11" class="text-center text-muted py-4">Sin resultados</td></tr>';
+      bindToggles();
+      document.getElementById('contador').textContent = data.total + ' producto(s)';
+    })
+    .catch(() => {})
+    .finally(() => { document.getElementById('spinner-busq').style.display = 'none'; });
+}
+
+document.getElementById('buscador').addEventListener('input', function() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(buscar, 300);
 });
+
+document.getElementById('btn-filtro').addEventListener('click', function(e) {
+  const btn = e.target.closest('button[data-filtro]');
+  if (!btn) return;
+  filtroActual = btn.dataset.filtro;
+  this.querySelectorAll('button').forEach(b => { b.className = 'btn btn-outline-secondary'; });
+  btn.className = 'btn ' + (filtroActual==='activos' ? 'btn-success' : filtroActual==='inactivos' ? 'btn-danger' : 'btn-dark');
+  buscar();
+});
+
+document.getElementById('sel-linea').addEventListener('change', function() {
+  lineaActual = this.value;
+  buscar();
+});
+
+document.getElementById('btn-limpiar').addEventListener('click', function() {
+  document.getElementById('buscador').value = '';
+  document.getElementById('sel-linea').value = '';
+  filtroActual = 'todos';
+  lineaActual  = '';
+  document.getElementById('btn-filtro').querySelectorAll('button').forEach((b, i) => {
+    b.className = i === 0 ? 'btn btn-dark' : 'btn btn-outline-secondary';
+  });
+  buscar();
+});
+
+function bindToggles() {
+  document.querySelectorAll('.toggle-activo').forEach(function(sw) {
+    sw.addEventListener('change', function() {
+      const sku = this.dataset.sku;
+      const id  = this.dataset.id;
+      const row = document.getElementById('row-' + id);
+      const self = this;
+      fetch('/productos/toggle/' + encodeURIComponent(sku), { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          if (data.ok) {
+            row.classList[data.activo ? 'remove' : 'add']('table-secondary', 'opacity-60');
+            const t = document.createElement('div');
+            t.className = 'alert alert-success alert-dismissible position-fixed bottom-0 end-0 m-3 py-2 px-3';
+            t.style.zIndex = 9999;
+            t.innerHTML = data.msg + '<button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>';
+            document.body.appendChild(t);
+            setTimeout(() => t.remove(), 2500);
+          } else {
+            alert('Error: ' + data.msg);
+            self.checked = !self.checked;
+          }
+        })
+        .catch(() => { alert('Error de conexión'); self.checked = !self.checked; });
+    });
+  });
+}
+bindToggles();
 </script>
 {% endblock %}

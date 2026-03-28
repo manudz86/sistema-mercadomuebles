@@ -11933,6 +11933,25 @@ def productos_lista():
     """)
     lineas = [r['linea'] for r in lineas_rows]
 
+    # Modo JSON para búsqueda en tiempo real
+    if request.args.get('json'):
+        def p_json(p):
+            return {
+                'id':               p['id'],
+                'sku':              p['sku'],
+                'nombre':           p['nombre'],
+                'tipo':             p['tipo'],
+                'linea':            p['linea'],
+                'modelo':           p['modelo'],
+                'medida':           p['medida'],
+                'precio_base':      float(p['precio_base'] or 0),
+                'descuento_catalogo': float(p['descuento_catalogo'] or 0),
+                'stock_actual':     int(p['stock_actual'] or 0),
+                'activo':           bool(p['activo']),
+                'cant_fotos':       int(p['cant_fotos'] or 0),
+            }
+        return jsonify(productos=[p_json(p) for p in productos], total=len(productos))
+
     return render_template('productos_lista.html',
         productos = productos,
         busq      = busq,
