@@ -11783,13 +11783,8 @@ def costos_aplicar():
 # CATÁLOGO DE PRODUCTOS
 # ============================================================================
 
-_tablas_productos_ok = False
-
 def _crear_tablas_productos():
-    """Tabla de fotos y columnas opcionales en productos_base. Solo corre una vez por proceso."""
-    global _tablas_productos_ok
-    if _tablas_productos_ok:
-        return
+    """Tabla de fotos y columnas opcionales en productos_base."""
     execute_db("""
         CREATE TABLE IF NOT EXISTS productos_fotos (
             id         INT AUTO_INCREMENT PRIMARY KEY,
@@ -11818,7 +11813,6 @@ def _crear_tablas_productos():
             execute_db(f"ALTER TABLE productos_base ADD COLUMN {col} {defn}")
         except Exception:
             pass  # columna ya existe
-    _tablas_productos_ok = True
 
 
 def _get_fotos(sku):
