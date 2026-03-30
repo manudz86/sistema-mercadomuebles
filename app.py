@@ -12403,14 +12403,25 @@ def cotizador_cotizar():
 
         opciones = []
         for r in resultados:
-            price = r.get('total_price') or r.get('price') or 0
+            amounts = r.get('amounts', {})
+            price = (amounts.get('price_incl_tax')
+                     or amounts.get('price')
+                     or r.get('total_price')
+                     or r.get('price') or 0)
+            carrier = r.get('carrier', {})
+            service = r.get('service_type', {})
+            delivery = r.get('delivery_time', {})
+            times = delivery.get('times', {}).get('total', {})
+            dias_min = delivery.get('min') or ''
+            dias_max = delivery.get('max') or ''
+            dias_str = f"{dias_min}-{dias_max}" if dias_min and dias_max else (dias_min or dias_max or '—')
             opciones.append({
-                'carrier':   r.get('carrier_name') or r.get('name') or '—',
-                'servicio':  r.get('service_name') or r.get('service') or '',
-                'precio':    float(price),
+                'carrier':    carrier.get('name') or r.get('carrier_name') or '—',
+                'servicio':   service.get('name') or r.get('service_name') or '',
+                'precio':     float(price),
                 'precio_fmt': f"${float(price):,.0f}".replace(',', '.'),
-                'dias':      r.get('estimated_days') or r.get('days') or '—',
-                'carrier_id': r.get('carrier_id') or '',
+                'dias':       dias_str,
+                'carrier_id': carrier.get('id') or r.get('carrier_id') or '',
             })
         opciones.sort(key=lambda x: x['precio'])
 
