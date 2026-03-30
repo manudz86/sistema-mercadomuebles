@@ -12401,6 +12401,14 @@ def cotizador_cotizar():
         resp.raise_for_status()
         resultados = resp.json().get('all_results') or resp.json().get('results') or []
 
+        # Filtrar solo entrega a domicilio
+        CODIGOS_DOMICILIO = {'standard_delivery', 'express_delivery', 'same_day', 'next_day'}
+        resultados = [
+            r for r in resultados
+            if (r.get('service_type') or {}).get('code', 'standard_delivery') in CODIGOS_DOMICILIO
+            or isinstance(r.get('service_type'), str) and 'pickup' not in r.get('service_type', '').lower()
+        ] or resultados  # fallback: si no hay domicilio, mostrar todos
+
         opciones = []
         for r in resultados:
             amounts = r.get('amounts', {})
@@ -12412,9 +12420,7 @@ def cotizador_cotizar():
             service = r.get('service_type', {})
             delivery = r.get('delivery_time', {})
             times = delivery.get('times', {}).get('total', {})
-            dias_min = delivery.get('min') or ''
-            dias_max = delivery.get('max') or ''
-            dias_str = f"{dias_min}-{dias_max}" if dias_min and dias_max else (dias_min or dias_max or '—')
+            dias_str = str(delivery.get('max') or delivery.get('min') or '—')
             opciones.append({
                 'carrier':    carrier.get('name') or r.get('carrier_name') or '—',
                 'servicio':   service.get('name') or r.get('service_name') or '',
