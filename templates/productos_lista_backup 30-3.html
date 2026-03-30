@@ -41,36 +41,6 @@
     </div>
   </div>
 
-  <!-- Config cupón newsletter -->
-  <div class="card border-0 shadow-sm mb-3" style="border-left:4px solid #6366f1!important;">
-    <div class="card-body py-2">
-      <div class="row g-2 align-items-center">
-        <div class="col-auto">
-          <span class="fw-semibold">🎁 Cupón Newsletter</span>
-          <small class="text-muted ms-1">descuento y compra mínima para el cupón de bienvenida</small>
-        </div>
-        <div class="col-auto ms-auto d-flex align-items-center gap-2 flex-wrap">
-          <div class="input-group input-group-sm" style="width:170px">
-            <span class="input-group-text">$</span>
-            <input type="number" id="nl-monto-input" class="form-control" min="0" step="500"
-                   value="{{ nl_monto }}" placeholder="0">
-            <span class="input-group-text">OFF</span>
-          </div>
-          <div class="input-group input-group-sm" style="width:190px">
-            <span class="input-group-text">Mín.</span>
-            <span class="input-group-text">$</span>
-            <input type="number" id="nl-minimo-input" class="form-control" min="0" step="1000"
-                   value="{{ nl_minimo }}" placeholder="0">
-          </div>
-          <button id="btn-nl-guardar" class="btn btn-sm btn-primary">Guardar</button>
-          <span id="nl-status" class="small ms-1 text-muted">
-            {{ '✅ $' ~ (nl_monto | int) | string ~ ' OFF / mín. $' ~ (nl_minimo | int) | string if nl_monto else '⛔ Sin configurar' }}
-          </span>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- Filtros -->
   <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-2">
@@ -333,27 +303,6 @@ function bindToggles() {
   });
 }
 bindToggles();
-
-// ── Cupón Newsletter ─────────────────────────────────────────────────────────
-document.getElementById('btn-nl-guardar').addEventListener('click', function() {
-  const monto  = document.getElementById('nl-monto-input').value;
-  const minimo = document.getElementById('nl-minimo-input').value;
-  const fd = new FormData();
-  fd.append('monto', monto);
-  fd.append('minimo', minimo);
-  fetch('/productos/newsletter-cupon', { method: 'POST', body: fd })
-    .then(r => r.json())
-    .then(data => {
-      const st = document.getElementById('nl-status');
-      if (data.ok) {
-        st.className = 'small ms-1 text-success';
-        st.textContent = data.msg;
-      } else {
-        st.className = 'small ms-1 text-danger';
-        st.textContent = data.msg;
-      }
-    });
-});
 
 // ── Demora sin stock ──────────────────────────────────────────────────────────
 document.getElementById('btn-demora-guardar').addEventListener('click', function() {

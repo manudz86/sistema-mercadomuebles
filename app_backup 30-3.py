@@ -11955,11 +11955,6 @@ def productos_lista():
     demora_row = query_one("SELECT valor FROM configuracion WHERE clave='demora_sin_stock'")
     demora_dias = int(demora_row['valor']) if demora_row and demora_row['valor'] else 0
 
-    nl_monto_row  = query_one("SELECT valor FROM configuracion WHERE clave='nl_monto'")
-    nl_minimo_row = query_one("SELECT valor FROM configuracion WHERE clave='nl_minimo'")
-    nl_monto  = int(nl_monto_row['valor'])  if nl_monto_row  and nl_monto_row['valor']  else 0
-    nl_minimo = int(nl_minimo_row['valor']) if nl_minimo_row and nl_minimo_row['valor'] else 0
-
     return render_template('productos_lista.html',
         productos   = productos,
         busq        = busq,
@@ -11967,8 +11962,6 @@ def productos_lista():
         lineas      = lineas,
         filtro      = filtro,
         demora_dias = demora_dias,
-        nl_monto    = nl_monto,
-        nl_minimo   = nl_minimo,
     )
 
 
@@ -11986,29 +11979,6 @@ def productos_demora_guardar():
             (str(dias_int), str(dias_int))
         )
         return jsonify(ok=True, dias=dias_int, msg=f'Demora guardada: {dias_int} días')
-    except Exception as e:
-        return jsonify(ok=False, msg=str(e))
-
-
-@app.route('/productos/newsletter-cupon', methods=['POST'])
-@admin_required
-def productos_newsletter_cupon():
-    monto  = request.form.get('monto', '').strip()
-    minimo = request.form.get('minimo', '').strip()
-    try:
-        monto_int  = max(0, int(monto))  if monto  else 0
-        minimo_int = max(0, int(minimo)) if minimo else 0
-        execute_db(
-            "INSERT INTO configuracion (clave, valor) VALUES ('nl_monto', %s) ON DUPLICATE KEY UPDATE valor=%s",
-            (str(monto_int), str(monto_int))
-        )
-        execute_db(
-            "INSERT INTO configuracion (clave, valor) VALUES ('nl_minimo', %s) ON DUPLICATE KEY UPDATE valor=%s",
-            (str(minimo_int), str(minimo_int))
-        )
-        fmt_monto  = f'${monto_int:,.0f}'.replace(',', '.')
-        fmt_minimo = f'${minimo_int:,.0f}'.replace(',', '.')
-        return jsonify(ok=True, msg=f'✅ {fmt_monto} OFF / mín. {fmt_minimo}')
     except Exception as e:
         return jsonify(ok=False, msg=str(e))
 
