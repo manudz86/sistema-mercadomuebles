@@ -1,0 +1,317 @@
+{% extends "base.html" %}
+{% block title %}Cotizador de Envíos{% endblock %}
+{% block content %}
+<div class="container-fluid px-4 py-3" style="max-width:900px">
+
+  <div class="mb-4">
+    <h4 class="fw-bold mb-0">📦 Cotizador de Envíos Zipnova</h4>
+    <small class="text-muted">Cotizá el flete de cualquier SKU sin crear una venta</small>
+  </div>
+
+  <div class="row g-3">
+
+    <!-- Panel izquierdo: formulario -->
+    <div class="col-lg-5">
+
+      <!-- SKUs -->
+      <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header fw-semibold py-2">📋 Productos</div>
+        <div class="card-body">
+          <div id="skus-lista"></div>
+          <div class="input-group input-group-sm mt-2">
+            <input type="text" id="sku-input" class="form-control"
+                   placeholder="SKU (ej: SEXP140, CTR80...)" list="sku-datalist"
+                   style="text-transform:uppercase">
+            <datalist id="sku-datalist">
+              {% for p in productos %}
+              <option value="{{ p.sku }}" label="{{ p.nombre }}">
+              {% endfor %}
+            </datalist>
+            <input type="number" id="sku-cantidad" class="form-control" style="max-width:70px"
+                   value="1" min="1" max="10">
+            <button class="btn btn-primary btn-sm" onclick="agregarSku()">+ Agregar</button>
+          </div>
+          <div id="sku-error" class="text-danger small mt-1" style="display:none"></div>
+        </div>
+      </div>
+
+      <!-- Destino -->
+      <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header fw-semibold py-2">📍 Destino</div>
+        <div class="card-body">
+          <div class="row g-2">
+            <div class="col-5">
+              <label class="form-label small fw-semibold mb-1">Código Postal</label>
+              <input type="text" id="cp-input" class="form-control form-control-sm"
+                     placeholder="Ej: 1417" maxlength="6" oninput="buscarLocalidades()">
+            </div>
+            <div class="col-7">
+              <label class="form-label small fw-semibold mb-1">Ciudad</label>
+              <select id="ciudad-select" class="form-select form-select-sm" disabled>
+                <option value="">— Ingresá el CP —</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold mb-1">Importe declarado ($)</label>
+              <input type="number" id="declared-input" class="form-control form-control-sm"
+                     placeholder="Ej: 500000" min="0" step="1000">
+              <div class="form-text">Valor del pedido para el seguro de envío</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-success w-100 fw-semibold" onclick="cotizar()">
+        🚚 Cotizar envío
+      </button>
+    </div>
+
+    <!-- Panel derecho: resultados -->
+    <div class="col-lg-7">
+
+      <!-- Bultos -->
+      <div class="card border-0 shadow-sm mb-3 d-none" id="card-bultos">
+        <div class="card-header fw-semibold py-2">📦 Bultos armados</div>
+        <div class="card-body p-0">
+          <table class="table table-sm mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Descripción</th>
+                <th class="text-end">Peso (kg)</th>
+                <th class="text-end">Dimensiones</th>
+              </tr>
+            </thead>
+            <tbody id="bultos-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Opciones de envío -->
+      <div class="card border-0 shadow-sm d-none" id="card-opciones">
+        <div class="card-header fw-semibold py-2">💰 Opciones de envío</div>
+        <div class="card-body p-0">
+          <table class="table table-hover table-sm mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Carrier</th>
+                <th>Servicio</th>
+                <th class="text-center">Días</th>
+                <th class="text-end">Precio</th>
+                <th class="text-center">Copiar</th>
+              </tr>
+            </thead>
+            <tbody id="opciones-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Error -->
+      <div class="alert alert-danger d-none" id="error-box"></div>
+
+      <!-- Loading -->
+      <div class="text-center py-4 d-none" id="loading-box">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="mt-2 text-muted small">Consultando Zipnova...</p>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Estado ────────────────────────────────────────────────────────────────────
+let skus = [];  // [{sku, cantidad, nombre}]
+
+// ── SKUs ──────────────────────────────────────────────────────────────────────
+const PRODUCTOS = {
+  {% for p in productos %}
+  '{{ p.sku }}': '{{ p.nombre | replace("'", "\\'") }}',
+  {% endfor %}
+};
+
+function agregarSku() {
+  const input = document.getElementById('sku-input');
+  const cant  = parseInt(document.getElementById('sku-cantidad').value) || 1;
+  const sku   = input.value.trim().toUpperCase();
+  const err   = document.getElementById('sku-error');
+
+  if (!sku) return;
+
+  // Verificar si existe
+  const nombre = PRODUCTOS[sku];
+  if (!nombre) {
+    err.textContent = `SKU "${sku}" no encontrado en el sistema.`;
+    err.style.display = 'block';
+    return;
+  }
+  err.style.display = 'none';
+
+  // Agregar o sumar cantidad
+  const existente = skus.find(s => s.sku === sku);
+  if (existente) {
+    existente.cantidad += cant;
+  } else {
+    skus.push({ sku, cantidad: cant, nombre });
+  }
+
+  input.value = '';
+  document.getElementById('sku-cantidad').value = 1;
+  renderSkus();
+}
+
+function quitarSku(sku) {
+  skus = skus.filter(s => s.sku !== sku);
+  renderSkus();
+}
+
+function renderSkus() {
+  const lista = document.getElementById('skus-lista');
+  if (!skus.length) {
+    lista.innerHTML = '<p class="text-muted small mb-0">Ningún producto agregado todavía.</p>';
+    return;
+  }
+  lista.innerHTML = skus.map(s => `
+    <div class="d-flex align-items-center gap-2 mb-1">
+      <span class="badge bg-primary">${s.cantidad}x</span>
+      <code class="small">${s.sku}</code>
+      <span class="small text-muted flex-grow-1">${s.nombre}</span>
+      <button class="btn btn-xs btn-outline-danger py-0 px-1"
+              onclick="quitarSku('${s.sku}')">✕</button>
+    </div>
+  `).join('');
+}
+
+// Enter en el input de SKU
+document.getElementById('sku-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') agregarSku();
+});
+
+// ── Localidades ───────────────────────────────────────────────────────────────
+let debounceCP = null;
+function buscarLocalidades() {
+  clearTimeout(debounceCP);
+  debounceCP = setTimeout(() => {
+    const cp = document.getElementById('cp-input').value.trim();
+    const sel = document.getElementById('ciudad-select');
+    if (cp.length < 3) {
+      sel.innerHTML = '<option value="">— Ingresá el CP —</option>';
+      sel.disabled = true;
+      return;
+    }
+    fetch('/cotizador-envio/localidades?cp=' + encodeURIComponent(cp))
+      .then(r => r.json())
+      .then(localidades => {
+        if (!localidades.length) {
+          sel.innerHTML = '<option value="">CP no encontrado</option>';
+          sel.disabled = true;
+          return;
+        }
+        sel.innerHTML = '<option value="">Seleccioná la ciudad...</option>' +
+          localidades.map(l => `<option value="${l}">${l}</option>`).join('');
+        sel.disabled = false;
+      });
+  }, 400);
+}
+
+// ── Cotizar ───────────────────────────────────────────────────────────────────
+function cotizar() {
+  if (!skus.length) {
+    alert('Agregá al menos un SKU.');
+    return;
+  }
+  const cp      = document.getElementById('cp-input').value.trim();
+  const ciudad  = document.getElementById('ciudad-select').value;
+  const declared = parseInt(document.getElementById('declared-input').value) || 0;
+
+  if (!cp || !ciudad) {
+    alert('Ingresá el CP y seleccioná la ciudad.');
+    return;
+  }
+
+  // UI loading
+  document.getElementById('card-bultos').classList.add('d-none');
+  document.getElementById('card-opciones').classList.add('d-none');
+  document.getElementById('error-box').classList.add('d-none');
+  document.getElementById('loading-box').classList.remove('d-none');
+
+  fetch('/cotizador-envio/cotizar', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      skus:           skus.map(s => ({sku: s.sku, cantidad: s.cantidad})),
+      cp,
+      ciudad,
+      provincia:      'Buenos Aires',
+      declared_value: declared,
+    })
+  })
+  .then(r => r.json())
+  .then(data => {
+    document.getElementById('loading-box').classList.add('d-none');
+    if (!data.ok) {
+      const box = document.getElementById('error-box');
+      box.textContent = '❌ ' + data.error;
+      box.classList.remove('d-none');
+      return;
+    }
+
+    // Bultos
+    const btbody = document.getElementById('bultos-tbody');
+    btbody.innerHTML = data.bultos.map(b => `
+      <tr>
+        <td><small>${b.description}</small></td>
+        <td class="text-end small">${(b.weight/1000).toFixed(1)} kg</td>
+        <td class="text-end small">${b.length}×${b.width}×${b.height} cm</td>
+      </tr>
+    `).join('');
+    document.getElementById('card-bultos').classList.remove('d-none');
+
+    // Opciones
+    const otbody = document.getElementById('opciones-tbody');
+    if (!data.opciones.length) {
+      otbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Sin opciones disponibles para ese destino</td></tr>';
+    } else {
+      otbody.innerHTML = data.opciones.map((o, i) => `
+        <tr ${i === 0 ? 'class="table-success"' : ''}>
+          <td class="fw-semibold">${o.carrier}</td>
+          <td class="small text-muted">${o.servicio}</td>
+          <td class="text-center small">${o.dias} días</td>
+          <td class="text-end fw-bold">${o.precio_fmt}</td>
+          <td class="text-center">
+            <button class="btn btn-xs btn-outline-secondary"
+                    onclick="copiar('${o.precio_fmt} – ${o.carrier} ${o.servicio} (${o.dias} días)')"
+                    title="Copiar">📋</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+    document.getElementById('card-opciones').classList.remove('d-none');
+  })
+  .catch(e => {
+    document.getElementById('loading-box').classList.add('d-none');
+    const box = document.getElementById('error-box');
+    box.textContent = '❌ Error de conexión: ' + e.message;
+    box.classList.remove('d-none');
+  });
+}
+
+// ── Copiar al portapapeles ────────────────────────────────────────────────────
+function copiar(texto) {
+  navigator.clipboard.writeText(texto).then(() => {
+    const t = document.createElement('div');
+    t.className = 'alert alert-success position-fixed bottom-0 end-0 m-3 py-2 px-3';
+    t.style.zIndex = 9999;
+    t.textContent = '✅ Copiado al portapapeles';
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2000);
+  });
+}
+
+// Inicializar
+renderSkus();
+</script>
+
+<style>
+.btn-xs { padding: 2px 6px; font-size: 11px; border-radius: 4px; }
+</style>
+{% endblock %}
