@@ -523,7 +523,7 @@
                                     </a>
 
                                     <!-- Botón Papel Azul -->
-                                    {% if venta.metodo_envio in ['Flete Propio', 'Flex'] %}
+                                    {% if venta.metodo_envio in ['Flete Propio', 'Flex', 'Turbo'] %}
                                     <a href="{{ url_for('papel_azul_pdf', venta_id=venta.id) }}"
                                        target="_blank"
                                        class="btn btn-sm btn-outline-dark p-0"
