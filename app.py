@@ -627,7 +627,7 @@ def exportar_ventas_activas_excel():
     query = '''SELECT v.id, v.numero_venta, v.fecha_venta, v.canal, v.mla_code,
         v.nombre_cliente, v.telefono_cliente, v.tipo_entrega, v.metodo_envio, v.zona_envio,
         v.direccion_entrega, v.costo_flete, v.metodo_pago, v.importe_total, v.importe_abonado,
-        v.estado_pago, v.notas FROM ventas v WHERE v.estado_entrega = 'pendiente' '''
+        v.estado_pago, v.notas, v.cancelada_en_ml FROM ventas v WHERE v.estado_entrega = 'pendiente' '''
     params = []
     if filtro_buscar:
         query += ' AND (v.mla_code LIKE %s OR v.nombre_cliente LIKE %s OR v.id IN (SELECT venta_id FROM items_venta WHERE sku LIKE %s))'
@@ -10360,6 +10360,12 @@ def _init_auto_import_table():
         existe = query_db("SELECT id FROM auto_import_log WHERE id = 1 LIMIT 1")
         if not existe:
             execute_db("INSERT INTO auto_import_log (id, ventas_nuevas) VALUES (1, 0)")
+        # Agregar columna cancelada_en_ml si no existe
+        try:
+            execute_db("ALTER TABLE ventas ADD COLUMN cancelada_en_ml TINYINT DEFAULT 0")
+            print("[AUTO-ML] Columna cancelada_en_ml agregada.")
+        except Exception:
+            pass  # Ya existe, ignorar
     except Exception as e:
         print(f"[AUTO-ML] Error init tabla: {e}")
 
@@ -10722,6 +10728,62 @@ def job_auto_importar_ml():
             traceback.print_exc()
 
 
+def job_verificar_cancelaciones_ml():
+    """
+    Job que corre cada 10 minutos.
+    Verifica si ventas activas importadas desde ML fueron canceladas en ML.
+    Si status == 'cancelled' → marca cancelada_en_ml = 1.
+    """
+    with app.app_context():
+        try:
+            access_token = cargar_ml_token()
+            if not access_token:
+                return
+
+            import re as _re
+            # Ventas activas de ML de los últimos 30 días
+            ventas_ml = query_db("""
+                SELECT id, numero_venta FROM ventas
+                WHERE estado_entrega = 'pendiente'
+                  AND canal = 'Mercado Libre'
+                  AND fecha_venta >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+            """)
+            if not ventas_ml:
+                return
+
+            marcadas = 0
+            for v in ventas_ml:
+                nums = _re.findall(r'\d{16}', v['numero_venta'] or '')
+                if not nums:
+                    continue
+                orden_id = nums[0]
+                try:
+                    import requests as _req
+                    r = _req.get(
+                        f'https://api.mercadolibre.com/orders/{orden_id}',
+                        headers={'Authorization': f'Bearer {access_token}'},
+                        timeout=5
+                    )
+                    if r.status_code != 200:
+                        continue
+                    data = r.json()
+                    if data.get('status') == 'cancelled':
+                        execute_db(
+                            "UPDATE ventas SET cancelada_en_ml = 1 WHERE id = %s AND cancelada_en_ml = 0",
+                            (v['id'],)
+                        )
+                        marcadas += 1
+                    time.sleep(0.3)
+                except Exception:
+                    continue
+
+            if marcadas:
+                print(f"[CANCEL-ML] ⚠️ {marcadas} venta(s) marcadas como canceladas en ML.")
+
+        except Exception as e:
+            print(f"[CANCEL-ML] Error: {e}")
+
+
 @app.route('/ventas/auto-import-toggle', methods=['POST'])
 @login_required
 def auto_import_toggle():
@@ -11017,13 +11079,21 @@ def iniciar_scheduler():
         scheduler.add_job(
             job_auto_importar_ml,
             'interval',
-            seconds=60,
+            seconds=120,
             id='auto_import_ml',
             replace_existing=True,
             max_instances=1
         )
+        scheduler.add_job(
+            job_verificar_cancelaciones_ml,
+            'interval',
+            minutes=10,
+            id='verificar_cancelaciones_ml',
+            replace_existing=True,
+            max_instances=1
+        )
         scheduler.start()
-        print("[AUTO-ML] ✅ Scheduler iniciado — auto-import cada 60s")
+        print("[AUTO-ML] ✅ Scheduler iniciado — auto-import cada 60s, cancelaciones cada 10min")
         return scheduler
     except Exception as e:
         print(f"[AUTO-ML] Error iniciando scheduler: {e}")
