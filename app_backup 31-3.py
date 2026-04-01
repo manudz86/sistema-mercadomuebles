@@ -10069,21 +10069,7 @@ def tienda_cupones():
         GROUP BY c.id
         ORDER BY c.created_at DESC
     """)
-    execute_db("""
-        CREATE TABLE IF NOT EXISTS suscriptores (
-            id       INT AUTO_INCREMENT PRIMARY KEY,
-            email    VARCHAR(255) NOT NULL UNIQUE,
-            cupon_id INT DEFAULT NULL,
-            fecha    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    suscriptores = query_db("""
-        SELECT s.id, s.email, s.fecha, c.codigo, c.usos_actuales, c.activo as cupon_activo
-        FROM suscriptores s
-        LEFT JOIN cupones c ON c.id = s.cupon_id
-        ORDER BY s.fecha DESC
-    """)
-    return render_template('tienda_cupones.html', cupones=cupones, suscriptores=suscriptores)
+    return render_template('tienda_cupones.html', cupones=cupones)
 
 
 @app.route('/tienda-admin/cupones/guardar', methods=['POST'])

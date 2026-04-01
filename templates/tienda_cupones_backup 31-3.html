@@ -123,56 +123,6 @@
 
 <div id="toast-container" style="position:fixed;bottom:20px;right:20px;z-index:9999"></div>
 
-<!-- ── SUSCRIPTORES NEWSLETTER ──────────────────────────────────────────── -->
-<div class="card shadow-sm mt-4">
-  <div class="card-header fw-bold d-flex justify-content-between align-items-center">
-    <span><i class="bi bi-envelope-check me-1"></i> Suscriptores newsletter</span>
-    <span class="badge bg-secondary">{{ suscriptores | length }} en total</span>
-  </div>
-  <div class="table-responsive">
-    <table class="table table-hover table-sm mb-0">
-      <thead class="table-dark">
-        <tr>
-          <th>Email</th>
-          <th>Fecha suscripción</th>
-          <th>Cupón asignado</th>
-          <th>Estado cupón</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for s in suscriptores %}
-        <tr>
-          <td class="font-monospace">{{ s.email }}</td>
-          <td style="font-size:0.85rem;">{{ s.fecha.strftime('%d/%m/%Y %H:%M') if s.fecha else '-' }}</td>
-          <td>
-            {% if s.codigo %}
-              <span class="badge bg-dark font-monospace">{{ s.codigo }}</span>
-            {% else %}
-              <span class="text-muted">-</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if s.codigo %}
-              {% if s.usos_actuales > 0 %}
-                <span class="badge bg-success">Usado ✓</span>
-              {% elif not s.cupon_activo %}
-                <span class="badge bg-secondary">Inactivo</span>
-              {% else %}
-                <span class="badge bg-warning text-dark">Pendiente</span>
-              {% endif %}
-            {% else %}
-              <span class="text-muted">-</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="4" class="text-center text-muted py-3">No hay suscriptores todavía</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-
 <script>
 document.getElementById('nuevo-tipo').addEventListener('change', function() {
   document.getElementById('lbl-valor').textContent = this.value === 'pct' ? 'Valor (%)' : 'Valor ($)';
