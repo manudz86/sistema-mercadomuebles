@@ -4981,7 +4981,7 @@ def guardar_venta():
             print(f"✅ Usando fecha de ML: {fecha_venta}")
         else:
             fecha_venta_form = request.form.get('fecha_venta')
-            fecha_venta = datetime.strptime(fecha_venta_form, '%Y-%m-%d') if fecha_venta_form else datetime.now()
+            fecha_venta = datetime.strptime(fecha_venta_form + ' ' + datetime.now().strftime('%H:%M:%S'), '%Y-%m-%d %H:%M:%S') if fecha_venta_form else datetime.now()
             print(f"✅ Usando fecha del formulario: {fecha_venta}")
         
         # ========================================
@@ -9895,7 +9895,8 @@ def papel_azul_pdf(venta_id):
     items = cursor.fetchall()
     cursor.close(); conn.close()
 
-    es_flex = (venta.get('metodo_envio') or '').lower() == 'flex'
+    es_flex  = (venta.get('metodo_envio') or '').lower() == 'flex'
+    es_turbo = (venta.get('metodo_envio') or '').lower() == 'turbo'
 
     # Calcular saldo
     importe_total   = float(venta.get('importe_total') or 0)
@@ -9924,7 +9925,6 @@ def papel_azul_pdf(venta_id):
             if cfg:
                 cant_bases = int(cfg['cantidad_bases'] or 1)
                 nombre_col = cfg['nombre_col'] or nombre
-                # Determinar patas según ancho de base
                 medida_base = cfg['medida_base'] or ''
                 try:
                     ancho_base = int(medida_base.split('x')[0])
@@ -9941,6 +9941,15 @@ def papel_azul_pdf(venta_id):
     descripcion_items = []
     for item in items:
         descripcion_items.extend(desglosar_item(item['sku'], item['nombre'], item['cantidad']))
+
+    # Extraer rango horario de notas para Turbo (formato: "Turbo HH:MM-HH:MM")
+    turbo_rango = ''
+    if es_turbo:
+        notas_venta = venta.get('notas') or ''
+        import re as _re
+        m = _re.search(r'(\d{1,2}:\d{2}-\d{1,2}:\d{2})', notas_venta)
+        if m:
+            turbo_rango = m.group(1)
 
     # ── Canvas PDF ───────────────────────────────────────────────────────────
     PAGE_W = 165 * mm
@@ -9978,54 +9987,61 @@ def papel_azul_pdf(venta_id):
     fecha_hoy = datetime.now().strftime('%d-%m-%Y')
     nombre_cliente = venta.get('nombre_cliente') or '-'
     cx = PAGE_W / 2
-    c.setFont('Helvetica', 10)
+    c.setFont('Helvetica', 13)
     c.drawCentredString(cx, y, fecha_hoy)
-    y -= 6 * mm
-    c.setFont('Helvetica-Bold', 12)
+    y -= 8 * mm
+    c.setFont('Helvetica-Bold', 16)
     c.drawCentredString(cx, y, nombre_cliente)
-    y -= 6 * mm
+    y -= 8 * mm
 
     # Teléfono — solo para Flete Propio
-    if not es_flex:
+    if not es_flex and not es_turbo:
         telefono = venta.get('telefono_cliente') or ''
         if telefono:
-            c.setFont('Helvetica', 10)
+            c.setFont('Helvetica', 13)
             c.drawCentredString(cx, y, telefono)
-            y -= 6 * mm
+            y -= 8 * mm
 
-    y -= 4 * mm
+    y -= 5 * mm
 
     # ── Producto ── (bold, grande, centrado, 2 líneas)
     for i, linea in enumerate(descripcion_items):
         font = 'Helvetica-Bold'
-        size = 13 if i == 0 else 11
+        size = 17 if i == 0 else 14
         c.setFont(font, size)
         lines = simpleSplit(linea, font, size, TXT_W)
         for ln in lines:
             c.drawCentredString(cx, y, ln)
             y -= size * 1.4
-    y -= 6 * mm
+    y -= 8 * mm
 
     # ── Total ──
     saldo_str = f'Total: ${"{:,.0f}".format(saldo).replace(",",".")}.-'
-    c.setFont('Helvetica-Bold', 13)
+    c.setFont('Helvetica-Bold', 17)
     c.drawCentredString(cx, y, saldo_str)
-    y -= 12 * mm
+    y -= 16 * mm
 
-    # ── Dirección ── (17pt)
+    # ── Dirección ── (22pt)
     direccion = venta.get('direccion_entrega') or ''
     if direccion:
-        c.setFont('Helvetica-Bold', 17)
-        lines = simpleSplit(direccion, 'Helvetica-Bold', 17, TXT_W)
+        c.setFont('Helvetica-Bold', 22)
+        lines = simpleSplit(direccion, 'Helvetica-Bold', 22, TXT_W)
         for ln in lines:
             c.drawCentredString(cx, y, ln)
-            y -= 17 * 1.4
-    y -= 12 * mm
+            y -= 22 * 1.4
+    y -= 16 * mm
 
-    # ── FLEX ── (38pt)
+    # ── FLEX / TURBO ── (49pt)
     if es_flex:
-        c.setFont('Helvetica-Bold', 38)
+        c.setFont('Helvetica-Bold', 49)
         c.drawCentredString(cx, y, 'FLEX')
+    elif es_turbo:
+        c.setFont('Helvetica-Bold', 49)
+        c.drawCentredString(cx, y, 'TURBO')
+        if turbo_rango:
+            y -= 49 * 1.3
+            c.setFont('Helvetica-Bold', 28)
+            c.drawCentredString(cx, y, turbo_rango)
 
     c.save()
     buf.seek(0)
