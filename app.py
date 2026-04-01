@@ -10118,10 +10118,15 @@ def tienda_cupones_guardar():
     return jsonify({'ok': True})
 
 
-
-
-# ============================================================================
-# AUTOMATIZACIÓN ML — Auto-import + Actualización de publicaciones
+@app.route('/tienda-admin/suscriptores/eliminar', methods=['POST'])
+@login_required
+def tienda_suscriptores_eliminar():
+    data = request.get_json()
+    try:
+        execute_db("DELETE FROM suscriptores WHERE id=%s", (data.get('id'),))
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+    return jsonify({'ok': True})
 # ============================================================================
 
 # SKUs de almohadas a excluir de actualización ML

@@ -137,11 +137,12 @@
           <th>Fecha suscripción</th>
           <th>Cupón asignado</th>
           <th>Estado cupón</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
         {% for s in suscriptores %}
-        <tr>
+        <tr id="susc-{{ s.id }}">
           <td class="font-monospace">{{ s.email }}</td>
           <td style="font-size:0.85rem;">{{ s.fecha.strftime('%d/%m/%Y %H:%M') if s.fecha else '-' }}</td>
           <td>
@@ -164,9 +165,14 @@
               <span class="text-muted">-</span>
             {% endif %}
           </td>
+          <td>
+            <button class="btn btn-sm btn-outline-danger" onclick="eliminarSuscriptor({{ s.id }}, '{{ s.email }}')">
+              <i class="bi bi-trash"></i>
+            </button>
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="4" class="text-center text-muted py-3">No hay suscriptores todavía</td></tr>
+        <tr><td colspan="5" class="text-center text-muted py-3">No hay suscriptores todavía</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -223,6 +229,18 @@ async function eliminarCupon(id) {
   if (!confirm('¿Eliminar este cupón?')) return;
   const data = await api({accion:'eliminar', id});
   if (data.ok) { document.getElementById('cupon-' + id)?.remove(); toast('Cupón eliminado'); }
+  else toast('Error: ' + data.error, 'danger');
+}
+
+async function eliminarSuscriptor(id, email) {
+  if (!confirm(`¿Eliminar suscriptor ${email}?`)) return;
+  const res = await fetch('/tienda-admin/suscriptores/eliminar', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id}),
+  });
+  const data = await res.json();
+  if (data.ok) { document.getElementById('susc-' + id)?.remove(); toast('Suscriptor eliminado'); }
   else toast('Error: ' + data.error, 'danger');
 }
 </script>
