@@ -9902,7 +9902,7 @@ def papel_azul_pdf(venta_id):
     importe_total   = float(venta.get('importe_total') or 0)
     importe_abonado = float(venta.get('importe_abonado') or 0)
     costo_flete     = float(venta.get('costo_flete') or 0)
-    saldo = 0 if es_flex else max(0, importe_total + costo_flete - importe_abonado)
+    saldo = 0 if (es_flex or es_turbo) else max(0, importe_total + costo_flete - importe_abonado)
 
     # Desglosar items
     def desglosar_item(sku, nombre, cantidad):
