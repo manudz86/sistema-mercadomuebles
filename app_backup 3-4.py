@@ -705,7 +705,7 @@ def ventas_activas():
                 zona_envio, direccion_entrega, costo_flete,
 metodo_pago, importe_total, importe_abonado,
                 pago_mercadopago, pago_efectivo,
-                estado_entrega, estado_pago, notas, cancelada_en_ml
+                estado_entrega, estado_pago, notas
             FROM ventas
             WHERE estado_entrega = 'pendiente'
         '''
