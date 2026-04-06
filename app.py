@@ -5677,7 +5677,7 @@ def normalizar_sku_ml(sku_ml):
 
     # Mapeos fijos ML → BD
     SKU_MAP = {
-        'RENOVACIONAL': ('RENOVATION', 0),
+        'RENOVATIONAL': ('RENOVATION', 0),
         'CLASICAX2':    ('CLASICA',    2),
     }
     if sku_up in SKU_MAP:
