@@ -11085,92 +11085,6 @@ def ventas_nuevas_reset():
 
 
 # ── Iniciar APScheduler ──────────────────────────────────────────────────────
-def job_completar_notas_mp():
-    """
-    Job que corre cada 10 minutos.
-    Busca ventas de tienda web (canal='tienda_web') de las últimas 2 horas
-    que no tengan MPID en notas, consulta la API de MP y completa MPID y VEID.
-    """
-    with app.app_context():
-        try:
-            import requests as _req
-            mp_token = os.getenv('MP_ACCESS_TOKEN', '')
-            if not mp_token:
-                return
-
-            ventas = query_db("""
-                SELECT id, numero_venta, notas
-                FROM ventas
-                WHERE canal = 'tienda_web'
-                  AND fecha_registro >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
-                  AND (notas IS NULL OR notas NOT LIKE '%MPID:%')
-            """)
-            if not ventas:
-                return
-
-            for v in ventas:
-                # Extraer payment_id del numero_venta (MP-XXXXXXXXX)
-                numero = v['numero_venta'] or ''
-                if not numero.startswith('MP-'):
-                    continue
-                payment_id = numero[3:]
-
-                try:
-                    # Consultar payment
-                    rp = _req.get(
-                        f'https://api.mercadopago.com/v1/payments/{payment_id}',
-                        headers={'Authorization': f'Bearer {mp_token}'},
-                        timeout=5
-                    )
-                    if rp.status_code != 200:
-                        continue
-                    payment = rp.json()
-                    if payment.get('status') != 'approved':
-                        continue
-
-                    order_id = (payment.get('order') or {}).get('id')
-
-                    notas_parts = [f"MPID: {payment_id}"]
-                    if order_id:
-                        notas_parts.append(f"VEID: {order_id}")
-                        # Intentar obtener SHID del merchant_order
-                        try:
-                            rm = _req.get(
-                                f'https://api.mercadopago.com/merchant_orders/{order_id}',
-                                headers={'Authorization': f'Bearer {mp_token}'},
-                                timeout=5
-                            )
-                            if rm.status_code == 200:
-                                mo = rm.json()
-                                shipments = mo.get('shipments', [])
-                                if shipments:
-                                    shid = shipments[0].get('id')
-                                    if shid:
-                                        notas_parts.append(f"SHID: {shid}")
-                        except Exception:
-                            pass
-
-                    notas_nuevas = "\n".join(notas_parts)
-                    notas_actuales = v['notas'] or ''
-                    # Agregar al final sin pisar notas manuales existentes
-                    if notas_actuales.strip():
-                        notas_finales = notas_actuales.rstrip('\n') + '\n' + notas_nuevas
-                    else:
-                        notas_finales = notas_nuevas
-
-                    execute_db(
-                        "UPDATE ventas SET notas = %s WHERE id = %s",
-                        (notas_finales, v['id'])
-                    )
-                    print(f"[MP-NOTAS] ✅ Completadas notas para {numero}: {notas_nuevas.replace(chr(10), ' | ')}")
-
-                except Exception as e:
-                    print(f"[MP-NOTAS] Error procesando {numero}: {e}")
-
-        except Exception as e:
-            print(f"[MP-NOTAS] Error general: {e}")
-
-
 def iniciar_scheduler():
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
@@ -11192,16 +11106,8 @@ def iniciar_scheduler():
             replace_existing=True,
             max_instances=1
         )
-        scheduler.add_job(
-            job_completar_notas_mp,
-            'interval',
-            minutes=10,
-            id='completar_notas_mp',
-            replace_existing=True,
-            max_instances=1
-        )
         scheduler.start()
-        print("[AUTO-ML] ✅ Scheduler iniciado — auto-import cada 120s, cancelaciones cada 10min, notas MP cada 10min")
+        print("[AUTO-ML] ✅ Scheduler iniciado — auto-import cada 60s, cancelaciones cada 10min")
         return scheduler
     except Exception as e:
         print(f"[AUTO-ML] Error iniciando scheduler: {e}")
