@@ -5662,32 +5662,12 @@ def obtener_shipping_details(access_token, shipping_id):
 # ─── FUNCIÓN 4: Mapeo automático al importar - quita la Z del SKU ───
 def normalizar_sku_ml(sku_ml):
     """
-    Normaliza SKUs de ML que difieren del SKU en la BD.
-    Retorna (sku_normalizado, cantidad_override).
-    cantidad_override != 0 cuando el SKU de ML representa múltiples unidades.
-    Ejemplos:
-      CEX140Z       → ('CEX140', 0)
-      RENOVACIONAL  → ('RENOVATION', 0)
-      CLASICAX2     → ('CLASICA', 2)
+    Quitar la Z del final del SKU de ML si existe
+    Ejemplo: CEX140Z → CEX140
     """
-    if not sku_ml:
-        return sku_ml, 0
-
-    sku_up = sku_ml.strip().upper()
-
-    # Mapeos fijos ML → BD
-    SKU_MAP = {
-        'RENOVACIONAL': ('RENOVATION', 0),
-        'CLASICAX2':    ('CLASICA',    2),
-    }
-    if sku_up in SKU_MAP:
-        return SKU_MAP[sku_up]
-
-    # Quitar Z del final
-    if sku_up.endswith('Z'):
-        return sku_ml[:-1], 0
-
-    return sku_ml, 0
+    if sku_ml and sku_ml.endswith('Z'):
+        return sku_ml[:-1]  # Quitar último carácter
+    return sku_ml
 
 
 # REEMPLAZAR la función procesar_orden_ml completa
@@ -6590,14 +6570,21 @@ def ml_seleccionar_orden(orden_id):
         for item in orden_data['items']:
             sku_ml_original = item['sku']
             if sku_ml_original:
-                sku_a_usar, cant_override = normalizar_sku_ml(sku_ml_original)
-                cantidad_final = cant_override if cant_override > 0 else item['cantidad']
-                existe, tipo, nombre = verificar_sku_en_bd(sku_a_usar)
+                existe, tipo, nombre = verificar_sku_en_bd(sku_ml_original)
+                sku_a_usar = sku_ml_original
+
+                # Auto-mapeo SKU Z → sin Z
+                if not existe and sku_ml_original.endswith('Z'):
+                    sku_normalizado = sku_ml_original[:-1]
+                    existe, tipo, nombre = verificar_sku_en_bd(sku_normalizado)
+                    if existe:
+                        sku_a_usar = sku_normalizado
+                        print(f"✅ Mapeo automático Z: {sku_ml_original} → {sku_normalizado}")
 
                 # Auto-mapeo Compac: CCO{medida} → CCO{medida}_FULL o CCO{medida}_DEP
-                if not existe and sku_a_usar.upper().startswith('CCO') and '_' not in sku_a_usar:
+                if not existe and sku_ml_original.upper().startswith('CCO') and '_' not in sku_ml_original:
                     sufijo = '_FULL' if es_full_ml else '_DEP'
-                    sku_compac = sku_a_usar.upper() + sufijo
+                    sku_compac = sku_ml_original.upper() + sufijo
                     existe, tipo, nombre = verificar_sku_en_bd(sku_compac)
                     if existe:
                         sku_a_usar = sku_compac
@@ -6608,7 +6595,7 @@ def ml_seleccionar_orden(orden_id):
                         'sku_ml': sku_ml_original,
                         'sku_bd': sku_a_usar,
                         'titulo': item['titulo'],
-                        'cantidad': cantidad_final,
+                        'cantidad': item['cantidad'],
                         'precio': item['precio'],
                         'nombre_bd': nombre
                     })
@@ -10416,11 +10403,10 @@ def _importar_orden_automatica(orden, access_token):
         items_bd = []
         for item in orden_data['items']:
             sku_ml = item.get('sku', '')
-            sku_norm, cant_override = normalizar_sku_ml(sku_ml) if sku_ml else ('', 0)
+            sku_norm = normalizar_sku_ml(sku_ml) if sku_ml else ''
             if not sku_norm:
                 print(f"[AUTO-ML] Orden {orden_id}: item sin SKU, requiere mapeo manual")
                 return False, []
-            cantidad_final = cant_override if cant_override > 0 else item['cantidad']
             # Mapear compac según ubicacion_despacho (se determina después del shipping,
             # pero podemos pre-calcular basándonos en el logistic_type del shipment)
             # El mapeo final se hace más abajo cuando ya tenemos ubicacion_despacho
@@ -10437,7 +10423,7 @@ def _importar_orden_automatica(orden, access_token):
             elif not existe:
                 print(f"[AUTO-ML] Orden {orden_id}: SKU {sku_norm} no existe en BD, requiere mapeo manual")
                 return False, []
-            items_bd.append({'sku': sku_norm, 'cantidad': cantidad_final, 'precio': item['precio']})
+            items_bd.append({'sku': sku_norm, 'cantidad': item['cantidad'], 'precio': item['precio']})
 
         # Auto-agregar PLATINO si el título contiene "almohada" y el SKU no es almohada
         SKUS_ALMOHADA_PURAS = {'CERVICAL','CLASICA','DORAL','DUAL','EXCLUSIVE','PLATINO','RENOVATION','SUBLIME'}
