@@ -99,9 +99,10 @@ function renderParadas() {
   }
   empty.classList.add('d-none');
 
-  const ventasOpts = VENTAS.map(v =>
-    `<option value="${v.id}" data-cliente="${v.cliente || ''}" data-dir="${v.direccion_entrega || ''}">${v.direccion_entrega || 'Sin dirección'} — ${v.detalle?.substring(0, 70) || ''}</option>`
-  ).join('');
+  const ventasOpts = VENTAS.map(v => {
+    const prefijo = v.metodo_envio === 'Flex' ? '🟡 FLEX — ' : '';
+    return `<option value="${v.id}" data-cliente="${v.cliente || ''}" data-dir="${v.direccion_entrega || ''}">${prefijo}${v.direccion_entrega || 'Sin dirección'} — ${v.detalle?.substring(0, 70) || ''}</option>`;
+  }).join('');
 
   container.innerHTML = paradas.map((p, i) => `
     <div class="border-bottom p-3" id="parada-${p.id_temp}">

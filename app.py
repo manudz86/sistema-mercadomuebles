@@ -9656,7 +9656,8 @@ def _calcular_carga_viaje(viaje_id):
                          'Agregá las dimensiones del vehículo primero.'}
 
     # Items expandidos por cantidad; último en entregar → primero en cargar (DESC)
-    raw = query_db("""
+    # Primero traemos los items que son productos_base directamente
+    raw_base = query_db("""
         SELECT
             p.orden_entrega, p.cliente, p.direccion,
             i.sku, i.cantidad,
@@ -9669,13 +9670,53 @@ def _calcular_carga_viaje(viaje_id):
         ORDER BY p.orden_entrega DESC, (pb.largo_cm * pb.ancho_cm) DESC
     """, (viaje_id,))
 
-    if not raw:
+    # Luego los que son productos_compuestos → expandir en componentes (cada componente = pieza física)
+    raw_comp = query_db("""
+        SELECT
+            p.orden_entrega, p.cliente, p.direccion,
+            i.sku, i.cantidad AS cantidad_venta,
+            pc.nombre AS nombre_compuesto,
+            pb.nombre AS producto_nombre,
+            pb.largo_cm, pb.ancho_cm, pb.alto_cm, pb.peso_gramos, pb.tipo,
+            c.cantidad_necesaria
+        FROM viaje_paradas p
+        JOIN items_venta i ON i.venta_id = p.venta_id
+        JOIN productos_compuestos pc ON pc.sku = i.sku
+        JOIN componentes c ON c.producto_compuesto_id = pc.id
+        JOIN productos_base pb ON pb.id = c.producto_base_id
+        WHERE p.viaje_id = %s
+        ORDER BY p.orden_entrega DESC, (pb.largo_cm * pb.ancho_cm) DESC
+    """, (viaje_id,))
+
+    if not raw_base and not raw_comp:
         return {'error': 'El viaje no tiene paradas con ventas asignadas.'}
 
     items = []
-    for row in raw:
+    for row in raw_base:
         for _ in range(int(row['cantidad'] or 1)):
             items.append(dict(row))
+
+    # Cada unidad vendida del compuesto genera N piezas físicas (una por componente × cantidad_necesaria)
+    for row in raw_comp:
+        total_piezas = int(row['cantidad_venta'] or 1) * int(row['cantidad_necesaria'] or 1)
+        for _ in range(total_piezas):
+            items.append({
+                'orden_entrega': row['orden_entrega'],
+                'cliente': row['cliente'],
+                'direccion': row['direccion'],
+                'sku': row['sku'],
+                'cantidad': 1,
+                'producto_nombre': f"{row['producto_nombre']} (de {row['nombre_compuesto']})",
+                'largo_cm': row['largo_cm'],
+                'ancho_cm': row['ancho_cm'],
+                'alto_cm': row['alto_cm'],
+                'peso_gramos': row['peso_gramos'],
+                'tipo': row['tipo'],
+            })
+
+    # Ordenar: última parada primero (va al fondo del camión), piezas más grandes primero
+    items.sort(key=lambda x: (-x['orden_entrega'],
+                               -((x['largo_cm'] or 0) * (x['ancho_cm'] or 0))))
 
     zona_results = []
     sobrantes = items[:]
@@ -9723,11 +9764,12 @@ def viaje_nuevo():
     """)
     ventas_pendientes = query_db("""
         SELECT v.id, v.nombre_cliente AS cliente, v.direccion_entrega, v.metodo_envio,
-               GROUP_CONCAT(CONCAT(i.cantidad, 'x ', pb.nombre)
-                            ORDER BY pb.nombre SEPARATOR ', ') AS detalle
+               GROUP_CONCAT(CONCAT(i.cantidad, 'x ', COALESCE(pb.nombre, pc.nombre, i.sku))
+                            ORDER BY COALESCE(pb.nombre, pc.nombre) SEPARATOR ', ') AS detalle
         FROM ventas v
         JOIN items_venta i ON i.venta_id = v.id
-        JOIN productos_base pb ON pb.sku = i.sku
+        LEFT JOIN productos_base pb ON pb.sku = i.sku
+        LEFT JOIN productos_compuestos pc ON pc.sku = i.sku
         WHERE v.estado_entrega = 'pendiente'
           AND v.metodo_envio IN ('Turbo', 'Flex', 'Flete Propio')
         GROUP BY v.id
@@ -9775,11 +9817,12 @@ def viaje_detalle(viaje_id):
 
     ventas_pendientes = query_db("""
         SELECT v.id, v.nombre_cliente AS cliente, v.direccion_entrega, v.metodo_envio,
-               GROUP_CONCAT(CONCAT(i.cantidad, 'x ', pb.nombre)
-                            ORDER BY pb.nombre SEPARATOR ', ') AS detalle
+               GROUP_CONCAT(CONCAT(i.cantidad, 'x ', COALESCE(pb.nombre, pc.nombre, i.sku))
+                            ORDER BY COALESCE(pb.nombre, pc.nombre) SEPARATOR ', ') AS detalle
         FROM ventas v
         JOIN items_venta i ON i.venta_id = v.id
-        JOIN productos_base pb ON pb.sku = i.sku
+        LEFT JOIN productos_base pb ON pb.sku = i.sku
+        LEFT JOIN productos_compuestos pc ON pc.sku = i.sku
         WHERE v.estado_entrega = 'pendiente'
           AND v.metodo_envio IN ('Turbo', 'Flex', 'Flete Propio')
         GROUP BY v.id
