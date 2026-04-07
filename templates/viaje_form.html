@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid py-3" style="max-width:800px">
+
+  <div class="d-flex align-items-center mb-3">
+    <a href="/viajes" class="btn btn-sm btn-outline-secondary me-2">
+      <i class="bi bi-arrow-left"></i>
+    </a>
+    <h4 class="mb-0"><i class="bi bi-plus-circle me-2"></i>Nuevo Viaje</h4>
+  </div>
+
+  <!-- Paso 1: datos del viaje -->
+  <div class="card shadow-sm mb-3">
+    <div class="card-header py-2"><strong>1. Datos del viaje</strong></div>
+    <div class="card-body">
+      <div class="row g-3">
+        <div class="col-12 col-md-5">
+          <label class="form-label">Fletero</label>
+          <select class="form-select" id="selectFletero" onchange="onFleteroChange(this.value)">
+            <option value="">— Seleccionar —</option>
+            {% for f in fleteros %}
+            <option value="{{ f.id }}" data-zonas="{{ f.total_zonas }}">{{ f.nombre }}</option>
+            {% endfor %}
+          </select>
+          <div id="alertaSinZonas" class="text-warning small mt-1 d-none">
+            ⚠️ Este fletero no tiene zonas configuradas.
+            <a href="/viajes">Configurarlas aquí</a>.
+          </div>
+        </div>
+        <div class="col-12 col-md-4">
+          <label class="form-label">Fecha</label>
+          <input type="date" class="form-control" id="inputFecha"
+                 value="{{ now.strftime('%Y-%m-%d') if now else '' }}">
+        </div>
+        <div class="col-12">
+          <label class="form-label">Notas (opcional)</label>
+          <input type="text" class="form-control" id="inputNotas" placeholder="Ej: Llevar escalera">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Paso 2: paradas -->
+  <div class="card shadow-sm mb-3">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+      <strong>2. Paradas</strong>
+      <button class="btn btn-sm btn-outline-primary" onclick="agregarParada()">
+        <i class="bi bi-plus"></i> Agregar parada
+      </button>
+    </div>
+    <div class="card-body p-0">
+      <div id="listaParadas">
+        <div class="text-center text-muted py-3 small" id="emptyParadas">
+          Agregá al menos una parada para continuar.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-end gap-2">
+    <a href="/viajes" class="btn btn-secondary">Cancelar</a>
+    <button class="btn btn-primary" onclick="crearViaje()">
+      <i class="bi bi-floppy me-1"></i>Crear viaje y calcular carga
+    </button>
+  </div>
+</div>
+
+<!-- Datos de ventas para JS -->
+<script>
+const VENTAS = {{ ventas_pendientes | tojson }};
+</script>
+{% endblock %}
+{% block extra_js %}
+<script>
+let paradas = [];  // [{id_temp, orden, venta_id, cliente, direccion}]
+let nextOrden = 1;
+
+function onFleteroChange(val) {
+  const opt = document.querySelector(`#selectFletero option[value="${val}"]`);
+  const zonas = opt ? +opt.dataset.zonas : 0;
+  const alerta = document.getElementById('alertaSinZonas');
+  alerta.classList.toggle('d-none', !val || zonas > 0);
+}
+
+function agregarParada() {
+  const id_temp = Date.now();
+  paradas.push({ id_temp, orden: nextOrden++, venta_id: null, cliente: '', direccion: '' });
+  renderParadas();
+}
+
+function renderParadas() {
+  const container = document.getElementById('listaParadas');
+  const empty = document.getElementById('emptyParadas');
+  if (!paradas.length) {
+    empty.classList.remove('d-none');
+    container.innerHTML = '';
+    container.appendChild(empty);
+    return;
+  }
+  empty.classList.add('d-none');
+
+  const ventasOpts = VENTAS.map(v =>
+    `<option value="${v.id}">${v.cliente} — ${v.detalle?.substring(0, 60) || ''}</option>`
+  ).join('');
+
+  container.innerHTML = paradas.map((p, i) => `
+    <div class="border-bottom p-3" id="parada-${p.id_temp}">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="badge bg-dark">Parada ${p.orden}</span>
+        <button class="btn btn-xs btn-outline-danger" style="padding:1px 7px;font-size:.75rem"
+                onclick="quitarParada(${p.id_temp})">
+          <i class="bi bi-trash"></i>
+        </button>
+      </div>
+      <div class="row g-2">
+        <div class="col-12 col-md-6">
+          <label class="form-label small">Venta del sistema (opcional)</label>
+          <select class="form-select form-select-sm" id="venta-${p.id_temp}"
+                  onchange="onVentaSelect(${p.id_temp}, this.value)">
+            <option value="">— Sin venta asignada —</option>
+            ${ventasOpts}
+          </select>
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label small">Cliente</label>
+          <input type="text" class="form-control form-control-sm" id="cliente-${p.id_temp}"
+                 value="${p.cliente}" placeholder="Nombre cliente">
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label small">Dirección</label>
+          <input type="text" class="form-control form-control-sm" id="dir-${p.id_temp}"
+                 value="${p.direccion}" placeholder="Dirección">
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  // Restaurar selects si tienen valores
+  paradas.forEach(p => {
+    if (p.venta_id) {
+      const sel = document.getElementById('venta-' + p.id_temp);
+      if (sel) sel.value = p.venta_id;
+    }
+  });
+}
+
+function onVentaSelect(id_temp, venta_id) {
+  const p = paradas.find(x => x.id_temp === id_temp);
+  if (!p) return;
+  p.venta_id = venta_id ? +venta_id : null;
+  if (venta_id) {
+    const v = VENTAS.find(x => x.id === +venta_id);
+    if (v) {
+      document.getElementById('cliente-' + id_temp).value = v.cliente || '';
+      document.getElementById('dir-' + id_temp).value = v.direccion_entrega || '';
+      p.cliente = v.cliente || '';
+      p.direccion = v.direccion_entrega || '';
+    }
+  }
+}
+
+function quitarParada(id_temp) {
+  paradas = paradas.filter(p => p.id_temp !== id_temp);
+  // Reordenar
+  paradas.forEach((p, i) => p.orden = i + 1);
+  nextOrden = paradas.length + 1;
+  renderParadas();
+}
+
+async function crearViaje() {
+  const fletero_id = +document.getElementById('selectFletero').value;
+  const fecha = document.getElementById('inputFecha').value;
+  const notas = document.getElementById('inputNotas').value;
+
+  if (!fletero_id) { alert('Seleccioná un fletero'); return; }
+  if (!fecha) { alert('Ingresá la fecha'); return; }
+  if (!paradas.length) { alert('Agregá al menos una parada'); return; }
+
+  // Leer valores actuales de inputs
+  paradas.forEach(p => {
+    const clienteEl = document.getElementById('cliente-' + p.id_temp);
+    const dirEl = document.getElementById('dir-' + p.id_temp);
+    if (clienteEl) p.cliente = clienteEl.value;
+    if (dirEl) p.direccion = dirEl.value;
+  });
+
+  const ventasSinCliente = paradas.filter(p => !p.venta_id && !p.cliente.trim());
+  if (ventasSinCliente.length) {
+    alert('Cada parada necesita una venta asignada o un nombre de cliente');
+    return;
+  }
+
+  // Crear viaje
+  const r1 = await fetch('/viajes/guardar', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ accion: 'crear_viaje', fletero_id, fecha, notas })
+  }).then(r => r.json());
+
+  if (!r1.ok) { alert('Error: ' + r1.error); return; }
+  const viaje_id = r1.viaje_id;
+
+  // Crear paradas
+  for (const p of paradas) {
+    await fetch('/viajes/guardar', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        accion: 'agregar_parada',
+        viaje_id,
+        orden_entrega: p.orden,
+        venta_id: p.venta_id || null,
+        cliente: p.cliente,
+        direccion: p.direccion,
+      })
+    });
+  }
+
+  window.location.href = '/viajes/' + viaje_id;
+}
+</script>
+{% endblock %}

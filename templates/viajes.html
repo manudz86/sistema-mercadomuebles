@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid py-3">
+
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h4 class="mb-0"><i class="bi bi-map me-2"></i>Viajes</h4>
+    <a href="/viajes/nuevo" class="btn btn-primary btn-sm">
+      <i class="bi bi-plus-circle me-1"></i>Nuevo Viaje
+    </a>
+  </div>
+
+  {% if not viajes %}
+    <div class="alert alert-secondary">No hay viajes registrados. <a href="/viajes/nuevo">Crear el primero</a>.</div>
+  {% else %}
+  <div class="card shadow-sm">
+    <div class="table-responsive">
+      <table class="table table-hover table-sm mb-0 align-middle">
+        <thead class="table-dark">
+          <tr>
+            <th>Fecha</th>
+            <th>Fletero</th>
+            <th>Paradas</th>
+            <th>Estado</th>
+            <th>Notas</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for v in viajes %}
+          <tr>
+            <td>{{ v.fecha.strftime('%d/%m/%Y') if v.fecha else '—' }}</td>
+            <td><i class="bi bi-truck me-1 text-secondary"></i>{{ v.fletero_nombre }}</td>
+            <td>
+              <span class="badge bg-secondary">{{ v.total_paradas }} parada{{ 's' if v.total_paradas != 1 else '' }}</span>
+            </td>
+            <td>
+              {% set badge = {'borrador':'secondary','confirmado':'primary','en_ruta':'warning','entregado':'success'} %}
+              <span class="badge bg-{{ badge.get(v.estado, 'secondary') }}">{{ v.estado }}</span>
+            </td>
+            <td class="text-muted small">{{ v.notas or '' }}</td>
+            <td class="text-end">
+              <a href="/viajes/{{ v.id }}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-eye"></i> Ver
+              </a>
+              <button class="btn btn-sm btn-outline-danger ms-1"
+                      onclick="eliminarViaje({{ v.id }}, '{{ v.fletero_nombre }}', '{{ v.fecha }}')">
+                <i class="bi bi-trash"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Gestión de zonas por fletero -->
+  <div class="mt-4">
+    <h5 class="mb-3"><i class="bi bi-truck me-2"></i>Vehículos y Zonas</h5>
+    <div class="row g-3">
+      {% for f in fleteros %}
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="card shadow-sm h-100">
+          <div class="card-header d-flex justify-content-between align-items-center py-2">
+            <strong>{{ f.nombre }}</strong>
+            <button class="btn btn-sm btn-outline-primary"
+                    onclick="abrirModalZona({{ f.id }}, '{{ f.nombre }}', null)">
+              <i class="bi bi-plus"></i>
+            </button>
+          </div>
+          <div class="card-body py-2" id="zonas-fletero-{{ f.id }}">
+            <div class="text-muted small text-center py-2">Cargando zonas…</div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- Modal zona -->
+<div class="modal fade" id="modalZona" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title" id="modalZonaTitulo">Zona</h6>
+        <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="zonaFleteroId">
+        <input type="hidden" id="zonaId">
+        <div class="mb-2">
+          <label class="form-label small">Nombre (ej: Caja, Buche)</label>
+          <input type="text" class="form-control form-control-sm" id="zonaNombre" placeholder="Caja">
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-4">
+            <label class="form-label small">Largo cm</label>
+            <input type="number" class="form-control form-control-sm" id="zonaLargo">
+          </div>
+          <div class="col-4">
+            <label class="form-label small">Ancho cm</label>
+            <input type="number" class="form-control form-control-sm" id="zonaAncho">
+          </div>
+          <div class="col-4">
+            <label class="form-label small">Alto cm</label>
+            <input type="number" class="form-control form-control-sm" id="zonaAlto">
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Orden</label>
+          <input type="number" class="form-control form-control-sm" id="zonaOrden" value="1">
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-sm btn-primary" onclick="guardarZona()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block extra_js %}
+<script>
+const _modal = new bootstrap.Modal(document.getElementById('modalZona'));
+
+// Cargar zonas de todos los fleteros al iniciar
+document.addEventListener('DOMContentLoaded', () => {
+  {% for f in fleteros %}
+  cargarZonas({{ f.id }});
+  {% endfor %}
+});
+
+async function api(data) {
+  const r = await fetch('/viajes/guardar', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data)
+  });
+  return r.json();
+}
+
+async function cargarZonas(fletero_id) {
+  const res = await api({accion: 'get_zonas', fletero_id});
+  const el = document.getElementById('zonas-fletero-' + fletero_id);
+  if (!res.ok || !res.zonas.length) {
+    el.innerHTML = '<div class="text-muted small text-center py-1">Sin zonas. Agregá una.</div>';
+    return;
+  }
+  el.innerHTML = res.zonas.map(z => `
+    <div class="d-flex justify-content-between align-items-center border-bottom py-1">
+      <div>
+        <span class="badge bg-dark me-1">${z.orden}</span>
+        <strong>${z.nombre_zona}</strong>
+        <div class="text-muted small">${z.largo_cm}×${z.ancho_cm}×${z.alto_cm} cm (L×A×H)</div>
+      </div>
+      <div class="d-flex gap-1">
+        <button class="btn btn-xs btn-outline-secondary" style="padding:1px 6px;font-size:.75rem"
+                onclick="abrirModalZona(${z.fletero_id}, '', ${JSON.stringify(z).replace(/"/g,'&quot;')})">
+          <i class="bi bi-pencil"></i>
+        </button>
+        <button class="btn btn-xs btn-outline-danger" style="padding:1px 6px;font-size:.75rem"
+                onclick="eliminarZona(${z.id}, ${z.fletero_id})">
+          <i class="bi bi-trash"></i>
+        </button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function abrirModalZona(fletero_id, nombre_fletero, zona) {
+  document.getElementById('zonaFleteroId').value = fletero_id;
+  document.getElementById('zonaId').value = zona ? zona.id : '';
+  document.getElementById('zonaNombre').value = zona ? zona.nombre_zona : '';
+  document.getElementById('zonaLargo').value = zona ? zona.largo_cm : '';
+  document.getElementById('zonaAncho').value = zona ? zona.ancho_cm : '';
+  document.getElementById('zonaAlto').value = zona ? zona.alto_cm : '';
+  document.getElementById('zonaOrden').value = zona ? zona.orden : 1;
+  document.getElementById('modalZonaTitulo').textContent =
+    (zona ? 'Editar' : 'Nueva') + ' zona' + (nombre_fletero ? ' — ' + nombre_fletero : '');
+  _modal.show();
+}
+
+async function guardarZona() {
+  const res = await api({
+    accion: 'guardar_zona',
+    fletero_id: +document.getElementById('zonaFleteroId').value,
+    zona_id: +document.getElementById('zonaId').value || null,
+    nombre_zona: document.getElementById('zonaNombre').value.trim(),
+    largo_cm: +document.getElementById('zonaLargo').value,
+    ancho_cm: +document.getElementById('zonaAncho').value,
+    alto_cm: +document.getElementById('zonaAlto').value,
+    orden: +document.getElementById('zonaOrden').value,
+  });
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  _modal.hide();
+  cargarZonas(+document.getElementById('zonaFleteroId').value);
+}
+
+async function eliminarZona(zona_id, fletero_id) {
+  if (!confirm('¿Eliminar esta zona?')) return;
+  const res = await api({accion: 'eliminar_zona', zona_id, fletero_id});
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  cargarZonas(fletero_id);
+}
+
+async function eliminarViaje(viaje_id, fletero, fecha) {
+  if (!confirm(`¿Eliminar viaje de ${fletero} el ${fecha}?`)) return;
+  const res = await api({accion: 'eliminar_viaje', viaje_id});
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  location.reload();
+}
+</script>
+{% endblock %}

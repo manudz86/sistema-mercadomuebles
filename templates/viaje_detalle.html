@@ -1,0 +1,438 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid py-3">
+
+  <!-- Header -->
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-2">
+      <a href="/viajes" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i></a>
+      <h4 class="mb-0">
+        <i class="bi bi-truck me-2"></i>{{ viaje.fletero_nombre }}
+        <span class="text-muted fs-6 ms-2">{{ viaje.fecha.strftime('%d/%m/%Y') if viaje.fecha else '' }}</span>
+      </h4>
+    </div>
+    <div class="d-flex gap-2 align-items-center">
+      {% set badge = {'borrador':'secondary','confirmado':'primary','en_ruta':'warning','entregado':'success'} %}
+      <span class="badge bg-{{ badge.get(viaje.estado, 'secondary') }} fs-6">{{ viaje.estado }}</span>
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+          Cambiar estado
+        </button>
+        <ul class="dropdown-menu">
+          {% for est in ['borrador','confirmado','en_ruta','entregado'] %}
+          <li><a class="dropdown-item" href="#" onclick="cambiarEstado('{{ est }}')">{{ est }}</a></li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <!-- Columna izquierda: paradas + zonas -->
+    <div class="col-12 col-lg-5">
+
+      <!-- Paradas -->
+      <div class="card shadow-sm mb-3">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+          <strong><i class="bi bi-geo-alt me-1"></i>Paradas</strong>
+          <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#modalAgregarParada">
+            <i class="bi bi-plus"></i>
+          </button>
+        </div>
+        <div class="card-body p-0">
+          {% if not paradas %}
+            <div class="text-muted text-center py-3 small">Sin paradas. Agregá una para calcular la carga.</div>
+          {% else %}
+            {% for p in paradas %}
+            <div class="d-flex justify-content-between align-items-start border-bottom px-3 py-2">
+              <div class="flex-grow-1">
+                <div class="d-flex align-items-center gap-2 mb-1">
+                  <span class="badge bg-dark">{{ p.orden_entrega }}</span>
+                  <strong class="small">{{ p.cliente or p.venta_cliente or '—' }}</strong>
+                  {% if p.venta_id %}
+                  <span class="badge bg-info text-dark" style="font-size:.65rem">venta #{{ p.venta_id }}</span>
+                  {% endif %}
+                </div>
+                {% if p.direccion_entrega or p.direccion %}
+                <div class="text-muted small">
+                  <i class="bi bi-geo-alt"></i>
+                  {{ p.direccion or p.direccion_entrega }}
+                </div>
+                {% endif %}
+                {% if p.items_texto %}
+                <div class="text-secondary small mt-1">{{ p.items_texto }}</div>
+                {% endif %}
+              </div>
+              <div class="d-flex flex-column gap-1 ms-2">
+                <button class="btn btn-xs btn-outline-secondary" style="padding:1px 6px;font-size:.7rem"
+                        onclick="cambiarOrden({{ p.id }}, {{ p.orden_entrega }})">
+                  <i class="bi bi-arrow-down-up"></i>
+                </button>
+                <button class="btn btn-xs btn-outline-danger" style="padding:1px 6px;font-size:.7rem"
+                        onclick="eliminarParada({{ p.id }})">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
+            </div>
+            {% endfor %}
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Zonas del vehículo -->
+      <div class="card shadow-sm">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+          <strong><i class="bi bi-bounding-box me-1"></i>Zonas del vehículo</strong>
+          <button class="btn btn-sm btn-outline-primary"
+                  onclick="abrirModalZona(null)">
+            <i class="bi bi-plus"></i>
+          </button>
+        </div>
+        <div class="card-body p-0">
+          {% if not zonas_fletero %}
+            <div class="text-muted text-center py-3 small">Sin zonas configuradas.</div>
+          {% else %}
+            {% for z in zonas_fletero %}
+            <div class="d-flex justify-content-between align-items-center border-bottom px-3 py-2">
+              <div>
+                <span class="badge bg-dark me-1">{{ z.orden }}</span>
+                <strong>{{ z.nombre_zona }}</strong>
+                <div class="text-muted small">{{ z.largo_cm }}×{{ z.ancho_cm }}×{{ z.alto_cm }} cm (L×A×H)</div>
+              </div>
+              <div class="d-flex gap-1">
+                <button class="btn btn-xs btn-outline-secondary" style="padding:1px 6px;font-size:.7rem"
+                        onclick="abrirModalZona({{ z | tojson | tojson }})">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <button class="btn btn-xs btn-outline-danger" style="padding:1px 6px;font-size:.7rem"
+                        onclick="eliminarZona({{ z.id }})">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
+            </div>
+            {% endfor %}
+          {% endif %}
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Columna derecha: resultado del cálculo -->
+    <div class="col-12 col-lg-7">
+      <div class="card shadow-sm">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+          <strong><i class="bi bi-calculator me-1"></i>Cálculo de carga</strong>
+          <a href="/viajes/{{ viaje.id }}" class="btn btn-sm btn-outline-success">
+            <i class="bi bi-arrow-clockwise me-1"></i>Recalcular
+          </a>
+        </div>
+        <div class="card-body">
+
+          {% if resultado is none %}
+            <div class="alert alert-warning">No se pudo calcular.</div>
+
+          {% elif resultado.get('error') %}
+            <div class="alert alert-warning">
+              <i class="bi bi-exclamation-triangle me-1"></i>{{ resultado.error }}
+            </div>
+
+          {% else %}
+            <!-- Resultado global -->
+            {% if resultado.entra_todo %}
+            <div class="alert alert-success py-2">
+              <i class="bi bi-check-circle-fill me-1"></i>
+              <strong>✅ Todo entra.</strong>
+              {{ resultado.total_items }} producto{{ 's' if resultado.total_items != 1 else '' }}
+              en {{ resultado.zonas | length }} zona{{ 's' if resultado.zonas | length != 1 else '' }}.
+            </div>
+            {% else %}
+            <div class="alert alert-danger py-2">
+              <i class="bi bi-x-circle-fill me-1"></i>
+              <strong>❌ No entra todo.</strong>
+              Sobran {{ resultado.sobrantes | length }} producto{{ 's' if resultado.sobrantes | length != 1 else '' }}.
+            </div>
+            {% endif %}
+
+            <!-- Orden de carga por zona -->
+            {% for zona_res in resultado.zonas %}
+            {% if zona_res.items %}
+            <div class="mb-3">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0">
+                  <i class="bi bi-box me-1"></i>
+                  <strong>{{ zona_res.zona.nombre_zona }}</strong>
+                  <span class="text-muted fw-normal small ms-1">
+                    {{ zona_res.zona.largo_cm }}×{{ zona_res.zona.ancho_cm }}×{{ zona_res.zona.alto_cm }} cm
+                  </span>
+                </h6>
+                {% set pct = (zona_res.alto_usado / zona_res.alto_total * 100) | int if zona_res.alto_total else 0 %}
+                <span class="small text-muted">Alto: {{ zona_res.alto_usado }}cm / {{ zona_res.alto_total }}cm</span>
+              </div>
+              <!-- Barra de uso de alto -->
+              <div class="progress mb-2" style="height:6px">
+                <div class="progress-bar bg-{{ 'danger' if pct > 90 else ('warning' if pct > 70 else 'success') }}"
+                     style="width:{{ pct }}%"></div>
+              </div>
+
+              <!-- Tabla de orden de carga -->
+              <div class="table-responsive">
+                <table class="table table-sm table-bordered mb-0" style="font-size:.82rem">
+                  <thead class="table-secondary">
+                    <tr>
+                      <th style="width:40px">#</th>
+                      <th>Producto</th>
+                      <th>Parada</th>
+                      <th>Cliente</th>
+                      <th>Orientación</th>
+                      <th>cm (L×A×H)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for idx in range(zona_res.items | length) %}
+                    {% set it = zona_res.items[idx] %}
+                    <tr {% if it.get('sin_medidas') %}class="table-warning"{% endif %}>
+                      <td class="text-center text-muted">{{ idx + 1 }}</td>
+                      <td>{{ it.producto_nombre }}</td>
+                      <td class="text-center">
+                        <span class="badge bg-dark">{{ it.orden_entrega }}</span>
+                      </td>
+                      <td class="text-muted">{{ it.cliente or '—' }}</td>
+                      <td>
+                        {% if it.get('sin_medidas') %}
+                          <span class="text-warning">⚠️ sin medidas</span>
+                        {% else %}
+                          <span class="badge bg-{{ 'info text-dark' if 'canto' in (it.orientacion or '') else 'light text-dark border' }}">
+                            {{ it.orientacion or 'plano' }}
+                          </span>
+                        {% endif %}
+                      </td>
+                      <td class="text-muted">
+                        {% if it.get('il') %}
+                          {{ it.il }}×{{ it.ia }}×{{ it.ih }}
+                        {% else %}
+                          {{ it.largo_cm }}×{{ it.ancho_cm }}×{{ it.alto_cm }}
+                        {% endif %}
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              <div class="text-muted small mt-1">
+                <i class="bi bi-info-circle me-1"></i>
+                Cargar de arriba hacia abajo: fila 1 va primero (al fondo del vehículo).
+              </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+
+            <!-- Sobrantes -->
+            {% if resultado.sobrantes %}
+            <div class="alert alert-danger mt-2 mb-0 py-2">
+              <strong><i class="bi bi-exclamation-triangle me-1"></i>No entran:</strong>
+              <ul class="mb-0 mt-1 ps-3">
+                {% for s in resultado.sobrantes %}
+                <li class="small">{{ s.producto_nombre }}
+                  ({{ s.largo_cm }}×{{ s.ancho_cm }}×{{ s.alto_cm }} cm)
+                  — parada {{ s.orden_entrega }}, {{ s.cliente or '—' }}
+                </li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal agregar parada -->
+<div class="modal fade" id="modalAgregarParada" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">Agregar parada</h6>
+        <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2">
+          <label class="form-label small">Orden de entrega</label>
+          <input type="number" class="form-control form-control-sm" id="nuevaOrden"
+                 value="{{ (paradas | length) + 1 }}" min="1">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Venta del sistema (opcional)</label>
+          <select class="form-select form-select-sm" id="nuevaVenta" onchange="onNuevaVentaSelect(this.value)">
+            <option value="">— Sin venta asignada —</option>
+            {% for v in ventas_pendientes %}
+            <option value="{{ v.id }}" data-cliente="{{ v.cliente }}" data-dir="{{ v.direccion_entrega or '' }}">
+              #{{ v.id }} — {{ v.cliente }} — {{ v.detalle[:60] if v.detalle else '' }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Cliente</label>
+          <input type="text" class="form-control form-control-sm" id="nuevoCliente">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Dirección</label>
+          <input type="text" class="form-control form-control-sm" id="nuevaDireccion">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Notas</label>
+          <input type="text" class="form-control form-control-sm" id="nuevasNotas">
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-sm btn-primary" onclick="guardarParada()">Agregar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal zona -->
+<div class="modal fade" id="modalZona" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title" id="tituloModalZona">Zona</h6>
+        <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="zonaId">
+        <div class="mb-2">
+          <label class="form-label small">Nombre</label>
+          <input type="text" class="form-control form-control-sm" id="zonaNombre" placeholder="Caja">
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-4">
+            <label class="form-label small">Largo cm</label>
+            <input type="number" class="form-control form-control-sm" id="zonaLargo">
+          </div>
+          <div class="col-4">
+            <label class="form-label small">Ancho cm</label>
+            <input type="number" class="form-control form-control-sm" id="zonaAncho">
+          </div>
+          <div class="col-4">
+            <label class="form-label small">Alto cm</label>
+            <input type="number" class="form-control form-control-sm" id="zonaAlto">
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Orden (1=primero en llenar)</label>
+          <input type="number" class="form-control form-control-sm" id="zonaOrden" value="1">
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-sm btn-primary" onclick="guardarZona()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block extra_js %}
+<script>
+const VIAJE_ID = {{ viaje.id }};
+const FLETERO_ID = {{ viaje.fletero_id }};
+
+async function api(data) {
+  const r = await fetch('/viajes/guardar', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data)
+  });
+  return r.json();
+}
+
+function onNuevaVentaSelect(val) {
+  if (!val) return;
+  const opt = document.querySelector(`#nuevaVenta option[value="${val}"]`);
+  if (opt) {
+    document.getElementById('nuevoCliente').value = opt.dataset.cliente || '';
+    document.getElementById('nuevaDireccion').value = opt.dataset.dir || '';
+  }
+}
+
+async function guardarParada() {
+  const res = await api({
+    accion: 'agregar_parada',
+    viaje_id: VIAJE_ID,
+    orden_entrega: +document.getElementById('nuevaOrden').value,
+    venta_id: +document.getElementById('nuevaVenta').value || null,
+    cliente: document.getElementById('nuevoCliente').value,
+    direccion: document.getElementById('nuevaDireccion').value,
+    notas: document.getElementById('nuevasNotas').value,
+  });
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  location.reload();
+}
+
+async function eliminarParada(parada_id) {
+  if (!confirm('¿Eliminar esta parada?')) return;
+  const res = await api({accion: 'eliminar_parada', parada_id, viaje_id: VIAJE_ID});
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  location.reload();
+}
+
+async function cambiarOrden(parada_id, orden_actual) {
+  const nuevo = prompt('Nuevo orden de entrega:', orden_actual);
+  if (nuevo === null || isNaN(+nuevo)) return;
+  const res = await api({accion: 'reordenar_parada', parada_id, orden_entrega: +nuevo});
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  location.reload();
+}
+
+async function cambiarEstado(estado) {
+  const res = await api({accion: 'cambiar_estado', viaje_id: VIAJE_ID, estado});
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  location.reload();
+}
+
+// Gestión de zonas
+const _modalZona = new bootstrap.Modal(document.getElementById('modalZona'));
+
+function abrirModalZona(zona_json) {
+  let zona = null;
+  if (zona_json) {
+    try { zona = JSON.parse(zona_json); } catch(e) { zona = zona_json; }
+  }
+  document.getElementById('zonaId').value = zona ? zona.id : '';
+  document.getElementById('zonaNombre').value = zona ? zona.nombre_zona : '';
+  document.getElementById('zonaLargo').value = zona ? zona.largo_cm : '';
+  document.getElementById('zonaAncho').value = zona ? zona.ancho_cm : '';
+  document.getElementById('zonaAlto').value = zona ? zona.alto_cm : '';
+  document.getElementById('zonaOrden').value = zona ? zona.orden : 1;
+  document.getElementById('tituloModalZona').textContent = zona ? 'Editar zona' : 'Nueva zona';
+  _modalZona.show();
+}
+
+async function guardarZona() {
+  const res = await api({
+    accion: 'guardar_zona',
+    fletero_id: FLETERO_ID,
+    zona_id: +document.getElementById('zonaId').value || null,
+    nombre_zona: document.getElementById('zonaNombre').value.trim(),
+    largo_cm: +document.getElementById('zonaLargo').value,
+    ancho_cm: +document.getElementById('zonaAncho').value,
+    alto_cm: +document.getElementById('zonaAlto').value,
+    orden: +document.getElementById('zonaOrden').value,
+  });
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  _modalZona.hide();
+  location.reload();
+}
+
+async function eliminarZona(zona_id) {
+  if (!confirm('¿Eliminar esta zona?')) return;
+  const res = await api({accion: 'eliminar_zona', zona_id, fletero_id: FLETERO_ID});
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  location.reload();
+}
+</script>
+{% endblock %}
