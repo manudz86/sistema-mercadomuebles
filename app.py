@@ -9625,7 +9625,7 @@ def _pack_zona(zona, items):
     alto_usado = sum(lay['height'] for lay in layers)
     return {
         'zona': zona,
-        'items': packed,
+        'productos': packed,
         'alto_usado': alto_usado,
         'alto_total': Z_H,
         'largo_total': Z_L,

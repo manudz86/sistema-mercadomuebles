@@ -155,7 +155,7 @@
 
             <!-- Orden de carga por zona -->
             {% for zona_res in resultado.zonas %}
-            {% if zona_res.items %}
+            {% if zona_res.productos %}
             <div class="mb-3">
               <div class="d-flex justify-content-between align-items-center mb-2">
                 <h6 class="mb-0">
@@ -188,8 +188,8 @@
                     </tr>
                   </thead>
                   <tbody>
-                    {% for idx in range(zona_res.items | length) %}
-                    {% set it = zona_res.items[idx] %}
+                    {% for idx in range(zona_res.productos | length) %}
+                    {% set it = zona_res.productos[idx] %}
                     <tr {% if it.get('sin_medidas') %}class="table-warning"{% endif %}>
                       <td class="text-center text-muted">{{ idx + 1 }}</td>
                       <td>{{ it.producto_nombre }}</td>
