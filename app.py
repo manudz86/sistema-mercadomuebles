@@ -9539,15 +9539,17 @@ def fletes_guardar():
 def _pack_zona(zona, items):
     """
     Empaqueta items en una zona usando algoritmo greedy por capas.
-    Capas apiladas verticalmente; dentro de cada capa, filas en profundidad;
-    dentro de cada fila, items en ancho.
-    Retorna (zona_result, items_sobrantes).
+    - Capas apiladas en ALTO (eje vertical)
+    - Dentro de cada capa: filas en LARGO (eje profundidad)
+    - Dentro de cada fila: items en ANCHO
+    - Orientaciones ordenadas por altura ascendente (plano primero)
     """
-    Z_L = zona['largo_cm']   # profundidad (fondo → boca)
+    Z_L = zona['largo_cm']   # profundidad fondo→boca
     Z_A = zona['ancho_cm']   # ancho
     Z_H = zona['alto_cm']    # alto
 
-    layers = []   # [{height, rows:[{depth, width_used, items:[]}]}]
+    # layers: [{height, rows:[{depth, width_used}]}]
+    layers = []
     packed = []
     remaining = []
 
@@ -9555,17 +9557,52 @@ def _pack_zona(zona, items):
         l = item.get('largo_cm') or 0
         a = item.get('ancho_cm') or 0
         h = item.get('alto_cm') or 0
-        tipo = (item.get('tipo') or '').lower()
         if not l or not a or not h:
             return []
-        opts = [(l, a, h, 'plano')]
-        if a != l:
-            opts.append((a, l, h, 'plano (girado 90°)'))
-        # Colchones de espuma/látex pueden ir de canto; sommiers/bases no
-        if tipo == 'colchon':
-            opts.append((l, h, a, 'de canto'))
-            opts.append((a, h, l, 'de canto'))
+        labels = {
+            (l, a, h): 'plano',
+            (a, l, h): 'plano (girado 90°)',
+            (l, h, a): 'de canto',
+            (a, h, l): 'de canto (girado 90°)',
+            (h, a, l): 'de frente',
+            (h, l, a): 'de frente (girado 90°)',
+        }
+        # Deduplicar (cuando dos dimensiones son iguales hay orientaciones repetidas)
+        seen = set()
+        opts = []
+        for (il, ia, ih), lbl in labels.items():
+            key = (il, ia, ih)
+            if key not in seen:
+                seen.add(key)
+                opts.append((il, ia, ih, lbl))
+        # Preferir siempre la orientación que ocupa menos alto en el camión
+        opts.sort(key=lambda x: x[2])
         return opts
+
+    def _try_place(il, ia, ih):
+        """
+        Intenta colocar un item de dimensiones (il, ia, ih) en layers existentes.
+        Retorna True si lo colocó (mutando layers), False si no pudo.
+        """
+        for layer in layers:
+            if ih > layer['height']:
+                continue  # el item no entra en esta capa
+            for row in layer['rows']:
+                # ¿Entra en ancho dentro de esta fila, y el largo no supera el depth del row?
+                if row['width_used'] + ia <= Z_A and il <= row['depth']:
+                    row['width_used'] += ia
+                    return True
+            # ¿Hay espacio para una fila nueva en esta capa?
+            depth_usado = max((r['depth'] for r in layer['rows']), default=0)
+            if depth_usado + il <= Z_L:
+                layer['rows'].append({'depth': il, 'width_used': ia})
+                return True
+        # Nueva capa
+        height_usado = sum(lay['height'] for lay in layers)
+        if height_usado + ih <= Z_H:
+            layers.append({'height': ih, 'rows': [{'depth': il, 'width_used': ia}]})
+            return True
+        return False
 
     for item in items:
         opts = _orientaciones(item)
@@ -9578,46 +9615,12 @@ def _pack_zona(zona, items):
         for (il, ia, ih, orient) in opts:
             if il > Z_L or ia > Z_A or ih > Z_H:
                 continue
-
-            # Intentar en capas/filas existentes
-            for layer in layers:
-                if ih > layer['height']:
-                    continue
-                for row in layer['rows']:
-                    if row['width_used'] + ia <= Z_A and il <= row['depth']:
-                        row['width_used'] += ia
-                        row['items'].append(item)
-                        packed.append({**item, 'zona_nombre': zona['nombre_zona'],
-                                       'orientacion': orient,
-                                       'il': il, 'ia': ia, 'ih': ih})
-                        placed = True
-                        break
-                if placed:
-                    break
-                # Nueva fila dentro de la capa existente
-                if not placed:
-                    depth_in_layer = sum(r['depth'] for r in layer['rows'])
-                    if depth_in_layer + il <= Z_L:
-                        layer['rows'].append({'depth': il, 'width_used': ia, 'items': [item]})
-                        packed.append({**item, 'zona_nombre': zona['nombre_zona'],
-                                       'orientacion': orient,
-                                       'il': il, 'ia': ia, 'ih': ih})
-                        placed = True
-                        break
-            if placed:
+            if _try_place(il, ia, ih):
+                packed.append({**item, 'zona_nombre': zona['nombre_zona'],
+                               'orientacion': orient,
+                               'il': il, 'ia': ia, 'ih': ih})
+                placed = True
                 break
-
-            # Nueva capa (apilada sobre las anteriores)
-            if not placed:
-                height_used = sum(lay['height'] for lay in layers)
-                if height_used + ih <= Z_H:
-                    layers.append({'height': ih,
-                                   'rows': [{'depth': il, 'width_used': ia, 'items': [item]}]})
-                    packed.append({**item, 'zona_nombre': zona['nombre_zona'],
-                                   'orientacion': orient,
-                                   'il': il, 'ia': ia, 'ih': ih})
-                    placed = True
-                    break
 
         if not placed:
             remaining.append(item)
@@ -9797,13 +9800,14 @@ def viaje_detalle(viaje_id):
         SELECT p.*,
                vt.nombre_cliente AS venta_cliente, vt.direccion_entrega,
                GROUP_CONCAT(
-                   CONCAT(i.cantidad, 'x ', pb.nombre)
-                   ORDER BY pb.nombre SEPARATOR ' | '
+                   CONCAT(i.cantidad, 'x ', COALESCE(pb.nombre, pc.nombre, i.sku))
+                   ORDER BY COALESCE(pb.nombre, pc.nombre) SEPARATOR ' | '
                ) AS items_texto
         FROM viaje_paradas p
         LEFT JOIN ventas vt ON vt.id = p.venta_id
         LEFT JOIN items_venta i ON i.venta_id = p.venta_id
         LEFT JOIN productos_base pb ON pb.sku = i.sku
+        LEFT JOIN productos_compuestos pc ON pc.sku = i.sku
         WHERE p.viaje_id = %s
         GROUP BY p.id
         ORDER BY p.orden_entrega
