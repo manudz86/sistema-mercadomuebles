@@ -9722,7 +9722,7 @@ def viaje_nuevo():
         ORDER BY f.nombre
     """)
     ventas_pendientes = query_db("""
-        SELECT v.id, v.cliente, v.direccion_entrega,
+        SELECT v.id, v.nombre_cliente AS cliente, v.direccion_entrega,
                GROUP_CONCAT(CONCAT(i.cantidad, 'x ', pb.nombre)
                             ORDER BY pb.nombre SEPARATOR ', ') AS detalle
         FROM ventas v
@@ -9752,7 +9752,7 @@ def viaje_detalle(viaje_id):
 
     paradas = query_db("""
         SELECT p.*,
-               vt.cliente AS venta_cliente, vt.direccion_entrega,
+               vt.nombre_cliente AS venta_cliente, vt.direccion_entrega,
                GROUP_CONCAT(
                    CONCAT(i.cantidad, 'x ', pb.nombre)
                    ORDER BY pb.nombre SEPARATOR ' | '
@@ -9773,7 +9773,7 @@ def viaje_detalle(viaje_id):
     """, (viaje_id,))
 
     ventas_pendientes = query_db("""
-        SELECT v.id, v.cliente, v.direccion_entrega,
+        SELECT v.id, v.nombre_cliente AS cliente, v.direccion_entrega,
                GROUP_CONCAT(CONCAT(i.cantidad, 'x ', pb.nombre)
                             ORDER BY pb.nombre SEPARATOR ', ') AS detalle
         FROM ventas v
