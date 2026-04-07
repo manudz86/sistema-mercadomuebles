@@ -100,7 +100,7 @@ function renderParadas() {
   empty.classList.add('d-none');
 
   const ventasOpts = VENTAS.map(v =>
-    `<option value="${v.id}">${v.cliente} — ${v.detalle?.substring(0, 60) || ''}</option>`
+    `<option value="${v.id}" data-cliente="${v.cliente || ''}" data-dir="${v.direccion_entrega || ''}">${v.direccion_entrega || 'Sin dirección'} — ${v.detalle?.substring(0, 70) || ''}</option>`
   ).join('');
 
   container.innerHTML = paradas.map((p, i) => `

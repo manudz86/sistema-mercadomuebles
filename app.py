@@ -9722,13 +9722,14 @@ def viaje_nuevo():
         ORDER BY f.nombre
     """)
     ventas_pendientes = query_db("""
-        SELECT v.id, v.nombre_cliente AS cliente, v.direccion_entrega,
+        SELECT v.id, v.nombre_cliente AS cliente, v.direccion_entrega, v.metodo_envio,
                GROUP_CONCAT(CONCAT(i.cantidad, 'x ', pb.nombre)
                             ORDER BY pb.nombre SEPARATOR ', ') AS detalle
         FROM ventas v
         JOIN items_venta i ON i.venta_id = v.id
         JOIN productos_base pb ON pb.sku = i.sku
         WHERE v.estado_entrega = 'pendiente'
+          AND v.metodo_envio IN ('Turbo', 'Flex', 'Flete Propio')
         GROUP BY v.id
         ORDER BY v.fecha_venta DESC
         LIMIT 200
@@ -9773,13 +9774,14 @@ def viaje_detalle(viaje_id):
     """, (viaje_id,))
 
     ventas_pendientes = query_db("""
-        SELECT v.id, v.nombre_cliente AS cliente, v.direccion_entrega,
+        SELECT v.id, v.nombre_cliente AS cliente, v.direccion_entrega, v.metodo_envio,
                GROUP_CONCAT(CONCAT(i.cantidad, 'x ', pb.nombre)
                             ORDER BY pb.nombre SEPARATOR ', ') AS detalle
         FROM ventas v
         JOIN items_venta i ON i.venta_id = v.id
         JOIN productos_base pb ON pb.sku = i.sku
         WHERE v.estado_entrega = 'pendiente'
+          AND v.metodo_envio IN ('Turbo', 'Flex', 'Flete Propio')
         GROUP BY v.id
         ORDER BY v.fecha_venta DESC
         LIMIT 200

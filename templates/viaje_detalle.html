@@ -268,7 +268,7 @@
             <option value="">— Sin venta asignada —</option>
             {% for v in ventas_pendientes %}
             <option value="{{ v.id }}" data-cliente="{{ v.cliente }}" data-dir="{{ v.direccion_entrega or '' }}">
-              #{{ v.id }} — {{ v.cliente }} — {{ v.detalle[:60] if v.detalle else '' }}
+              {{ v.direccion_entrega or 'Sin dirección' }} — {{ v.detalle[:70] if v.detalle else '' }}
             </option>
             {% endfor %}
           </select>
