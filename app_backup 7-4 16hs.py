@@ -10256,16 +10256,6 @@ def nota_pedido_pdf(venta_id):
     if ef > 0:
         story.append(Paragraph(f'  · Efectivo: ${ef:,.0f}'.replace(',', '.'), st_normal))
 
-    # Demora sin stock
-    demora_val = notas_dict.get('DEMORA', '')
-    if demora_val:
-        story.append(Spacer(1, 10))
-        st_demora = ParagraphStyle('demora', fontSize=10, fontName='Helvetica-Bold',
-                                   textColor=colors.HexColor('#856404'),
-                                   backColor=colors.HexColor('#fff3cd'),
-                                   borderPad=6, spaceBefore=4, spaceAfter=4)
-        story.append(Paragraph(f'⚠ PRODUCTO CON DEMORA: {demora_val}', st_demora))
-
     story.append(Spacer(1, 16))
     story.append(HRFlowable(width='100%', thickness=0.5, color=colors.grey))
     story.append(Paragraph('ventas@mercadomuebles.com.ar · www.mercadomuebles.com.ar · WhatsApp 11 2627-5185', st_sub))
