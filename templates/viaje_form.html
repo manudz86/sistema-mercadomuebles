@@ -90,14 +90,11 @@ function agregarParada() {
 
 function renderParadas() {
   const container = document.getElementById('listaParadas');
-  const empty = document.getElementById('emptyParadas');
+
   if (!paradas.length) {
-    empty.classList.remove('d-none');
-    container.innerHTML = '';
-    container.appendChild(empty);
+    container.innerHTML = '<div class="text-center text-muted py-3 small">Agregá al menos una parada para continuar.</div>';
     return;
   }
-  empty.classList.add('d-none');
 
   const ventasOpts = VENTAS.map(v => {
     const prefijo = v.metodo_envio === 'Flex' ? '🟡 FLEX — ' : '';
