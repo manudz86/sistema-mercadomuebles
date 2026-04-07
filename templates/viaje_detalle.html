@@ -165,12 +165,12 @@
                     {{ zona_res.zona.largo_cm }}×{{ zona_res.zona.ancho_cm }}×{{ zona_res.zona.alto_cm }} cm
                   </span>
                 </h6>
-                {% set pct = (zona_res.alto_usado / zona_res.alto_total * 100) | int if zona_res.alto_total else 0 %}
-                <span class="small text-muted">Alto: {{ zona_res.alto_usado }}cm / {{ zona_res.alto_total }}cm</span>
+                {% set pct = (zona_res.ancho_usado / zona_res.ancho_total * 100) | int if zona_res.ancho_total else 0 %}
+                <span class="small text-muted">Ancho usado: {{ zona_res.ancho_usado }}cm / {{ zona_res.ancho_total }}cm</span>
               </div>
-              <!-- Barra de uso de alto -->
+              <!-- Barra de uso de ancho -->
               <div class="progress mb-2" style="height:6px">
-                <div class="progress-bar bg-{{ 'danger' if pct > 90 else ('warning' if pct > 70 else 'success') }}"
+                <div class="progress-bar bg-{{ 'danger' if pct > 95 else ('warning' if pct > 80 else 'success') }}"
                      style="width:{{ pct }}%"></div>
               </div>
 

@@ -9538,102 +9538,110 @@ def fletes_guardar():
 
 def _pack_zona(zona, items):
     """
-    Empaqueta items en una zona usando algoritmo greedy por capas.
-    - Capas apiladas en ALTO (eje vertical)
-    - Dentro de cada capa: filas en LARGO (eje profundidad)
-    - Dentro de cada fila: items en ANCHO
-    - Orientaciones ordenadas por altura ascendente (plano primero)
+    Algoritmo de carga para objetos planos (colchones, bases, sommiers).
+
+    Estrategia principal: parar todo de canto como libros en estantería.
+    - Cada pieza ocupa su dimensión más chica (espesor) en el eje del ancho del camión
+    - La cara de la pieza debe entrar en el largo × alto del camión
+    - Se agrupa por parada: última parada va al fondo, primera a la boca
+    - Suma de espesores ≤ ancho disponible de la zona
+
+    Si no entran todos parados, el sobrante se intenta acomodar acostado encima.
     """
-    Z_L = zona['largo_cm']   # profundidad fondo→boca
-    Z_A = zona['ancho_cm']   # ancho
+    Z_L = zona['largo_cm']   # fondo → boca
+    Z_A = zona['ancho_cm']   # ancho (dimensión donde se acumulan los espesores)
     Z_H = zona['alto_cm']    # alto
 
-    # layers: [{height, rows:[{depth, width_used}]}]
-    layers = []
     packed = []
     remaining = []
+    ancho_usado = 0
 
-    def _orientaciones(item):
-        l = item.get('largo_cm') or 0
-        a = item.get('ancho_cm') or 0
-        h = item.get('alto_cm') or 0
-        if not l or not a or not h:
-            return []
-        labels = {
-            (l, a, h): 'plano',
-            (a, l, h): 'plano (girado 90°)',
-            (l, h, a): 'de canto',
-            (a, h, l): 'de canto (girado 90°)',
-            (h, a, l): 'de frente',
-            (h, l, a): 'de frente (girado 90°)',
-        }
-        # Deduplicar (cuando dos dimensiones son iguales hay orientaciones repetidas)
-        seen = set()
-        opts = []
-        for (il, ia, ih), lbl in labels.items():
-            key = (il, ia, ih)
-            if key not in seen:
-                seen.add(key)
-                opts.append((il, ia, ih, lbl))
-        # Preferir siempre la orientación que ocupa menos alto en el camión
-        opts.sort(key=lambda x: x[2])
-        return opts
-
-    def _try_place(il, ia, ih):
+    def _mejor_orientacion_parado(item):
         """
-        Intenta colocar un item de dimensiones (il, ia, ih) en layers existentes.
-        Retorna True si lo colocó (mutando layers), False si no pudo.
+        Para una pieza parada de canto, su espesor ocupa el ancho del camión.
+        La cara (las otras dos dimensiones) debe entrar en Z_L × Z_H.
+        Retorna (espesor, cara_largo, cara_alto, label) o None si no entra parado.
         """
-        for layer in layers:
-            if ih > layer['height']:
-                continue  # el item no entra en esta capa
-            for row in layer['rows']:
-                # ¿Entra en ancho dentro de esta fila, y el largo no supera el depth del row?
-                if row['width_used'] + ia <= Z_A and il <= row['depth']:
-                    row['width_used'] += ia
-                    return True
-            # ¿Hay espacio para una fila nueva en esta capa?
-            depth_usado = max((r['depth'] for r in layer['rows']), default=0)
-            if depth_usado + il <= Z_L:
-                layer['rows'].append({'depth': il, 'width_used': ia})
-                return True
-        # Nueva capa
-        height_usado = sum(lay['height'] for lay in layers)
-        if height_usado + ih <= Z_H:
-            layers.append({'height': ih, 'rows': [{'depth': il, 'width_used': ia}]})
-            return True
-        return False
+        dims = sorted([
+            item.get('largo_cm') or 0,
+            item.get('ancho_cm') or 0,
+            item.get('alto_cm') or 0,
+        ])
+        if not all(dims):
+            return None
 
+        d_min, d_mid, d_max = dims  # d_min = espesor (va al ancho del camión)
+
+        # La cara es d_mid × d_max, debe entrar en Z_L × Z_H
+        if d_max <= Z_L and d_mid <= Z_H:
+            return (d_min, d_max, d_mid, 'parado')
+        if d_max <= Z_H and d_mid <= Z_L:
+            return (d_min, d_mid, d_max, 'parado (girado)')
+        return None
+
+    def _mejor_orientacion_acostado(item):
+        """
+        Para una pieza acostada: la dimensión más chica es el alto.
+        La cara (largo × ancho) debe entrar en Z_L × Z_A.
+        """
+        dims = sorted([
+            item.get('largo_cm') or 0,
+            item.get('ancho_cm') or 0,
+            item.get('alto_cm') or 0,
+        ])
+        if not all(dims):
+            return None
+        d_min, d_mid, d_max = dims
+        if d_max <= Z_L and d_mid <= Z_A:
+            return (d_max, d_mid, d_min, 'acostado')
+        if d_max <= Z_A and d_mid <= Z_L:
+            return (d_mid, d_max, d_min, 'acostado (girado)')
+        return None
+
+    # Paso 1: intentar parar todo de canto
     for item in items:
-        opts = _orientaciones(item)
-        if not opts:
+        if not (item.get('largo_cm') and item.get('ancho_cm') and item.get('alto_cm')):
             packed.append({**item, 'zona_nombre': zona['nombre_zona'],
-                           'orientacion': '—', 'sin_medidas': True})
+                           'orientacion': '—', 'sin_medidas': True,
+                           'espesor': 0})
             continue
 
-        placed = False
-        for (il, ia, ih, orient) in opts:
-            if il > Z_L or ia > Z_A or ih > Z_H:
-                continue
-            if _try_place(il, ia, ih):
-                packed.append({**item, 'zona_nombre': zona['nombre_zona'],
-                               'orientacion': orient,
-                               'il': il, 'ia': ia, 'ih': ih})
-                placed = True
-                break
-
-        if not placed:
+        orient = _mejor_orientacion_parado(item)
+        if orient and ancho_usado + orient[0] <= Z_A:
+            espesor, il, ih, lbl = orient
+            ancho_usado += espesor
+            packed.append({**item, 'zona_nombre': zona['nombre_zona'],
+                           'orientacion': lbl,
+                           'il': il, 'ia': espesor, 'ih': ih,
+                           'espesor': espesor})
+        else:
             remaining.append(item)
 
-    alto_usado = sum(lay['height'] for lay in layers)
+    # Paso 2: los que no entran parados, intentar acostarlos encima
+    # (esto es marginal para el caso normal, pero cubre colchones de una plaza extras, etc.)
+    alto_usado_acostado = 0
+    segunda_vuelta = []
+    for item in remaining:
+        orient = _mejor_orientacion_acostado(item)
+        if orient and alto_usado_acostado + orient[2] <= Z_H:
+            il, ia, ih, lbl = orient
+            alto_usado_acostado += ih
+            packed.append({**item, 'zona_nombre': zona['nombre_zona'],
+                           'orientacion': lbl,
+                           'il': il, 'ia': ia, 'ih': ih,
+                           'espesor': ih})
+        else:
+            segunda_vuelta.append(item)
+
     return {
         'zona': zona,
         'productos': packed,
-        'alto_usado': alto_usado,
+        'ancho_usado': ancho_usado,
+        'ancho_total': Z_A,
+        'alto_usado': alto_usado_acostado,
         'alto_total': Z_H,
         'largo_total': Z_L,
-        'ancho_total': Z_A,
-    }, remaining
+    }, segunda_vuelta
 
 
 def _calcular_carga_viaje(viaje_id):
