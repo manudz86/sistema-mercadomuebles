@@ -109,17 +109,6 @@ def vendedor_required(f):
         return f(*args, **kwargs)
     return decorated
 
-def agencia_only(f):
-    """Solo agencia puede acceder — redirige a /agencia si intenta acceder a otra ruta."""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not current_user.is_authenticated:
-            return redirect(url_for('login'))
-        if current_user.rol == 'agencia':
-            return redirect(url_for('agencia_dashboard'))
-        return f(*args, **kwargs)
-    return decorated
-
 # Configuración de base de datos
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'localhost'),
@@ -184,8 +173,6 @@ def login():
         if user_row and check_password_hash(user_row['password_hash'], password):
             user = User(user_row['id'], user_row['username'], user_row['rol'], user_row['activo'])
             login_user(user, remember=True)
-            if user_row['rol'] == 'agencia':
-                return redirect(url_for('agencia_dashboard'))
             next_page = request.args.get('next')
             return redirect(next_page or url_for('index'))
         flash('❌ Usuario o contraseña incorrectos', 'danger')
@@ -11684,150 +11671,6 @@ def job_completar_notas_mp():
 
         except Exception as e:
             print(f"[MP-NOTAS] Error general: {e}")
-
-
-# ============================================================================
-# DASHBOARD AGENCIA
-# ============================================================================
-
-def _ga4_query(property_id, date_ranges, dimensions, metrics):
-    """Consulta la GA4 Data API y retorna rows."""
-    try:
-        import json as _json
-        from google.oauth2 import service_account
-        from google.analytics.data_v1beta import BetaAnalyticsDataClient
-        from google.analytics.data_v1beta.types import (
-            RunReportRequest, DateRange, Dimension, Metric
-        )
-        sa_path = os.path.join(os.path.dirname(__file__), 'config', 'ga4_service_account.json')
-        credentials = service_account.Credentials.from_service_account_file(
-            sa_path,
-            scopes=['https://www.googleapis.com/auth/analytics.readonly']
-        )
-        client = BetaAnalyticsDataClient(credentials=credentials)
-        request = RunReportRequest(
-            property=f'properties/{property_id}',
-            date_ranges=[DateRange(**dr) for dr in date_ranges],
-            dimensions=[Dimension(name=d) for d in dimensions],
-            metrics=[Metric(name=m) for m in metrics],
-        )
-        response = client.run_report(request)
-        return response
-    except Exception as e:
-        print(f'[GA4] Error: {e}')
-        return None
-
-
-@app.route('/agencia')
-@login_required
-def agencia_dashboard():
-    if current_user.rol not in ('admin', 'vendedor', 'viewer', 'agencia'):
-        return redirect(url_for('login'))
-
-    GA4_PROPERTY_ID = '528968739'
-
-    # ── Período ──────────────────────────────────────────────────────────────
-    periodo = request.args.get('periodo', '30d')
-    fecha_desde_custom = request.args.get('desde', '')
-    fecha_hasta_custom = request.args.get('hasta', '')
-
-    from datetime import date, timedelta
-    hoy = date.today()
-    if periodo == '7d':
-        fecha_desde = (hoy - timedelta(days=6)).strftime('%Y-%m-%d')
-        fecha_hasta = hoy.strftime('%Y-%m-%d')
-        label_periodo = 'Últimos 7 días'
-    elif periodo == '15d':
-        fecha_desde = (hoy - timedelta(days=14)).strftime('%Y-%m-%d')
-        fecha_hasta = hoy.strftime('%Y-%m-%d')
-        label_periodo = 'Últimos 15 días'
-    elif periodo == 'mes':
-        fecha_desde = hoy.replace(day=1).strftime('%Y-%m-%d')
-        fecha_hasta = hoy.strftime('%Y-%m-%d')
-        label_periodo = 'Mes en curso'
-    elif periodo == 'custom' and fecha_desde_custom and fecha_hasta_custom:
-        fecha_desde = fecha_desde_custom
-        fecha_hasta = fecha_hasta_custom
-        label_periodo = f'{fecha_desde_custom} → {fecha_hasta_custom}'
-    else:  # 30d default
-        fecha_desde = (hoy - timedelta(days=29)).strftime('%Y-%m-%d')
-        fecha_hasta = hoy.strftime('%Y-%m-%d')
-        label_periodo = 'Últimos 30 días'
-
-    # ── Datos de la DB (tienda web) ───────────────────────────────────────────
-    ventas_db = query_db("""
-        SELECT v.id, v.importe_total, v.importe_abonado, v.fecha_venta
-        FROM ventas v
-        WHERE v.canal = 'tienda_web'
-          AND v.estado_entrega != 'cancelada'
-          AND DATE(v.fecha_venta) BETWEEN %s AND %s
-    """, (fecha_desde, fecha_hasta))
-
-    total_ventas = len(ventas_db)
-    total_facturado = sum(float(v['importe_total'] or 0) for v in ventas_db)
-    ticket_promedio = total_facturado / total_ventas if total_ventas else 0
-
-    # Productos más vendidos
-    top_productos = query_db("""
-        SELECT COALESCE(pb.nombre, pc.nombre, iv.sku) as nombre, SUM(iv.cantidad) as total_unidades
-        FROM items_venta iv
-        JOIN ventas v ON v.id = iv.venta_id
-        LEFT JOIN productos_base pb ON pb.sku = iv.sku
-        LEFT JOIN productos_compuestos pc ON pc.sku = iv.sku
-        WHERE v.canal = 'tienda_web'
-          AND v.estado_entrega != 'cancelada'
-          AND DATE(v.fecha_venta) BETWEEN %s AND %s
-        GROUP BY iv.sku
-        ORDER BY total_unidades DESC
-        LIMIT 8
-    """, (fecha_desde, fecha_hasta))
-
-    # ── Datos de GA4 ──────────────────────────────────────────────────────────
-    ga4_visitas = 0
-    ga4_sesiones = 0
-    tasa_conversion = 0.0
-    fuentes = []
-
-    try:
-        dr = [{'start_date': fecha_desde, 'end_date': fecha_hasta}]
-
-        # Visitas y sesiones
-        r1 = _ga4_query(GA4_PROPERTY_ID, dr, [], ['activeUsers', 'sessions'])
-        if r1 and r1.rows:
-            row = r1.rows[0]
-            ga4_visitas  = int(row.metric_values[0].value)
-            ga4_sesiones = int(row.metric_values[1].value)
-
-        # Tasa de conversión (purchase events / sesiones)
-        tasa_conversion = round((total_ventas / ga4_sesiones * 100), 2) if ga4_sesiones else 0.0
-
-        # Fuentes de tráfico
-        r2 = _ga4_query(GA4_PROPERTY_ID, dr, ['sessionDefaultChannelGroup'], ['sessions'])
-        if r2 and r2.rows:
-            fuentes = sorted([
-                {'fuente': row.dimension_values[0].value, 'sesiones': int(row.metric_values[0].value)}
-                for row in r2.rows
-            ], key=lambda x: x['sesiones'], reverse=True)
-
-    except Exception as e:
-        print(f'[AGENCIA] Error GA4: {e}')
-
-    return render_template('agencia.html',
-        periodo=periodo,
-        label_periodo=label_periodo,
-        fecha_desde=fecha_desde,
-        fecha_hasta=fecha_hasta,
-        fecha_desde_custom=fecha_desde_custom,
-        fecha_hasta_custom=fecha_hasta_custom,
-        total_ventas=total_ventas,
-        total_facturado=total_facturado,
-        ticket_promedio=ticket_promedio,
-        top_productos=top_productos,
-        ga4_visitas=ga4_visitas,
-        ga4_sesiones=ga4_sesiones,
-        tasa_conversion=tasa_conversion,
-        fuentes=fuentes,
-    )
 
 
 def iniciar_scheduler():

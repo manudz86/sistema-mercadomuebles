@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Dashboard Agencia — Mercadomuebles{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div>
+    <h2 class="mb-0"><i class="bi bi-graph-up-arrow me-2"></i>Dashboard Agencia</h2>
+    <small class="text-muted">Tienda web · {{ label_periodo }}</small>
+  </div>
+</div>
+
+{# ── Selector de período ── #}
+<div class="card shadow-sm mb-4">
+  <div class="card-body py-2">
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      {% for val, label in [('7d','7 días'),('15d','15 días'),('30d','30 días'),('mes','Mes en curso')] %}
+      <a href="{{ url_for('agencia_dashboard', periodo=val) }}"
+         class="btn btn-sm {{ 'btn-primary' if periodo == val else 'btn-outline-secondary' }}">
+        {{ label }}
+      </a>
+      {% endfor %}
+      {# Fecha personalizada #}
+      <form class="d-flex gap-1 align-items-center ms-2" method="GET">
+        <input type="hidden" name="periodo" value="custom">
+        <input type="date" name="desde" class="form-control form-control-sm" style="width:140px;"
+               value="{{ fecha_desde_custom or fecha_desde }}">
+        <span class="text-muted">→</span>
+        <input type="date" name="hasta" class="form-control form-control-sm" style="width:140px;"
+               value="{{ fecha_hasta_custom or fecha_hasta }}">
+        <button type="submit" class="btn btn-sm {{ 'btn-primary' if periodo == 'custom' else 'btn-outline-secondary' }}">
+          Aplicar
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# ── KPIs principales ── #}
+<div class="row g-3 mb-4">
+
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm h-100 border-0" style="border-left:4px solid #3498db !important;">
+      <div class="card-body text-center">
+        <div class="text-muted" style="font-size:0.8rem;">VISITAS</div>
+        <div style="font-size:2rem; font-weight:800; color:#3498db;">
+          {{ "{:,.0f}".format(ga4_visitas).replace(",",".") }}
+        </div>
+        <div class="text-muted" style="font-size:0.75rem;">usuarios únicos</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm h-100 border-0" style="border-left:4px solid #2ecc71 !important;">
+      <div class="card-body text-center">
+        <div class="text-muted" style="font-size:0.8rem;">VENTAS</div>
+        <div style="font-size:2rem; font-weight:800; color:#2ecc71;">
+          {{ total_ventas }}
+        </div>
+        <div class="text-muted" style="font-size:0.75rem;">órdenes aprobadas</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm h-100 border-0" style="border-left:4px solid #e67e22 !important;">
+      <div class="card-body text-center">
+        <div class="text-muted" style="font-size:0.8rem;">FACTURACIÓN</div>
+        <div style="font-size:1.6rem; font-weight:800; color:#e67e22;">
+          ${{ "{:,.0f}".format(total_facturado).replace(",",".") }}
+        </div>
+        <div class="text-muted" style="font-size:0.75rem;">total vendido</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm h-100 border-0" style="border-left:4px solid #9b59b6 !important;">
+      <div class="card-body text-center">
+        <div class="text-muted" style="font-size:0.8rem;">TICKET PROMEDIO</div>
+        <div style="font-size:1.6rem; font-weight:800; color:#9b59b6;">
+          ${{ "{:,.0f}".format(ticket_promedio).replace(",",".") }}
+        </div>
+        <div class="text-muted" style="font-size:0.75rem;">por orden</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{# ── Conversión + Sesiones ── #}
+<div class="row g-3 mb-4">
+
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm h-100 border-0" style="border-left:4px solid #1abc9c !important;">
+      <div class="card-body text-center">
+        <div class="text-muted" style="font-size:0.8rem;">SESIONES</div>
+        <div style="font-size:2rem; font-weight:800; color:#1abc9c;">
+          {{ "{:,.0f}".format(ga4_sesiones).replace(",",".") }}
+        </div>
+        <div class="text-muted" style="font-size:0.75rem;">en el período</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm h-100 border-0" style="border-left:4px solid #e74c3c !important;">
+      <div class="card-body text-center">
+        <div class="text-muted" style="font-size:0.8rem;">TASA DE CONVERSIÓN</div>
+        <div style="font-size:2rem; font-weight:800; color:#e74c3c;">
+          {{ tasa_conversion }}%
+        </div>
+        <div class="text-muted" style="font-size:0.75rem;">ventas / sesiones</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{# ── Fuentes + Más vendidos ── #}
+<div class="row g-3">
+
+  {# Fuentes de tráfico #}
+  <div class="col-md-5">
+    <div class="card shadow-sm h-100">
+      <div class="card-header fw-bold"><i class="bi bi-signpost-split me-1"></i> Fuente del tráfico</div>
+      <div class="card-body p-0">
+        {% if fuentes %}
+        <table class="table table-sm table-hover mb-0">
+          <thead class="table-dark">
+            <tr><th>Canal</th><th class="text-end">Sesiones</th><th class="text-end">%</th></tr>
+          </thead>
+          <tbody>
+            {% set total_ses = fuentes | sum(attribute='sesiones') %}
+            {% for f in fuentes %}
+            <tr>
+              <td>{{ f.fuente }}</td>
+              <td class="text-end">{{ "{:,.0f}".format(f.sesiones).replace(",",".") }}</td>
+              <td class="text-end text-muted">
+                {% if total_ses %}{{ "%.1f"|format(f.sesiones / total_ses * 100) }}%{% else %}—{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center text-muted py-4">Sin datos de GA4</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# Más vendidos #}
+  <div class="col-md-7">
+    <div class="card shadow-sm h-100">
+      <div class="card-header fw-bold"><i class="bi bi-star me-1"></i> Productos más vendidos</div>
+      <div class="card-body p-0">
+        {% if top_productos %}
+        <table class="table table-sm table-hover mb-0">
+          <thead class="table-dark">
+            <tr><th>Producto</th><th class="text-end">Unidades</th></tr>
+          </thead>
+          <tbody>
+            {% set max_u = top_productos[0].total_unidades %}
+            {% for p in top_productos %}
+            <tr>
+              <td>
+                <div style="font-size:0.85rem;">{{ p.nombre }}</div>
+                <div class="progress mt-1" style="height:4px;">
+                  <div class="progress-bar bg-primary" style="width:{{ (p.total_unidades / max_u * 100)|int }}%"></div>
+                </div>
+              </td>
+              <td class="text-end fw-bold">{{ p.total_unidades }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center text-muted py-4">Sin ventas en el período</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}
