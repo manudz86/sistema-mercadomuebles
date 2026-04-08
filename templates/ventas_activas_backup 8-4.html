@@ -47,20 +47,6 @@
         </div>
         {% endif %}
     </div>
-{% elif venta.canal == 'Mercado Libre' and venta.metodo_envio == 'Flete Propio' %}
-    <div style="font-size:0.78rem; line-height:1.6;">
-        {% if venta.fecha_entrega_estimada %}
-        <div><span class="text-muted">Promesa de entrega:</span> <strong>{{ venta.fecha_entrega_estimada.strftime('%d/%m/%Y') if venta.fecha_entrega_estimada and venta.fecha_entrega_estimada != '' else venta.fecha_entrega_estimada }}</strong></div>
-        {% endif %}
-        {% if venta.notas %}
-            {% set lineas_ml = venta.notas.replace('\\n', '\n').split('\n') %}
-            {% for l in lineas_ml %}
-                {% if l.startswith('DEMORA_ML:') %}
-                <div class="badge bg-warning text-dark mt-1" style="font-size:0.72rem;">⏳ Compra con demora: {{ l[10:].strip() }}</div>
-                {% endif %}
-            {% endfor %}
-        {% endif %}
-    </div>
 {% else %}
     {% if venta.notas %}
         {{ venta.notas[:80] }}{% if venta.notas|length > 80 %}...{% endif %}
