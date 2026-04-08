@@ -57,6 +57,8 @@
             {% for l in lineas_ml %}
                 {% if l.startswith('DEMORA_ML:') %}
                 <div class="badge bg-warning text-dark mt-1" style="font-size:0.72rem;">⏳ Compra con demora: {{ l[10:].strip() }}</div>
+                {% elif not l.startswith('Importado desde ML') and l.strip() %}
+                <div class="text-muted">{{ l }}</div>
                 {% endif %}
             {% endfor %}
         {% endif %}
