@@ -12832,22 +12832,15 @@ def productos_lista():
     nl_monto  = int(nl_monto_row['valor'])  if nl_monto_row  and nl_monto_row['valor']  else 0
     nl_minimo = int(nl_minimo_row['valor']) if nl_minimo_row and nl_minimo_row['valor'] else 0
 
-    coef_3_row = query_one("SELECT valor FROM configuracion WHERE clave='cuotas_3_coef'")
-    coef_6_row = query_one("SELECT valor FROM configuracion WHERE clave='cuotas_6_coef'")
-    cuotas_3_coef = float(coef_3_row['valor']) if coef_3_row and coef_3_row['valor'] else 1.11
-    cuotas_6_coef = float(coef_6_row['valor']) if coef_6_row and coef_6_row['valor'] else 1.22
-
     return render_template('productos_lista.html',
-        productos     = productos,
-        busq          = busq,
-        linea_sel     = linea_sel,
-        lineas        = lineas,
-        filtro        = filtro,
-        demora_dias   = demora_dias,
-        nl_monto      = nl_monto,
-        nl_minimo     = nl_minimo,
-        cuotas_3_coef = cuotas_3_coef,
-        cuotas_6_coef = cuotas_6_coef,
+        productos   = productos,
+        busq        = busq,
+        linea_sel   = linea_sel,
+        lineas      = lineas,
+        filtro      = filtro,
+        demora_dias = demora_dias,
+        nl_monto    = nl_monto,
+        nl_minimo   = nl_minimo,
     )
 
 
@@ -12888,30 +12881,6 @@ def productos_newsletter_cupon():
         fmt_monto  = f'${monto_int:,.0f}'.replace(',', '.')
         fmt_minimo = f'${minimo_int:,.0f}'.replace(',', '.')
         return jsonify(ok=True, msg=f'✅ {fmt_monto} OFF / mín. {fmt_minimo}')
-    except Exception as e:
-        return jsonify(ok=False, msg=str(e))
-
-
-@app.route('/productos/cuotas-coeficientes', methods=['POST'])
-@admin_required
-def productos_cuotas_coeficientes():
-    coef_3 = request.form.get('coef_3', '').strip()
-    coef_6 = request.form.get('coef_6', '').strip()
-    try:
-        coef_3_f = round(max(1.0, float(coef_3)), 4) if coef_3 else 1.11
-        coef_6_f = round(max(1.0, float(coef_6)), 4) if coef_6 else 1.22
-        execute_db(
-            "INSERT INTO configuracion (clave, valor) VALUES ('cuotas_3_coef', %s) ON DUPLICATE KEY UPDATE valor=%s",
-            (str(coef_3_f), str(coef_3_f))
-        )
-        execute_db(
-            "INSERT INTO configuracion (clave, valor) VALUES ('cuotas_6_coef', %s) ON DUPLICATE KEY UPDATE valor=%s",
-            (str(coef_6_f), str(coef_6_f))
-        )
-        pct_3 = round((coef_3_f - 1) * 100, 1)
-        pct_6 = round((coef_6_f - 1) * 100, 1)
-        return jsonify(ok=True, msg=f'✅ 3 cuotas: +{pct_3}% / 6 cuotas: +{pct_6}%',
-                       coef_3=coef_3_f, coef_6=coef_6_f)
     except Exception as e:
         return jsonify(ok=False, msg=str(e))
 

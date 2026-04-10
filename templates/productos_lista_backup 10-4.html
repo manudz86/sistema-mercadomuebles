@@ -71,34 +71,6 @@
     </div>
   </div>
 
-  <!-- Config coeficientes cuotas Payway -->
-  <div class="card border-0 shadow-sm mb-3" style="border-left:4px solid #10b981!important;">
-    <div class="card-body py-2">
-      <div class="row g-2 align-items-center">
-        <div class="col-auto">
-          <span class="fw-semibold">💳 Recargo por cuotas (Payway)</span>
-          <small class="text-muted ms-1">coeficiente que se multiplica al precio para 3 y 6 cuotas</small>
-        </div>
-        <div class="col-auto ms-auto d-flex align-items-center gap-2 flex-wrap">
-          <div class="input-group input-group-sm" style="width:160px">
-            <span class="input-group-text">3 cuotas ×</span>
-            <input type="number" id="coef-3-input" class="form-control" min="1" max="2" step="0.01"
-                   value="{{ cuotas_3_coef }}" placeholder="1.11">
-          </div>
-          <div class="input-group input-group-sm" style="width:160px">
-            <span class="input-group-text">6 cuotas ×</span>
-            <input type="number" id="coef-6-input" class="form-control" min="1" max="2" step="0.01"
-                   value="{{ cuotas_6_coef }}" placeholder="1.22">
-          </div>
-          <button id="btn-coef-guardar" class="btn btn-sm btn-success">Guardar</button>
-          <span id="coef-status" class="small ms-1 text-muted">
-            ✅ 3c: +{{ ((cuotas_3_coef - 1) * 100) | round(1) }}% / 6c: +{{ ((cuotas_6_coef - 1) * 100) | round(1) }}%
-          </span>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- Filtros -->
   <div class="card border-0 shadow-sm mb-3">
     <div class="card-body py-2">
@@ -417,32 +389,5 @@ if (btnDes) {
     document.getElementById('btn-demora-guardar').click();
   });
 }
-
-// ── Coeficientes cuotas Payway ────────────────────────────────────────────────
-document.getElementById('btn-coef-guardar').addEventListener('click', function() {
-  const coef3 = document.getElementById('coef-3-input').value;
-  const coef6 = document.getElementById('coef-6-input').value;
-  const fd = new FormData();
-  fd.append('coef_3', coef3);
-  fd.append('coef_6', coef6);
-  fetch('/productos/cuotas-coeficientes', { method: 'POST', body: fd })
-    .then(r => r.json())
-    .then(data => {
-      const st = document.getElementById('coef-status');
-      if (data.ok) {
-        st.className = 'small ms-1 text-success';
-        st.textContent = data.msg;
-        const t = document.createElement('div');
-        t.className = 'alert alert-success alert-dismissible position-fixed bottom-0 end-0 m-3 py-2 px-3';
-        t.style.zIndex = 9999;
-        t.innerHTML = data.msg + '<button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>';
-        document.body.appendChild(t);
-        setTimeout(() => t.remove(), 2500);
-      } else {
-        st.className = 'small ms-1 text-danger';
-        st.textContent = data.msg;
-      }
-    });
-});
 </script>
 {% endblock %}
