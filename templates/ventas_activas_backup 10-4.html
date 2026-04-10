@@ -3,11 +3,9 @@
 {% macro obs_me2(venta) %}
 {% if venta.canal == 'tienda_web' and venta.notas %}
     {% set lineas = venta.notas.replace('\\n', '\n').split('\n') %}
-    {% set ns = namespace(mpid='', veid='', shid='', trid='', znid='', zn_url='', demora='', pwid='', op_payway='') %}
+    {% set ns = namespace(mpid='', veid='', shid='', trid='', znid='', zn_url='', demora='') %}
     {% for l in lineas %}
         {% if l.startswith('MPID:') %}{% set ns.mpid = l[5:].strip() %}{% endif %}
-        {% if l.startswith('PWID:') %}{% set ns.pwid = l[5:].strip() %}{% endif %}
-        {% if l.startswith('OP_PAYWAY:') %}{% set ns.op_payway = l[10:].strip() %}{% endif %}
         {% if l.startswith('VEID:') %}{% set ns.veid = l[5:].strip() %}{% endif %}
         {% if l.startswith('SHID:') %}{% set ns.shid = l[5:].strip() %}{% endif %}
         {% if l.startswith('TRID:') %}{% set ns.trid = l[5:].strip() %}{% endif %}
@@ -20,8 +18,6 @@
         <div class="badge bg-warning text-dark mb-1" style="font-size:0.72rem;">⏳ DEMORA: {{ ns.demora }}</div>
         {% endif %}
         {% if ns.mpid %}<div><span class="text-muted">MPID:</span> {{ ns.mpid }}</div>{% endif %}
-        {% if ns.pwid %}<div><span class="text-muted">PWID:</span> {{ ns.pwid }}</div>{% endif %}
-        {% if ns.op_payway %}<div><span class="text-muted">OP Payway:</span> {{ ns.op_payway }}</div>{% endif %}
         {% if ns.veid %}<div><span class="text-muted">VEID:</span> {{ ns.veid }}</div>{% endif %}
         {% if ns.shid %}<div><span class="text-muted">SHID:</span> {{ ns.shid }}</div>{% endif %}
         {% if ns.trid %}
@@ -461,8 +457,6 @@
                     <strong>{{ venta.metodo_pago }}</strong>
                     {% if venta.pago_mercadopago > 0 %}
                         <br><small class="text-muted">MP: ${{ "{:,.0f}".format(venta.pago_mercadopago) }}</small>
-                    {% elif venta.metodo_pago == 'Payway' and venta.importe_abonado > 0 %}
-                        <br><small class="text-muted">PW: ${{ "{:,.0f}".format(venta.importe_abonado) }}</small>
                     {% endif %}
                     {% if venta.pago_efectivo > 0 %}
                         <br><small class="text-muted">Efec: ${{ "{:,.0f}".format(venta.pago_efectivo) }}</small>
@@ -484,14 +478,7 @@
                         <br><span class="badge bg-secondary">{{ venta.metodo_envio }}</span>
                         {% if venta.metodo_envio in ['Flete Propio', 'Zippin'] and venta.costo_flete and venta.costo_flete > 0 %}
                             <br>
-                            {% if venta.metodo_pago == 'Payway' %}
-                                {# Para Payway el importe_total ya incluye el flete #}
-                                {% if venta.importe_abonado + 5 >= venta.importe_total %}
-                                    <small class="text-success fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</small>
-                                {% else %}
-                                    <small class="text-danger fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</small>
-                                {% endif %}
-                            {% elif venta.importe_abonado + 5 >= venta.importe_total + venta.costo_flete %}
+                            {% if venta.importe_abonado + 5 >= venta.importe_total + venta.costo_flete %}
                                 <small class="text-success fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</small>
                             {% elif venta.importe_abonado > venta.importe_total %}
                                 <small class="text-warning fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</small>
