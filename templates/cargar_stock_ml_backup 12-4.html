@@ -220,21 +220,10 @@
                             data-listing-type="{{ pub.listing_type or '' }}"
                             data-mla="{{ pub.mla }}">
                             <td class="text-center">
-                                <span class="d-flex align-items-center gap-2 justify-content-center">
-                                    <span class="fw-bold small">{{ pub.mla }}</span>
-                                    <a href="#" onclick="abrirPermalink('{{ pub.mla }}'); return false;"
-                                       class="text-decoration-none" title="Ver publicación">
-                                        <i class="bi bi-eye text-primary"></i>
-                                    </a>
-                                    <a href="#" onclick="copiarPermalink('{{ pub.mla }}', this); return false;"
-                                       class="text-decoration-none" title="Copiar link">
-                                        <i class="bi bi-clipboard text-secondary"></i>
-                                    </a>
-                                    <a href="https://www.mercadolibre.com.ar/syi/core/modify?itemId={{ pub.mla }}"
-                                       target="_blank" class="text-decoration-none" title="Editar en ML">
-                                        <i class="bi bi-pencil-square text-warning"></i>
-                                    </a>
-                                </span>
+                                <a href="https://articulo.mercadolibre.com.ar/{{ pub.mla }}"
+                                   target="_blank" class="text-decoration-none">
+                                    {{ pub.mla }}<i class="bi bi-box-arrow-up-right ms-1"></i>
+                                </a>
                             </td>
                             <td><small>{{ pub.titulo }}</small></td>
                             <td class="text-center"><strong>{{ pub.stock_actual }}</strong></td>
@@ -379,17 +368,9 @@
                     <div class="card-header d-flex justify-content-between align-items-center py-2"
                          style="background:#1e2a38;">
                         <div>
-                            <a href="#" onclick="abrirPermalink('{{ pub.mla }}'); return false;"
-                               class="text-white text-decoration-none" style="font-size:0.9rem;" title="Ver publicación">
-                                {{ pub.mla }} <i class="bi bi-eye" style="font-size:0.75rem;"></i>
-                            </a>
-                            <a href="#" onclick="copiarPermalink('{{ pub.mla }}', this); return false;"
-                               class="text-secondary text-decoration-none ms-2" style="font-size:0.8rem;" title="Copiar link">
-                                <i class="bi bi-clipboard"></i>
-                            </a>
-                            <a href="https://www.mercadolibre.com.ar/syi/core/modify?itemId={{ pub.mla }}" target="_blank"
-                               class="text-warning text-decoration-none ms-2" style="font-size:0.8rem;" title="Editar en ML">
-                                <i class="bi bi-pencil-square"></i>
+                            <a href="https://articulo.mercadolibre.com.ar/{{ pub.mla }}" target="_blank"
+                               class="text-white fw-bold text-decoration-none" style="font-size:0.9rem;">
+                                {{ pub.mla }} <i class="bi bi-box-arrow-up-right" style="font-size:0.7rem;"></i>
                             </a>
                         </div>
                         <div class="d-flex gap-1">
@@ -912,33 +893,6 @@ function cargarDesdeCostos(precioSinCuotas) {
     document.getElementById('precio_base_calc').value = precioSinCuotas;
     calcularPrecios();
     calcularYAplicarTodos();
-// ── Permalink ML ─────────────────────────────────────────────────
-async function _fetchPermalink(mla_id) {
-    const r = await fetch(`/ml/permalink/${mla_id}`);
-    const data = await r.json();
-    if (!data.ok) throw new Error(data.error || 'Error al obtener link');
-    return data.permalink;
-}
-
-async function abrirPermalink(mla_id) {
-    try {
-        const url = await _fetchPermalink(mla_id);
-        window.open(url, '_blank');
-    } catch(e) {
-        alert('No se pudo obtener el link: ' + e.message);
-    }
-}
-
-async function copiarPermalink(mla_id, el) {
-    try {
-        const url = await _fetchPermalink(mla_id);
-        await navigator.clipboard.writeText(url);
-        const icon = el.querySelector('i');
-        icon.className = 'bi bi-clipboard-check text-success';
-        setTimeout(() => { icon.className = 'bi bi-clipboard text-secondary'; }, 2000);
-    } catch(e) {
-        alert('No se pudo copiar: ' + e.message);
-    }
 }
 </script>
 {% endblock %}

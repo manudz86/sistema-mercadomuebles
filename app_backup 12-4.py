@@ -7759,22 +7759,6 @@ def cambiar_precio_masivo():
                            publicaciones=_recargar_publicaciones(sku, access_token, pubs_actuales=pubs),
                            es_sku_con_z=sku.endswith('Z'))
 
-@app.route('/ml/permalink/<mla_id>', methods=['GET'])
-@login_required
-def ml_permalink(mla_id):
-    """Devuelve el permalink público de una publicación ML consultando la API en tiempo real."""
-    try:
-        access_token = cargar_ml_token()
-        r = ml_request('get', f'https://api.mercadolibre.com/items/{mla_id}', access_token,
-                       params={'attributes': 'id,permalink'})
-        if r.status_code == 200:
-            data = r.json()
-            return jsonify({'ok': True, 'permalink': data.get('permalink', '')})
-        return jsonify({'ok': False, 'error': f'ML respondió {r.status_code}'})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)})
-
-
 @app.route('/cambiar-precios-individuales', methods=['POST'])
 @login_required
 def cambiar_precios_individuales():
