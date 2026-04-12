@@ -921,10 +921,13 @@ async function _fetchPermalink(mla_id) {
 }
 
 async function abrirPermalink(mla_id) {
+    // Abrir ventana ANTES del await para no perder el gesto del usuario
+    const win = window.open('about:blank', '_blank');
     try {
         const url = await _fetchPermalink(mla_id);
-        window.open(url, '_blank');
+        win.location.href = url;
     } catch(e) {
+        win.close();
         alert('No se pudo obtener el link: ' + e.message);
     }
 }
@@ -932,7 +935,15 @@ async function abrirPermalink(mla_id) {
 async function copiarPermalink(mla_id, el) {
     try {
         const url = await _fetchPermalink(mla_id);
-        await navigator.clipboard.writeText(url);
+        // Fallback con textarea para no depender del gesto del usuario
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
         const icon = el.querySelector('i');
         icon.className = 'bi bi-clipboard-check text-success';
         setTimeout(() => { icon.className = 'bi bi-clipboard text-secondary'; }, 2000);
