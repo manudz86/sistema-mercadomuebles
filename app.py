@@ -7540,6 +7540,25 @@ def obtener_datos_ml_batch(mla_ids, access_token):
 
     return resultado
 
+
+def obtener_permalinks_ml(mla_ids, access_token):
+    """
+    Consulta el permalink de cada MLA individualmente.
+    Devuelve dict: { mla_id: permalink }
+    """
+    permalinks = {}
+    for mla_id in mla_ids:
+        try:
+            r = ml_request('get', f'https://api.mercadolibre.com/items/{mla_id}',
+                           access_token, params={'attributes': 'id,permalink'})
+            if r.status_code == 200:
+                data = r.json()
+                permalinks[mla_id] = data.get('permalink', '')
+        except Exception as e:
+            print(f"Error permalink {mla_id}: {e}")
+            permalinks[mla_id] = ''
+    return permalinks
+
 @app.route('/buscar-sku-ml', methods=['POST'])
 @login_required
 def buscar_sku_ml():
@@ -7613,6 +7632,7 @@ def buscar_sku_ml():
     }
 
     datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
+    permalinks = obtener_permalinks_ml(mla_ids, access_token)
     publicaciones = []
     for mla_id in mla_ids:
         datos_ml = datos_batch.get(mla_id, {
@@ -7628,7 +7648,8 @@ def buscar_sku_ml():
             'precio':       datos_ml.get('precio'),
             'listing_type': datos_ml.get('listing_type'),
             'estado':       estado_map.get(status_ml, status_ml.capitalize()),
-            'status_raw':   status_ml
+            'status_raw':   status_ml,
+            'permalink':    permalinks.get(mla_id, ''),
         })
 
     # Ordenar por tipo de publicación
@@ -7872,6 +7893,7 @@ def _recargar_publicaciones(sku, access_token, pubs_actuales=None, actualizar_ml
     if access_token and publicaciones:
         mla_ids = [row['mla_id'] for row in publicaciones]
         datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
+        permalinks = obtener_permalinks_ml(mla_ids, access_token)
         for row in publicaciones:
             datos_ml = datos_batch.get(row['mla_id'], {
                 'titulo': row['mla_id'], 'stock': 0, 'status': 'unknown',
@@ -7886,7 +7908,8 @@ def _recargar_publicaciones(sku, access_token, pubs_actuales=None, actualizar_ml
                 'precio':       datos_ml.get('precio'),
                 'listing_type': datos_ml.get('listing_type'),
                 'estado':       estado_map.get(status_ml, status_ml.capitalize()),
-                'status_raw':   status_ml
+                'status_raw':   status_ml,
+                'permalink':    permalinks.get(row['mla_id'], ''),
             })
     else:
         for row in publicaciones:
@@ -7896,7 +7919,8 @@ def _recargar_publicaciones(sku, access_token, pubs_actuales=None, actualizar_ml
                 'stock_actual': '-', 'demora': None,
                 'precio':       None, 'listing_type': None,
                 'estado':       'Activa' if row['activo'] else 'Pausada',
-                'status_raw':   'active' if row['activo'] else 'paused'
+                'status_raw':   'active' if row['activo'] else 'paused',
+                'permalink':    '',
             })
     return pubs_lista
 
@@ -8247,6 +8271,7 @@ def quitar_demora_masivo():
     if publicaciones:
         mla_ids = [row['mla_id'] for row in publicaciones]
         datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
+        permalinks = obtener_permalinks_ml(mla_ids, access_token)
         for row in publicaciones:
             datos_ml = datos_batch.get(row['mla_id'], {
                 'titulo': row['titulo_ml'] or row['mla_id'],
@@ -8262,7 +8287,8 @@ def quitar_demora_masivo():
                 'precio':       datos_ml.get('precio'),
                 'listing_type': datos_ml.get('listing_type'),
                 'estado':       estado_map.get(status_ml, status_ml.capitalize()),
-                'status_raw':   status_ml
+                'status_raw':   status_ml,
+                'permalink':    permalinks.get(row['mla_id'], ''),
             })
 
     return render_template('cargar_stock_ml.html',
