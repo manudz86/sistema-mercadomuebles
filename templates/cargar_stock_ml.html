@@ -222,14 +222,16 @@
                             <td class="text-center">
                                 <span class="d-flex align-items-center gap-2 justify-content-center">
                                     <span class="fw-bold small">{{ pub.mla }}</span>
-                                    <a href="javascript:void(0)" onclick="abrirPermalink('{{ pub.mla }}')"
+                                    {% if pub.permalink %}
+                                    <a href="{{ pub.permalink }}" target="_blank"
                                        class="text-decoration-none" title="Ver publicación">
                                         <i class="bi bi-eye text-primary"></i>
                                     </a>
-                                    <a href="javascript:void(0)" onclick="copiarPermalink('{{ pub.mla }}', this)"
+                                    <a href="{{ pub.permalink }}" onclick="copiarLink(event, '{{ pub.permalink }}', this)"
                                        class="text-decoration-none" title="Copiar link">
                                         <i class="bi bi-clipboard text-secondary"></i>
                                     </a>
+                                    {% endif %}
                                     <a href="https://www.mercadolibre.com.ar/syi/core/modify?itemId={{ pub.mla }}"
                                        target="_blank" class="text-decoration-none" title="Editar en ML">
                                         <i class="bi bi-pencil-square text-warning"></i>
@@ -379,16 +381,19 @@
                     <div class="card-header d-flex justify-content-between align-items-center py-2"
                          style="background:#1e2a38;">
                         <div>
-                            <a href="javascript:void(0)" onclick="abrirPermalink('{{ pub.mla }}')"
-                               class="text-white text-decoration-none" style="font-size:0.9rem;" title="Ver publicación">
-                                {{ pub.mla }} <i class="bi bi-eye" style="font-size:0.75rem;"></i>
+                            <span class="text-white fw-bold" style="font-size:0.9rem;">{{ pub.mla }}</span>
+                            {% if pub.permalink %}
+                            <a href="{{ pub.permalink }}" target="_blank"
+                               class="text-white text-decoration-none ms-2" style="font-size:0.8rem;" title="Ver publicación">
+                                <i class="bi bi-eye"></i>
                             </a>
-                            <a href="javascript:void(0)" onclick="copiarPermalink('{{ pub.mla }}', this)"
-                               class="text-secondary text-decoration-none ms-2" style="font-size:0.8rem;" title="Copiar link">
+                            <a href="{{ pub.permalink }}" onclick="copiarLink(event, '{{ pub.permalink }}', this)"
+                               class="text-secondary text-decoration-none ms-1" style="font-size:0.8rem;" title="Copiar link">
                                 <i class="bi bi-clipboard"></i>
                             </a>
+                            {% endif %}
                             <a href="https://www.mercadolibre.com.ar/syi/core/modify?itemId={{ pub.mla }}" target="_blank"
-                               class="text-warning text-decoration-none ms-2" style="font-size:0.8rem;" title="Editar en ML">
+                               class="text-warning text-decoration-none ms-1" style="font-size:0.8rem;" title="Editar en ML">
                                 <i class="bi bi-pencil-square"></i>
                             </a>
                         </div>
@@ -913,41 +918,19 @@ function cargarDesdeCostos(precioSinCuotas) {
     calcularPrecios();
     calcularYAplicarTodos();
 // ── Permalink ML ─────────────────────────────────────────────────
-async function _fetchPermalink(mla_id) {
-    const r = await fetch(`/ml/permalink/${mla_id}`);
-    const data = await r.json();
-    if (!data.ok) throw new Error(data.error || 'Error al obtener link');
-    return data.permalink;
-}
-
-window.abrirPermalink = async function(mla_id) {
-    const win = window.open('about:blank', '_blank');
-    try {
-        const url = await _fetchPermalink(mla_id);
-        win.location.href = url;
-    } catch(e) {
-        win.close();
-        alert('No se pudo obtener el link: ' + e.message);
-    }
-}
-
-window.copiarPermalink = async function(mla_id, el) {
-    try {
-        const url = await _fetchPermalink(mla_id);
-        const ta = document.createElement('textarea');
-        ta.value = url;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        const icon = el.querySelector('i');
-        icon.className = 'bi bi-clipboard-check text-success';
-        setTimeout(() => { icon.className = 'bi bi-clipboard text-secondary'; }, 2000);
-    } catch(e) {
-        alert('No se pudo copiar: ' + e.message);
-    }
+function copiarLink(event, url, el) {
+    event.preventDefault();
+    const ta = document.createElement('textarea');
+    ta.value = url;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    const icon = el.querySelector('i');
+    icon.className = 'bi bi-clipboard-check text-success';
+    setTimeout(() => { icon.className = 'bi bi-clipboard text-secondary'; }, 2000);
 }
 </script>
 {% endblock %}
