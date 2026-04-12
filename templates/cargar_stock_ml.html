@@ -227,7 +227,7 @@
                                        class="text-decoration-none" title="Ver publicación">
                                         <i class="bi bi-eye text-primary"></i>
                                     </a>
-                                    <a href="javascript:void(0)" data-url="{{ pub.permalink }}" onclick="copiarLink(this)"
+                                    <a href="javascript:void(0)" data-url="{{ pub.permalink }}" onclick="var u=this.dataset.url;if(u){var t=document.createElement('textarea');t.value=u;t.style.cssText='position:fixed;opacity:0';document.body.appendChild(t);t.select();document.execCommand('copy');document.body.removeChild(t);var i=this.querySelector('i');i.className='bi bi-clipboard-check text-success';setTimeout(function(){i.className='bi bi-clipboard text-secondary'},2000);}"
                                        class="text-decoration-none" title="Copiar link">
                                         <i class="bi bi-clipboard text-secondary"></i>
                                     </a>
@@ -387,7 +387,7 @@
                                class="text-white text-decoration-none ms-2" style="font-size:0.8rem;" title="Ver publicación">
                                 <i class="bi bi-eye"></i>
                             </a>
-                            <a href="javascript:void(0)" data-url="{{ pub.permalink }}" onclick="copiarLink(this)"
+                            <a href="javascript:void(0)" data-url="{{ pub.permalink }}" onclick="var u=this.dataset.url;if(u){var t=document.createElement('textarea');t.value=u;t.style.cssText='position:fixed;opacity:0';document.body.appendChild(t);t.select();document.execCommand('copy');document.body.removeChild(t);var i=this.querySelector('i');i.className='bi bi-clipboard-check text-success';setTimeout(function(){i.className='bi bi-clipboard text-secondary'},2000);}"
                                class="text-secondary text-decoration-none ms-1" style="font-size:0.8rem;" title="Copiar link">
                                 <i class="bi bi-clipboard"></i>
                             </a>

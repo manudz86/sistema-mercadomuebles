@@ -7543,20 +7543,48 @@ def obtener_datos_ml_batch(mla_ids, access_token):
 
 def obtener_permalinks_ml(mla_ids, access_token):
     """
-    Consulta el permalink de cada MLA individualmente.
-    Devuelve dict: { mla_id: permalink }
+    Devuelve permalinks para los MLAs dados.
+    Usa caché en sku_mla_mapeo.permalink — solo llama a la API si está vacío.
     """
+    # Agregar columna permalink si no existe (idempotente)
+    try:
+        execute_db("ALTER TABLE sku_mla_mapeo ADD COLUMN permalink VARCHAR(500) DEFAULT NULL")
+    except Exception:
+        pass  # ya existe
+
     permalinks = {}
-    for mla_id in mla_ids:
+    sin_cache = []
+
+    # Primero buscar en caché
+    if mla_ids:
+        filas = query_db(
+            "SELECT mla_id, permalink FROM sku_mla_mapeo WHERE mla_id IN ({})".format(
+                ','.join(['%s'] * len(mla_ids))), tuple(mla_ids))
+        for f in filas:
+            if f['permalink']:
+                permalinks[f['mla_id']] = f['permalink']
+            else:
+                sin_cache.append(f['mla_id'])
+        # MLAs que no están en la tabla
+        en_tabla = {f['mla_id'] for f in filas}
+        sin_cache += [m for m in mla_ids if m not in en_tabla]
+
+    # Consultar API solo para los que no tienen caché
+    for mla_id in sin_cache:
         try:
             r = ml_request('get', f'https://api.mercadolibre.com/items/{mla_id}',
                            access_token, params={'attributes': 'id,permalink'})
             if r.status_code == 200:
-                data = r.json()
-                permalinks[mla_id] = data.get('permalink', '')
+                url = r.json().get('permalink', '')
+                permalinks[mla_id] = url
+                if url:
+                    execute_db(
+                        "UPDATE sku_mla_mapeo SET permalink=%s WHERE mla_id=%s",
+                        (url, mla_id))
         except Exception as e:
             print(f"Error permalink {mla_id}: {e}")
             permalinks[mla_id] = ''
+
     return permalinks
 
 @app.route('/buscar-sku-ml', methods=['POST'])
