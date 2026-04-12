@@ -920,8 +920,7 @@ async function _fetchPermalink(mla_id) {
     return data.permalink;
 }
 
-async function abrirPermalink(mla_id) {
-    // Abrir ventana ANTES del await para no perder el gesto del usuario
+window.abrirPermalink = async function(mla_id) {
     const win = window.open('about:blank', '_blank');
     try {
         const url = await _fetchPermalink(mla_id);
@@ -932,10 +931,9 @@ async function abrirPermalink(mla_id) {
     }
 }
 
-async function copiarPermalink(mla_id, el) {
+window.copiarPermalink = async function(mla_id, el) {
     try {
         const url = await _fetchPermalink(mla_id);
-        // Fallback con textarea para no depender del gesto del usuario
         const ta = document.createElement('textarea');
         ta.value = url;
         ta.style.position = 'fixed';
