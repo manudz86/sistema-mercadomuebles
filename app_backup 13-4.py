@@ -4994,11 +4994,8 @@ def guardar_venta():
             fecha_venta = datetime.fromisoformat(fecha_venta_iso)
             print(f"✅ Usando fecha de ML: {fecha_venta}")
         else:
-            from datetime import timezone, timedelta
-            tz_arg = timezone(timedelta(hours=-3))
-            ahora_arg = datetime.now(tz_arg).replace(tzinfo=None)
             fecha_venta_form = request.form.get('fecha_venta')
-            fecha_venta = datetime.strptime(fecha_venta_form + ' ' + ahora_arg.strftime('%H:%M:%S'), '%Y-%m-%d %H:%M:%S') if fecha_venta_form else ahora_arg
+            fecha_venta = datetime.strptime(fecha_venta_form + ' ' + datetime.now().strftime('%H:%M:%S'), '%Y-%m-%d %H:%M:%S') if fecha_venta_form else datetime.now()
             print(f"✅ Usando fecha del formulario: {fecha_venta}")
         
         # ========================================
