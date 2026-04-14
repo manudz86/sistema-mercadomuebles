@@ -7675,15 +7675,18 @@ def buscar_sku_ml():
         })
         status_ml = datos_ml.get('status', 'unknown')
         publicaciones.append({
-            'mla':          mla_id,
-            'titulo':       datos_ml['titulo'],
-            'stock_actual': datos_ml['stock'],
-            'demora':       datos_ml.get('demora'),
-            'precio':       datos_ml.get('precio'),
-            'listing_type': datos_ml.get('listing_type'),
-            'estado':       estado_map.get(status_ml, status_ml.capitalize()),
-            'status_raw':   status_ml,
-            'permalink':    permalinks.get(mla_id, ''),
+            'mla':                 mla_id,
+            'titulo':              datos_ml['titulo'],
+            'stock_actual':        datos_ml['stock'],
+            'demora':              datos_ml.get('demora'),
+            'precio':              datos_ml.get('precio'),
+            'listing_type':        datos_ml.get('listing_type'),
+            'estado':              estado_map.get(status_ml, status_ml.capitalize()),
+            'status_raw':          status_ml,
+            'permalink':           permalinks.get(mla_id, ''),
+            'catalog_listing':     datos_ml.get('catalog_listing', False),
+            'catalog_product_id':  datos_ml.get('catalog_product_id'),
+            'category_id':         datos_ml.get('category_id'),
         })
 
     # Ordenar por tipo de publicación
