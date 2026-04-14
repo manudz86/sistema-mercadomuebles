@@ -7744,23 +7744,23 @@ def publicar_catalogo_cuota():
 
     if not all([sku, tipo, precio_str, catalog_product_id, category_id]):
         flash('❌ Faltan datos para publicar en catálogo', 'danger')
-        return redirect(url_for('buscar_sku_ml'))
+        return redirect(url_for('cargar_stock_ml'))
 
     try:
         precio = int(float(precio_str))
     except ValueError:
         flash('❌ Precio inválido', 'danger')
-        return redirect(url_for('buscar_sku_ml'))
+        return redirect(url_for('cargar_stock_ml'))
 
     params = TIPO_A_PARAMS_ML.get(tipo)
     if not params:
         flash(f'❌ Tipo de publicación desconocido: {tipo}', 'danger')
-        return redirect(url_for('buscar_sku_ml'))
+        return redirect(url_for('cargar_stock_ml'))
 
     access_token = cargar_ml_token()
     if not access_token:
         flash('❌ No hay token de ML configurado', 'warning')
-        return redirect(url_for('buscar_sku_ml'))
+        return redirect(url_for('cargar_stock_ml'))
 
     payload = {
         'site_id':             'MLA',
@@ -7791,7 +7791,7 @@ def publicar_catalogo_cuota():
         flash(f'❌ Excepción: {e}', 'danger')
 
     session['ultimo_sku_ml'] = sku
-    return redirect(url_for('buscar_sku_ml'))
+    return redirect(url_for('cargar_stock_ml'))
 
 # ============================================================================
 # 4. RUTA: Cambiar precio — INDIVIDUAL
