@@ -7440,6 +7440,8 @@ def ml_request(method, url, access_token, json_data=None, params=None, max_retri
         try:
             if method == 'get':
                 r = requests.get(url, headers=headers, params=params, timeout=15)
+            elif method == 'post':
+                r = requests.post(url, headers=headers, json=json_data, timeout=15)
             else:
                 r = requests.put(url, headers=headers, json=json_data, timeout=15)
 
