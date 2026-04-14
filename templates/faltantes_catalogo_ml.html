@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Faltantes de Catálogo ML{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row mb-3">
+        <div class="col">
+            <h2 class="mb-1">
+                <i class="bi bi-bookmark-star-fill text-warning"></i> Faltantes de Catálogo — Colchones
+            </h2>
+            <p class="text-muted mb-0">SKUs con publicaciones de catálogo activas/pausadas a los que les falta algún tipo de cuota.</p>
+        </div>
+        <div class="col-auto d-flex align-items-center gap-2">
+            {% if resultados %}
+            <span class="badge bg-warning text-dark fs-6">{{ resultados|length }} SKU con faltantes</span>
+            {% endif %}
+            <span class="badge bg-secondary fs-6">{{ total_skus }} SKUs con catálogo total</span>
+        </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+    {% endwith %}
+
+    {% if not resultados %}
+    <div class="alert alert-success">
+        <i class="bi bi-check-circle-fill me-2"></i>
+        ¡Todos los SKUs de colchones tienen los 6 tipos de cuota creados en catálogo!
+    </div>
+    {% else %}
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th width="8%">SKU</th>
+                    <th width="22%">Tipos existentes</th>
+                    <th width="45%">Cuotas faltantes + precio sugerido</th>
+                    <th width="25%">Acción</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in resultados %}
+                <tr>
+                    <td class="fw-bold text-center">
+                        <a href="{{ url_for('buscar_sku_ml') }}" 
+                           onclick="event.preventDefault(); document.getElementById('form_sku_{{ loop.index }}').submit();"
+                           class="text-decoration-none fw-bold">{{ r.sku }}</a>
+                        <form id="form_sku_{{ loop.index }}" method="POST" action="{{ url_for('buscar_sku_ml') }}" style="display:none">
+                            <input type="hidden" name="sku_buscar" value="{{ r.sku }}">
+                        </form>
+                    </td>
+                    <td>
+                        {% for tipo in r.existentes %}
+                            <span class="badge me-1 mb-1" style="background:#d4edda; color:#155724; font-size:.72rem">
+                                <i class="bi bi-check-circle-fill"></i> {{ tipo }}
+                            </span>
+                        {% endfor %}
+                    </td>
+                    <td>
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for f in r.faltantes %}
+                            <div class="d-flex align-items-center gap-1 border rounded px-2 py-1" style="background:#fff3cd">
+                                <span class="badge bg-secondary" style="font-size:.68rem; white-space:nowrap">{{ f.tipo }}</span>
+                                {% if f.precio_sugerido %}
+                                <span class="fw-bold text-success" style="font-size:.82rem">
+                                    ${{ "{:,.0f}".format(f.precio_sugerido).replace(",",".") }}
+                                </span>
+                                {% else %}
+                                <span class="text-muted" style="font-size:.75rem">sin precio</span>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </td>
+                    <td class="text-center">
+                        {% if r.mla_ref %}
+                        <a href="https://www.mercadolibre.com.ar/syi/core/modify?itemId={{ r.mla_ref }}"
+                           target="_blank"
+                           class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-pencil-square"></i> Abrir publi en ML
+                        </a>
+                        <div class="text-muted mt-1" style="font-size:.72rem">{{ r.mla_ref }}</div>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

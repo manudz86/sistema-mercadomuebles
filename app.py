@@ -7524,6 +7524,14 @@ def obtener_datos_ml_batch(mla_ids, access_token):
                 else:
                     financiacion = listing_type_id
 
+                # Extraer seller_sku de attributes o seller_custom_field
+                seller_sku = data.get('seller_custom_field') or ''
+                if not seller_sku:
+                    for attr in data.get('attributes', []):
+                        if attr.get('id') == 'SELLER_SKU':
+                            seller_sku = attr.get('value_name', '')
+                            break
+
                 resultado[mla_id] = {
                     'titulo':              data.get('title', mla_id),
                     'stock':               data.get('available_quantity', 0),
@@ -7536,6 +7544,8 @@ def obtener_datos_ml_batch(mla_ids, access_token):
                     'catalog_listing':     data.get('catalog_listing', False),
                     'catalog_product_id':  data.get('catalog_product_id'),
                     'category_id':         data.get('category_id'),
+                    'domain_id':           data.get('domain_id'),
+                    'seller_sku':          seller_sku,
                 }
 
         except Exception as e:
@@ -7724,6 +7734,110 @@ def buscar_sku_ml():
                            cuotas_faltantes=cuotas_faltantes,
                            catalog_meta=catalog_meta)
 # ============================================================================
+# RUTA: Faltantes de catálogo ML (colchones)
+# ============================================================================
+@app.route('/faltantes-catalogo-ml')
+@login_required
+def faltantes_catalogo_ml():
+    access_token = cargar_ml_token()
+    if not access_token:
+        flash('❌ No hay token de ML configurado', 'warning')
+        return redirect(url_for('dashboard'))
+
+    try:
+        row = query_one("SELECT valor FROM configuracion WHERE clave = 'porcentajes_ml'")
+        porcentajes = json.loads(row['valor']) if row else PORCENTAJES_ML_DEFAULT
+    except:
+        porcentajes = PORCENTAJES_ML_DEFAULT
+
+    # 1. Obtener todos los IDs (activos + pausados)
+    all_ids = []
+    for status in ('active', 'paused'):
+        offset = 0
+        while True:
+            r = ml_request('get',
+                f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/items/search',
+                access_token,
+                params={'limit': 100, 'offset': offset, 'status': status})
+            if r.status_code != 200:
+                break
+            data = r.json()
+            results = data.get('results', [])
+            all_ids.extend(results)
+            total = data.get('paging', {}).get('total', 0)
+            offset += 100
+            if offset >= total:
+                break
+
+    if not all_ids:
+        return render_template('faltantes_catalogo_ml.html', resultados=[], total_skus=0)
+
+    # 2. Fetch en batch (reutiliza obtener_datos_ml_batch)
+    datos_batch = obtener_datos_ml_batch(all_ids, access_token)
+
+    # 3. Filtrar catálogo + colchones, agrupar por SKU
+    TODOS_LOS_TIPOS = [
+        'Sin cuotas propias', 'Cuota Simple',
+        '3 cuotas s/interés', '6 cuotas s/interés',
+        '9 cuotas s/interés', '12 cuotas s/interés',
+    ]
+    TIPO_A_PRECIO = {
+        'Sin cuotas propias': 'precio_sin_cuotas',
+        'Cuota Simple':       'precio_1c',
+        '3 cuotas s/interés': 'precio_3c',
+        '6 cuotas s/interés': 'precio_6c',
+        '9 cuotas s/interés': 'precio_9c',
+        '12 cuotas s/interés':'precio_12c',
+    }
+
+    skus_data = {}
+    for mla_id, datos in datos_batch.items():
+        if not datos.get('catalog_listing'):
+            continue
+        if datos.get('domain_id') != 'MLA-MATTRESSES':
+            continue
+        sku = datos.get('seller_sku') or ''
+        if not sku:
+            continue
+        if sku not in skus_data:
+            skus_data[sku] = {
+                'tipos': {},
+                'catalog_product_id': datos.get('catalog_product_id'),
+                'category_id':        datos.get('category_id'),
+            }
+        lt = datos.get('listing_type', '')
+        if lt and lt not in skus_data[sku]['tipos']:
+            skus_data[sku]['tipos'][lt] = mla_id
+
+    # 4. Calcular faltantes con precio sugerido
+    resultados = []
+    for sku in sorted(skus_data.keys()):
+        info = skus_data[sku]
+        tipos_existentes = set(info['tipos'].keys())
+        faltantes_tipos = [t for t in TODOS_LOS_TIPOS if t not in tipos_existentes]
+        if not faltantes_tipos:
+            continue
+        pc = _get_precio_costos_sku(sku, porcentajes)
+        mla_ref = next(iter(info['tipos'].values())) if info['tipos'] else None
+        faltantes_con_precio = []
+        for tipo in faltantes_tipos:
+            precio_key = TIPO_A_PRECIO.get(tipo)
+            precio_sug = pc.get(precio_key) if pc and precio_key else None
+            faltantes_con_precio.append({'tipo': tipo, 'precio_sugerido': precio_sug})
+        resultados.append({
+            'sku':                 sku,
+            'faltantes':           faltantes_con_precio,
+            'existentes':          sorted(tipos_existentes, key=lambda t: TODOS_LOS_TIPOS.index(t) if t in TODOS_LOS_TIPOS else 99),
+            'mla_ref':             mla_ref,
+            'catalog_product_id':  info['catalog_product_id'],
+        })
+
+    return render_template('faltantes_catalogo_ml.html',
+                           resultados=resultados,
+                           total_skus=len(skus_data))
+
+
+# ============================================================================
 # RUTA: Publicar nueva publicación de catálogo (cuota faltante)
 # ============================================================================
 TIPO_A_PARAMS_ML = {
@@ -7734,12 +7848,6 @@ TIPO_A_PARAMS_ML = {
     '9 cuotas s/interés':  {'listing_type_id': 'gold_special', 'campaign': '9x_campaign'},
     '12 cuotas s/interés': {'listing_type_id': 'gold_special', 'campaign': '12x_campaign'},
 }
-
-@app.route('/debug-token-temp')
-@login_required
-def debug_token_temp():
-    token = cargar_ml_token()
-    return f"<pre>TOKEN: {token}</pre>"
 
 @app.route('/publicar-catalogo-cuota', methods=['POST'])
 @login_required
