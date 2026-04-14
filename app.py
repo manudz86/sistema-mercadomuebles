@@ -7778,7 +7778,7 @@ def publicar_catalogo_cuota():
         payload['sale_terms'] = [{'id': 'INSTALLMENTS_CAMPAIGN', 'value_name': params['campaign']}]
 
     try:
-        r = ml_request('post', 'https://api.mercadolibre.com/items', access_token, json=payload)
+        r = ml_request('post', 'https://api.mercadolibre.com/items', access_token, json_data=payload)
         resp = r.json()
         if r.status_code in (200, 201):
             nuevo_mla = resp.get('id', '?')
