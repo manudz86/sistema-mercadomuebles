@@ -7523,17 +7523,14 @@ def obtener_datos_ml_batch(mla_ids, access_token):
                     financiacion = listing_type_id
 
                 resultado[mla_id] = {
-                    'titulo':              data.get('title', mla_id),
-                    'stock':               data.get('available_quantity', 0),
-                    'status':              data.get('status', 'unknown'),
-                    'status_raw':          data.get('status', 'unknown'),
-                    'demora':              demora,
-                    'precio':              data.get('price'),
-                    'listing_type':        financiacion,
-                    'permalink':           data.get('permalink', ''),
-                    'catalog_listing':     data.get('catalog_listing', False),
-                    'catalog_product_id':  data.get('catalog_product_id'),
-                    'category_id':         data.get('category_id'),
+                    'titulo':       data.get('title', mla_id),
+                    'stock':        data.get('available_quantity', 0),
+                    'status':       data.get('status', 'unknown'),
+                    'status_raw':   data.get('status', 'unknown'),
+                    'demora':       demora,
+                    'precio':       data.get('price'),
+                    'listing_type': financiacion,
+                    'permalink':    data.get('permalink', ''),
                 }
 
         except Exception as e:
@@ -7692,22 +7689,6 @@ def buscar_sku_ml():
     # Buscar precio calculado por costos para este SKU
     precio_costos = _get_precio_costos_sku(sku_buscado, porcentajes)
 
-    # ── Catálogo: detectar cuotas faltantes ──────────────────────────────────
-    TODOS_LOS_TIPOS = [
-        'Sin cuotas propias', 'Cuota Simple',
-        '3 cuotas s/interés', '6 cuotas s/interés',
-        '9 cuotas s/interés', '12 cuotas s/interés',
-    ]
-    tipos_catalogo_existentes = set(
-        p['listing_type'] for p in publicaciones
-        if p.get('catalog_listing') and p.get('status_raw') in ('active', 'paused')
-    )
-    catalog_meta = next(
-        (p for p in publicaciones if p.get('catalog_listing') and p.get('catalog_product_id')),
-        None
-    )
-    cuotas_faltantes = [t for t in TODOS_LOS_TIPOS if t not in tipos_catalogo_existentes] if catalog_meta else []
-
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku_buscado,
                            publicaciones=publicaciones,
@@ -7715,81 +7696,7 @@ def buscar_sku_ml():
                            mensaje=None,
                            mensaje_tipo=None,
                            porcentajes=porcentajes,
-                           precio_costos=precio_costos,
-                           cuotas_faltantes=cuotas_faltantes,
-                           catalog_meta=catalog_meta)
-# ============================================================================
-# RUTA: Publicar nueva publicación de catálogo (cuota faltante)
-# ============================================================================
-TIPO_A_PARAMS_ML = {
-    'Sin cuotas propias':  {'listing_type_id': 'gold_special', 'campaign': None},
-    'Cuota Simple':        {'listing_type_id': 'gold_special', 'campaign': 'pcj-co-funded'},
-    '3 cuotas s/interés':  {'listing_type_id': 'gold_special', 'campaign': '3x_campaign'},
-    '6 cuotas s/interés':  {'listing_type_id': 'gold_pro',     'campaign': None},
-    '9 cuotas s/interés':  {'listing_type_id': 'gold_special', 'campaign': '9x_campaign'},
-    '12 cuotas s/interés': {'listing_type_id': 'gold_special', 'campaign': '12x_campaign'},
-}
-
-@app.route('/publicar-catalogo-cuota', methods=['POST'])
-@login_required
-def publicar_catalogo_cuota():
-    sku                = request.form.get('sku', '').strip().upper()
-    tipo               = request.form.get('tipo', '').strip()
-    precio_str         = request.form.get('precio', '').strip()
-    catalog_product_id = request.form.get('catalog_product_id', '').strip()
-    category_id        = request.form.get('category_id', '').strip()
-
-    if not all([sku, tipo, precio_str, catalog_product_id, category_id]):
-        flash('❌ Faltan datos para publicar en catálogo', 'danger')
-        return redirect(url_for('buscar_sku_ml'))
-
-    try:
-        precio = int(float(precio_str))
-    except ValueError:
-        flash('❌ Precio inválido', 'danger')
-        return redirect(url_for('buscar_sku_ml'))
-
-    params = TIPO_A_PARAMS_ML.get(tipo)
-    if not params:
-        flash(f'❌ Tipo de publicación desconocido: {tipo}', 'danger')
-        return redirect(url_for('buscar_sku_ml'))
-
-    access_token = cargar_ml_token()
-    if not access_token:
-        flash('❌ No hay token de ML configurado', 'warning')
-        return redirect(url_for('buscar_sku_ml'))
-
-    payload = {
-        'site_id':             'MLA',
-        'category_id':         category_id,
-        'currency_id':         'ARS',
-        'buying_mode':         'buy_it_now',
-        'listing_type_id':     params['listing_type_id'],
-        'price':               precio,
-        'available_quantity':  1,
-        'catalog_product_id':  catalog_product_id,
-        'catalog_listing':     True,
-        'seller_custom_field': sku,
-    }
-    if params['campaign']:
-        payload['sale_terms'] = [{'id': 'INSTALLMENTS_CAMPAIGN', 'value_name': params['campaign']}]
-
-    try:
-        r = ml_request('post', 'https://api.mercadolibre.com/items', access_token, json=payload)
-        resp = r.json()
-        if r.status_code in (200, 201):
-            nuevo_mla = resp.get('id', '?')
-            flash(f'✅ Publicación creada: {nuevo_mla} — {tipo}', 'success')
-        else:
-            causa = resp.get('cause', [])
-            detalle = causa[0].get('message', str(resp)) if causa else str(resp)
-            flash(f'❌ Error ML: {detalle}', 'danger')
-    except Exception as e:
-        flash(f'❌ Excepción: {e}', 'danger')
-
-    session['ultimo_sku_ml'] = sku
-    return redirect(url_for('buscar_sku_ml'))
-
+                           precio_costos=precio_costos)
 # ============================================================================
 # 4. RUTA: Cambiar precio — INDIVIDUAL
 # ============================================================================

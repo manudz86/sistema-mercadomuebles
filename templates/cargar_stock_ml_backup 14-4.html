@@ -196,38 +196,6 @@
             </div>
             {% endif %}
 
-            {% if cuotas_faltantes and catalog_meta %}
-            <!-- PANEL: Publicar cuotas faltantes en catálogo -->
-            <div class="card mb-3" style="border:2px solid #fd7e14; background:#fff8f0">
-                <div class="card-body py-3">
-                    <div class="d-flex align-items-center gap-2 mb-2">
-                        <i class="bi bi-bookmark-star-fill text-warning fs-5"></i>
-                        <span class="fw-bold" style="color:#b85c00">Catálogo &mdash; Publicar cuotas faltantes</span>
-                        <span class="badge bg-warning text-dark">{{ cuotas_faltantes|length }} tipo(s) sin crear</span>
-                    </div>
-                    <div class="d-flex flex-wrap gap-2">
-                        {% for tipo in cuotas_faltantes %}
-                        <div class="border rounded p-2 bg-white d-flex align-items-center gap-2" style="min-width:270px">
-                            <span class="badge bg-secondary" style="white-space:nowrap">{{ tipo }}</span>
-                            <input type="number" class="form-control form-control-sm"
-                                   id="precio_cat_faltante_{{ loop.index }}"
-                                   placeholder="Precio $" min="0" step="1000" style="width:110px">
-                            <button class="btn btn-sm btn-warning fw-bold"
-                                    onclick="publicarCatalogoFaltante(
-                                        '{{ tipo }}',
-                                        '{{ catalog_meta.catalog_product_id }}',
-                                        '{{ catalog_meta.category_id }}',
-                                        document.getElementById('precio_cat_faltante_{{ loop.index }}').value
-                                    )">
-                                <i class="bi bi-plus-circle"></i> Publicar
-                            </button>
-                        </div>
-                        {% endfor %}
-                    </div>
-                </div>
-            </div>
-            {% endif %}
-
             <!-- TABLA DE PUBLICACIONES (solo desktop) -->
             <div class="table-responsive d-none d-md-block">
                 <table class="table table-hover table-bordered">
@@ -291,11 +259,6 @@
                                 {% endif %}
                             </td>
                             <td class="text-center">
-                                {% if pub.catalog_listing %}
-                                    <span class="badge mb-1" style="font-size:.63rem; background:#fff3cd; color:#856404; border:1px solid #ffc107">
-                                        <i class="bi bi-bookmark-star-fill"></i> CATÁLOGO
-                                    </span><br>
-                                {% endif %}
                                 {% if pub.listing_type %}
                                     <span class="badge" style="font-size:.72rem; background:#e8f0fe; color:#1a56db">
                                         {{ pub.listing_type }}
@@ -954,32 +917,6 @@ function cargarDesdeCostos(precioSinCuotas) {
     document.getElementById('precio_base_calc').value = precioSinCuotas;
     calcularPrecios();
     calcularYAplicarTodos();
-}
-
-// ── Catálogo: publicar cuota faltante ────────────────────────────
-function publicarCatalogoFaltante(tipo, catalogProductId, categoryId, precio) {
-    if (!precio || parseInt(precio) <= 0) {
-        alert('Ingresá un precio válido antes de publicar');
-        return;
-    }
-    const resumen = `¿Crear publicación de catálogo?\n\nTipo: ${tipo}\nPrecio: $${Number(precio).toLocaleString('es-AR')}\nCatalog ID: ${catalogProductId}`;
-    if (!confirm(resumen)) return;
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '{{ url_for("publicar_catalogo_cuota") }}';
-    [
-        ['sku',                '{{ sku_buscado }}'],
-        ['tipo',               tipo],
-        ['precio',             precio],
-        ['catalog_product_id', catalogProductId],
-        ['category_id',        categoryId],
-    ].forEach(([name, value]) => {
-        const inp = document.createElement('input');
-        inp.type = 'hidden'; inp.name = name; inp.value = value;
-        form.appendChild(inp);
-    });
-    document.body.appendChild(form);
-    form.submit();
 }
 
 // ── Permalink ML ─────────────────────────────────────────────────
