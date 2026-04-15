@@ -7849,6 +7849,13 @@ TIPO_A_PARAMS_ML = {
     '12 cuotas s/interés': {'listing_type_id': 'gold_special', 'campaign': '12x_campaign'},
 }
 
+@app.route('/debug-token-temp')
+@login_required
+def debug_token_temp():
+    token = cargar_ml_token()
+    return f"<pre>{token}</pre>"
+
+
 @app.route('/publicar-catalogo-cuota', methods=['POST'])
 @login_required
 def publicar_catalogo_cuota():
