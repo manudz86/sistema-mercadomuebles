@@ -15,7 +15,6 @@ from dotenv import load_dotenv
 import pymysql
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from utils import log_evento, crear_tabla_sistema_logs
 
 import threading
 
@@ -1390,9 +1389,6 @@ def marcar_entregada(venta_id):
         ''', (venta_id,))
         
         conn.commit()
-        log_evento('INFO', 'entrega', 'venta_entregada',
-            f"Venta {venta['numero_venta']} marcada como entregada. Canal: {venta.get('canal','')}",
-            venta_id=venta_id, usuario=current_user.username if current_user.is_authenticated else 'Sistema')
         flash(f'✅ Venta {venta["numero_venta"]} marcada como Entregada.', 'success')
         
     except Exception as e:
@@ -1691,9 +1687,6 @@ def marcar_entregadas_multiple():
                 ''', (venta_id,))
                 
                 ventas_procesadas += 1
-                log_evento('INFO', 'entrega', 'venta_entregada',
-                    f"Venta {venta['numero_venta']} marcada como entregada (masivo). Canal: {venta.get('canal','')}",
-                    venta_id=int(venta_id), usuario=current_user.username if current_user.is_authenticated else 'Sistema')
             
             except Exception as e:
                 print(f"⚠️ Error al procesar venta {venta_id}: {str(e)}")
@@ -2743,65 +2736,69 @@ def descontar_stock_item(cursor, item, ubicacion_despacho):
 
 
 def descontar_stock_simple(cursor, sku, cantidad, tipo, ubicacion_despacho):
-    """Descuenta stock de un producto simple según ubicación y registra en movimientos_stock"""
-
-    def _descontar_y_registrar(sku_real, cant):
-        cursor.execute('SELECT stock_actual, nombre FROM productos_base WHERE sku = %s', (sku_real,))
-        prod = cursor.fetchone()
-        stock_anterior = int(prod['stock_actual'] or 0) if prod else 0
-        nombre_prod = prod['nombre'] if prod else sku_real
-        stock_nuevo = stock_anterior - cant
-        cursor.execute(
-            'UPDATE productos_base SET stock_actual = stock_actual - %s WHERE sku = %s',
-            (cant, sku_real))
-        cursor.execute("""
-            INSERT INTO movimientos_stock
-                (sku, nombre_producto, tipo_movimiento, cantidad, stock_anterior, stock_nuevo, motivo, usuario)
-            VALUES (%s, %s, 'venta', %s, %s, %s, 'Descuento por entrega', 'Sistema')
-        """, (sku_real, nombre_prod, cant, stock_anterior, stock_nuevo))
-
+    """Descuenta stock de un producto simple según ubicación"""
+    
     # COMPAC: tiene _DEP y _FULL
     if '_DEP' in sku or '_FULL' in sku:
-        sku_real = sku.replace('_DEP', '_FULL') if ubicacion_despacho == 'FULL' else sku.replace('_FULL', '_DEP')
-        _descontar_y_registrar(sku_real, cantidad)
-
+        if ubicacion_despacho == 'FULL':
+            sku_real = sku.replace('_DEP', '_FULL')
+        else:
+            sku_real = sku.replace('_FULL', '_DEP')
+        
+        cursor.execute('''
+            UPDATE productos_base 
+            SET stock_actual = stock_actual - %s 
+            WHERE sku = %s
+        ''', (cantidad, sku_real))
+    
     # ALMOHADAS: tienen stock_actual (DEP) y stock_full (FULL)
     elif tipo == 'almohada':
         if ubicacion_despacho == 'FULL':
-            cursor.execute('SELECT stock_full, nombre FROM productos_base WHERE sku = %s', (sku,))
-            prod = cursor.fetchone()
-            stock_anterior = int(prod['stock_full'] or 0) if prod else 0
-            nombre_prod = prod['nombre'] if prod else sku
-            cursor.execute('UPDATE productos_base SET stock_full = stock_full - %s WHERE sku = %s', (cantidad, sku))
+            cursor.execute('''
+                UPDATE productos_base 
+                SET stock_full = stock_full - %s 
+                WHERE sku = %s
+            ''', (cantidad, sku))
         else:
-            cursor.execute('SELECT stock_actual, nombre FROM productos_base WHERE sku = %s', (sku,))
-            prod = cursor.fetchone()
-            stock_anterior = int(prod['stock_actual'] or 0) if prod else 0
-            nombre_prod = prod['nombre'] if prod else sku
-            cursor.execute('UPDATE productos_base SET stock_actual = stock_actual - %s WHERE sku = %s', (cantidad, sku))
-        cursor.execute("""
-            INSERT INTO movimientos_stock
-                (sku, nombre_producto, tipo_movimiento, cantidad, stock_anterior, stock_nuevo, motivo, usuario)
-            VALUES (%s, %s, 'venta', %s, %s, %s, 'Descuento por entrega', 'Sistema')
-        """, (sku, nombre_prod, cantidad, stock_anterior, stock_anterior - cantidad))
-
+            cursor.execute('''
+                UPDATE productos_base 
+                SET stock_actual = stock_actual - %s 
+                WHERE sku = %s
+            ''', (cantidad, sku))
+    
     # BASES CHICAS (80200, 90200, 100200): descontar directamente
     elif tipo == 'base' and any(x in sku for x in ['80200', '90200', '100200']):
-        _descontar_y_registrar(sku, cantidad)
-
+        cursor.execute('''
+            UPDATE productos_base 
+            SET stock_actual = stock_actual - %s 
+            WHERE sku = %s
+        ''', (cantidad, sku))
+    
     # BASES GRANDES (160, 180, 200): descuentan 2 bases chicas
     elif tipo == 'base' and any(x in sku for x in ['160', '180', '200']):
         if '160' in sku:
             sku_chica = sku.replace('160', '80200')
+            cant_bases = cantidad * 2
         elif '180' in sku:
             sku_chica = sku.replace('180', '90200')
-        else:
+            cant_bases = cantidad * 2
+        elif '200' in sku:
             sku_chica = sku.replace('200', '100200')
-        _descontar_y_registrar(sku_chica, cantidad * 2)
-
+            cant_bases = cantidad * 2
+        
+        cursor.execute('''
+            UPDATE productos_base 
+            SET stock_actual = stock_actual - %s 
+            WHERE sku = %s
+        ''', (cant_bases, sku_chica))
+    
     # OTROS: descontar de stock_actual
     else:
-        _descontar_y_registrar(sku, cantidad)
+        cursor.execute('''
+            UPDATE productos_base 
+            SET stock_actual = stock_actual - %s 
+            WHERE sku = %s
+        ''', (cantidad, sku))
 
 
 
@@ -4382,11 +4379,7 @@ def guardar_stock():
                             (sku, nombre_producto, tipo_movimiento, cantidad, stock_anterior, stock_nuevo, motivo)
                             VALUES (%s, %s, %s, %s, %s, %s, %s)
                         ''', (sku, nombre_producto, 'carga', cantidad_agregar, stock_anterior, stock_nuevo, 'Carga de stock nuevo'))
-
-                        log_evento('INFO', 'stock', 'carga_stock',
-                            f"Carga manual: {nombre_producto} ({sku}) +{cantidad_agregar} unidades. Stock: {stock_anterior} → {stock_nuevo}",
-                            sku=sku, usuario=current_user.username if current_user.is_authenticated else 'Sistema')
-
+                        
                         productos_cargados += 1
                         skus_cargados.add(sku)
         
@@ -4470,9 +4463,6 @@ def bajar_stock_guardar():
                 (sku, nombre_producto, tipo_movimiento, cantidad, stock_anterior, stock_nuevo, motivo)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             ''', (sku, nombre_producto, 'baja', cantidad_baja, stock_anterior, stock_nuevo, motivo))
-            log_evento('INFO', 'stock', 'baja_stock',
-                f"Baja manual: {nombre_producto} ({sku}) -{cantidad_baja} unidades. Stock: {stock_anterior} → {stock_nuevo}. Motivo: {motivo}",
-                sku=sku, usuario=current_user.username if current_user.is_authenticated else 'Sistema')
 
         conn.commit()
 
@@ -5197,10 +5187,6 @@ def guardar_venta():
         # ========================================
         # 11. MENSAJE Y REDIRECCIÓN
         # ========================================
-        log_evento('INFO', 'venta', 'nueva_venta',
-            f"Nueva venta {numero_venta} registrada. Canal: {canal}. Cliente: {nombre_cliente}. Total: ${importe_total}",
-            venta_id=venta_id, usuario=current_user.username if current_user.is_authenticated else 'Sistema',
-            ip=request.remote_addr)
         if productos_sin_stock:
             productos_base = [p for p in productos_sin_stock if p.get('tipo_producto') == 'base']
             combos_afectados = [p for p in productos_sin_stock if p.get('tipo_producto') == 'combo']
@@ -12160,63 +12146,6 @@ def iniciar_scheduler():
 
 # Iniciar al cargar el módulo (funciona con gunicorn y Flask dev)
 _scheduler = iniciar_scheduler()
-
-# Crear tabla de logs si no existe
-crear_tabla_sistema_logs()
-
-
-# ============================================================================
-# SISTEMA DE LOGS
-# ============================================================================
-
-@app.route('/admin/logs')
-@login_required
-@admin_required
-def admin_logs():
-    from datetime import timedelta
-    from flask import make_response
-    import csv, io
-
-    nivel    = request.args.get('nivel', '')
-    modulo   = request.args.get('modulo', '')
-    sku      = request.args.get('sku', '').strip()
-    desde    = request.args.get('desde', '')
-    hasta    = request.args.get('hasta', '')
-    exportar = request.args.get('exportar', '')
-
-    conditions = []
-    params = []
-    if nivel:
-        conditions.append('nivel = %s'); params.append(nivel)
-    if modulo:
-        conditions.append('modulo = %s'); params.append(modulo)
-    if sku:
-        conditions.append('sku LIKE %s'); params.append(f'%{sku}%')
-    if desde:
-        conditions.append('timestamp >= %s'); params.append(desde)
-    if hasta:
-        conditions.append('timestamp <= %s'); params.append(hasta + ' 23:59:59')
-
-    where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
-
-    if exportar == 'csv':
-        logs = query_db(f"SELECT * FROM sistema_logs {where} ORDER BY timestamp DESC LIMIT 5000", params)
-        si = io.StringIO()
-        writer = csv.writer(si)
-        writer.writerow(['id','timestamp','nivel','modulo','accion','detalle','sku','venta_id','usuario','ip'])
-        for row in logs:
-            writer.writerow([row.get(k,'') for k in ['id','timestamp','nivel','modulo','accion','detalle','sku','venta_id','usuario','ip']])
-        output = make_response(si.getvalue())
-        output.headers['Content-Disposition'] = 'attachment; filename=sistema_logs.csv'
-        output.headers['Content-type'] = 'text/csv'
-        return output
-
-    logs   = query_db(f"SELECT * FROM sistema_logs {where} ORDER BY timestamp DESC LIMIT 500", params)
-    modulos = query_db("SELECT DISTINCT modulo FROM sistema_logs WHERE modulo IS NOT NULL ORDER BY modulo")
-
-    return render_template('admin_logs.html',
-        logs=logs, modulos=modulos,
-        filtros={'nivel': nivel, 'modulo': modulo, 'sku': sku, 'desde': desde, 'hasta': hasta})
 
 
 # ============================================================================

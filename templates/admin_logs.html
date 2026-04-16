@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid py-3">
+
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <h4 class="mb-0"><i class="bi bi-journal-text me-2"></i>Log del Sistema</h4>
+    <a href="{{ request.url }}&exportar=csv" class="btn btn-sm btn-success">
+      <i class="bi bi-download me-1"></i>Exportar CSV
+    </a>
+  </div>
+
+  <!-- Filtros -->
+  <form method="GET" class="card shadow-sm mb-3">
+    <div class="card-body py-2">
+      <div class="row g-2 align-items-end">
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">Nivel</label>
+          <select name="nivel" class="form-select form-select-sm">
+            <option value="">Todos</option>
+            {% for n in ['INFO','WARNING','ERROR'] %}
+            <option value="{{ n }}" {% if filtros.nivel == n %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">Módulo</label>
+          <select name="modulo" class="form-select form-select-sm">
+            <option value="">Todos</option>
+            {% for m in modulos %}
+            <option value="{{ m.modulo }}" {% if filtros.modulo == m.modulo %}selected{% endif %}>{{ m.modulo }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">SKU</label>
+          <input type="text" name="sku" class="form-control form-control-sm"
+                 value="{{ filtros.sku }}" placeholder="CREP140">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">Desde</label>
+          <input type="date" name="desde" class="form-control form-control-sm" value="{{ filtros.desde }}">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small mb-1">Hasta</label>
+          <input type="date" name="hasta" class="form-control form-control-sm" value="{{ filtros.hasta }}">
+        </div>
+        <div class="col-6 col-md-2 d-flex gap-2">
+          <button class="btn btn-primary btn-sm w-100">Filtrar</button>
+          <a href="/admin/logs" class="btn btn-outline-secondary btn-sm">✕</a>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <!-- Tabla -->
+  {% if not logs %}
+    <div class="alert alert-secondary">No hay registros con los filtros aplicados.</div>
+  {% else %}
+  <div class="card shadow-sm">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+      <small class="text-muted">Mostrando {{ logs|length }} registros (máx. 500)</small>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover mb-0 align-middle" style="font-size:.8rem">
+        <thead class="table-dark">
+          <tr>
+            <th style="width:140px">Fecha</th>
+            <th style="width:80px">Nivel</th>
+            <th style="width:80px">Módulo</th>
+            <th style="width:140px">Acción</th>
+            <th>Detalle</th>
+            <th style="width:90px">SKU</th>
+            <th style="width:70px">Venta</th>
+            <th style="width:80px">Usuario</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for log in logs %}
+          {% set color = {'INFO': '', 'WARNING': 'table-warning', 'ERROR': 'table-danger'} %}
+          <tr class="{{ color.get(log.nivel, '') }}">
+            <td class="text-muted">
+              {{ log.timestamp.strftime('%d/%m/%Y %H:%M:%S') if log.timestamp else '—' }}
+            </td>
+            <td>
+              {% set badge = {'INFO': 'secondary', 'WARNING': 'warning text-dark', 'ERROR': 'danger'} %}
+              <span class="badge bg-{{ badge.get(log.nivel, 'secondary') }}">{{ log.nivel }}</span>
+            </td>
+            <td><span class="badge bg-dark">{{ log.modulo or '—' }}</span></td>
+            <td class="text-muted small">{{ log.accion or '—' }}</td>
+            <td>{{ log.detalle or '—' }}</td>
+            <td>{% if log.sku %}<code>{{ log.sku }}</code>{% else %}—{% endif %}</td>
+            <td>{% if log.venta_id %}<a href="/ventas/activas?buscar={{ log.venta_id }}">#{{ log.venta_id }}</a>{% else %}—{% endif %}</td>
+            <td class="text-muted">{{ log.usuario or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
