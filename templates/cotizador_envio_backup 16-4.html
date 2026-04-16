@@ -52,35 +52,6 @@
               </select>
             </div>
             <div class="col-12">
-              <label class="form-label small fw-semibold mb-1">Provincia</label>
-              <select id="provincia-select" class="form-select form-select-sm">
-                <option value="Buenos Aires">Buenos Aires</option>
-                <option value="CABA">Ciudad Autónoma de Buenos Aires</option>
-                <option value="Catamarca">Catamarca</option>
-                <option value="Chaco">Chaco</option>
-                <option value="Chubut">Chubut</option>
-                <option value="Córdoba">Córdoba</option>
-                <option value="Corrientes">Corrientes</option>
-                <option value="Entre Ríos">Entre Ríos</option>
-                <option value="Formosa">Formosa</option>
-                <option value="Jujuy">Jujuy</option>
-                <option value="La Pampa">La Pampa</option>
-                <option value="La Rioja">La Rioja</option>
-                <option value="Mendoza">Mendoza</option>
-                <option value="Misiones">Misiones</option>
-                <option value="Neuquén">Neuquén</option>
-                <option value="Río Negro">Río Negro</option>
-                <option value="Salta">Salta</option>
-                <option value="San Juan">San Juan</option>
-                <option value="San Luis">San Luis</option>
-                <option value="Santa Cruz">Santa Cruz</option>
-                <option value="Santa Fe">Santa Fe</option>
-                <option value="Santiago del Estero">Santiago del Estero</option>
-                <option value="Tierra del Fuego">Tierra del Fuego</option>
-                <option value="Tucumán">Tucumán</option>
-              </select>
-            </div>
-            <div class="col-12">
               <label class="form-label small fw-semibold mb-1">Importe declarado ($)</label>
               <input type="number" id="declared-input" class="form-control form-control-sm"
                      placeholder="Ej: 500000" min="0" step="1000">
@@ -250,7 +221,6 @@ function cotizar() {
   }
   const cp      = document.getElementById('cp-input').value.trim();
   const ciudad  = document.getElementById('ciudad-select').value;
-  const provincia = document.getElementById('provincia-select').value;
   const declared = parseInt(document.getElementById('declared-input').value) || 0;
 
   if (!cp || !ciudad) {
@@ -271,7 +241,7 @@ function cotizar() {
       skus:           skus.map(s => ({sku: s.sku, cantidad: s.cantidad})),
       cp,
       ciudad,
-      provincia,
+      provincia:      'Buenos Aires',
       declared_value: declared,
     })
   })
