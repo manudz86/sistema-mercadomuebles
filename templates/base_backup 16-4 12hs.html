@@ -314,11 +314,6 @@
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'pagos_cannon' %}active{% endif %}" href="/pagos-cannon">
-                        <i class="bi bi-receipt"></i> Pagos Cannon
-                    </a>
-                </li>
-                <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'fletes' %}active{% endif %}" href="/fletes">
                         <i class="bi bi-truck"></i> Fletes
                     </a>
@@ -367,6 +362,11 @@
                   </a>
                 </li>
                 <div class="section-title">CONFIGURACIÓN</div>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'admin_logs' %}active{% endif %}" href="/admin/logs">
+                        <i class="bi bi-journal-text"></i> Log del Sistema
+                    </a>
+                </li>
                 <li class="nav-item">
                     <a class="nav-link" href="/configuracion/resetear">
                         <i class="bi bi-arrow-clockwise"></i> Resetear Sistema
@@ -490,11 +490,6 @@
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'pagos_cannon' %}active{% endif %}" href="/pagos-cannon">
-                                <i class="bi bi-receipt"></i> Pagos Cannon
-                            </a>
-                        </li>
-                        <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'fletes' %}active{% endif %}" href="/fletes">
                                 <i class="bi bi-truck"></i> Fletes
                             </a>
@@ -543,6 +538,11 @@
                             </a>
                         </li>
                         <div class="section-title">CONFIGURACIÓN</div>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'admin_logs' %}active{% endif %}" href="/admin/logs">
+                                <i class="bi bi-journal-text"></i> Log del Sistema
+                            </a>
+                        </li>
                         <li class="nav-item">
                             <a class="nav-link" href="/configuracion/resetear">
                                 <i class="bi bi-arrow-clockwise"></i> Resetear Sistema

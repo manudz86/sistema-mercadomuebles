@@ -1,0 +1,505 @@
+{% extends "base.html" %}
+{% block title %}Pagos Cannon{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <h4 class="mb-0"><i class="bi bi-receipt me-2"></i>Pagos Cannon</h4>
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalNuevaFactura">
+      <i class="bi bi-plus-circle me-1"></i>Nueva Factura
+    </button>
+  </div>
+
+  <!-- Tabs -->
+  <ul class="nav nav-tabs mb-3">
+    <li class="nav-item">
+      <a class="nav-link {% if tab == 'pendientes' %}active{% endif %}" href="/pagos-cannon?tab=pendientes">
+        <i class="bi bi-clock me-1"></i>Pagos
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if tab == 'reclamos' %}active{% endif %}" href="/pagos-cannon?tab=reclamos">
+        <i class="bi bi-exclamation-triangle me-1"></i>Reclamos Cannon
+        {% set reclamos_abiertos = reclamos | selectattr('resuelto', 'equalto', 0) | list %}
+        {% if reclamos_abiertos %}
+        <span class="badge bg-danger ms-1">{{ reclamos_abiertos | length }}</span>
+        {% endif %}
+      </a>
+    </li>
+  </ul>
+
+  <!-- TAB PAGOS -->
+  {% if tab != 'reclamos' %}
+  {% if not grupos %}
+    <div class="alert alert-secondary">No hay facturas cargadas. Agregá la primera con el botón de arriba.</div>
+  {% else %}
+    {% for g in grupos %}
+    {% set fecha_key = g.fecha_pago | string %}
+    {% set fcs = facturas_por_fecha.get(fecha_key, []) %}
+    {% set pagado = g.monto_abonado is not none and g.monto_abonado %}
+    {% set vencido = g.fecha_pago < hoy and not pagado %}
+
+    <div class="card shadow-sm mb-3 {% if vencido %}border-danger{% elif pagado %}border-success{% endif %}">
+      <!-- Header del grupo -->
+      <div class="card-header py-2 d-flex flex-wrap justify-content-between align-items-center gap-2
+                  {% if vencido %}bg-danger text-white{% elif pagado %}bg-success text-white{% else %}bg-light{% endif %}">
+        <div class="d-flex align-items-center gap-3">
+          <div>
+            <strong>Fecha de pago: {{ g.fecha_pago.strftime('%d/%m/%Y') if g.fecha_pago else '—' }}</strong>
+            {% if vencido %}<span class="badge bg-white text-danger ms-2">VENCIDO</span>{% endif %}
+            {% if pagado %}<span class="badge bg-white text-success ms-2">PAGADO</span>{% endif %}
+          </div>
+          <div class="small {% if pagado or vencido %}text-white-50{% else %}text-muted{% endif %}">
+            {{ g.total_fcs }} factura{{ 's' if g.total_fcs != 1 else '' }}
+          </div>
+        </div>
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+          <div class="text-end">
+            <div class="small {% if pagado or vencido %}text-white-50{% else %}text-muted{% endif %}">Total bruto</div>
+            <strong>${{ "{:,.0f}".format(g.total_bruto).replace(",", ".") }}</strong>
+          </div>
+          <div class="text-end">
+            <div class="small {% if pagado or vencido %}text-white-50{% else %}text-muted{% endif %}">Con PP ({{ fcs[0].descuento_pp_pct if fcs else 5 }}%)</div>
+            <strong>${{ "{:,.0f}".format(g.total_pp).replace(",", ".") }}</strong>
+          </div>
+          <div class="text-end">
+            <div class="small {% if pagado or vencido %}text-white-50{% else %}text-muted{% endif %}">Descuento PP</div>
+            <strong>${{ "{:,.0f}".format(g.total_descuento).replace(",", ".") }}</strong>
+          </div>
+          <div class="d-flex gap-2">
+            {% if not pagado %}
+            <button class="btn btn-sm btn-{{ 'outline-light' if vencido else 'success' }}"
+                    onclick="abrirModalPago('{{ g.fecha_pago }}', {{ g.total_pp }})">
+              <i class="bi bi-check-circle me-1"></i>Marcar pagado
+            </button>
+            {% else %}
+            <div class="text-end small">
+              <div class="{% if pagado %}text-white-50{% endif %}">Abonado {{ g.fecha_abono.strftime('%d/%m/%Y') if g.fecha_abono else '' }}</div>
+              <strong>${{ "{:,.0f}".format(g.monto_abonado).replace(",", ".") }}</strong>
+            </div>
+            <!-- PP Cannon -->
+            {% if not g.pp_recibido %}
+            <button class="btn btn-sm btn-outline-light"
+                    onclick="marcarPP('{{ g.fecha_pago }}', 1)">
+              <i class="bi bi-gift me-1"></i>PP recibido
+            </button>
+            {% else %}
+            <span class="badge bg-white text-success">
+              <i class="bi bi-gift-fill me-1"></i>PP ✓ {{ g.fecha_pp.strftime('%d/%m/%Y') if g.fecha_pp else '' }}
+            </span>
+            <button class="btn btn-sm btn-outline-light btn-xs" onclick="marcarPP('{{ g.fecha_pago }}', 0)" title="Desmarcar">✕</button>
+            {% endif %}
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Facturas del grupo -->
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0" style="font-size:.82rem">
+          <thead class="table-light">
+            <tr>
+              <th>Nro Comprobante</th>
+              <th class="text-center">F. Comprobante</th>
+              <th class="text-center">F. Recepción</th>
+              <th class="text-end">Importe</th>
+              <th class="text-end">Con PP</th>
+              <th class="text-end">Descuento</th>
+              <th class="text-center">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for fc in fcs %}
+            <tr {% if fc.tiene_error %}class="table-warning"{% endif %}>
+              <td><code>{{ fc.nro_comprobante }}</code>
+                {% if fc.tiene_error %}<span class="badge bg-warning text-dark ms-1">Error</span>{% endif %}
+              </td>
+              <td class="text-center text-muted">{{ fc.fecha_comprobante.strftime('%d/%m/%Y') if fc.fecha_comprobante else '—' }}</td>
+              <td class="text-center text-muted">{{ fc.fecha_recepcion.strftime('%d/%m/%Y') if fc.fecha_recepcion else '—' }}</td>
+              <td class="text-end">${{ "{:,.2f}".format(fc.importe_total).replace(",", ".") }}</td>
+              <td class="text-end fw-bold">${{ "{:,.0f}".format(fc.importe_pp).replace(",", ".") }}</td>
+              <td class="text-end text-success small">${{ "{:,.0f}".format(fc.descuento_pp_monto).replace(",", ".") }}</td>
+              <td class="text-center">
+                <div class="d-flex gap-1 justify-content-center">
+                  {% if not fc.tiene_error %}
+                  <button class="btn btn-xs btn-outline-warning"
+                          onclick="abrirModalReclamo({{ fc.id }}, '{{ fc.nro_comprobante }}')"
+                          title="Marcar error">
+                    <i class="bi bi-exclamation-triangle"></i>
+                  </button>
+                  {% endif %}
+                  <button class="btn btn-xs btn-outline-danger"
+                          onclick="eliminarFactura({{ fc.id }}, '{{ fc.nro_comprobante }}')"
+                          title="Eliminar">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endfor %}
+  {% endif %}
+  {% endif %}
+
+  <!-- TAB RECLAMOS -->
+  {% if tab == 'reclamos' %}
+  {% if not reclamos %}
+    <div class="alert alert-secondary">No hay reclamos registrados.</div>
+  {% else %}
+    <div class="card shadow-sm">
+      <div class="table-responsive">
+        <table class="table table-hover table-sm mb-0 align-middle" style="font-size:.83rem">
+          <thead class="table-dark">
+            <tr>
+              <th>Comprobante</th>
+              <th class="text-center">F. Comprobante</th>
+              <th class="text-end">Importe</th>
+              <th>Detalle Error</th>
+              <th class="text-center">F. Reclamo</th>
+              <th class="text-center">NC Resolución</th>
+              <th class="text-center">Estado</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in reclamos %}
+            <tr {% if r.resuelto %}class="table-success"{% endif %}>
+              <td><code>{{ r.nro_comprobante }}</code></td>
+              <td class="text-center text-muted">{{ r.fecha_comprobante.strftime('%d/%m/%Y') if r.fecha_comprobante else '—' }}</td>
+              <td class="text-end">${{ "{:,.2f}".format(r.importe_total).replace(",", ".") }}</td>
+              <td>{{ r.detalle_error }}</td>
+              <td class="text-center text-muted">{{ r.fecha_reclamo.strftime('%d/%m/%Y') if r.fecha_reclamo else '—' }}</td>
+              <td class="text-center">{{ r.nro_nc_resolucion or '—' }}</td>
+              <td class="text-center">
+                {% if r.resuelto %}
+                  <span class="badge bg-success">Resuelto</span>
+                {% else %}
+                  <span class="badge bg-warning text-dark">Pendiente</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if not r.resuelto %}
+                <button class="btn btn-xs btn-outline-success"
+                        onclick="abrirModalResolver({{ r.id }}, '{{ r.nro_comprobante }}')"
+                        title="Marcar resuelto">
+                  <i class="bi bi-check-circle"></i>
+                </button>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endif %}
+  {% endif %}
+
+</div>
+
+<!-- Modal Nueva Factura -->
+<div class="modal fade" id="modalNuevaFactura" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title"><i class="bi bi-plus-circle me-1"></i>Nueva Factura Cannon</h6>
+        <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label small">Nro Comprobante</label>
+            <input type="text" class="form-control form-control-sm" id="fc_nro"
+                   placeholder="0075A00089648" style="font-family:monospace">
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Fecha Comprobante</label>
+            <input type="date" class="form-control form-control-sm" id="fc_fecha_comprobante">
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Fecha Recepción</label>
+            <input type="date" class="form-control form-control-sm" id="fc_fecha_recepcion"
+                   oninput="calcularPreview()">
+          </div>
+          <div class="col-6">
+            <label class="form-label small">Importe Total</label>
+            <div class="input-group input-group-sm">
+              <span class="input-group-text">$</span>
+              <input type="number" class="form-control" id="fc_importe" step="0.01"
+                     oninput="calcularPreview()">
+            </div>
+          </div>
+          <div class="col-6">
+            <label class="form-label small">% Pronto Pago</label>
+            <div class="input-group input-group-sm">
+              <input type="number" class="form-control" id="fc_pp_pct" value="5" step="0.01" min="0" max="100"
+                     oninput="calcularPreview()">
+              <span class="input-group-text">%</span>
+            </div>
+          </div>
+          <div class="col-12">
+            <label class="form-label small">Notas (opcional)</label>
+            <input type="text" class="form-control form-control-sm" id="fc_notas">
+          </div>
+        </div>
+        <!-- Preview -->
+        <div class="mt-3 p-2 bg-light rounded border" id="fc_preview" style="display:none;font-size:.85rem">
+          <div class="row text-center">
+            <div class="col-4">
+              <div class="text-muted small">Fecha de pago</div>
+              <strong id="prev_fecha_pago">—</strong>
+            </div>
+            <div class="col-4">
+              <div class="text-muted small">Importe con PP</div>
+              <strong class="text-success" id="prev_importe_pp">—</strong>
+            </div>
+            <div class="col-4">
+              <div class="text-muted small">Descuento PP</div>
+              <strong class="text-primary" id="prev_descuento">—</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-sm btn-primary" onclick="guardarFactura()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Marcar Pagado -->
+<div class="modal fade" id="modalPago" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">Registrar Pago</h6>
+        <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="pago_fecha">
+        <div class="mb-2">
+          <label class="form-label small">Fecha de pago real</label>
+          <input type="date" class="form-control form-control-sm" id="pago_fecha_abono">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Monto abonado ($)</label>
+          <input type="number" class="form-control form-control-sm" id="pago_monto" step="1">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Notas (opcional)</label>
+          <input type="text" class="form-control form-control-sm" id="pago_notas">
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-sm btn-success" onclick="confirmarPago()">Confirmar pago</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Reclamo -->
+<div class="modal fade" id="modalReclamo" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">Reclamo — <span id="reclamo_nro"></span></h6>
+        <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="reclamo_factura_id">
+        <div class="mb-2">
+          <label class="form-label small">Fecha reclamo</label>
+          <input type="date" class="form-control form-control-sm" id="reclamo_fecha">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Detalle del error</label>
+          <textarea class="form-control form-control-sm" id="reclamo_detalle" rows="3"
+                    placeholder="Describí el error de la factura..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-sm btn-warning" onclick="guardarReclamo()">Registrar reclamo</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Resolver Reclamo -->
+<div class="modal fade" id="modalResolver" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title">Resolver — <span id="resolver_nro"></span></h6>
+        <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="resolver_reclamo_id">
+        <div class="mb-2">
+          <label class="form-label small">Nro NC de resolución</label>
+          <input type="text" class="form-control form-control-sm" id="resolver_nc"
+                 style="font-family:monospace">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">Fecha resolución</label>
+          <input type="date" class="form-control form-control-sm" id="resolver_fecha">
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-sm btn-success" onclick="confirmarResolver()">Marcar resuelto</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block extra_js %}
+<script>
+const _hoy = '{{ hoy.isoformat() }}';
+
+async function api(data) {
+  const r = await fetch('/pagos-cannon/guardar', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data)
+  });
+  return r.json();
+}
+
+// ── Preview cálculo ──────────────────────────────────────────────
+function calcularPreview() {
+  const importe = parseFloat(document.getElementById('fc_importe').value);
+  const pct     = parseFloat(document.getElementById('fc_pp_pct').value) || 5;
+  const recep   = document.getElementById('fc_fecha_recepcion').value;
+  const prev    = document.getElementById('fc_preview');
+
+  if (!importe || !recep) { prev.style.display = 'none'; return; }
+
+  const divisor  = 1 + pct / 100;
+  const imp_pp   = Math.round(importe / divisor);
+  const descuento = Math.round(importe) - imp_pp;
+
+  // fecha_pago = recepcion + 6 días
+  const d = new Date(recep + 'T00:00:00');
+  d.setDate(d.getDate() + 6);
+  const fecha_pago = d.toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit', year:'numeric'});
+
+  document.getElementById('prev_fecha_pago').textContent  = fecha_pago;
+  document.getElementById('prev_importe_pp').textContent  = '$' + imp_pp.toLocaleString('es-AR');
+  document.getElementById('prev_descuento').textContent   = '$' + descuento.toLocaleString('es-AR');
+  prev.style.display = 'block';
+}
+
+async function guardarFactura() {
+  const nro    = document.getElementById('fc_nro').value.trim();
+  const fcomp  = document.getElementById('fc_fecha_comprobante').value;
+  const frecep = document.getElementById('fc_fecha_recepcion').value;
+  const importe= document.getElementById('fc_importe').value;
+  const pct    = document.getElementById('fc_pp_pct').value || 5;
+  const notas  = document.getElementById('fc_notas').value;
+
+  if (!nro || !fcomp || !frecep || !importe) {
+    alert('Completá todos los campos obligatorios'); return;
+  }
+  const res = await api({ accion:'nueva_factura', nro_comprobante:nro,
+    fecha_comprobante:fcomp, fecha_recepcion:frecep,
+    importe_total:parseFloat(importe), descuento_pp_pct:parseFloat(pct), notas });
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  bootstrap.Modal.getInstance(document.getElementById('modalNuevaFactura')).hide();
+  location.reload();
+}
+
+// ── Pago ────────────────────────────────────────────────────────
+const _mPago = new bootstrap.Modal(document.getElementById('modalPago'));
+function abrirModalPago(fecha_pago, total_pp) {
+  document.getElementById('pago_fecha').value = fecha_pago;
+  document.getElementById('pago_fecha_abono').value = _hoy;
+  document.getElementById('pago_monto').value = total_pp;
+  document.getElementById('pago_notas').value = '';
+  _mPago.show();
+}
+async function confirmarPago() {
+  const res = await api({
+    accion: 'marcar_pagado',
+    fecha_pago:   document.getElementById('pago_fecha').value,
+    monto_abonado: parseFloat(document.getElementById('pago_monto').value),
+    fecha_abono:  document.getElementById('pago_fecha_abono').value,
+    notas:        document.getElementById('pago_notas').value,
+  });
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  _mPago.hide();
+  location.reload();
+}
+
+// ── Pronto pago ─────────────────────────────────────────────────
+async function marcarPP(fecha_pago, recibido) {
+  let fecha_pp = null;
+  if (recibido) {
+    fecha_pp = prompt('Fecha de la NC de pronto pago (YYYY-MM-DD):', _hoy);
+    if (fecha_pp === null) return;
+  }
+  const res = await api({ accion:'marcar_pp_recibido', fecha_pago, recibido, fecha_pp });
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  location.reload();
+}
+
+// ── Reclamo ─────────────────────────────────────────────────────
+const _mReclamo = new bootstrap.Modal(document.getElementById('modalReclamo'));
+function abrirModalReclamo(factura_id, nro) {
+  document.getElementById('reclamo_factura_id').value = factura_id;
+  document.getElementById('reclamo_nro').textContent  = nro;
+  document.getElementById('reclamo_fecha').value      = _hoy;
+  document.getElementById('reclamo_detalle').value    = '';
+  _mReclamo.show();
+}
+async function guardarReclamo() {
+  const detalle = document.getElementById('reclamo_detalle').value.trim();
+  if (!detalle) { alert('Describí el error'); return; }
+  const res = await api({
+    accion:       'nuevo_reclamo',
+    factura_id:   +document.getElementById('reclamo_factura_id').value,
+    detalle_error: detalle,
+    fecha_reclamo: document.getElementById('reclamo_fecha').value,
+  });
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  _mReclamo.hide();
+  location.reload();
+}
+
+// ── Resolver reclamo ────────────────────────────────────────────
+const _mResolver = new bootstrap.Modal(document.getElementById('modalResolver'));
+function abrirModalResolver(reclamo_id, nro) {
+  document.getElementById('resolver_reclamo_id').value = reclamo_id;
+  document.getElementById('resolver_nro').textContent  = nro;
+  document.getElementById('resolver_fecha').value      = _hoy;
+  document.getElementById('resolver_nc').value         = '';
+  _mResolver.show();
+}
+async function confirmarResolver() {
+  const res = await api({
+    accion:           'resolver_reclamo',
+    reclamo_id:       +document.getElementById('resolver_reclamo_id').value,
+    nro_nc:           document.getElementById('resolver_nc').value.trim(),
+    fecha_resolucion: document.getElementById('resolver_fecha').value,
+  });
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  _mResolver.hide();
+  location.reload();
+}
+
+// ── Eliminar factura ────────────────────────────────────────────
+async function eliminarFactura(id, nro) {
+  if (!confirm(`¿Eliminar factura ${nro}? Esta acción no se puede deshacer.`)) return;
+  const res = await api({ accion:'eliminar_factura', id });
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+  location.reload();
+}
+</script>
+{% endblock %}
