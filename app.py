@@ -9898,6 +9898,7 @@ def _calcular_importe_pp(importe_total, pct):
 
 @app.route('/pagos-cannon', methods=['GET'])
 @login_required
+@admin_required
 def pagos_cannon():
     _crear_tablas_pagos_cannon()
     from datetime import date
@@ -9958,6 +9959,7 @@ def pagos_cannon():
 
 @app.route('/pagos-cannon/guardar', methods=['POST'])
 @login_required
+@admin_required
 def pagos_cannon_guardar():
     _crear_tablas_pagos_cannon()
     data   = request.get_json()

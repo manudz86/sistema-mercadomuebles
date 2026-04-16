@@ -313,11 +313,13 @@
                         <i class="bi bi-bar-chart-line-fill"></i> Estadísticas
                     </a>
                 </li>
+                {% if current_user.rol == 'admin' %}
                 <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'pagos_cannon' %}active{% endif %}" href="/pagos-cannon">
                         <i class="bi bi-receipt"></i> Pagos Cannon
                     </a>
                 </li>
+                {% endif %}
                 <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'fletes' %}active{% endif %}" href="/fletes">
                         <i class="bi bi-truck"></i> Fletes
@@ -489,11 +491,13 @@
                                 <i class="bi bi-bar-chart-line-fill"></i> Estadísticas
                             </a>
                         </li>
+                        {% if current_user.rol == 'admin' %}
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'pagos_cannon' %}active{% endif %}" href="/pagos-cannon">
                                 <i class="bi bi-receipt"></i> Pagos Cannon
                             </a>
                         </li>
+                        {% endif %}
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'fletes' %}active{% endif %}" href="/fletes">
                                 <i class="bi bi-truck"></i> Fletes
