@@ -9921,7 +9921,6 @@ def pagos_cannon():
             p.notas AS pago_notas
         FROM cannon_facturas f
         LEFT JOIN cannon_pagos p ON p.fecha_pago = f.fecha_pago
-        WHERE f.tiene_error = 0
         GROUP BY f.fecha_pago, p.id
         ORDER BY f.fecha_pago ASC
     """)
