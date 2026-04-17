@@ -167,63 +167,6 @@ def execute_db(query, params=None):
         conn.close()
 
 # ============================================================================
-# WHATSAPP CLOUD API
-# ============================================================================
-
-def enviar_whatsapp(telefono, template_name, componentes=None):
-    """
-    Envía un mensaje de WhatsApp usando una plantilla aprobada por Meta.
-    
-    telefono: string con formato internacional sin '+', ej: '5491126275185'
-    template_name: nombre exacto de la plantilla en Meta
-    componentes: lista de parámetros variables de la plantilla (opcional)
-    
-    Ejemplo de uso:
-        enviar_whatsapp('5491126275185', 'pedido_confirmado', componentes=[
-            {
-                "type": "body",
-                "parameters": [
-                    {"type": "text", "text": "Juan"},
-                    {"type": "text", "text": "12345"}
-                ]
-            }
-        ])
-    """
-    token    = os.getenv('WA_ACCESS_TOKEN')
-    phone_id = os.getenv('WA_PHONE_NUMBER_ID')
-
-    if not token or not phone_id:
-        return {"ok": False, "error": "WA_ACCESS_TOKEN o WA_PHONE_NUMBER_ID no configurados en .env"}
-
-    url = f"https://graph.facebook.com/v25.0/{phone_id}/messages"
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": telefono,
-        "type": "template",
-        "template": {
-            "name": template_name,
-            "language": {"code": "es_AR"},
-            "components": componentes or []
-        }
-    }
-
-    try:
-        r = requests.post(url, headers=headers, json=payload, timeout=10)
-        r.raise_for_status()
-        return {"ok": True, "data": r.json()}
-    except requests.exceptions.HTTPError as e:
-        return {"ok": False, "error": str(e), "detalle": r.text}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
-# ============================================================================
 # RUTAS - PÁGINAS
 # ============================================================================
 
@@ -878,40 +821,6 @@ metodo_pago, importe_total, importe_abonado,
         import traceback
         traceback.print_exc()
         return redirect(url_for('index'))
-
-@app.route('/ventas/activas/<int:venta_id>/whatsapp-entrega', methods=['POST'])
-@login_required
-@vendedor_required
-def whatsapp_entrega_hoy(venta_id):
-    """Envía mensaje de WhatsApp 'entrega_hoy' al cliente de una venta activa."""
-    venta = query_one(
-        "SELECT nombre_cliente, telefono_cliente, numero_venta FROM ventas WHERE id = %s",
-        (venta_id,)
-    )
-    if not venta:
-        return jsonify({"ok": False, "error": "Venta no encontrada"}), 404
-
-    telefono_raw = (venta.get('telefono_cliente') or '').strip()
-    if not telefono_raw:
-        return jsonify({"ok": False, "error": "Esta venta no tiene teléfono registrado"}), 400
-
-    # Normalizar teléfono a formato internacional sin '+': 549XXXXXXXXXX
-    telefono = telefono_raw.replace('+', '').replace(' ', '').replace('-', '')
-    if telefono.startswith('0'):
-        telefono = '54' + telefono[1:]
-    elif telefono.startswith('11') or telefono.startswith('15'):
-        telefono = '549' + telefono
-    elif not telefono.startswith('54'):
-        telefono = '549' + telefono
-
-    resultado = enviar_whatsapp(telefono, 'entrega_hoy')
-
-    if resultado['ok']:
-        log_evento(f"WhatsApp 'entrega_hoy' enviado a {telefono} (venta {venta['numero_venta']})", current_user.username)
-        return jsonify({"ok": True, "mensaje": f"Mensaje enviado a {telefono_raw}"})
-    else:
-        return jsonify({"ok": False, "error": resultado.get('error', 'Error desconocido')}), 500
-
 
 @app.route('/ventas/activas/<int:venta_id>/etiqueta-ml')
 @login_required
