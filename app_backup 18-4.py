@@ -9905,8 +9905,6 @@ def guardar_trid():
 from tienda_bp import tienda_bp
 app.register_blueprint(tienda_bp)
 
-from bot_precios_bp import bot_precios_bp
-app.register_blueprint(bot_precios_bp)
 
 
 # ============================================================================
