@@ -1,0 +1,466 @@
+import json, re, os
+import requests
+import mysql.connector
+from flask import Blueprint, request, jsonify, render_template, session
+import anthropic
+
+bot_precios_bp = Blueprint('bot_precios', __name__)
+
+# ── DB ────────────────────────────────────────────────────────────
+
+def _db():
+    return mysql.connector.connect(
+        host='localhost', user='cannon',
+        password=os.getenv('DB_PASSWORD', 'Sistema@32267845'),
+        database='inventario_cannon'
+    )
+
+def _query(sql, params=None, fetchall=True):
+    db = _db()
+    cur = db.cursor(dictionary=True)
+    cur.execute(sql, params or ())
+    rows = cur.fetchall() if fetchall else cur.fetchone()
+    cur.close(); db.close()
+    return rows
+
+def _to_float(obj):
+    """Recursively convert Decimal/bytes to JSON-serializable types"""
+    if isinstance(obj, dict):
+        return {k: _to_float(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_to_float(v) for v in obj]
+    if isinstance(obj, (bytes, bytearray)):
+        return obj.decode('utf-8', errors='replace')
+    try:
+        if hasattr(obj, '__float__') and not isinstance(obj, (int, float, bool)):
+            return float(obj)
+    except Exception:
+        pass
+    return obj
+
+# ── ML TOKEN ──────────────────────────────────────────────────────
+
+def _ml_token():
+    row = _query("SELECT valor FROM configuracion WHERE clave='ml_token'", fetchall=False)
+    if row:
+        return json.loads(row['valor'])['access_token']
+    return None
+
+def _ml_get(mla_id):
+    token = _ml_token()
+    try:
+        r = requests.get(
+            f'https://api.mercadolibre.com/items/{mla_id}',
+            headers={'Authorization': f'Bearer {token}'},
+            timeout=8
+        )
+        return r.json() if r.status_code == 200 else None
+    except Exception:
+        return None
+
+def _ml_put_price(mla_id, precio):
+    token = _ml_token()
+    try:
+        r = requests.put(
+            f'https://api.mercadolibre.com/items/{mla_id}',
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+            json={'price': int(precio)},
+            timeout=10
+        )
+        return r.status_code == 200, r.status_code
+    except Exception as e:
+        return False, str(e)
+
+# ── SKU HELPERS ───────────────────────────────────────────────────
+
+_MODEL_MAP = [
+    ('CDOPEP', 'doral_pillow'), ('CDOP', 'doral_pillow'),
+    ('CDORAL', 'doral'),        ('CDO', 'doral'),
+    ('CSUBEP', 'sublime_europillow'), ('CSUB', 'sublime'),
+    ('CEXPIL', 'exclusive_pillow'),   ('CEXP', 'exclusive_pillow'), ('CEX', 'exclusive'),
+    ('CREP',   'renovation_europillow'), ('CRE', 'renovation'),
+    ('CPR',    'princess_20'),
+    ('CPLA',   'platino'),
+    ('CSON',   'sonar'),
+    ('CTR',    'tropical'),
+    ('SDOP',   'doral_pillow'), ('SSUB', 'sublime'),
+    ('SSUPEP', 'sublime_europillow'),
+    ('SREP',   'renovation_europillow'), ('SRE', 'renovation'),
+    ('SEX',    'exclusive'),
+    ('BASE',   'bases'),
+]
+
+def _model_key(sku):
+    s = sku.upper().rstrip('Z')
+    for prefix, key in _MODEL_MAP:
+        if s.startswith(prefix):
+            return key
+    return None
+
+def _sku_width(sku):
+    """Extrae el ancho en cm del SKU. CDOP140 → 140, CTR80 → 80"""
+    s = sku.upper().rstrip('Z')
+    for prefix, _ in _MODEL_MAP:
+        if s.startswith(prefix):
+            rest = s[len(prefix):]
+            nums = re.findall(r'\d+', rest)
+            if nums:
+                return int(nums[0])
+    return 0
+
+def _needs_flex(sku):
+    """True si el SKU necesita recargo por envío Flex"""
+    s = sku.upper()
+    if s.endswith('Z'):
+        return False          # con Z: siempre sin recargo
+    if s.startswith('S'):
+        return True           # sommiers sin Z: siempre con recargo
+    return _sku_width(sku) > 100  # colchones: solo si ancho > 100cm
+
+def _listing_type_from_ml(ml_data):
+    """Detecta el tipo de cuotas de un item de ML"""
+    title = (ml_data.get('title') or '').lower()
+    for term in ml_data.get('sale_terms', []):
+        if term.get('id') == 'INSTALLMENTS':
+            n = (term.get('value_struct') or {}).get('number')
+            if n == 12: return '12 cuotas s/interés'
+            if n == 9:  return '9 cuotas s/interés'
+            if n == 6:  return '6 cuotas s/interés'
+            if n == 3:  return '3 cuotas s/interés'
+            if n == 1:  return 'Cuota Simple'
+    for phrase, label in [
+        ('12 cuota', '12 cuotas s/interés'), ('9 cuota', '9 cuotas s/interés'),
+        ('6 cuota',  '6 cuotas s/interés'),  ('3 cuota', '3 cuotas s/interés'),
+        ('cuota simple', 'Cuota Simple')
+    ]:
+        if phrase in title:
+            return label
+    return 'Sin cuotas propias'
+
+_LT_TO_FIELD = {
+    'Sin cuotas propias':   'sin_cuotas',
+    'Cuota Simple':         'cuota_simple',
+    '3 cuotas s/interés':   'c3',
+    '6 cuotas s/interés':   'c6',
+    '9 cuotas s/interés':   'c9',
+    '12 cuotas s/interés':  'c12',
+}
+
+# ── PRICE CALCULATION ─────────────────────────────────────────────
+
+def _calc_prices(sku, recargo_flex=0):
+    prod = _query("""
+        SELECT p.sku, p.descripcion, l.precio_lista
+        FROM cannon_productos p
+        JOIN cannon_lista_precios l ON p.codigo_material = l.codigo_material
+        WHERE p.sku = %s
+    """, (sku,), fetchall=False)
+    if not prod:
+        return {"error": f"SKU {sku} no encontrado en la BD"}
+
+    descs = {r['clave']: r for r in _query("SELECT * FROM cannon_descuentos")}
+    pcts_row = _query("SELECT valor FROM configuracion WHERE clave='porcentajes_ml'", fetchall=False)
+    pcts = json.loads(pcts_row['valor']) if pcts_row else {
+        'cuota_simple': 5, 'cuotas_3': 8.8, 'cuotas_6': 13.3,
+        'cuotas_9': 18.9, 'cuotas_12': 21.3
+    }
+
+    mult        = float(descs.get('multiplicador', {}).get('valor', 1.85))
+    desc_cliente= float(descs.get('cliente', {}).get('valor', 10)) / 100
+    pp          = float(descs.get('prontopago', {}).get('valor', 5)) / 100
+
+    model = _model_key(sku)
+    mr = descs.get(model, {})
+    dl = float(mr.get('valor', 0)) / 100 if mr else 0
+    da = float(mr.get('desc_adicional', 0)) / 100 if mr else 0
+
+    pl   = float(prod['precio_lista'])
+    base = pl * mult * (1 - dl) * (1 - da) * (1 - desc_cliente) / (1 + pp) + float(recargo_flex)
+    base = round(base / 1000) * 1000
+
+    def c(pct):
+        return round((0.76 / (0.76 - pct / 100)) * base / 1000) * 1000
+
+    return {
+        "sku": sku,
+        "descripcion": prod['descripcion'],
+        "precio_lista": pl,
+        "modelo_key": model,
+        "desc_linea_pct": dl * 100,
+        "recargo_flex": float(recargo_flex),
+        "sin_cuotas":   base,
+        "cuota_simple": c(pcts['cuota_simple']),
+        "c3":           c(pcts['cuotas_3']),
+        "c6":           c(pcts['cuotas_6']),
+        "c9":           c(pcts['cuotas_9']),
+        "c12":          c(pcts['cuotas_12']),
+    }
+
+# ── TOOLS ─────────────────────────────────────────────────────────
+
+def tool_sql(query):
+    q = query.strip()
+    if not q.upper().startswith('SELECT'):
+        return {"error": "Solo consultas SELECT están permitidas"}
+    db = _db(); cur = db.cursor(dictionary=True)
+    try:
+        cur.execute(q)
+        rows = _to_float(cur.fetchall())
+        return {"rows": rows, "count": len(rows)}
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        cur.close(); db.close()
+
+def tool_calcular(skus_recargos):
+    """[{sku, recargo_flex}] → precios calculados por SKU"""
+    return {"precios": [_calc_prices(i['sku'], i.get('recargo_flex', 0)) for i in skus_recargos]}
+
+def tool_obtener_publis(skus):
+    """Trae MLAs + datos de ML para lista de SKUs. Cachea títulos en la BD."""
+    resultado = {}
+    for sku in skus:
+        rows = _query("SELECT mla_id FROM sku_mla_mapeo WHERE sku=%s AND activo=1", (sku,))
+        publis = []
+        for row in rows:
+            mla_id = row['mla_id']
+            data = _ml_get(mla_id)
+            if data:
+                titulo = data.get('title', '')
+                # Cachear título en BD
+                try:
+                    db = _db(); cur = db.cursor()
+                    cur.execute("UPDATE sku_mla_mapeo SET titulo_ml=%s WHERE mla_id=%s", (titulo, mla_id))
+                    db.commit(); cur.close(); db.close()
+                except Exception:
+                    pass
+                publis.append({
+                    'mla_id': mla_id,
+                    'titulo': titulo,
+                    'precio_actual': data.get('price'),
+                    'status': data.get('status'),
+                    'listing_type': _listing_type_from_ml(data),
+                    'tiene_almohada': 'almohada' in titulo.lower(),
+                })
+            else:
+                publis.append({'mla_id': mla_id, 'titulo': None,
+                               'precio_actual': None, 'status': 'error',
+                               'listing_type': None, 'tiene_almohada': False})
+        resultado[sku] = publis
+    return {"publicaciones": resultado}
+
+def tool_actualizar(cambios):
+    """[{mla_id, sku, precio_nuevo, precio_anterior}] → actualiza en ML"""
+    resultados = []
+    for c in cambios:
+        ok, code = _ml_put_price(c['mla_id'], c['precio_nuevo'])
+        resultados.append({
+            'mla_id':         c['mla_id'],
+            'sku':            c.get('sku', ''),
+            'precio_nuevo':   int(c['precio_nuevo']),
+            'precio_anterior': c.get('precio_anterior'),
+            'ok':             ok,
+            'http_status':    code,
+        })
+    ok_n = sum(1 for r in resultados if r['ok'])
+    return {"resultados": resultados, "ok": ok_n, "total": len(resultados)}
+
+def _run_tool(name, inp):
+    if name == 'sql_select':          return tool_sql(inp['query'])
+    if name == 'calcular_precios':    return tool_calcular(inp['skus_recargos'])
+    if name == 'obtener_publicaciones': return tool_obtener_publis(inp['skus'])
+    if name == 'actualizar_precios':  return tool_actualizar(inp['cambios'])
+    return {"error": f"Tool desconocida: {name}"}
+
+# ── ANTHROPIC TOOLS SCHEMA ────────────────────────────────────────
+
+TOOLS = [
+    {
+        "name": "sql_select",
+        "description": (
+            "Ejecuta una consulta SELECT de solo lectura en la base de datos MySQL. "
+            "Tablas principales: "
+            "cannon_productos(sku, descripcion, codigo_material, activo), "
+            "cannon_lista_precios(codigo_material, precio_lista), "
+            "cannon_descuentos(clave, valor, desc_adicional, tipo) — contiene multiplicador(1.85), "
+            "cliente(10%), prontopago(5%) y por modelo (doral_pillow→30%), "
+            "sku_mla_mapeo(sku, mla_id, titulo_ml, activo), "
+            "configuracion(clave, valor) — clave='porcentajes_ml' tiene JSON con cuotas ML."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "Consulta SQL SELECT válida"}},
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "calcular_precios",
+        "description": (
+            "Calcula los precios ML para una lista de SKUs con sus recargos Flex. "
+            "Aplica la fórmula completa: "
+            "precio_lista × 1.85 × (1−desc_linea%) × (1−desc_adicional%) × 0.90 ÷ 1.05 + recargo_flex = base. "
+            "Luego para cuotas: round(0.76/(0.76−pct/100) × base / 1000) × 1000. "
+            "Devuelve sin_cuotas, cuota_simple, c3, c6, c9, c12."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "skus_recargos": {
+                    "type": "array",
+                    "description": "Lista de SKUs con sus recargos",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "sku": {"type": "string"},
+                            "recargo_flex": {"type": "number",
+                                            "description": "Recargo en pesos por Flex. 0 si no aplica."}
+                        },
+                        "required": ["sku", "recargo_flex"]
+                    }
+                }
+            },
+            "required": ["skus_recargos"]
+        }
+    },
+    {
+        "name": "obtener_publicaciones",
+        "description": (
+            "Obtiene las publicaciones activas de ML para una lista de SKUs, "
+            "consultando la API de MercadoLibre en tiempo real. "
+            "Devuelve mla_id, titulo, precio_actual, listing_type, status, tiene_almohada."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "skus": {"type": "array", "items": {"type": "string"},
+                         "description": "Lista de SKUs a consultar"}
+            },
+            "required": ["skus"]
+        }
+    },
+    {
+        "name": "actualizar_precios",
+        "description": (
+            "⚠️ ACCIÓN IRREVERSIBLE. Actualiza precios en MercadoLibre vía API. "
+            "SOLO llamar DESPUÉS de confirmación explícita del usuario ('sí', 'dale', 'confirmar'). "
+            "Nunca llamar sin confirmación."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "cambios": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "mla_id":          {"type": "string"},
+                            "sku":             {"type": "string"},
+                            "precio_nuevo":    {"type": "number"},
+                            "precio_anterior": {"type": "number"}
+                        },
+                        "required": ["mla_id", "precio_nuevo"]
+                    }
+                }
+            },
+            "required": ["cambios"]
+        }
+    }
+]
+
+SYSTEM = """Sos el Bot de Precios ML de Mercadomuebles. Tu función es ayudar a Manu a actualizar precios en MercadoLibre de forma rápida, correcta y segura.
+
+═══ REGLAS DE NEGOCIO ═══
+1. SKU termina en Z → sin recargo de envío (entra por stock de depósito)
+2. SKU sin Z, colchón (empieza con C), ancho ≤ 100cm → sin recargo (Colecta lo cubre)
+3. SKU sin Z, colchón (empieza con C), ancho > 100cm → recargo Flex (Manu lo indica)
+4. SKU sin Z, sommier (empieza con S) → SIEMPRE recargo Flex (Manu lo indica)
+5. Título de ML contiene "almohada" → recargo adicional (funcionalidad pendiente, avisá si aparece)
+El ancho está en el SKU: CDOP140 → 140cm, CDOP80 → 80cm, CTR90 → 90cm
+
+═══ FÓRMULA ═══
+base = precio_lista × mult × (1−desc_linea%) × (1−desc_adicional%) × 0.90 ÷ 1.05 + recargo_flex
+→ redondeado a miles
+precio con cuotas = round(0.76/(0.76−pct/100) × base / 1000) × 1000
+
+═══ FLUJO OBLIGATORIO ═══
+1. Buscar SKUs con sql_select
+2. Identificar cuáles necesitan recargo Flex → si no te los dieron, PREGUNTAR antes de continuar
+3. calcular_precios con los recargos correctos
+4. obtener_publicaciones para saber MLAs, precios actuales y tipos de cuota
+5. Mostrar tabla de preview con: SKU | MLA | Título | Cuotas | Precio actual | Precio nuevo | Δ
+6. Al final del mensaje de preview, incluir EXACTAMENTE este marcador (sin espacios extra):
+   <!--CAMBIOS:[{"mla_id":"MLA...","sku":"...","precio_nuevo":000000,"precio_anterior":000000,"titulo":"...","listing_type":"..."}]-->
+7. ESPERAR confirmación explícita del usuario
+8. Solo entonces llamar actualizar_precios
+
+═══ IMPORTANTE ═══
+- NUNCA llamar actualizar_precios sin confirmación explícita
+- Si los datos de recargo no están claros, preguntar
+- Redondear siempre a miles de pesos
+- Responder en español rioplatense, tono directo y claro
+- Si hay muchas publicaciones (>20), indicar que puede tardar unos segundos"""
+
+# ── SERIALIZACIÓN DE BLOQUES ANTHROPIC ───────────────────────────
+
+def _blocks_to_dicts(blocks):
+    """Convierte ContentBlocks del SDK a dicts JSON-serializables"""
+    result = []
+    for b in blocks:
+        if b.type == 'text':
+            result.append({"type": "text", "text": b.text})
+        elif b.type == 'tool_use':
+            result.append({"type": "tool_use", "id": b.id,
+                           "name": b.name, "input": b.input})
+    return result
+
+# ── ROUTES ────────────────────────────────────────────────────────
+
+@bot_precios_bp.route('/admin/bot-precios')
+def bot_precios_page():
+    return render_template('bot_precios.html')
+
+@bot_precios_bp.route('/admin/bot-precios/chat', methods=['POST'])
+def bot_precios_chat():
+    body = request.get_json()
+    messages = body.get('messages', [])
+
+    client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+
+    for _ in range(15):
+        resp = client.messages.create(
+            model='claude-sonnet-4-20250514',
+            max_tokens=4096,
+            system=SYSTEM,
+            tools=TOOLS,
+            messages=messages
+        )
+
+        messages.append({"role": "assistant", "content": _blocks_to_dicts(resp.content)})
+
+        if resp.stop_reason == 'end_turn':
+            text = next((b.text for b in resp.content if hasattr(b, 'text')), '')
+            return jsonify({"text": text, "messages": messages})
+
+        if resp.stop_reason == 'tool_use':
+            results = []
+            for b in resp.content:
+                if b.type == 'tool_use':
+                    out = _run_tool(b.name, b.input)
+                    results.append({
+                        "type": "tool_result",
+                        "tool_use_id": b.id,
+                        "content": json.dumps(_to_float(out), ensure_ascii=False, default=str)
+                    })
+            messages.append({"role": "user", "content": results})
+
+    return jsonify({"text": "Se agotó el límite de iteraciones. Intentá simplificar la consulta.", "messages": messages})
+
+@bot_precios_bp.route('/admin/bot-precios/confirmar', methods=['POST'])
+def bot_precios_confirmar():
+    """Endpoint directo para ejecutar cambios confirmados (sin pasar por Claude)"""
+    body = request.get_json()
+    cambios = body.get('cambios', [])
+    if not cambios:
+        return jsonify({"error": "No hay cambios"}), 400
+    result = tool_actualizar(cambios)
+    return jsonify(result)

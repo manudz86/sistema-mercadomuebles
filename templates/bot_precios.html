@@ -1,0 +1,379 @@
+{% extends "base.html" %}
+{% block title %}Bot de Precios ML{% endblock %}
+
+{% block content %}
+<style>
+#chat-wrap {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 160px);
+}
+#chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    background: #f4f6f9;
+    border: 1px solid #dee2e6;
+    border-radius: 10px;
+    padding: 16px;
+    scroll-behavior: smooth;
+}
+.msg-bot, .msg-user {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+.msg-user {
+    flex-direction: row-reverse;
+}
+.bubble {
+    max-width: 80%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: .875rem;
+    line-height: 1.5;
+}
+.bubble-bot {
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 12px 12px 12px 0;
+}
+.bubble-user {
+    background: #0d6efd;
+    color: #fff;
+    border-radius: 12px 12px 0 12px;
+    white-space: pre-wrap;
+}
+.bot-avatar {
+    width: 34px; height: 34px;
+    background: #0d6efd;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+}
+.typing-dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    background: #adb5bd;
+    border-radius: 50%;
+    animation: blink 1.2s infinite;
+    margin: 0 2px;
+}
+.typing-dot:nth-child(2) { animation-delay: .2s; }
+.typing-dot:nth-child(3) { animation-delay: .4s; }
+@keyframes blink { 0%,80%,100%{opacity:.2} 40%{opacity:1} }
+.bubble table { width: 100%; margin: 8px 0; font-size: .8rem; }
+.bubble table th { background: #343a40; color: #fff; padding: 5px 8px; }
+.bubble table td { padding: 4px 8px; border-bottom: 1px solid #dee2e6; }
+.bubble table tr:hover td { background: #f8f9fa; }
+.delta-pos { color: #198754; font-weight: 600; }
+.delta-neg { color: #dc3545; font-weight: 600; }
+#confirm-banner {
+    border: 2px solid #fd7e14;
+    background: #fff8f0;
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 8px;
+}
+#input-row { margin-top: 8px; display: flex; gap: 8px; }
+#user-input { border-radius: 8px; }
+#send-btn { border-radius: 8px; min-width: 44px; }
+</style>
+
+<div class="container-fluid py-3">
+
+    <!-- Header -->
+    <div class="d-flex align-items-center gap-2 mb-3">
+        <div style="width:38px;height:38px;background:#0d6efd;border-radius:50%;display:flex;align-items:center;justify-content:center">
+            <i class="bi bi-robot text-white fs-5"></i>
+        </div>
+        <div>
+            <h5 class="mb-0">Bot de Precios ML</h5>
+            <small class="text-muted">Actualizá precios de MercadoLibre con lenguaje natural</small>
+        </div>
+        <button class="btn btn-outline-secondary btn-sm ms-auto" onclick="resetChat()">
+            <i class="bi bi-arrow-counterclockwise"></i> Nueva sesión
+        </button>
+    </div>
+
+    <div id="chat-wrap">
+
+        <!-- Messages -->
+        <div id="chat-messages">
+            <div id="messages-inner"></div>
+            <!-- Typing indicator -->
+            <div id="typing-indicator" class="msg-bot" style="display:none">
+                <div class="bot-avatar"><i class="bi bi-robot text-white" style="font-size:.85rem"></i></div>
+                <div class="bubble bubble-bot">
+                    <span class="typing-dot"></span>
+                    <span class="typing-dot"></span>
+                    <span class="typing-dot"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Confirm banner (hidden until preview ready) -->
+        <div id="confirm-banner" style="display:none">
+            <i class="bi bi-exclamation-triangle-fill text-warning fs-4" style="flex-shrink:0"></i>
+            <div style="flex:1">
+                <strong>¿Confirmás la actualización en MercadoLibre?</strong>
+                <div id="confirm-summary" class="text-muted small mt-1"></div>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-success btn-sm fw-bold" onclick="doConfirm()">
+                    <i class="bi bi-check-circle me-1"></i>Confirmar
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="doCancel()">
+                    Cancelar
+                </button>
+            </div>
+        </div>
+
+        <!-- Input row -->
+        <div id="input-row">
+            <input id="user-input" type="text" class="form-control"
+                   placeholder="Ej: Actualizá los precios del Doral con Pillow, flex de 140/150 recargar 30mil, más grandes 50mil"
+                   autocomplete="off">
+            <button id="send-btn" class="btn btn-primary" onclick="sendMessage()">
+                <i class="bi bi-send-fill"></i>
+            </button>
+        </div>
+
+        <!-- Quick suggestions -->
+        <div class="mt-2 d-flex flex-wrap gap-2" id="suggestions">
+            <button class="btn btn-outline-secondary btn-sm" onclick="fillInput('Actualizá los precios del Doral con Pillow')">
+                Doral con Pillow
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="fillInput('Mostrá los SKUs del modelo Exclusive')">
+                Buscar SKUs Exclusive
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="fillInput('¿Cuáles son los porcentajes de cuotas ML actuales?')">
+                Ver % cuotas
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+let messages = [];
+let pendingChanges = null;
+
+// ── INIT ──────────────────────────────────────────────────────────
+(function init() {
+    appendBot(
+        '¡Hola! Soy el bot de precios ML 🤖\n\n' +
+        'Podés decirme cosas como:\n' +
+        '• **"Actualizá los precios del Doral con Pillow"**\n' +
+        '• **"Actualizá CDOP140 y CDOP150, flex de 140 recargar 30mil"**\n' +
+        '• **"Mostrá los SKUs del modelo Exclusive"**\n\n' +
+        'Siempre te voy a mostrar una preview antes de tocar nada en ML.'
+    );
+})();
+
+// ── SEND / RECEIVE ────────────────────────────────────────────────
+function sendMessage() {
+    const input = document.getElementById('user-input');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+
+    appendUser(text);
+    messages.push({ role: 'user', content: text });
+    setBusy(true);
+
+    fetch('/admin/bot-precios/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages })
+    })
+    .then(r => r.json())
+    .then(data => {
+        messages = data.messages || messages;
+        setBusy(false);
+        handleBotResponse(data.text || '');
+    })
+    .catch(() => {
+        setBusy(false);
+        appendBot('❌ Error de conexión. Intentá de nuevo.');
+    });
+}
+
+function handleBotResponse(text) {
+    // Detect <!--CAMBIOS:[...]-->
+    const match = text.match(/<!--CAMBIOS:(\[[\s\S]*?\])-->/);
+    if (match) {
+        try {
+            pendingChanges = JSON.parse(match[1]);
+            const cleanText = text.replace(/<!--CAMBIOS:[\s\S]*?-->/, '').trim();
+            appendBot(cleanText);
+            showConfirmBanner();
+        } catch(e) {
+            appendBot(text);
+        }
+    } else {
+        appendBot(text);
+    }
+}
+
+// ── CONFIRM / CANCEL ──────────────────────────────────────────────
+function showConfirmBanner() {
+    const n = pendingChanges.length;
+    const skus = [...new Set(pendingChanges.map(c => c.sku))].join(', ');
+    document.getElementById('confirm-summary').textContent =
+        `${n} publicación${n !== 1 ? 'es' : ''} de ${skus}`;
+    document.getElementById('confirm-banner').style.display = 'flex';
+    scrollChat();
+}
+
+function doConfirm() {
+    document.getElementById('confirm-banner').style.display = 'none';
+    const n = pendingChanges.length;
+    appendUser(`Sí, confirmado. Actualizá los ${n} precios.`);
+    setBusy(true);
+
+    fetch('/admin/bot-precios/confirmar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cambios: pendingChanges })
+    })
+    .then(r => r.json())
+    .then(data => {
+        setBusy(false);
+        const ok = data.ok || 0;
+        const total = data.total || 0;
+        const errors = (data.resultados || []).filter(r => !r.ok);
+
+        let msg = `✅ **Actualización completada: ${ok}/${total} publicaciones actualizadas.**\n\n`;
+
+        // Build result table
+        if (data.resultados && data.resultados.length) {
+            msg += '| MLA | SKU | Precio nuevo | Estado |\n';
+            msg += '|---|---|---|---|\n';
+            data.resultados.forEach(r => {
+                const estado = r.ok ? '✅ OK' : `❌ Error (${r.http_status})`;
+                const precio = r.precio_nuevo ? `$${Number(r.precio_nuevo).toLocaleString('es-AR')}` : '-';
+                msg += `| ${r.mla_id} | ${r.sku} | ${precio} | ${estado} |\n`;
+            });
+        }
+
+        if (errors.length > 0) {
+            msg += `\n⚠️ ${errors.length} publicación/es no se pudieron actualizar. Revisalos manualmente.`;
+        }
+
+        appendBot(msg);
+        pendingChanges = null;
+
+        // Update messages history
+        messages.push({ role: 'user', content: `Confirmado. Resultado: ${ok}/${total} OK.` });
+    })
+    .catch(() => {
+        setBusy(false);
+        appendBot('❌ Error al ejecutar la actualización. Revisá la conexión con ML.');
+    });
+}
+
+function doCancel() {
+    document.getElementById('confirm-banner').style.display = 'none';
+    pendingChanges = null;
+    messages.push({ role: 'user', content: 'Cancelado, no actualices nada.' });
+    appendUser('Cancelado.');
+    appendBot('Ok, no toqué nada. ¿Querés ajustar algo antes de volver a intentarlo?');
+}
+
+// ── RENDER ────────────────────────────────────────────────────────
+function appendBot(text) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg-bot';
+    wrap.innerHTML = `
+        <div class="bot-avatar">
+            <i class="bi bi-robot text-white" style="font-size:.85rem"></i>
+        </div>
+        <div class="bubble bubble-bot">${renderMd(text)}</div>`;
+    document.getElementById('messages-inner').appendChild(wrap);
+    scrollChat();
+}
+
+function appendUser(text) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg-user';
+    wrap.innerHTML = `<div class="bubble bubble-user">${esc(text)}</div>`;
+    document.getElementById('messages-inner').appendChild(wrap);
+    scrollChat();
+}
+
+function renderMd(raw) {
+    let t = esc(raw);
+
+    // Markdown table  (must come before newline replacement)
+    t = t.replace(/\|(.+)\|\n\|[-| :]+\|\n((?:\|.+\|\n?)+)/g, (_, hdr, rows) => {
+        const ths = hdr.split('|').filter(Boolean)
+            .map(h => `<th>${h.trim()}</th>`).join('');
+        const trs = rows.trim().split('\n').map(row => {
+            const tds = row.split('|').filter(Boolean).map((c, i) => {
+                let v = c.trim();
+                // Colorize delta column
+                if (v.startsWith('+')) v = `<span class="delta-pos">${v}</span>`;
+                else if (v.startsWith('-') && v !== '-') v = `<span class="delta-neg">${v}</span>`;
+                return `<td>${v}</td>`;
+            }).join('');
+            return `<tr>${tds}</tr>`;
+        }).join('');
+        return `<div class="table-responsive mt-2 mb-2"><table class="table table-sm table-bordered mb-0"><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></div>`;
+    });
+
+    // Bold / italic / code
+    t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    t = t.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+    t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // Bullet lists
+    t = t.replace(/^• (.+)$/gm, '<li>$1</li>');
+    t = t.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul class="mb-1 ps-3">$1</ul>');
+
+    // Newlines
+    t = t.replace(/\n/g, '<br>');
+
+    return t;
+}
+
+function esc(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────
+function setBusy(v) {
+    document.getElementById('typing-indicator').style.display = v ? 'flex' : 'none';
+    document.getElementById('send-btn').disabled = v;
+    document.getElementById('user-input').disabled = v;
+    if (v) scrollChat();
+}
+
+function scrollChat() {
+    const c = document.getElementById('chat-messages');
+    setTimeout(() => { c.scrollTop = c.scrollHeight; }, 50);
+}
+
+function fillInput(text) {
+    document.getElementById('user-input').value = text;
+    document.getElementById('user-input').focus();
+}
+
+function resetChat() {
+    if (!confirm('¿Empezar una nueva sesión? Se borrará el historial de esta conversación.')) return;
+    messages = [];
+    pendingChanges = null;
+    document.getElementById('messages-inner').innerHTML = '';
+    document.getElementById('confirm-banner').style.display = 'none';
+    setTimeout(() => {
+        appendBot('Nueva sesión iniciada. ¿Qué precios querés actualizar?');
+    }, 100);
+}
+
+// Enter to send
+document.getElementById('user-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+</script>
+{% endblock %}
