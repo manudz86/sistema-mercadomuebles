@@ -2,7 +2,10 @@ import json, re, os
 import requests
 import mysql.connector
 from flask import Blueprint, request, jsonify, render_template, session
+from dotenv import load_dotenv
 import anthropic
+
+load_dotenv('config/.env')
 
 bot_precios_bp = Blueprint('bot_precios', __name__)
 
