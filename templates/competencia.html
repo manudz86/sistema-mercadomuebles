@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% block title %}Competencia ML{% endblock %}
+
+{% block content %}
+<style>
+.precio-mejor   { color: #198754; font-weight: 700; }
+.precio-peor    { color: #dc3545; font-weight: 700; }
+.precio-igual   { color: #fd7e14; font-weight: 700; }
+.badge-flex     { background: #0d6efd; color: #fff; }
+.badge-me1      { background: #6c757d; color: #fff; }
+.badge-turbo    { background: #198754; color: #fff; }
+.badge-acordar  { background: #ffc107; color: #000; }
+.badge-otro     { background: #dee2e6; color: #000; }
+.row-propio     { background: #f0f7ff !important; }
+.row-comp       { background: #fff; }
+.sku-header     { background: #2c3e50; color: #fff; font-weight: 700; font-size:.85rem; padding:6px 12px; }
+.spinner-overlay { display:none; position:fixed; top:0;left:0;right:0;bottom:0;
+                   background:rgba(0,0,0,.4); z-index:9999;
+                   align-items:center; justify-content:center; }
+</style>
+
+<!-- Spinner -->
+<div class="spinner-overlay" id="spinner">
+    <div class="text-center text-white">
+        <div class="spinner-border mb-3" style="width:3rem;height:3rem"></div>
+        <div id="spinner-msg" class="fs-5">Consultando ML...</div>
+        <div class="text-white-50 small mt-2">Esto puede tardar varios minutos según la cantidad de SKUs</div>
+    </div>
+</div>
+
+<div class="container-fluid py-3">
+
+    <!-- Header -->
+    <div class="d-flex align-items-center gap-2 mb-3">
+        <div style="width:38px;height:38px;background:#2c3e50;border-radius:50%;display:flex;align-items:center;justify-content:center">
+            <i class="bi bi-graph-up-arrow text-white fs-5"></i>
+        </div>
+        <div>
+            <h5 class="mb-0">Monitor de Competencia ML</h5>
+            <small class="text-muted" id="ultima-fecha-label">Cargando datos...</small>
+        </div>
+    </div>
+
+    <!-- Controles -->
+    <div class="card mb-3 shadow-sm">
+        <div class="card-body py-3">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold">SKU específico</label>
+                    <input type="text" id="sku-input" class="form-control form-control-sm"
+                           placeholder="Ej: CDOP160, SDOP140 (o vacío = todos)">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold">Cuotas a comparar</label>
+                    <select id="cuotas-select" class="form-select form-select-sm">
+                        <option value="Sin cuotas">Sin cuotas</option>
+                        <option value="Cuota Simple">Cuota Simple</option>
+                        <option value="3 cuotas s/interés">3 cuotas s/interés</option>
+                        <option value="6 cuotas s/interés" selected>6 cuotas s/interés</option>
+                        <option value="9 cuotas s/interés">9 cuotas s/interés</option>
+                        <option value="12 cuotas s/interés">12 cuotas s/interés</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-outline-primary btn-sm w-100" onclick="cargarDatos()">
+                        <i class="bi bi-funnel me-1"></i>Filtrar
+                    </button>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-success btn-sm w-100" onclick="correrAgente(false)">
+                        <i class="bi bi-arrow-repeat me-1"></i>Actualizar todo
+                    </button>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-outline-success btn-sm w-100" onclick="correrAgente(true)">
+                        <i class="bi bi-search me-1"></i>Actualizar SKU
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leyenda -->
+    <div class="d-flex gap-2 flex-wrap mb-3">
+        <span class="badge badge-flex rounded-pill px-3">FLEX</span>
+        <span class="badge badge-me1 rounded-pill px-3">ME1</span>
+        <span class="badge badge-turbo rounded-pill px-3">TURBO</span>
+        <span class="badge badge-acordar rounded-pill px-3">ACORDAR</span>
+        <span class="ms-3 small text-muted"><span style="background:#f0f7ff;padding:2px 8px;border-radius:4px">Fondo azul</span> = tus publis</span>
+        <span class="small text-muted"><span class="precio-mejor">Verde</span> = mejor precio</span>
+        <span class="small text-muted"><span class="precio-peor">Rojo</span> = más caro</span>
+    </div>
+
+    <!-- Tabla -->
+    <div id="tabla-container">
+        <div class="text-center text-muted py-5">
+            <i class="bi bi-hourglass-split fs-1"></i>
+            <p class="mt-2">Cargando datos...</p>
+        </div>
+    </div>
+
+</div>
+
+<script>
+let allData = [];
+
+// ── Init ──────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', cargarDatos);
+
+// ── Cargar datos existentes ───────────────────────────────────────
+function cargarDatos() {
+    const sku = document.getElementById('sku-input').value.trim();
+    const cuotas = document.getElementById('cuotas-select').value;
+
+    let url = `/admin/competencia/datos?cuotas=${encodeURIComponent(cuotas)}`;
+    if (sku) url += `&sku=${encodeURIComponent(sku.toUpperCase())}`;
+
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            allData = data.rows || [];
+            if (data.ultima_fecha) {
+                const d = new Date(data.ultima_fecha);
+                document.getElementById('ultima-fecha-label').textContent =
+                    `Último snapshot: ${d.toLocaleString('es-AR')}`;
+            } else {
+                document.getElementById('ultima-fecha-label').textContent =
+                    'Sin datos aún — ejecutá "Actualizar todo" para el primer snapshot';
+            }
+            renderTabla(allData, cuotas);
+        })
+        .catch(() => {
+            document.getElementById('tabla-container').innerHTML =
+                '<div class="alert alert-danger">Error cargando datos</div>';
+        });
+}
+
+// ── Correr agente ─────────────────────────────────────────────────
+function correrAgente(soloSku) {
+    const sku = document.getElementById('sku-input').value.trim();
+    if (soloSku && !sku) {
+        alert('Ingresá un SKU específico o usá "Actualizar todo"');
+        return;
+    }
+
+    const msg = soloSku ? `Actualizando ${sku}...` : 'Consultando todos los SKUs en ML...';
+    document.getElementById('spinner-msg').textContent = msg;
+    document.getElementById('spinner').style.display = 'flex';
+
+    const body = soloSku ? { skus: sku } : {};
+
+    fetch('/admin/competencia/correr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    })
+    .then(r => r.json())
+    .then(data => {
+        document.getElementById('spinner').style.display = 'none';
+        if (data.ok) {
+            const msg = `✅ Procesados: ${data.procesados} SKUs, ${data.total_rows} registros guardados.` +
+                (data.sin_catalogo?.length ? `\n⚠️ Sin catálogo: ${data.sin_catalogo.join(', ')}` : '') +
+                (data.errores?.length ? `\n❌ Errores: ${data.errores.join(', ')}` : '');
+            alert(msg);
+            cargarDatos();
+        } else {
+            alert('Error: ' + (data.error || 'desconocido'));
+        }
+    })
+    .catch(() => {
+        document.getElementById('spinner').style.display = 'none';
+        alert('Error de conexión');
+    });
+}
+
+// ── Render tabla ──────────────────────────────────────────────────
+function renderTabla(rows, cuotas) {
+    if (!rows.length) {
+        document.getElementById('tabla-container').innerHTML =
+            `<div class="alert alert-info">No hay datos para mostrar. ` +
+            `${document.getElementById('ultima-fecha-label').textContent.includes('Sin datos') ?
+              'Ejecutá "Actualizar todo" para el primer snapshot.' :
+              'Probá cambiando el filtro de cuotas o SKU.'}</div>`;
+        return;
+    }
+
+    // Agrupar por SKU
+    const bySku = {};
+    rows.forEach(r => {
+        if (!bySku[r.sku]) bySku[r.sku] = [];
+        bySku[r.sku].push(r);
+    });
+
+    let html = '';
+    for (const [sku, items] of Object.entries(bySku)) {
+        // Encontrar precio mínimo y máximo
+        const precios = items.map(i => i.precio).filter(Boolean);
+        const minP = Math.min(...precios);
+        const maxP = Math.max(...precios);
+
+        html += `<div class="card mb-3 shadow-sm">`;
+        html += `<div class="sku-header d-flex justify-content-between align-items-center">`;
+        html += `<span><i class="bi bi-tag-fill me-2"></i>${sku}</span>`;
+        html += `<span class="badge bg-light text-dark">${cuotas} | ${items.length} vendedor${items.length !== 1 ? 'es' : ''}</span>`;
+        html += `</div>`;
+        html += `<div class="table-responsive">`;
+        html += `<table class="table table-sm table-hover mb-0">`;
+        html += `<thead class="table-dark" style="font-size:.78rem">`;
+        html += `<tr><th>Vendedor</th><th>Precio</th><th>Cuotas publi</th><th>Cuotas efectivas</th><th>Envío</th><th>Link</th></tr>`;
+        html += `</thead><tbody>`;
+
+        // Ordenar: propios primero, luego por precio
+        items.sort((a, b) => {
+            if (a.es_propio && !b.es_propio) return -1;
+            if (!a.es_propio && b.es_propio) return 1;
+            return a.precio - b.precio;
+        });
+
+        items.forEach(item => {
+            const rowClass = item.es_propio ? 'row-propio' : 'row-comp';
+            const precioClass = item.precio === minP ? 'precio-mejor' :
+                               item.precio === maxP ? 'precio-peor' : 'precio-igual';
+
+            const envioClass = {
+                'FLEX': 'badge-flex', 'ME1': 'badge-me1',
+                'TURBO': 'badge-turbo', 'ACORDAR': 'badge-acordar'
+            }[item.envio_tipo] || 'badge-otro';
+
+            const envioLabel = item.envio_tipo +
+                (item.envio_gratis ? ' gratis' : item.envio_costo > 0 ?
+                 ` $${Number(item.envio_costo).toLocaleString('es-AR')}` : '');
+
+            const vendedorLabel = item.es_propio ?
+                `<strong>${item.seller_nick}</strong> <span class="badge bg-primary" style="font-size:.65rem">VOS</span>` :
+                item.seller_nick;
+
+            const linkCell = item.catalog_product_id ?
+                `<a href="https://www.mercadolibre.com.ar/p/${item.catalog_product_id}" target="_blank" class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size:.7rem">
+                    <i class="bi bi-box-arrow-up-right"></i>
+                </a>` : '-';
+
+            html += `<tr class="${rowClass}">`;
+            html += `<td style="font-size:.8rem">${vendedorLabel}</td>`;
+            html += `<td class="${precioClass}" style="font-size:.85rem">$${Number(item.precio).toLocaleString('es-AR')}</td>`;
+            html += `<td style="font-size:.78rem">${item.cuotas_publi || '-'}</td>`;
+            html += `<td style="font-size:.78rem">${item.cuotas_efectivas !== item.cuotas_publi ?
+                     `<span class="badge bg-warning text-dark" style="font-size:.7rem">${item.cuotas_efectivas} ↑</span>` :
+                     (item.cuotas_efectivas || '-')}</td>`;
+            html += `<td><span class="badge ${envioClass} rounded-pill" style="font-size:.7rem">${envioLabel}</span></td>`;
+            html += `<td>${linkCell}</td>`;
+            html += `</tr>`;
+        });
+
+        html += `</tbody></table></div></div>`;
+    }
+
+    document.getElementById('tabla-container').innerHTML = html;
+}
+</script>
+{% endblock %}
