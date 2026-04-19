@@ -2,6 +2,24 @@ import json, re, os
 import requests
 import mysql.connector
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+def _crear_tabla_bot_log():
+    db = _db(); cur = db.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS bot_precios_log (
+            id           INT AUTO_INCREMENT PRIMARY KEY,
+            fecha        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            sku          VARCHAR(50),
+            mla_id       VARCHAR(20),
+            titulo       VARCHAR(255),
+            listing_type VARCHAR(50),
+            precio_anterior INT,
+            precio_nuevo    INT,
+            ok           TINYINT(1) DEFAULT 1,
+            usuario      VARCHAR(50) DEFAULT 'bot_precios'
+        )
+    """)
+    db.commit(); cur.close(); db.close()
 from flask import Blueprint, request, jsonify, render_template, session
 from dotenv import load_dotenv
 import anthropic
@@ -9,6 +27,12 @@ import anthropic
 load_dotenv('config/.env')
 
 bot_precios_bp = Blueprint('bot_precios', __name__)
+
+# Crear tabla de log al importar el blueprint
+try:
+    _crear_tabla_bot_log()
+except Exception:
+    pass  # Si falla (ej: BD no disponible aún), no bloquear el arranque
 
 # ── DB ────────────────────────────────────────────────────────────
 
@@ -413,19 +437,61 @@ def tool_obtener_publis(skus):
         resultado[sku] = publis
     return {"publicaciones": resultado}
 
+def _log_cambio(sku, mla_id, titulo, listing_type, precio_anterior, precio_nuevo, ok):
+    """Guarda en bot_precios_log Y sistema_logs en paralelo."""
+    def _write_bot_log():
+        try:
+            db = _db(); cur = db.cursor()
+            cur.execute("""
+                INSERT INTO bot_precios_log
+                    (sku, mla_id, titulo, listing_type, precio_anterior, precio_nuevo, ok)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)
+            """, (sku, mla_id, titulo, listing_type, precio_anterior, precio_nuevo, 1 if ok else 0))
+            db.commit(); cur.close(); db.close()
+        except Exception as e:
+            print(f"[bot_log] Error bot_precios_log: {e}")
+
+    def _write_sistema_log():
+        try:
+            db = _db(); cur = db.cursor()
+            estado = "OK" if ok else "ERROR"
+            desc = (f"{estado} | SKU:{sku} MLA:{mla_id} "
+                    f"${precio_anterior:,}→${precio_nuevo:,} ({listing_type})")
+            cur.execute("""
+                INSERT INTO sistema_logs (nivel, modulo, accion, descripcion, usuario)
+                VALUES ('INFO','bot_precios','actualizar_precio',%s,'bot_precios')
+            """, (desc,))
+            db.commit(); cur.close(); db.close()
+        except Exception as e:
+            print(f"[bot_log] Error sistema_logs: {e}")
+
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        ex.submit(_write_bot_log)
+        ex.submit(_write_sistema_log)
+
 def tool_actualizar(cambios):
-    """[{mla_id, sku, precio_nuevo, precio_anterior}] → actualiza en ML"""
+    """[{mla_id, sku, precio_nuevo, precio_anterior}] → actualiza en ML y loguea"""
     resultados = []
     for c in cambios:
         ok, code = _ml_put_price(c['mla_id'], c['precio_nuevo'])
         resultados.append({
-            'mla_id':         c['mla_id'],
-            'sku':            c.get('sku', ''),
-            'precio_nuevo':   int(c['precio_nuevo']),
+            'mla_id':          c['mla_id'],
+            'sku':             c.get('sku', ''),
+            'precio_nuevo':    int(c['precio_nuevo']),
             'precio_anterior': c.get('precio_anterior'),
-            'ok':             ok,
-            'http_status':    code,
+            'ok':              ok,
+            'http_status':     code,
         })
+        # Log en ambas tablas en paralelo
+        _log_cambio(
+            sku=c.get('sku',''),
+            mla_id=c['mla_id'],
+            titulo=c.get('titulo',''),
+            listing_type=c.get('listing_type',''),
+            precio_anterior=int(c.get('precio_anterior') or 0),
+            precio_nuevo=int(c['precio_nuevo']),
+            ok=ok
+        )
     ok_n = sum(1 for r in resultados if r['ok'])
     return {"resultados": resultados, "ok": ok_n, "total": len(resultados)}
 
@@ -580,6 +646,9 @@ precio con cuotas = round(0.76/(0.76−pct/100) × base / 1000) × 1000
 
 ═══ IMPORTANTE ═══
 - NUNCA llamar actualizar_precios sin confirmación explícita
+- Para consultas de historial (ej: "qué modifiqué hoy", "dame los cambios de ayer"):
+  usar sql_select sobre bot_precios_log (columnas: fecha, sku, mla_id, titulo, listing_type, precio_anterior, precio_nuevo, ok)
+  Ejemplo: SELECT * FROM bot_precios_log WHERE DATE(fecha)=CURDATE() ORDER BY fecha DESC
 - Si los datos de recargo no están claros, preguntar
 - Redondear siempre a miles de pesos
 - Responder en español rioplatense, tono directo y claro
