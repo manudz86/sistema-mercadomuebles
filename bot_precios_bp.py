@@ -535,7 +535,8 @@ precio con cuotas = round(0.76/(0.76−pct/100) × base / 1000) × 1000
    Columnas: SKU | MLA | Título | Cuotas | Precio actual | Precio nuevo | Δ
    Si hay publis skipeadas, indicar al final cuántas se omitieron y por qué (ej: "3 publis omitidas — se sincronizan automáticamente con su par de catálogo").
 6. Al final del mensaje de preview, incluir EXACTAMENTE este marcador (sin espacios extra):
-   <!--CAMBIOS:[{"mla_id":"MLA...","sku":"...","precio_nuevo":000000,"precio_anterior":000000,"titulo":"...","listing_type":"..."}]-->
+   <!--CAMBIOS:[{"mla_id":"MLA...","sku":"...","precio_nuevo":000000,"precio_anterior":000000}]-->
+   Incluir SOLO mla_id, sku, precio_nuevo y precio_anterior — sin titulo ni listing_type para mantener el marcador corto.
 7. ESPERAR confirmación explícita del usuario
 8. Solo entonces llamar actualizar_precios
 

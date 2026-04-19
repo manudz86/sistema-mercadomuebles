@@ -230,8 +230,15 @@ function handleBotResponse(text) {
             appendBot(cleanText);
             showConfirmBanner();
         } catch(e) {
-            appendBot(text);
+            // JSON parse error — limpiar el marcador y mostrar el texto limpio
+            const cleanText = text.replace(/<!--CAMBIOS:[\s\S]*?-->/, '').replace(/<!--CAMBIOS:[\s\S]*$/, '').trim();
+            appendBot(cleanText || 'Ocurrió un error al preparar los cambios. Intentá de nuevo.');
         }
+    } else if (text.includes('<!--CAMBIOS:')) {
+        // Marcador incompleto — respuesta cortada
+        const cleanText = text.replace(/<!--CAMBIOS:[\s\S]*$/, '').trim();
+        appendBot(cleanText);
+        appendBot('⚠️ La respuesta se cortó por ser muy extensa. Probá con menos SKUs a la vez (máximo 3-4 por consulta).');
     } else {
         appendBot(text);
     }
