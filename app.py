@@ -879,11 +879,18 @@ metodo_pago, importe_total, importe_abonado,
         traceback.print_exc()
         return redirect(url_for('index'))
 
-@app.route('/ventas/activas/<int:venta_id>/whatsapp-entrega', methods=['POST'])
+@app.route('/ventas/activas/<int:venta_id>/whatsapp-enviar', methods=['POST'])
 @login_required
 @vendedor_required
-def whatsapp_entrega_hoy(venta_id):
-    """Envía mensaje de WhatsApp 'entrega_hoy' al cliente de una venta activa."""
+def whatsapp_enviar(venta_id):
+    """
+    Envía mensaje de WhatsApp al cliente de una venta activa.
+    Soporta plantillas: entrega_hoy, posible_entrega.
+    Body JSON esperado:
+      { "template": "entrega_hoy"|"posible_entrega",
+        "nombre": "...", "producto": "...",
+        "fecha": "...", "direccion": "...", "horario": "..." }
+    """
     venta = query_one(
         "SELECT nombre_cliente, telefono_cliente, numero_venta FROM ventas WHERE id = %s",
         (venta_id,)
@@ -896,21 +903,63 @@ def whatsapp_entrega_hoy(venta_id):
         return jsonify({"ok": False, "error": "Esta venta no tiene teléfono registrado"}), 400
 
     # Normalizar teléfono a formato internacional sin '+': 549XXXXXXXXXX
-    telefono = telefono_raw.replace('+', '').replace(' ', '').replace('-', '')
+    telefono = telefono_raw.replace('+', '').replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+    if telefono.startswith('0054'):
+        telefono = telefono[2:]
+    elif telefono.startswith('00'):
+        telefono = telefono[2:]
+    if telefono.startswith('+'):
+        telefono = telefono[1:]
     if telefono.startswith('0'):
         telefono = '54' + telefono[1:]
-    elif telefono.startswith('11') or telefono.startswith('15'):
+    elif telefono.startswith('15'):
+        telefono = '5491' + telefono[2:]
+    elif telefono.startswith('11') and not telefono.startswith('549'):
         telefono = '549' + telefono
     elif not telefono.startswith('54'):
         telefono = '549' + telefono
 
-    resultado = enviar_whatsapp(telefono, 'entrega_hoy')
+    data       = request.get_json() or {}
+    template   = data.get('template', 'entrega_hoy')
+    nombre     = data.get('nombre') or venta.get('nombre_cliente') or 'Cliente'
+    producto   = data.get('producto', '')
+    fecha      = data.get('fecha', '')
+    direccion  = data.get('direccion', '')
+    horario    = data.get('horario', '')
+
+    # Armar componentes según plantilla
+    PLANTILLAS_VALIDAS = {'entrega_hoy', 'posible_entrega'}
+    if template not in PLANTILLAS_VALIDAS:
+        return jsonify({"ok": False, "error": f"Plantilla '{template}' no válida"}), 400
+
+    if template == 'entrega_hoy':
+        componentes = [{
+            "type": "body",
+            "parameters": [
+                {"type": "text", "text": nombre},
+                {"type": "text", "text": producto}
+            ]
+        }]
+    elif template == 'posible_entrega':
+        componentes = [{
+            "type": "body",
+            "parameters": [
+                {"type": "text", "text": nombre},
+                {"type": "text", "text": producto},
+                {"type": "text", "text": fecha},
+                {"type": "text", "text": direccion},
+                {"type": "text", "text": horario}
+            ]
+        }]
+
+    resultado = enviar_whatsapp(telefono, template, componentes)
 
     if resultado['ok']:
-        log_evento(f"WhatsApp 'entrega_hoy' enviado a {telefono} (venta {venta['numero_venta']})", current_user.username)
+        log_evento(f"WhatsApp '{template}' enviado a {telefono} (venta {venta['numero_venta']})", current_user.username)
         return jsonify({"ok": True, "mensaje": f"Mensaje enviado a {telefono_raw}"})
     else:
-        return jsonify({"ok": False, "error": resultado.get('error', 'Error desconocido')}), 500
+        return jsonify({"ok": False, "error": resultado.get('error', 'Error desconocido'),
+                        "detalle": resultado.get('detalle', '')}), 500
 
 
 @app.route('/ventas/activas/<int:venta_id>/etiqueta-ml')

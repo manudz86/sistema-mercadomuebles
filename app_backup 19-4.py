@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 import pymysql
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from utils import log_evento, crear_tabla_sistema_logs
 
 import threading
 
@@ -109,6 +110,17 @@ def vendedor_required(f):
         return f(*args, **kwargs)
     return decorated
 
+def agencia_only(f):
+    """Solo agencia puede acceder — redirige a /agencia si intenta acceder a otra ruta."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return redirect(url_for('login'))
+        if current_user.rol == 'agencia':
+            return redirect(url_for('agencia_dashboard'))
+        return f(*args, **kwargs)
+    return decorated
+
 # Configuración de base de datos
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'localhost'),
@@ -155,6 +167,63 @@ def execute_db(query, params=None):
         conn.close()
 
 # ============================================================================
+# WHATSAPP CLOUD API
+# ============================================================================
+
+def enviar_whatsapp(telefono, template_name, componentes=None):
+    """
+    Envía un mensaje de WhatsApp usando una plantilla aprobada por Meta.
+    
+    telefono: string con formato internacional sin '+', ej: '5491126275185'
+    template_name: nombre exacto de la plantilla en Meta
+    componentes: lista de parámetros variables de la plantilla (opcional)
+    
+    Ejemplo de uso:
+        enviar_whatsapp('5491126275185', 'pedido_confirmado', componentes=[
+            {
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": "Juan"},
+                    {"type": "text", "text": "12345"}
+                ]
+            }
+        ])
+    """
+    token    = os.getenv('WA_ACCESS_TOKEN')
+    phone_id = os.getenv('WA_PHONE_NUMBER_ID')
+
+    if not token or not phone_id:
+        return {"ok": False, "error": "WA_ACCESS_TOKEN o WA_PHONE_NUMBER_ID no configurados en .env"}
+
+    url = f"https://graph.facebook.com/v25.0/{phone_id}/messages"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": telefono,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {"code": "es_AR"},
+            "components": componentes or []
+        }
+    }
+
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=10)
+        r.raise_for_status()
+        return {"ok": True, "data": r.json()}
+    except requests.exceptions.HTTPError as e:
+        return {"ok": False, "error": str(e), "detalle": r.text}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# ============================================================================
 # RUTAS - PÁGINAS
 # ============================================================================
 
@@ -173,6 +242,8 @@ def login():
         if user_row and check_password_hash(user_row['password_hash'], password):
             user = User(user_row['id'], user_row['username'], user_row['rol'], user_row['activo'])
             login_user(user, remember=True)
+            if user_row['rol'] == 'agencia':
+                return redirect(url_for('agencia_dashboard'))
             next_page = request.args.get('next')
             return redirect(next_page or url_for('index'))
         flash('❌ Usuario o contraseña incorrectos', 'danger')
@@ -808,6 +879,40 @@ metodo_pago, importe_total, importe_abonado,
         traceback.print_exc()
         return redirect(url_for('index'))
 
+@app.route('/ventas/activas/<int:venta_id>/whatsapp-entrega', methods=['POST'])
+@login_required
+@vendedor_required
+def whatsapp_entrega_hoy(venta_id):
+    """Envía mensaje de WhatsApp 'entrega_hoy' al cliente de una venta activa."""
+    venta = query_one(
+        "SELECT nombre_cliente, telefono_cliente, numero_venta FROM ventas WHERE id = %s",
+        (venta_id,)
+    )
+    if not venta:
+        return jsonify({"ok": False, "error": "Venta no encontrada"}), 404
+
+    telefono_raw = (venta.get('telefono_cliente') or '').strip()
+    if not telefono_raw:
+        return jsonify({"ok": False, "error": "Esta venta no tiene teléfono registrado"}), 400
+
+    # Normalizar teléfono a formato internacional sin '+': 549XXXXXXXXXX
+    telefono = telefono_raw.replace('+', '').replace(' ', '').replace('-', '')
+    if telefono.startswith('0'):
+        telefono = '54' + telefono[1:]
+    elif telefono.startswith('11') or telefono.startswith('15'):
+        telefono = '549' + telefono
+    elif not telefono.startswith('54'):
+        telefono = '549' + telefono
+
+    resultado = enviar_whatsapp(telefono, 'entrega_hoy')
+
+    if resultado['ok']:
+        log_evento(f"WhatsApp 'entrega_hoy' enviado a {telefono} (venta {venta['numero_venta']})", current_user.username)
+        return jsonify({"ok": True, "mensaje": f"Mensaje enviado a {telefono_raw}"})
+    else:
+        return jsonify({"ok": False, "error": resultado.get('error', 'Error desconocido')}), 500
+
+
 @app.route('/ventas/activas/<int:venta_id>/etiqueta-ml')
 @login_required
 def etiqueta_ml(venta_id):
@@ -1376,6 +1481,9 @@ def marcar_entregada(venta_id):
         ''', (venta_id,))
         
         conn.commit()
+        log_evento('INFO', 'entrega', 'venta_entregada',
+            f"Venta {venta['numero_venta']} marcada como entregada. Canal: {venta.get('canal','')}",
+            venta_id=venta_id, usuario=current_user.username if current_user.is_authenticated else 'Sistema')
         flash(f'✅ Venta {venta["numero_venta"]} marcada como Entregada.', 'success')
         
     except Exception as e:
@@ -1674,6 +1782,9 @@ def marcar_entregadas_multiple():
                 ''', (venta_id,))
                 
                 ventas_procesadas += 1
+                log_evento('INFO', 'entrega', 'venta_entregada',
+                    f"Venta {venta['numero_venta']} marcada como entregada (masivo). Canal: {venta.get('canal','')}",
+                    venta_id=int(venta_id), usuario=current_user.username if current_user.is_authenticated else 'Sistema')
             
             except Exception as e:
                 print(f"⚠️ Error al procesar venta {venta_id}: {str(e)}")
@@ -2723,69 +2834,65 @@ def descontar_stock_item(cursor, item, ubicacion_despacho):
 
 
 def descontar_stock_simple(cursor, sku, cantidad, tipo, ubicacion_despacho):
-    """Descuenta stock de un producto simple según ubicación"""
-    
+    """Descuenta stock de un producto simple según ubicación y registra en movimientos_stock"""
+
+    def _descontar_y_registrar(sku_real, cant):
+        cursor.execute('SELECT stock_actual, nombre FROM productos_base WHERE sku = %s', (sku_real,))
+        prod = cursor.fetchone()
+        stock_anterior = int(prod['stock_actual'] or 0) if prod else 0
+        nombre_prod = prod['nombre'] if prod else sku_real
+        stock_nuevo = stock_anterior - cant
+        cursor.execute(
+            'UPDATE productos_base SET stock_actual = stock_actual - %s WHERE sku = %s',
+            (cant, sku_real))
+        cursor.execute("""
+            INSERT INTO movimientos_stock
+                (sku, nombre_producto, tipo_movimiento, cantidad, stock_anterior, stock_nuevo, motivo, usuario)
+            VALUES (%s, %s, 'venta', %s, %s, %s, 'Descuento por entrega', 'Sistema')
+        """, (sku_real, nombre_prod, cant, stock_anterior, stock_nuevo))
+
     # COMPAC: tiene _DEP y _FULL
     if '_DEP' in sku or '_FULL' in sku:
-        if ubicacion_despacho == 'FULL':
-            sku_real = sku.replace('_DEP', '_FULL')
-        else:
-            sku_real = sku.replace('_FULL', '_DEP')
-        
-        cursor.execute('''
-            UPDATE productos_base 
-            SET stock_actual = stock_actual - %s 
-            WHERE sku = %s
-        ''', (cantidad, sku_real))
-    
+        sku_real = sku.replace('_DEP', '_FULL') if ubicacion_despacho == 'FULL' else sku.replace('_FULL', '_DEP')
+        _descontar_y_registrar(sku_real, cantidad)
+
     # ALMOHADAS: tienen stock_actual (DEP) y stock_full (FULL)
     elif tipo == 'almohada':
         if ubicacion_despacho == 'FULL':
-            cursor.execute('''
-                UPDATE productos_base 
-                SET stock_full = stock_full - %s 
-                WHERE sku = %s
-            ''', (cantidad, sku))
+            cursor.execute('SELECT stock_full, nombre FROM productos_base WHERE sku = %s', (sku,))
+            prod = cursor.fetchone()
+            stock_anterior = int(prod['stock_full'] or 0) if prod else 0
+            nombre_prod = prod['nombre'] if prod else sku
+            cursor.execute('UPDATE productos_base SET stock_full = stock_full - %s WHERE sku = %s', (cantidad, sku))
         else:
-            cursor.execute('''
-                UPDATE productos_base 
-                SET stock_actual = stock_actual - %s 
-                WHERE sku = %s
-            ''', (cantidad, sku))
-    
+            cursor.execute('SELECT stock_actual, nombre FROM productos_base WHERE sku = %s', (sku,))
+            prod = cursor.fetchone()
+            stock_anterior = int(prod['stock_actual'] or 0) if prod else 0
+            nombre_prod = prod['nombre'] if prod else sku
+            cursor.execute('UPDATE productos_base SET stock_actual = stock_actual - %s WHERE sku = %s', (cantidad, sku))
+        cursor.execute("""
+            INSERT INTO movimientos_stock
+                (sku, nombre_producto, tipo_movimiento, cantidad, stock_anterior, stock_nuevo, motivo, usuario)
+            VALUES (%s, %s, 'venta', %s, %s, %s, 'Descuento por entrega', 'Sistema')
+        """, (sku, nombre_prod, cantidad, stock_anterior, stock_anterior - cantidad))
+
     # BASES CHICAS (80200, 90200, 100200): descontar directamente
     elif tipo == 'base' and any(x in sku for x in ['80200', '90200', '100200']):
-        cursor.execute('''
-            UPDATE productos_base 
-            SET stock_actual = stock_actual - %s 
-            WHERE sku = %s
-        ''', (cantidad, sku))
-    
+        _descontar_y_registrar(sku, cantidad)
+
     # BASES GRANDES (160, 180, 200): descuentan 2 bases chicas
     elif tipo == 'base' and any(x in sku for x in ['160', '180', '200']):
         if '160' in sku:
             sku_chica = sku.replace('160', '80200')
-            cant_bases = cantidad * 2
         elif '180' in sku:
             sku_chica = sku.replace('180', '90200')
-            cant_bases = cantidad * 2
-        elif '200' in sku:
+        else:
             sku_chica = sku.replace('200', '100200')
-            cant_bases = cantidad * 2
-        
-        cursor.execute('''
-            UPDATE productos_base 
-            SET stock_actual = stock_actual - %s 
-            WHERE sku = %s
-        ''', (cant_bases, sku_chica))
-    
+        _descontar_y_registrar(sku_chica, cantidad * 2)
+
     # OTROS: descontar de stock_actual
     else:
-        cursor.execute('''
-            UPDATE productos_base 
-            SET stock_actual = stock_actual - %s 
-            WHERE sku = %s
-        ''', (cantidad, sku))
+        _descontar_y_registrar(sku, cantidad)
 
 
 
@@ -4366,7 +4473,11 @@ def guardar_stock():
                             (sku, nombre_producto, tipo_movimiento, cantidad, stock_anterior, stock_nuevo, motivo)
                             VALUES (%s, %s, %s, %s, %s, %s, %s)
                         ''', (sku, nombre_producto, 'carga', cantidad_agregar, stock_anterior, stock_nuevo, 'Carga de stock nuevo'))
-                        
+
+                        log_evento('INFO', 'stock', 'carga_stock',
+                            f"Carga manual: {nombre_producto} ({sku}) +{cantidad_agregar} unidades. Stock: {stock_anterior} → {stock_nuevo}",
+                            sku=sku, usuario=current_user.username if current_user.is_authenticated else 'Sistema')
+
                         productos_cargados += 1
                         skus_cargados.add(sku)
         
@@ -4450,6 +4561,9 @@ def bajar_stock_guardar():
                 (sku, nombre_producto, tipo_movimiento, cantidad, stock_anterior, stock_nuevo, motivo)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             ''', (sku, nombre_producto, 'baja', cantidad_baja, stock_anterior, stock_nuevo, motivo))
+            log_evento('INFO', 'stock', 'baja_stock',
+                f"Baja manual: {nombre_producto} ({sku}) -{cantidad_baja} unidades. Stock: {stock_anterior} → {stock_nuevo}. Motivo: {motivo}",
+                sku=sku, usuario=current_user.username if current_user.is_authenticated else 'Sistema')
 
         conn.commit()
 
@@ -4981,8 +5095,11 @@ def guardar_venta():
             fecha_venta = datetime.fromisoformat(fecha_venta_iso)
             print(f"✅ Usando fecha de ML: {fecha_venta}")
         else:
+            from datetime import timezone, timedelta
+            tz_arg = timezone(timedelta(hours=-3))
+            ahora_arg = datetime.now(tz_arg).replace(tzinfo=None)
             fecha_venta_form = request.form.get('fecha_venta')
-            fecha_venta = datetime.strptime(fecha_venta_form + ' ' + datetime.now().strftime('%H:%M:%S'), '%Y-%m-%d %H:%M:%S') if fecha_venta_form else datetime.now()
+            fecha_venta = datetime.strptime(fecha_venta_form + ' ' + ahora_arg.strftime('%H:%M:%S'), '%Y-%m-%d %H:%M:%S') if fecha_venta_form else ahora_arg
             print(f"✅ Usando fecha del formulario: {fecha_venta}")
         
         # ========================================
@@ -5171,6 +5288,10 @@ def guardar_venta():
         # ========================================
         # 11. MENSAJE Y REDIRECCIÓN
         # ========================================
+        log_evento('INFO', 'venta', 'nueva_venta',
+            f"Nueva venta {numero_venta} registrada. Canal: {canal}. Cliente: {nombre_cliente}. Total: ${importe_total}",
+            venta_id=venta_id, usuario=current_user.username if current_user.is_authenticated else 'Sistema',
+            ip=request.remote_addr)
         if productos_sin_stock:
             productos_base = [p for p in productos_sin_stock if p.get('tipo_producto') == 'base']
             combos_afectados = [p for p in productos_sin_stock if p.get('tipo_producto') == 'combo']
@@ -7424,6 +7545,8 @@ def ml_request(method, url, access_token, json_data=None, params=None, max_retri
         try:
             if method == 'get':
                 r = requests.get(url, headers=headers, params=params, timeout=15)
+            elif method == 'post':
+                r = requests.post(url, headers=headers, json=json_data, timeout=15)
             else:
                 r = requests.put(url, headers=headers, json=json_data, timeout=15)
 
@@ -7506,14 +7629,28 @@ def obtener_datos_ml_batch(mla_ids, access_token):
                 else:
                     financiacion = listing_type_id
 
+                # Extraer seller_sku de attributes o seller_custom_field
+                seller_sku = data.get('seller_custom_field') or ''
+                if not seller_sku:
+                    for attr in data.get('attributes', []):
+                        if attr.get('id') == 'SELLER_SKU':
+                            seller_sku = attr.get('value_name', '')
+                            break
+
                 resultado[mla_id] = {
-                    'titulo':       data.get('title', mla_id),
-                    'stock':        data.get('available_quantity', 0),
-                    'status':       data.get('status', 'unknown'),
-                    'status_raw':   data.get('status', 'unknown'),
-                    'demora':       demora,
-                    'precio':       data.get('price'),
-                    'listing_type': financiacion
+                    'titulo':              data.get('title', mla_id),
+                    'stock':               data.get('available_quantity', 0),
+                    'status':              data.get('status', 'unknown'),
+                    'status_raw':          data.get('status', 'unknown'),
+                    'demora':              demora,
+                    'precio':              data.get('price'),
+                    'listing_type':        financiacion,
+                    'permalink':           data.get('permalink', ''),
+                    'catalog_listing':     data.get('catalog_listing', False),
+                    'catalog_product_id':  data.get('catalog_product_id'),
+                    'category_id':         data.get('category_id'),
+                    'domain_id':           data.get('domain_id'),
+                    'seller_sku':          seller_sku,
                 }
 
         except Exception as e:
@@ -7525,6 +7662,53 @@ def obtener_datos_ml_batch(mla_ids, access_token):
                 }
 
     return resultado
+
+
+def obtener_permalinks_ml(mla_ids, access_token):
+    """
+    Devuelve permalinks para los MLAs dados.
+    Usa caché en sku_mla_mapeo.permalink — solo llama a la API si está vacío.
+    """
+    # Agregar columna permalink si no existe (idempotente)
+    try:
+        execute_db("ALTER TABLE sku_mla_mapeo ADD COLUMN permalink VARCHAR(500) DEFAULT NULL")
+    except Exception:
+        pass  # ya existe
+
+    permalinks = {}
+    sin_cache = []
+
+    # Primero buscar en caché
+    if mla_ids:
+        filas = query_db(
+            "SELECT mla_id, permalink FROM sku_mla_mapeo WHERE mla_id IN ({})".format(
+                ','.join(['%s'] * len(mla_ids))), tuple(mla_ids))
+        for f in filas:
+            if f['permalink']:
+                permalinks[f['mla_id']] = f['permalink']
+            else:
+                sin_cache.append(f['mla_id'])
+        # MLAs que no están en la tabla
+        en_tabla = {f['mla_id'] for f in filas}
+        sin_cache += [m for m in mla_ids if m not in en_tabla]
+
+    # Consultar API solo para los que no tienen caché
+    for mla_id in sin_cache:
+        try:
+            r = ml_request('get', f'https://api.mercadolibre.com/items/{mla_id}',
+                           access_token, params={'attributes': 'id,permalink'})
+            if r.status_code == 200:
+                url = r.json().get('permalink', '')
+                permalinks[mla_id] = url
+                if url:
+                    execute_db(
+                        "UPDATE sku_mla_mapeo SET permalink=%s WHERE mla_id=%s",
+                        (url, mla_id))
+        except Exception as e:
+            print(f"Error permalink {mla_id}: {e}")
+            permalinks[mla_id] = ''
+
+    return permalinks
 
 @app.route('/buscar-sku-ml', methods=['POST'])
 @login_required
@@ -7599,6 +7783,7 @@ def buscar_sku_ml():
     }
 
     datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
+    permalinks = obtener_permalinks_ml(mla_ids, access_token)
     publicaciones = []
     for mla_id in mla_ids:
         datos_ml = datos_batch.get(mla_id, {
@@ -7607,14 +7792,18 @@ def buscar_sku_ml():
         })
         status_ml = datos_ml.get('status', 'unknown')
         publicaciones.append({
-            'mla':          mla_id,
-            'titulo':       datos_ml['titulo'],
-            'stock_actual': datos_ml['stock'],
-            'demora':       datos_ml.get('demora'),
-            'precio':       datos_ml.get('precio'),
-            'listing_type': datos_ml.get('listing_type'),
-            'estado':       estado_map.get(status_ml, status_ml.capitalize()),
-            'status_raw':   status_ml
+            'mla':                 mla_id,
+            'titulo':              datos_ml['titulo'],
+            'stock_actual':        datos_ml['stock'],
+            'demora':              datos_ml.get('demora'),
+            'precio':              datos_ml.get('precio'),
+            'listing_type':        datos_ml.get('listing_type'),
+            'estado':              estado_map.get(status_ml, status_ml.capitalize()),
+            'status_raw':          status_ml,
+            'permalink':           permalinks.get(mla_id, ''),
+            'catalog_listing':     datos_ml.get('catalog_listing', False),
+            'catalog_product_id':  datos_ml.get('catalog_product_id'),
+            'category_id':         datos_ml.get('category_id'),
         })
 
     # Ordenar por tipo de publicación
@@ -7623,6 +7812,22 @@ def buscar_sku_ml():
     # Buscar precio calculado por costos para este SKU
     precio_costos = _get_precio_costos_sku(sku_buscado, porcentajes)
 
+    # ── Catálogo: detectar cuotas faltantes ──────────────────────────────────
+    TODOS_LOS_TIPOS = [
+        'Sin cuotas propias', 'Cuota Simple',
+        '3 cuotas s/interés', '6 cuotas s/interés',
+        '9 cuotas s/interés', '12 cuotas s/interés',
+    ]
+    tipos_catalogo_existentes = set(
+        p['listing_type'] for p in publicaciones
+        if p.get('catalog_listing') and p.get('status_raw') in ('active', 'paused')
+    )
+    catalog_meta = next(
+        (p for p in publicaciones if p.get('catalog_listing') and p.get('catalog_product_id')),
+        None
+    )
+    cuotas_faltantes = [t for t in TODOS_LOS_TIPOS if t not in tipos_catalogo_existentes] if catalog_meta else []
+
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku_buscado,
                            publicaciones=publicaciones,
@@ -7630,7 +7835,192 @@ def buscar_sku_ml():
                            mensaje=None,
                            mensaje_tipo=None,
                            porcentajes=porcentajes,
-                           precio_costos=precio_costos)
+                           precio_costos=precio_costos,
+                           cuotas_faltantes=cuotas_faltantes,
+                           catalog_meta=catalog_meta)
+# ============================================================================
+# RUTA: Faltantes de catálogo ML (colchones)
+# ============================================================================
+@app.route('/faltantes-catalogo-ml')
+@login_required
+def faltantes_catalogo_ml():
+    access_token = cargar_ml_token()
+    if not access_token:
+        flash('❌ No hay token de ML configurado', 'warning')
+        return redirect(url_for('dashboard'))
+
+    try:
+        row = query_one("SELECT valor FROM configuracion WHERE clave = 'porcentajes_ml'")
+        porcentajes = json.loads(row['valor']) if row else PORCENTAJES_ML_DEFAULT
+    except:
+        porcentajes = PORCENTAJES_ML_DEFAULT
+
+    # 1. Obtener todos los IDs (activos + pausados)
+    all_ids = []
+    for status in ('active', 'paused'):
+        offset = 0
+        while True:
+            r = ml_request('get',
+                f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/items/search',
+                access_token,
+                params={'limit': 100, 'offset': offset, 'status': status})
+            if r.status_code != 200:
+                break
+            data = r.json()
+            results = data.get('results', [])
+            all_ids.extend(results)
+            total = data.get('paging', {}).get('total', 0)
+            offset += 100
+            if offset >= total:
+                break
+
+    if not all_ids:
+        return render_template('faltantes_catalogo_ml.html', resultados=[], total_skus=0)
+
+    # 2. Fetch en batch (reutiliza obtener_datos_ml_batch)
+    datos_batch = obtener_datos_ml_batch(all_ids, access_token)
+
+    # 3. Filtrar catálogo + colchones, agrupar por SKU
+    TODOS_LOS_TIPOS = [
+        'Sin cuotas propias', 'Cuota Simple',
+        '3 cuotas s/interés', '6 cuotas s/interés',
+        '9 cuotas s/interés', '12 cuotas s/interés',
+    ]
+    TIPO_A_PRECIO = {
+        'Sin cuotas propias': 'precio_sin_cuotas',
+        'Cuota Simple':       'precio_1c',
+        '3 cuotas s/interés': 'precio_3c',
+        '6 cuotas s/interés': 'precio_6c',
+        '9 cuotas s/interés': 'precio_9c',
+        '12 cuotas s/interés':'precio_12c',
+    }
+
+    skus_data = {}
+    for mla_id, datos in datos_batch.items():
+        if not datos.get('catalog_listing'):
+            continue
+        if datos.get('domain_id') != 'MLA-MATTRESSES':
+            continue
+        sku = datos.get('seller_sku') or ''
+        if not sku:
+            continue
+        if sku not in skus_data:
+            skus_data[sku] = {
+                'tipos': {},
+                'catalog_product_id': datos.get('catalog_product_id'),
+                'category_id':        datos.get('category_id'),
+            }
+        lt = datos.get('listing_type', '')
+        if lt and lt not in skus_data[sku]['tipos']:
+            skus_data[sku]['tipos'][lt] = mla_id
+
+    # 4. Calcular faltantes con precio sugerido
+    resultados = []
+    for sku in sorted(skus_data.keys()):
+        info = skus_data[sku]
+        tipos_existentes = set(info['tipos'].keys())
+        faltantes_tipos = [t for t in TODOS_LOS_TIPOS if t not in tipos_existentes]
+        if not faltantes_tipos:
+            continue
+        pc = _get_precio_costos_sku(sku, porcentajes)
+        mla_ref = next(iter(info['tipos'].values())) if info['tipos'] else None
+        faltantes_con_precio = []
+        for tipo in faltantes_tipos:
+            precio_key = TIPO_A_PRECIO.get(tipo)
+            precio_sug = pc.get(precio_key) if pc and precio_key else None
+            faltantes_con_precio.append({'tipo': tipo, 'precio_sugerido': precio_sug})
+        resultados.append({
+            'sku':                 sku,
+            'faltantes':           faltantes_con_precio,
+            'existentes':          sorted(tipos_existentes, key=lambda t: TODOS_LOS_TIPOS.index(t) if t in TODOS_LOS_TIPOS else 99),
+            'mla_ref':             mla_ref,
+            'catalog_product_id':  info['catalog_product_id'],
+        })
+
+    return render_template('faltantes_catalogo_ml.html',
+                           resultados=resultados,
+                           total_skus=len(skus_data))
+
+
+# ============================================================================
+# RUTA: Publicar nueva publicación de catálogo (cuota faltante)
+# ============================================================================
+TIPO_A_PARAMS_ML = {
+    'Sin cuotas propias':  {'listing_type_id': 'gold_special', 'campaign': None},
+    'Cuota Simple':        {'listing_type_id': 'gold_special', 'campaign': 'pcj-co-funded'},
+    '3 cuotas s/interés':  {'listing_type_id': 'gold_special', 'campaign': '3x_campaign'},
+    '6 cuotas s/interés':  {'listing_type_id': 'gold_pro',     'campaign': None},
+    '9 cuotas s/interés':  {'listing_type_id': 'gold_special', 'campaign': '9x_campaign'},
+    '12 cuotas s/interés': {'listing_type_id': 'gold_special', 'campaign': '12x_campaign'},
+}
+
+@app.route('/debug-token-temp')
+@login_required
+def debug_token_temp():
+    token = cargar_ml_token()
+    return f"<pre>{token}</pre>"
+
+
+@app.route('/publicar-catalogo-cuota', methods=['POST'])
+@login_required
+def publicar_catalogo_cuota():
+    sku                = request.form.get('sku', '').strip().upper()
+    tipo               = request.form.get('tipo', '').strip()
+    precio_str         = request.form.get('precio', '').strip()
+    catalog_product_id = request.form.get('catalog_product_id', '').strip()
+    category_id        = request.form.get('category_id', '').strip()
+
+    if not all([sku, tipo, precio_str, catalog_product_id, category_id]):
+        flash('❌ Faltan datos para publicar en catálogo', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
+
+    try:
+        precio = int(float(precio_str))
+    except ValueError:
+        flash('❌ Precio inválido', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
+
+    params = TIPO_A_PARAMS_ML.get(tipo)
+    if not params:
+        flash(f'❌ Tipo de publicación desconocido: {tipo}', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
+
+    access_token = cargar_ml_token()
+    if not access_token:
+        flash('❌ No hay token de ML configurado', 'warning')
+        return redirect(url_for('cargar_stock_ml'))
+
+    payload = {
+        'site_id':             'MLA',
+        'category_id':         category_id,
+        'currency_id':         'ARS',
+        'buying_mode':         'buy_it_now',
+        'listing_type_id':     params['listing_type_id'],
+        'price':               precio,
+        'available_quantity':  1,
+        'catalog_product_id':  catalog_product_id,
+        'catalog_listing':     True,
+        'seller_custom_field': sku,
+    }
+    if params['campaign']:
+        payload['sale_terms'] = [{'id': 'INSTALLMENTS_CAMPAIGN', 'value_name': params['campaign']}]
+
+    try:
+        r = ml_request('post', 'https://api.mercadolibre.com/items', access_token, json_data=payload)
+        resp = r.json()
+        if r.status_code in (200, 201):
+            nuevo_mla = resp.get('id', '?')
+            flash(f'✅ Publicación creada: {nuevo_mla} — {tipo}', 'success')
+        else:
+            causa = resp.get('cause', [])
+            detalle = causa[0].get('message', str(resp)) if causa else str(resp)
+            flash(f'❌ Error ML: {detalle}', 'danger')
+    except Exception as e:
+        flash(f'❌ Excepción: {e}', 'danger')
+
+    session['ultimo_sku_ml'] = sku
+    return redirect(url_for('cargar_stock_ml'))
+
 # ============================================================================
 # 4. RUTA: Cambiar precio — INDIVIDUAL
 # ============================================================================
@@ -7858,6 +8248,7 @@ def _recargar_publicaciones(sku, access_token, pubs_actuales=None, actualizar_ml
     if access_token and publicaciones:
         mla_ids = [row['mla_id'] for row in publicaciones]
         datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
+        permalinks = obtener_permalinks_ml(mla_ids, access_token)
         for row in publicaciones:
             datos_ml = datos_batch.get(row['mla_id'], {
                 'titulo': row['mla_id'], 'stock': 0, 'status': 'unknown',
@@ -7872,7 +8263,8 @@ def _recargar_publicaciones(sku, access_token, pubs_actuales=None, actualizar_ml
                 'precio':       datos_ml.get('precio'),
                 'listing_type': datos_ml.get('listing_type'),
                 'estado':       estado_map.get(status_ml, status_ml.capitalize()),
-                'status_raw':   status_ml
+                'status_raw':   status_ml,
+                'permalink':    permalinks.get(row['mla_id'], ''),
             })
     else:
         for row in publicaciones:
@@ -7882,7 +8274,8 @@ def _recargar_publicaciones(sku, access_token, pubs_actuales=None, actualizar_ml
                 'stock_actual': '-', 'demora': None,
                 'precio':       None, 'listing_type': None,
                 'estado':       'Activa' if row['activo'] else 'Pausada',
-                'status_raw':   'active' if row['activo'] else 'paused'
+                'status_raw':   'active' if row['activo'] else 'paused',
+                'permalink':    '',
             })
     return pubs_lista
 
@@ -8233,6 +8626,7 @@ def quitar_demora_masivo():
     if publicaciones:
         mla_ids = [row['mla_id'] for row in publicaciones]
         datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
+        permalinks = obtener_permalinks_ml(mla_ids, access_token)
         for row in publicaciones:
             datos_ml = datos_batch.get(row['mla_id'], {
                 'titulo': row['titulo_ml'] or row['mla_id'],
@@ -8248,7 +8642,8 @@ def quitar_demora_masivo():
                 'precio':       datos_ml.get('precio'),
                 'listing_type': datos_ml.get('listing_type'),
                 'estado':       estado_map.get(status_ml, status_ml.capitalize()),
-                'status_raw':   status_ml
+                'status_raw':   status_ml,
+                'permalink':    permalinks.get(row['mla_id'], ''),
             })
 
     return render_template('cargar_stock_ml.html',
@@ -9510,6 +9905,8 @@ def guardar_trid():
 from tienda_bp import tienda_bp
 app.register_blueprint(tienda_bp)
 
+from bot_precios_bp import bot_precios_bp
+app.register_blueprint(bot_precios_bp)
 
 
 # ============================================================================
@@ -9537,6 +9934,202 @@ def _crear_tablas_fletes():
             FOREIGN KEY (fletero_id) REFERENCES fleteros(id)
         )
     """)
+
+# ============================================================================
+# MÓDULO PAGOS CANNON
+# ============================================================================
+
+def _crear_tablas_pagos_cannon():
+    execute_db("""
+        CREATE TABLE IF NOT EXISTS cannon_facturas (
+            id                  INT AUTO_INCREMENT PRIMARY KEY,
+            nro_comprobante     VARCHAR(30) NOT NULL,
+            fecha_comprobante   DATE NOT NULL,
+            fecha_recepcion     DATE NOT NULL,
+            importe_total       DECIMAL(14,2) NOT NULL,
+            descuento_pp_pct    DECIMAL(5,2) NOT NULL DEFAULT 5.00,
+            importe_pp          INT NOT NULL,
+            descuento_pp_monto  INT NOT NULL,
+            fecha_pago          DATE NOT NULL,
+            tiene_error         TINYINT(1) DEFAULT 0,
+            notas               TEXT,
+            created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    execute_db("""
+        CREATE TABLE IF NOT EXISTS cannon_pagos (
+            id              INT AUTO_INCREMENT PRIMARY KEY,
+            fecha_pago      DATE NOT NULL UNIQUE,
+            monto_abonado   DECIMAL(14,2),
+            fecha_abono     DATE,
+            pp_recibido     TINYINT(1) DEFAULT 0,
+            fecha_pp        DATE,
+            notas           TEXT,
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    execute_db("""
+        CREATE TABLE IF NOT EXISTS cannon_reclamos (
+            id                  INT AUTO_INCREMENT PRIMARY KEY,
+            factura_id          INT NOT NULL,
+            detalle_error       TEXT NOT NULL,
+            fecha_reclamo       DATE NOT NULL,
+            nro_nc_resolucion   VARCHAR(30),
+            resuelto            TINYINT(1) DEFAULT 0,
+            fecha_resolucion    DATE,
+            created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (factura_id) REFERENCES cannon_facturas(id)
+        )
+    """)
+
+
+def _calcular_importe_pp(importe_total, pct):
+    """Calcula importe con pronto pago. Ej: 5% → total/1.05, redondeado sin decimales."""
+    divisor = 1 + float(pct) / 100
+    return round(float(importe_total) / divisor)
+
+
+@app.route('/pagos-cannon', methods=['GET'])
+@login_required
+@admin_required
+def pagos_cannon():
+    _crear_tablas_pagos_cannon()
+    from datetime import date
+
+    tab = request.args.get('tab', 'pendientes')
+
+    # Facturas pendientes de pago (agrupadas por fecha_pago)
+    grupos_pendientes = query_db("""
+        SELECT
+            f.fecha_pago,
+            COUNT(f.id) AS total_fcs,
+            SUM(f.importe_total) AS total_bruto,
+            SUM(f.importe_pp) AS total_pp,
+            SUM(f.descuento_pp_monto) AS total_descuento,
+            p.id AS pago_id,
+            p.monto_abonado,
+            p.fecha_abono,
+            p.pp_recibido,
+            p.fecha_pp,
+            p.notas AS pago_notas
+        FROM cannon_facturas f
+        LEFT JOIN cannon_pagos p ON p.fecha_pago = f.fecha_pago
+        GROUP BY f.fecha_pago, p.id
+        ORDER BY f.fecha_pago ASC
+    """)
+
+    # Detalle de facturas por grupo
+    facturas_por_fecha = {}
+    todas_facturas = query_db("""
+        SELECT f.*, r.id AS reclamo_id
+        FROM cannon_facturas f
+        LEFT JOIN cannon_reclamos r ON r.factura_id = f.id AND r.resuelto = 0
+        ORDER BY f.fecha_pago ASC, f.fecha_comprobante ASC
+    """)
+    for fc in todas_facturas:
+        k = str(fc['fecha_pago'])
+        if k not in facturas_por_fecha:
+            facturas_por_fecha[k] = []
+        facturas_por_fecha[k].append(fc)
+
+    # Reclamos
+    reclamos = query_db("""
+        SELECT r.*, f.nro_comprobante, f.importe_total, f.fecha_comprobante
+        FROM cannon_reclamos r
+        JOIN cannon_facturas f ON f.id = r.factura_id
+        ORDER BY r.resuelto ASC, r.fecha_reclamo DESC
+    """)
+
+    return render_template('pagos_cannon.html',
+        grupos=grupos_pendientes,
+        facturas_por_fecha=facturas_por_fecha,
+        reclamos=reclamos,
+        tab=tab,
+        hoy=date.today(),
+    )
+
+
+@app.route('/pagos-cannon/guardar', methods=['POST'])
+@login_required
+@admin_required
+def pagos_cannon_guardar():
+    _crear_tablas_pagos_cannon()
+    data   = request.get_json()
+    accion = data.get('accion')
+    from datetime import date, timedelta
+
+    try:
+        if accion == 'nueva_factura':
+            importe   = float(data['importe_total'])
+            pct       = float(data.get('descuento_pp_pct', 5))
+            fecha_rec = data['fecha_recepcion']
+            # fecha_pago = recepcion + 6 días corridos
+            from datetime import datetime
+            fecha_pago = (datetime.strptime(fecha_rec, '%Y-%m-%d').date() + timedelta(days=6)).isoformat()
+            imp_pp     = _calcular_importe_pp(importe, pct)
+            descuento  = round(importe) - imp_pp
+
+            # Verificar duplicado
+            existe = query_one("SELECT id FROM cannon_facturas WHERE nro_comprobante = %s", (data['nro_comprobante'],))
+            if existe:
+                return jsonify({'ok': False, 'error': 'Ya existe una factura con ese número'})
+
+            execute_db("""
+                INSERT INTO cannon_facturas
+                    (nro_comprobante, fecha_comprobante, fecha_recepcion,
+                     importe_total, descuento_pp_pct, importe_pp, descuento_pp_monto,
+                     fecha_pago, notas)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (data['nro_comprobante'], data['fecha_comprobante'], fecha_rec,
+                  importe, pct, imp_pp, descuento, fecha_pago, data.get('notas', '')))
+
+            # Crear registro de pago para esa fecha si no existe
+            execute_db("""
+                INSERT IGNORE INTO cannon_pagos (fecha_pago) VALUES (%s)
+            """, (fecha_pago,))
+
+            return jsonify({'ok': True, 'fecha_pago': fecha_pago,
+                            'importe_pp': imp_pp, 'descuento': descuento})
+
+        elif accion == 'eliminar_factura':
+            execute_db("DELETE FROM cannon_facturas WHERE id = %s", (data['id'],))
+
+        elif accion == 'marcar_pagado':
+            execute_db("""
+                UPDATE cannon_pagos
+                SET monto_abonado = %s, fecha_abono = %s, notas = %s
+                WHERE fecha_pago = %s
+            """, (float(data['monto_abonado']), data['fecha_abono'],
+                  data.get('notas', ''), data['fecha_pago']))
+
+        elif accion == 'marcar_pp_recibido':
+            execute_db("""
+                UPDATE cannon_pagos
+                SET pp_recibido = %s, fecha_pp = %s
+                WHERE fecha_pago = %s
+            """, (int(data['recibido']), data.get('fecha_pp') or None, data['fecha_pago']))
+
+        elif accion == 'marcar_error':
+            execute_db("UPDATE cannon_facturas SET tiene_error = 1 WHERE id = %s", (data['factura_id'],))
+
+        elif accion == 'nuevo_reclamo':
+            execute_db("""
+                INSERT INTO cannon_reclamos (factura_id, detalle_error, fecha_reclamo)
+                VALUES (%s, %s, %s)
+            """, (data['factura_id'], data['detalle_error'], data.get('fecha_reclamo', date.today().isoformat())))
+            execute_db("UPDATE cannon_facturas SET tiene_error = 1 WHERE id = %s", (data['factura_id'],))
+
+        elif accion == 'resolver_reclamo':
+            execute_db("""
+                UPDATE cannon_reclamos
+                SET resuelto = 1, nro_nc_resolucion = %s, fecha_resolucion = %s
+                WHERE id = %s
+            """, (data.get('nro_nc', ''), data.get('fecha_resolucion', date.today().isoformat()), data['reclamo_id']))
+
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+    return jsonify({'ok': True})
+
 
 @app.route('/fletes', methods=['GET'])
 @login_required
@@ -11673,6 +12266,150 @@ def job_completar_notas_mp():
             print(f"[MP-NOTAS] Error general: {e}")
 
 
+# ============================================================================
+# DASHBOARD AGENCIA
+# ============================================================================
+
+def _ga4_query(property_id, date_ranges, dimensions, metrics):
+    """Consulta la GA4 Data API y retorna rows."""
+    try:
+        import json as _json
+        from google.oauth2 import service_account
+        from google.analytics.data_v1beta import BetaAnalyticsDataClient
+        from google.analytics.data_v1beta.types import (
+            RunReportRequest, DateRange, Dimension, Metric
+        )
+        sa_path = os.path.join(os.path.dirname(__file__), 'config', 'ga4_service_account.json')
+        credentials = service_account.Credentials.from_service_account_file(
+            sa_path,
+            scopes=['https://www.googleapis.com/auth/analytics.readonly']
+        )
+        client = BetaAnalyticsDataClient(credentials=credentials)
+        request = RunReportRequest(
+            property=f'properties/{property_id}',
+            date_ranges=[DateRange(**dr) for dr in date_ranges],
+            dimensions=[Dimension(name=d) for d in dimensions],
+            metrics=[Metric(name=m) for m in metrics],
+        )
+        response = client.run_report(request)
+        return response
+    except Exception as e:
+        print(f'[GA4] Error: {e}')
+        return None
+
+
+@app.route('/agencia')
+@login_required
+def agencia_dashboard():
+    if current_user.rol not in ('admin', 'vendedor', 'viewer', 'agencia'):
+        return redirect(url_for('login'))
+
+    GA4_PROPERTY_ID = '528968739'
+
+    # ── Período ──────────────────────────────────────────────────────────────
+    periodo = request.args.get('periodo', '30d')
+    fecha_desde_custom = request.args.get('desde', '')
+    fecha_hasta_custom = request.args.get('hasta', '')
+
+    from datetime import date, timedelta
+    hoy = date.today()
+    if periodo == '7d':
+        fecha_desde = (hoy - timedelta(days=6)).strftime('%Y-%m-%d')
+        fecha_hasta = hoy.strftime('%Y-%m-%d')
+        label_periodo = 'Últimos 7 días'
+    elif periodo == '15d':
+        fecha_desde = (hoy - timedelta(days=14)).strftime('%Y-%m-%d')
+        fecha_hasta = hoy.strftime('%Y-%m-%d')
+        label_periodo = 'Últimos 15 días'
+    elif periodo == 'mes':
+        fecha_desde = hoy.replace(day=1).strftime('%Y-%m-%d')
+        fecha_hasta = hoy.strftime('%Y-%m-%d')
+        label_periodo = 'Mes en curso'
+    elif periodo == 'custom' and fecha_desde_custom and fecha_hasta_custom:
+        fecha_desde = fecha_desde_custom
+        fecha_hasta = fecha_hasta_custom
+        label_periodo = f'{fecha_desde_custom} → {fecha_hasta_custom}'
+    else:  # 30d default
+        fecha_desde = (hoy - timedelta(days=29)).strftime('%Y-%m-%d')
+        fecha_hasta = hoy.strftime('%Y-%m-%d')
+        label_periodo = 'Últimos 30 días'
+
+    # ── Datos de la DB (tienda web) ───────────────────────────────────────────
+    ventas_db = query_db("""
+        SELECT v.id, v.importe_total, v.importe_abonado, v.fecha_venta
+        FROM ventas v
+        WHERE v.canal = 'tienda_web'
+          AND v.estado_entrega != 'cancelada'
+          AND DATE(v.fecha_venta) BETWEEN %s AND %s
+    """, (fecha_desde, fecha_hasta))
+
+    total_ventas = len(ventas_db)
+    total_facturado = sum(float(v['importe_total'] or 0) for v in ventas_db)
+    ticket_promedio = total_facturado / total_ventas if total_ventas else 0
+
+    # Productos más vendidos
+    top_productos = query_db("""
+        SELECT COALESCE(pb.nombre, pc.nombre, iv.sku) as nombre, SUM(iv.cantidad) as total_unidades
+        FROM items_venta iv
+        JOIN ventas v ON v.id = iv.venta_id
+        LEFT JOIN productos_base pb ON pb.sku = iv.sku
+        LEFT JOIN productos_compuestos pc ON pc.sku = iv.sku
+        WHERE v.canal = 'tienda_web'
+          AND v.estado_entrega != 'cancelada'
+          AND DATE(v.fecha_venta) BETWEEN %s AND %s
+        GROUP BY iv.sku
+        ORDER BY total_unidades DESC
+        LIMIT 8
+    """, (fecha_desde, fecha_hasta))
+
+    # ── Datos de GA4 ──────────────────────────────────────────────────────────
+    ga4_visitas = 0
+    ga4_sesiones = 0
+    tasa_conversion = 0.0
+    fuentes = []
+
+    try:
+        dr = [{'start_date': fecha_desde, 'end_date': fecha_hasta}]
+
+        # Visitas y sesiones
+        r1 = _ga4_query(GA4_PROPERTY_ID, dr, [], ['activeUsers', 'sessions'])
+        if r1 and r1.rows:
+            row = r1.rows[0]
+            ga4_visitas  = int(row.metric_values[0].value)
+            ga4_sesiones = int(row.metric_values[1].value)
+
+        # Tasa de conversión (purchase events / sesiones)
+        tasa_conversion = round((total_ventas / ga4_sesiones * 100), 2) if ga4_sesiones else 0.0
+
+        # Fuentes de tráfico
+        r2 = _ga4_query(GA4_PROPERTY_ID, dr, ['sessionDefaultChannelGroup'], ['sessions'])
+        if r2 and r2.rows:
+            fuentes = sorted([
+                {'fuente': row.dimension_values[0].value, 'sesiones': int(row.metric_values[0].value)}
+                for row in r2.rows
+            ], key=lambda x: x['sesiones'], reverse=True)
+
+    except Exception as e:
+        print(f'[AGENCIA] Error GA4: {e}')
+
+    return render_template('agencia.html',
+        periodo=periodo,
+        label_periodo=label_periodo,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        fecha_desde_custom=fecha_desde_custom,
+        fecha_hasta_custom=fecha_hasta_custom,
+        total_ventas=total_ventas,
+        total_facturado=total_facturado,
+        ticket_promedio=ticket_promedio,
+        top_productos=top_productos,
+        ga4_visitas=ga4_visitas,
+        ga4_sesiones=ga4_sesiones,
+        tasa_conversion=tasa_conversion,
+        fuentes=fuentes,
+    )
+
+
 def iniciar_scheduler():
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
@@ -11712,6 +12449,63 @@ def iniciar_scheduler():
 
 # Iniciar al cargar el módulo (funciona con gunicorn y Flask dev)
 _scheduler = iniciar_scheduler()
+
+# Crear tabla de logs si no existe
+crear_tabla_sistema_logs()
+
+
+# ============================================================================
+# SISTEMA DE LOGS
+# ============================================================================
+
+@app.route('/admin/logs')
+@login_required
+@admin_required
+def admin_logs():
+    from datetime import timedelta
+    from flask import make_response
+    import csv, io
+
+    nivel    = request.args.get('nivel', '')
+    modulo   = request.args.get('modulo', '')
+    sku      = request.args.get('sku', '').strip()
+    desde    = request.args.get('desde', '')
+    hasta    = request.args.get('hasta', '')
+    exportar = request.args.get('exportar', '')
+
+    conditions = []
+    params = []
+    if nivel:
+        conditions.append('nivel = %s'); params.append(nivel)
+    if modulo:
+        conditions.append('modulo = %s'); params.append(modulo)
+    if sku:
+        conditions.append('sku LIKE %s'); params.append(f'%{sku}%')
+    if desde:
+        conditions.append('timestamp >= %s'); params.append(desde)
+    if hasta:
+        conditions.append('timestamp <= %s'); params.append(hasta + ' 23:59:59')
+
+    where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
+
+    if exportar == 'csv':
+        logs = query_db(f"SELECT * FROM sistema_logs {where} ORDER BY timestamp DESC LIMIT 5000", params)
+        si = io.StringIO()
+        writer = csv.writer(si)
+        writer.writerow(['id','timestamp','nivel','modulo','accion','detalle','sku','venta_id','usuario','ip'])
+        for row in logs:
+            writer.writerow([row.get(k,'') for k in ['id','timestamp','nivel','modulo','accion','detalle','sku','venta_id','usuario','ip']])
+        output = make_response(si.getvalue())
+        output.headers['Content-Disposition'] = 'attachment; filename=sistema_logs.csv'
+        output.headers['Content-type'] = 'text/csv'
+        return output
+
+    logs   = query_db(f"SELECT * FROM sistema_logs {where} ORDER BY timestamp DESC LIMIT 500", params)
+    modulos = query_db("SELECT DISTINCT modulo FROM sistema_logs WHERE modulo IS NOT NULL ORDER BY modulo")
+
+    return render_template('admin_logs.html',
+        logs=logs, modulos=modulos,
+        filtros={'nivel': nivel, 'modulo': modulo, 'sku': sku, 'desde': desde, 'hasta': hasta})
 
 
 # ============================================================================
@@ -12038,8 +12832,7 @@ def costos_importar():
             insertados = 0
             for row in ws.iter_rows(values_only=True):
                 codigo = row[0]
-                # Siempre usar columna D (índice 3) = Precio Neto
-                precio = row[3]
+                precio = row[2]  # Columna C = Importe
                 if not codigo or not isinstance(codigo, (int, float)):
                     continue
                 if not precio or not isinstance(precio, (int, float)):
@@ -12675,15 +13468,22 @@ def productos_lista():
     nl_monto  = int(nl_monto_row['valor'])  if nl_monto_row  and nl_monto_row['valor']  else 0
     nl_minimo = int(nl_minimo_row['valor']) if nl_minimo_row and nl_minimo_row['valor'] else 0
 
+    coef_3_row = query_one("SELECT valor FROM configuracion WHERE clave='cuotas_3_coef'")
+    coef_6_row = query_one("SELECT valor FROM configuracion WHERE clave='cuotas_6_coef'")
+    cuotas_3_coef = float(coef_3_row['valor']) if coef_3_row and coef_3_row['valor'] else 1.11
+    cuotas_6_coef = float(coef_6_row['valor']) if coef_6_row and coef_6_row['valor'] else 1.22
+
     return render_template('productos_lista.html',
-        productos   = productos,
-        busq        = busq,
-        linea_sel   = linea_sel,
-        lineas      = lineas,
-        filtro      = filtro,
-        demora_dias = demora_dias,
-        nl_monto    = nl_monto,
-        nl_minimo   = nl_minimo,
+        productos     = productos,
+        busq          = busq,
+        linea_sel     = linea_sel,
+        lineas        = lineas,
+        filtro        = filtro,
+        demora_dias   = demora_dias,
+        nl_monto      = nl_monto,
+        nl_minimo     = nl_minimo,
+        cuotas_3_coef = cuotas_3_coef,
+        cuotas_6_coef = cuotas_6_coef,
     )
 
 
@@ -12724,6 +13524,30 @@ def productos_newsletter_cupon():
         fmt_monto  = f'${monto_int:,.0f}'.replace(',', '.')
         fmt_minimo = f'${minimo_int:,.0f}'.replace(',', '.')
         return jsonify(ok=True, msg=f'✅ {fmt_monto} OFF / mín. {fmt_minimo}')
+    except Exception as e:
+        return jsonify(ok=False, msg=str(e))
+
+
+@app.route('/productos/cuotas-coeficientes', methods=['POST'])
+@admin_required
+def productos_cuotas_coeficientes():
+    coef_3 = request.form.get('coef_3', '').strip()
+    coef_6 = request.form.get('coef_6', '').strip()
+    try:
+        coef_3_f = round(max(1.0, float(coef_3)), 4) if coef_3 else 1.11
+        coef_6_f = round(max(1.0, float(coef_6)), 4) if coef_6 else 1.22
+        execute_db(
+            "INSERT INTO configuracion (clave, valor) VALUES ('cuotas_3_coef', %s) ON DUPLICATE KEY UPDATE valor=%s",
+            (str(coef_3_f), str(coef_3_f))
+        )
+        execute_db(
+            "INSERT INTO configuracion (clave, valor) VALUES ('cuotas_6_coef', %s) ON DUPLICATE KEY UPDATE valor=%s",
+            (str(coef_6_f), str(coef_6_f))
+        )
+        pct_3 = round((coef_3_f - 1) * 100, 1)
+        pct_6 = round((coef_6_f - 1) * 100, 1)
+        return jsonify(ok=True, msg=f'✅ 3 cuotas: +{pct_3}% / 6 cuotas: +{pct_6}%',
+                       coef_3=coef_3_f, coef_6=coef_6_f)
     except Exception as e:
         return jsonify(ok=False, msg=str(e))
 
