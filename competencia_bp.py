@@ -12,9 +12,9 @@ competencia_bp = Blueprint('competencia', __name__)
 
 # ── Competidores conocidos ─────────────────────────────────────────
 COMPETIDORES = {
-    60351381: 'TMS',
-    54898332: 'MUEBLESLANUS',
-    # Ivana se agrega cuando aparezca en algún catálogo
+    60351381:  'TMS',
+    54898332:  'MUEBLESLANUS',
+    192769857: 'COLCHONERIA IVANA',
 }
 MY_SELLER_ID = 29563319
 
@@ -26,8 +26,10 @@ CAMPAÑAS_CUOTAS = {
     '12x_campaign':  '12 cuotas s/interés',
 }
 
-# SKUs a excluir del monitoreo
-SKU_EXCLUIR = {'CERVICAL', 'CCO80', 'CCO90', 'CCO100', 'CCO140', 'CCO160', 'CCO180', 'CCO200'}
+CPS = [
+    {'cp': '1425', 'label': 'CABA'},
+    {'cp': '2000', 'label': 'Interior'},
+]
 
 # ── DB ────────────────────────────────────────────────────────────
 def _db():
@@ -72,6 +74,8 @@ def _crear_tablas():
             fecha           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             sku             VARCHAR(50),
             catalog_product_id VARCHAR(30),
+            cp              VARCHAR(10),
+            cp_label        VARCHAR(20),
             seller_id       INT,
             seller_nick     VARCHAR(100),
             item_id         VARCHAR(20),
@@ -82,10 +86,21 @@ def _crear_tablas():
             envio_gratis    TINYINT(1) DEFAULT 0,
             envio_costo     DECIMAL(10,2) DEFAULT 0,
             es_propio       TINYINT(1) DEFAULT 0,
+            pausada_sin_stock TINYINT(1) DEFAULT 0,
             INDEX idx_fecha_sku (fecha, sku),
             INDEX idx_seller (seller_id)
         )
     """)
+    # Agregar columnas nuevas si no existen (upgrade)
+    try:
+        cur.execute("ALTER TABLE competencia_snapshots ADD COLUMN cp VARCHAR(10) AFTER catalog_product_id")
+    except Exception: pass
+    try:
+        cur.execute("ALTER TABLE competencia_snapshots ADD COLUMN cp_label VARCHAR(20) AFTER cp")
+    except Exception: pass
+    try:
+        cur.execute("ALTER TABLE competencia_snapshots ADD COLUMN pausada_sin_stock TINYINT(1) DEFAULT 0")
+    except Exception: pass
     db.commit(); cur.close(); db.close()
 
 try:
@@ -112,18 +127,17 @@ def _ml(url, params=None):
         return None
 
 def _envio_tipo(shipping):
-    """Determina tipo de envío desde el campo shipping de ML"""
     if not shipping:
         return 'OTRO', False, 0
     mode = shipping.get('mode', '')
     logistic = shipping.get('logistic_type', '')
     free = shipping.get('free_shipping', False)
-    tags = shipping.get('tags', [])
-    cost = shipping.get('cost', 0) or 0
+    tags = str(shipping.get('tags', []))
+    cost = float(shipping.get('cost') or 0)
 
     if mode == 'me2' and logistic == 'self_service':
         return 'FLEX', True, 0
-    if 'turbo' in str(tags).lower():
+    if 'turbo' in tags.lower():
         return 'TURBO', free, cost
     if mode == 'me1':
         return 'ME1', free, cost
@@ -131,8 +145,16 @@ def _envio_tipo(shipping):
         return 'ACORDAR', False, 0
     return 'OTRO', free, cost
 
-def _cuotas_desde_lt(lt, campaign):
-    """Determina cuotas desde listing_type_id y campaign"""
+def _cuotas_publi(lt):
+    """Cuotas de la publicación SIN tener en cuenta campaigns (estructura base)"""
+    if lt == 'gold_special':
+        return 'Sin cuotas'
+    elif lt == 'gold_pro':
+        return '6 cuotas s/interés'
+    return lt or 'Sin cuotas'
+
+def _cuotas_efectivas(lt, campaign):
+    """Cuotas efectivas CON campaign aplicada"""
     if lt == 'gold_special':
         return CAMPAÑAS_CUOTAS.get(campaign, 'Sin cuotas') if campaign else 'Sin cuotas'
     elif lt == 'gold_pro':
@@ -141,12 +163,10 @@ def _cuotas_desde_lt(lt, campaign):
 
 # ── Mapeo SKU → catalog_product_id ───────────────────────────────
 def _get_catalog_id(sku):
-    """Devuelve catalog_product_id para un SKU. Lo cachea en la BD."""
     cached = _q("SELECT catalog_product_id FROM sku_catalog_map WHERE sku=%s", (sku,), one=True)
     if cached:
         return cached['catalog_product_id']
 
-    # Buscar un MLA del SKU sin Z
     sku_base = sku.rstrip('Z') if sku.endswith('Z') else sku
     row = _q("SELECT mla_id FROM sku_mla_mapeo WHERE sku=%s AND activo=1 LIMIT 1",
              (sku_base,), one=True)
@@ -169,37 +189,80 @@ def _get_catalog_id(sku):
             pass
     return cat_id
 
-# ── Campaign activa de mis propios items ──────────────────────────
-def _get_my_campaigns(sku):
-    """Lee campaigns activas desde mis propios items del SKU."""
+# ── Detectar campaigns desde mis propios items ────────────────────
+def _get_campaigns_activas(sku):
+    """
+    Lee campaigns activas desde mis items.
+    Retorna dict: cuotas_publi → cuotas_efectivas
+    El pasaje es por categoría — aplica igual para TODOS los vendedores.
+    """
     rows = _q("SELECT mla_id FROM sku_mla_mapeo WHERE sku=%s AND activo=1", (sku,))
-    campaigns = {}  # cuotas_publi → cuotas_efectivas
+    campaigns = {}
+    seen_lts = set()
     for row in rows:
-        data = _ml(f"https://api.mercadolibre.com/items/{row['mla_id']}?attributes=listing_type_id,sale_terms")
+        data = _ml(f"https://api.mercadolibre.com/items/{row['mla_id']}?attributes=listing_type_id,sale_terms,status,sub_status")
         if not data:
             continue
         lt = data.get('listing_type_id', '')
+        if lt in seen_lts:
+            continue
+        seen_lts.add(lt)
         camp = next((t.get('value_name', '').split('|')[0].strip()
                      for t in data.get('sale_terms', [])
                      if t.get('id') == 'INSTALLMENTS_CAMPAIGN'), None)
-        publi = _cuotas_desde_lt(lt, None)   # cuotas propias sin campaign
-        efectiva = _cuotas_desde_lt(lt, camp) # cuotas con campaign si aplica
+        publi = _cuotas_publi(lt)
+        efectiva = _cuotas_efectivas(lt, camp)
         if publi not in campaigns:
             campaigns[publi] = efectiva
     return campaigns
 
+# ── Mis publis pausadas (sin stock) ──────────────────────────────
+def _get_mis_publis_pausadas(sku):
+    """
+    Retorna publis propias pausadas por out_of_stock para mostrar precio referencial.
+    """
+    rows = _q("SELECT mla_id FROM sku_mla_mapeo WHERE sku=%s AND activo=1", (sku,))
+    pausadas = []
+    for row in rows:
+        data = _ml(f"https://api.mercadolibre.com/items/{row['mla_id']}?attributes=id,price,listing_type_id,sale_terms,status,sub_status,shipping")
+        if not data:
+            continue
+        status = data.get('status', '')
+        sub_status = data.get('sub_status') or []
+        if isinstance(sub_status, str):
+            sub_status = [sub_status]
+        if status == 'paused' and 'out_of_stock' in sub_status:
+            lt = data.get('listing_type_id', '')
+            camp = next((t.get('value_name', '').split('|')[0].strip()
+                         for t in data.get('sale_terms', [])
+                         if t.get('id') == 'INSTALLMENTS_CAMPAIGN'), None)
+            pausadas.append({
+                'mla_id': row['mla_id'],
+                'precio': data.get('price'),
+                'lt': lt,
+                'camp': camp,
+                'shipping': data.get('shipping', {}),
+            })
+    return pausadas
+
 # ── Snapshot de un catálogo ───────────────────────────────────────
-def _snapshot_catalogo(sku, catalog_id, my_campaigns):
-    """Consulta el catálogo y guarda snapshot de todos los vendedores relevantes."""
+def _snapshot_catalogo(sku, catalog_id, campaigns):
+    """
+    Consulta el catálogo por CP y guarda snapshot deduplicado.
+    Un registro por: seller_id + cuotas_publi + cp (precio mínimo).
+    """
     rows_insertados = 0
 
-    for cp in ['1425', '2000']:
+    for cp_info in CPS:
+        cp = cp_info['cp']
+        cp_label = cp_info['label']
+
         data = _ml(f"https://api.mercadolibre.com/products/{catalog_id}/items",
                    params={'zip_code': cp})
         if not data:
             continue
 
-        # Obtener nicknames de sellers desconocidos
+        # Resolver nicknames desconocidos
         seller_ids = {r['seller_id'] for r in data.get('results', [])}
         nicks = {}
         for sid in seller_ids:
@@ -209,57 +272,94 @@ def _snapshot_catalogo(sku, catalog_id, my_campaigns):
                 nicks[sid] = COMPETIDORES[sid]
             else:
                 u = _ml(f"https://api.mercadolibre.com/users/{sid}?attributes=id,nickname")
-                nicks[sid] = u.get('nickname', str(sid)) if u else str(sid)
-                # Auto-agregar si es Ivana
-                if u and 'IVANA' in (u.get('nickname') or '').upper():
-                    COMPETIDORES[sid] = u['nickname']
+                if u:
+                    nick = u.get('nickname', str(sid))
+                    nicks[sid] = nick
+                    # Auto-detectar Ivana
+                    if 'IVANA' in nick.upper():
+                        COMPETIDORES[sid] = nick
+                else:
+                    nicks[sid] = str(sid)
 
+        # Deduplicar: seller_id + cuotas_publi → mejor precio
+        dedup = {}  # (seller_id, cuotas_publi) → item_data
         for r in data.get('results', []):
             sid = r.get('seller_id')
             es_propio = (sid == MY_SELLER_ID)
-            es_competidor = sid in COMPETIDORES
-
-            if not es_propio and not es_competidor:
+            es_comp = sid in COMPETIDORES
+            if not es_propio and not es_comp:
                 continue
 
-            precio = r.get('price')
             lt = r.get('listing_type_id', '')
             sale_terms = r.get('sale_terms', [])
             camp = next((t.get('value_name', '').split('|')[0].strip()
                          for t in sale_terms
                          if t.get('id') == 'INSTALLMENTS_CAMPAIGN'), None)
 
-            cuotas_publi = _cuotas_desde_lt(lt, None)
-            # Para propios usamos campaign real; para competidores usamos la de nuestros items
-            if es_propio:
-                cuotas_ef = _cuotas_desde_lt(lt, camp)
+            cuotas_pub = _cuotas_publi(lt)
+            # Aplicar campaign uniforme para todos (es por categoría)
+            if camp:
+                cuotas_ef = CAMPAÑAS_CUOTAS.get(camp, cuotas_pub)
             else:
-                cuotas_ef = my_campaigns.get(cuotas_publi, cuotas_publi)
+                cuotas_ef = campaigns.get(cuotas_pub, cuotas_pub)
 
-            envio_t, envio_free, envio_costo = _envio_tipo(r.get('shipping', {}))
+            key = (sid, cuotas_pub)
+            precio = r.get('price') or 0
+            if key not in dedup or precio < dedup[key]['precio']:
+                envio_t, envio_free, envio_costo = _envio_tipo(r.get('shipping', {}))
+                dedup[key] = {
+                    'seller_id':   sid,
+                    'seller_nick': nicks.get(sid, str(sid)),
+                    'item_id':     r.get('item_id'),
+                    'precio':      precio,
+                    'cuotas_pub':  cuotas_pub,
+                    'cuotas_ef':   cuotas_ef,
+                    'envio_t':     envio_t,
+                    'envio_free':  envio_free,
+                    'envio_costo': envio_costo,
+                    'es_propio':   es_propio,
+                }
 
+        # Guardar deduplicados
+        for item in dedup.values():
             _exec("""INSERT INTO competencia_snapshots
-                     (sku, catalog_product_id, seller_id, seller_nick, item_id,
+                     (sku, catalog_product_id, cp, cp_label, seller_id, seller_nick, item_id,
                       precio, cuotas_publi, cuotas_efectivas, envio_tipo,
-                      envio_gratis, envio_costo, es_propio)
-                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                  (sku, catalog_id, sid, nicks.get(sid, str(sid)),
-                   r.get('item_id'), precio,
-                   cuotas_publi, cuotas_ef, envio_t,
-                   1 if envio_free else 0, envio_costo,
-                   1 if es_propio else 0))
+                      envio_gratis, envio_costo, es_propio, pausada_sin_stock)
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0)""",
+                  (sku, catalog_id, cp, cp_label,
+                   item['seller_id'], item['seller_nick'], item['item_id'],
+                   item['precio'], item['cuotas_pub'], item['cuotas_ef'],
+                   item['envio_t'], 1 if item['envio_free'] else 0,
+                   item['envio_costo'], 1 if item['es_propio'] else 0))
             rows_insertados += 1
+
+        # Agregar mis publis pausadas por stock como referencia
+        pausadas = _get_mis_publis_pausadas(sku)
+        for p in pausadas:
+            lt = p['lt']
+            camp = p['camp']
+            cuotas_pub = _cuotas_publi(lt)
+            cuotas_ef = _cuotas_efectivas(lt, camp)
+            # Solo si no hay ya una publi propia activa con mismas cuotas para este CP
+            key = (MY_SELLER_ID, cuotas_pub)
+            if key not in dedup:
+                envio_t, envio_free, envio_costo = _envio_tipo(p['shipping'])
+                _exec("""INSERT INTO competencia_snapshots
+                         (sku, catalog_product_id, cp, cp_label, seller_id, seller_nick, item_id,
+                          precio, cuotas_publi, cuotas_efectivas, envio_tipo,
+                          envio_gratis, envio_costo, es_propio, pausada_sin_stock)
+                         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1,1)""",
+                      (sku, catalog_id, cp, cp_label,
+                       MY_SELLER_ID, 'MERCADOMUEBLES (pausada)', p['mla_id'],
+                       p['precio'], cuotas_pub, cuotas_ef,
+                       envio_t, 1 if envio_free else 0, envio_costo))
+                rows_insertados += 1
 
     return rows_insertados
 
-# ── Función principal del agente ──────────────────────────────────
+# ── Función principal ─────────────────────────────────────────────
 def correr_agente(skus_filtro=None):
-    """
-    Corre el agente de competencia.
-    skus_filtro: lista de SKUs específicos, o None para correr todos.
-    Retorna dict con resultado.
-    """
-    # Obtener SKUs a procesar (solo sin Z, sin almohadas/compac)
     rows = _q("""SELECT DISTINCT sku FROM sku_mla_mapeo
                  WHERE activo=1 AND sku NOT LIKE '%Z'
                  AND sku NOT IN ('CERVICAL')
@@ -269,37 +369,33 @@ def correr_agente(skus_filtro=None):
     todos_skus = [r['sku'] for r in rows]
 
     if skus_filtro:
-        skus_filtro_up = [s.upper().rstrip('Z') for s in skus_filtro]
-        skus = [s for s in todos_skus if s.upper() in skus_filtro_up]
+        skus_up = [s.upper().rstrip('Z') for s in skus_filtro]
+        skus = [s for s in todos_skus if s.upper() in skus_up]
     else:
         skus = todos_skus
 
     if not skus:
-        return {'ok': False, 'error': 'No se encontraron SKUs para procesar'}
+        return {'ok': False, 'error': 'No se encontraron SKUs'}
 
-    resultados = {'procesados': 0, 'sin_catalogo': [], 'errores': [], 'total_rows': 0}
+    resultado = {'procesados': 0, 'sin_catalogo': [], 'errores': [], 'total_rows': 0}
 
     for sku in skus:
         try:
             cat_id = _get_catalog_id(sku)
             if not cat_id:
-                resultados['sin_catalogo'].append(sku)
+                resultado['sin_catalogo'].append(sku)
                 continue
-
-            my_camps = _get_my_campaigns(sku)
-            rows_n = _snapshot_catalogo(sku, cat_id, my_camps)
-            resultados['procesados'] += 1
-            resultados['total_rows'] += rows_n
-            time.sleep(0.3)  # respetar rate limits de ML
-
+            campaigns = _get_campaigns_activas(sku)
+            rows_n = _snapshot_catalogo(sku, cat_id, campaigns)
+            resultado['procesados'] += 1
+            resultado['total_rows'] += rows_n
+            time.sleep(0.3)
         except Exception as e:
-            resultados['errores'].append(f"{sku}: {e}")
+            resultado['errores'].append(f"{sku}: {e}")
 
-    return {'ok': True, **resultados}
+    return {'ok': True, **resultado}
 
-# ── Scheduler jobs ────────────────────────────────────────────────
 def job_competencia():
-    """Job para APScheduler — corre el agente completo."""
     print("[COMPETENCIA] Iniciando snapshot diario...")
     r = correr_agente()
     print(f"[COMPETENCIA] Listo. Procesados: {r.get('procesados')}, rows: {r.get('total_rows')}")
@@ -311,9 +407,8 @@ def competencia_page():
 
 @competencia_bp.route('/admin/competencia/correr', methods=['POST'])
 def competencia_correr():
-    """Corre el agente on-demand."""
     data = request.get_json() or {}
-    skus = data.get('skus')  # None = todos, lista = filtro
+    skus = data.get('skus')
     if skus and isinstance(skus, str):
         skus = [s.strip() for s in skus.split(',') if s.strip()]
     import threading
@@ -328,53 +423,44 @@ def competencia_correr():
 
 @competencia_bp.route('/admin/competencia/datos')
 def competencia_datos():
-    """Devuelve la última comparativa para mostrar en la tabla."""
-    sku_filtro = request.args.get('sku')
+    sku_filtro  = request.args.get('sku')
     cuotas_filtro = request.args.get('cuotas', '6 cuotas s/interés')
+    cp_filtro   = request.args.get('cp', '1425')
 
-    # Última fecha de snapshot
-    ultima = _q("""SELECT MAX(fecha) as f FROM competencia_snapshots""", one=True)
+    ultima = _q("SELECT MAX(fecha) as f FROM competencia_snapshots", one=True)
     if not ultima or not ultima['f']:
         return jsonify({'rows': [], 'ultima_fecha': None})
 
     ultima_fecha = ultima['f']
+    where = "WHERE DATE(s.fecha) = DATE(%s) AND s.cuotas_publi = %s AND s.cp = %s"
+    params = [ultima_fecha, cuotas_filtro, cp_filtro]
 
-    where = "WHERE DATE(s.fecha) = DATE(%s)"
-    params = [ultima_fecha]
     if sku_filtro:
         where += " AND s.sku = %s"
         params.append(sku_filtro.upper())
-    if cuotas_filtro:
-        where += " AND s.cuotas_publi = %s"
-        params.append(cuotas_filtro)
 
     rows = _q(f"""
         SELECT s.sku, s.seller_nick, s.item_id, s.precio,
                s.cuotas_publi, s.cuotas_efectivas,
                s.envio_tipo, s.envio_gratis, s.envio_costo,
-               s.es_propio, s.catalog_product_id
+               s.es_propio, s.pausada_sin_stock, s.catalog_product_id,
+               s.cp, s.cp_label
         FROM competencia_snapshots s
         {where}
         ORDER BY s.sku, s.precio ASC
     """, params)
 
-    # Convertir Decimal a float para JSON
     def fix(r):
-        return {k: (float(v) if hasattr(v, '__float__') and not isinstance(v, (int, bool)) else v)
+        return {k: (float(v) if hasattr(v, '__float__') and not isinstance(v, (int, bool)) else
+                    str(v) if hasattr(v, 'strftime') else v)
                 for k, v in r.items()}
 
     return jsonify({
         'rows': [fix(r) for r in rows],
         'ultima_fecha': str(ultima_fecha),
-        'cuotas_disponibles': [
-            'Sin cuotas', 'Cuota Simple',
-            '3 cuotas s/interés', '6 cuotas s/interés',
-            '9 cuotas s/interés', '12 cuotas s/interés'
-        ]
     })
 
 @competencia_bp.route('/admin/competencia/skus')
 def competencia_skus():
-    """Lista de SKUs disponibles para filtrar."""
-    rows = _q("""SELECT DISTINCT sku FROM competencia_snapshots ORDER BY sku""")
+    rows = _q("SELECT DISTINCT sku FROM competencia_snapshots ORDER BY sku")
     return jsonify({'skus': [r['sku'] for r in rows]})
