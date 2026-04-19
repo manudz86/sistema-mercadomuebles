@@ -189,7 +189,7 @@ def _precio_lista_formula(precio_cannon, desc_linea, desc_cliente, desc_adi, pro
     c *= 1 / (1 + prontopago / 100)
     return round(c * mult)
 
-def _calc_prices(sku, recargo_flex=0):
+def _calc_prices(sku, recargo_flex=0, recargo_almohada_unit=0):
     # Strip Z para buscar en cannon_productos
     sku_buscar = sku[:-1] if sku.upper().endswith('Z') else sku
     es_sommier = sku_buscar.upper().startswith('S') and len(sku_buscar) > 1 and sku_buscar[1].isalpha()
@@ -262,7 +262,13 @@ def _calc_prices(sku, recargo_flex=0):
     else:
         costo_envio = float(prod['costo_flex'] or 0)
 
-    precio_sc = round((precio_base + costo_envio) / 1000) * 1000
+    # Recargo almohadas: 1 almohada si ancho <= 100cm, 2 si > 100cm
+    cant_alm = 0
+    if float(recargo_almohada_unit) > 0:
+        cant_alm = 1 if ancho <= 100 else 2
+    costo_almohadas = float(recargo_almohada_unit) * cant_alm
+
+    precio_sc = round((precio_base + costo_envio + costo_almohadas) / 1000) * 1000
 
     pcts_row = _query("SELECT valor FROM configuracion WHERE clave='porcentajes_ml'", fetchall=False)
     pcts = json.loads(pcts_row['valor']) if pcts_row else {
@@ -279,6 +285,8 @@ def _calc_prices(sku, recargo_flex=0):
         "modelo_key": clave,
         "desc_linea_pct": desc_linea,
         "costo_envio": costo_envio,
+        "costo_almohadas": costo_almohadas,
+        "cant_almohadas": cant_alm,
         "sin_cuotas":   precio_sc,
         "cuota_simple": _pc(precio_sc, pcts['cuota_simple']),
         "c3":           _pc(precio_sc, pcts['cuotas_3']),
@@ -304,8 +312,12 @@ def tool_sql(query):
         cur.close(); db.close()
 
 def tool_calcular(skus_recargos):
-    """[{sku, recargo_flex}] → precios calculados por SKU"""
-    return {"precios": [_calc_prices(i['sku'], i.get('recargo_flex', 0)) for i in skus_recargos]}
+    """[{sku, recargo_flex, recargo_almohada_unit}] → precios calculados por SKU"""
+    return {"precios": [_calc_prices(
+        i['sku'],
+        i.get('recargo_flex', 0),
+        i.get('recargo_almohada_unit', 0)
+    ) for i in skus_recargos]}
 
 def _fetch_mla(mla_id):
     """Fetch un MLA de ML y devuelve dict procesado. Thread-safe."""
@@ -448,11 +460,11 @@ TOOLS = [
     {
         "name": "calcular_precios",
         "description": (
-            "Calcula los precios ML para una lista de SKUs con sus recargos Flex. "
-            "Aplica la fórmula completa: "
-            "precio_lista × 1.85 × (1−desc_linea%) × (1−desc_adicional%) × 0.90 ÷ 1.05 + recargo_flex = base. "
+            "Calcula los precios ML para una lista de SKUs con sus recargos. "
+            "Fórmula: precio_lista × mult × (1−desc%) × (1−dc%) ÷ (1+pp%) + recargo_flex + recargo_almohadas = base. "
+            "recargo_almohadas = recargo_almohada_unit × (1 si ancho≤100, 2 si ancho>100). "
             "Luego para cuotas: round(0.76/(0.76−pct/100) × base / 1000) × 1000. "
-            "Devuelve sin_cuotas, cuota_simple, c3, c6, c9, c12."
+            "Devuelve sin_cuotas, cuota_simple, c3, c6, c9, c12, costo_almohadas, cant_almohadas."
         ),
         "input_schema": {
             "type": "object",
@@ -465,7 +477,9 @@ TOOLS = [
                         "properties": {
                             "sku": {"type": "string"},
                             "recargo_flex": {"type": "number",
-                                            "description": "Recargo en pesos por Flex. 0 si no aplica."}
+                                            "description": "Recargo en pesos por Flex. 0 si no aplica."},
+                            "recargo_almohada_unit": {"type": "number",
+                                            "description": "Precio por unidad de almohada en pesos. 0 si no aplica. El sistema multiplica por 1 o 2 según el ancho del SKU."}
                         },
                         "required": ["sku", "recargo_flex"]
                     }
@@ -526,7 +540,11 @@ SYSTEM = """Sos el Bot de Precios ML de Mercadomuebles. Tu función es ayudar a 
 2. SKU sin Z, colchón (empieza con C), ancho ≤ 100cm → sin recargo (Colecta lo cubre)
 3. SKU sin Z, colchón (empieza con C), ancho > 100cm → recargo Flex (Manu lo indica)
 4. SKU sin Z, sommier (empieza con S) → SIEMPRE recargo Flex (Manu lo indica)
-5. Título de ML contiene "almohada" → recargo adicional (funcionalidad pendiente, avisá si aparece)
+5. Título de ML contiene "almohada" → sumar recargo por almohadas ANTES de calcular cuotas:
+   - SKU con ancho ≤ 100cm → 1 almohada → recargo = recargo_almohada_unit × 1
+   - SKU con ancho > 100cm → 2 almohadas → recargo = recargo_almohada_unit × 2
+   - Si Manu no indicó precio por almohada, PREGUNTAR antes de calcular esas publis
+   - El recargo_almohada_unit se pasa igual que el flex: "almohadas a 15mil cada una" → recargo_almohada_unit=15000
 El ancho está en el SKU: CDOP140 → 140cm, CDOP80 → 80cm, CTR90 → 90cm
 
 ═══ IMPORTANTE SOBRE SKUs CON Z ═══
