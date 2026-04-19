@@ -1,6 +1,7 @@
 import json, re, os
 import requests
 import mysql.connector
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Blueprint, request, jsonify, render_template, session
 from dotenv import load_dotenv
 import anthropic
@@ -306,36 +307,44 @@ def tool_calcular(skus_recargos):
     """[{sku, recargo_flex}] → precios calculados por SKU"""
     return {"precios": [_calc_prices(i['sku'], i.get('recargo_flex', 0)) for i in skus_recargos]}
 
+def _fetch_mla(mla_id):
+    """Fetch un MLA de ML y devuelve dict procesado. Thread-safe."""
+    data = _ml_get(mla_id)
+    if not data:
+        return mla_id, None
+    titulo = data.get('title', '')
+    try:
+        db = _db(); cur = db.cursor()
+        cur.execute("UPDATE sku_mla_mapeo SET titulo_ml=%s WHERE mla_id=%s", (titulo, mla_id))
+        db.commit(); cur.close(); db.close()
+    except Exception:
+        pass
+    return mla_id, {
+        'mla_id':          mla_id,
+        'titulo':          titulo,
+        'precio_actual':   data.get('price'),
+        'status':          data.get('status', 'unknown'),
+        'listing_type':    _listing_type_from_ml(data),
+        'catalog_listing': data.get('catalog_listing', False),
+        'item_relations':  [r['id'] for r in data.get('item_relations', [])],
+        'tiene_almohada':  'almohada' in titulo.lower(),
+        'skip':            False,
+    }
+
 def tool_obtener_publis(skus):
-    """Trae MLAs + datos de ML. Deduplica pares por item_relations."""
+    """Trae MLAs + datos de ML en paralelo. Deduplica pares por item_relations."""
     resultado = {}
     for sku in skus:
         rows = _query("SELECT mla_id FROM sku_mla_mapeo WHERE sku=%s AND activo=1", (sku,))
+        mla_ids = [row['mla_id'] for row in rows]
+
+        # Consultas en paralelo — 10 threads simultáneos
         publis_raw = {}
-        for row in rows:
-            mla_id = row['mla_id']
-            data = _ml_get(mla_id)
-            if not data:
-                publis_raw[mla_id] = None
-                continue
-            titulo = data.get('title', '')
-            try:
-                db = _db(); cur = db.cursor()
-                cur.execute("UPDATE sku_mla_mapeo SET titulo_ml=%s WHERE mla_id=%s", (titulo, mla_id))
-                db.commit(); cur.close(); db.close()
-            except Exception:
-                pass
-            publis_raw[mla_id] = {
-                'mla_id':          mla_id,
-                'titulo':          titulo,
-                'precio_actual':   data.get('price'),
-                'status':          data.get('status', 'unknown'),
-                'listing_type':    _listing_type_from_ml(data),
-                'catalog_listing': data.get('catalog_listing', False),
-                'item_relations':  [r['id'] for r in data.get('item_relations', [])],
-                'tiene_almohada':  'almohada' in titulo.lower(),
-                'skip':            False,
-            }
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(_fetch_mla, mla_id): mla_id for mla_id in mla_ids}
+            for future in as_completed(futures):
+                mla_id, pub = future.result()
+                publis_raw[mla_id] = pub
 
         # Deduplicar pares A<->B
         # Regla: catálogo activa > catálogo pausada (usar la otra) > activa > cualquiera
