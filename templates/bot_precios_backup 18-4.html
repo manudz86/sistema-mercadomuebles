@@ -179,19 +179,6 @@ function sendMessage() {
     if (!text) return;
     input.value = '';
 
-    // Si hay banner pendiente y el user responde por texto, ocultarlo
-    if (pendingChanges) {
-        const lower = text.toLowerCase();
-        const confirmWords = ['sí','si','dale','confirmo','confirmado','ok','adelante','hacelo','si confirmo'];
-        const cancelWords  = ['no','cancel','cancelar','cancelado'];
-        if (confirmWords.some(w => lower.includes(w))) {
-            document.getElementById('confirm-banner').style.display = 'none';
-        } else if (cancelWords.some(w => lower.startsWith(w))) {
-            document.getElementById('confirm-banner').style.display = 'none';
-            pendingChanges = null;
-        }
-    }
-
     appendUser(text);
     messages.push({ role: 'user', content: text });
     setBusy(true);
@@ -201,22 +188,15 @@ function sendMessage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages })
     })
-    .then(r => {
-        if (!r.ok) throw new Error('HTTP_' + r.status);
-        return r.json();
-    })
+    .then(r => r.json())
     .then(data => {
         messages = data.messages || messages;
         setBusy(false);
         handleBotResponse(data.text || '');
     })
-    .catch((err) => {
+    .catch(() => {
         setBusy(false);
-        if (err.message.includes('504') || err.message.includes('502') || err.message.includes('524')) {
-            appendBot('⏱️ La consulta tardó demasiado — son muchos SKUs para consultar a ML de una vez. Probá con 2-3 SKUs por vez.');
-        } else {
-            appendBot('❌ Error de conexión. Intentá de nuevo.');
-        }
+        appendBot('❌ Error de conexión. Intentá de nuevo.');
     });
 }
 
