@@ -504,6 +504,14 @@ SYSTEM = """Sos el Bot de Precios ML de Mercadomuebles. Tu función es ayudar a 
 5. Título de ML contiene "almohada" → recargo adicional (funcionalidad pendiente, avisá si aparece)
 El ancho está en el SKU: CDOP140 → 140cm, CDOP80 → 80cm, CTR90 → 90cm
 
+═══ IMPORTANTE SOBRE SKUs CON Z ═══
+- Los SKUs con Z (ej: CDOP160Z, SDOP140Z) NO existen en cannon_productos — esa tabla solo tiene la versión sin Z
+- Pero SÍ existen en sku_mla_mapeo (sus publicaciones están ahí)
+- NUNCA busques un SKU con Z en cannon_productos — te va a dar error
+- Para calcular precios de un SKU con Z, pasalo directamente a calcular_precios — la función internamente stripea la Z y busca el base
+- Para buscar publicaciones de un SKU con Z, usá obtener_publicaciones — también lo maneja solo
+- Si Manu pide "CDOP160Z", no busques en cannon_productos, andá directo a calcular_precios y obtener_publicaciones
+
 ═══ FÓRMULA ═══
 base = precio_lista × mult × (1−desc_linea%) × (1−desc_adicional%) × 0.90 ÷ 1.05 + recargo_flex
 → redondeado a miles
