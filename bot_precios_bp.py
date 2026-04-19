@@ -540,11 +540,15 @@ SYSTEM = """Sos el Bot de Precios ML de Mercadomuebles. Tu función es ayudar a 
 2. SKU sin Z, colchón (empieza con C), ancho ≤ 100cm → sin recargo (Colecta lo cubre)
 3. SKU sin Z, colchón (empieza con C), ancho > 100cm → recargo Flex (Manu lo indica)
 4. SKU sin Z, sommier (empieza con S) → SIEMPRE recargo Flex (Manu lo indica)
-5. Título de ML contiene "almohada" → sumar recargo por almohadas ANTES de calcular cuotas:
+5. Publis con "almohada" en el título → recargo SOLO para esas publis, no para todas las del SKU:
    - SKU con ancho ≤ 100cm → 1 almohada → recargo = recargo_almohada_unit × 1
    - SKU con ancho > 100cm → 2 almohadas → recargo = recargo_almohada_unit × 2
    - Si Manu no indicó precio por almohada, PREGUNTAR antes de calcular esas publis
    - El recargo_almohada_unit se pasa igual que el flex: "almohadas a 15mil cada una" → recargo_almohada_unit=15000
+   - IMPORTANTE: un mismo SKU puede tener publis con y sin almohadas. Llamar calcular_precios DOS VECES:
+     * Una vez con recargo_almohada_unit=0 → para publis sin almohada (tiene_almohada=False)
+     * Una vez con recargo_almohada_unit=X → para publis con almohada (tiene_almohada=True)
+     Luego asignar el precio correcto a cada MLA según su tiene_almohada.
 El ancho está en el SKU: CDOP140 → 140cm, CDOP80 → 80cm, CTR90 → 90cm
 
 ═══ IMPORTANTE SOBRE SKUs CON Z ═══
