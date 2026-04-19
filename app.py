@@ -12507,19 +12507,20 @@ def iniciar_scheduler():
             replace_existing=True,
             max_instances=1
         )
-    # Monitor de competencia — 2 veces por día
-    try:
-        from competencia_bp import job_competencia
-        scheduler.add_job(job_competencia, 'cron', hour=8, minute=0,
-                         id='job_competencia_manana', replace_existing=True)
-        scheduler.add_job(job_competencia, 'cron', hour=18, minute=0,
-                         id='job_competencia_tarde', replace_existing=True)
-        print("[COMPETENCIA] Jobs agendados: 8:00 y 18:00")
-    except Exception as e:
-        print(f"[COMPETENCIA] Error registrando jobs: {e}")
-
         scheduler.start()
         print("[AUTO-ML] ✅ Scheduler iniciado — auto-import cada 120s, cancelaciones cada 10min, notas MP cada 10min")
+
+        # Monitor de competencia — 2 veces por día
+        try:
+            from competencia_bp import job_competencia
+            scheduler.add_job(job_competencia, 'cron', hour=8, minute=0,
+                             id='job_competencia_manana', replace_existing=True)
+            scheduler.add_job(job_competencia, 'cron', hour=18, minute=0,
+                             id='job_competencia_tarde', replace_existing=True)
+            print("[COMPETENCIA] Jobs agendados: 8:00 y 18:00")
+        except Exception as e:
+            print(f"[COMPETENCIA] Error registrando jobs: {e}")
+
         return scheduler
     except Exception as e:
         print(f"[AUTO-ML] Error iniciando scheduler: {e}")
