@@ -9913,8 +9913,7 @@ def ml_callback():
 # ============================================================================
 # TIENDANUBE Y TIENDA PROPIA
 # ============================================================================
-from tiendanube_bp import tiendanube_bp
-app.register_blueprint(tiendanube_bp)
+
 
 @app.route('/ventas/guardar-trid', methods=['POST'])
 @login_required
