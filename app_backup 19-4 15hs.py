@@ -11683,23 +11683,6 @@ def _importar_orden_automatica(orden, access_token):
         nombre_cliente = nombre_real if nombre_real else mla_code
         numero_venta = f"ML-{orden_id}"
         telefono_cliente = ''
-
-        # Intentar obtener teléfono del destinatario desde el shipment
-        try:
-            shipping_id_tel = orden_data['shipping'].get('shipping_id') or (shipping.get('shipping_id') if shipping else None)
-            if shipping_id_tel:
-                headers_ml = {'Authorization': f'Bearer {access_token}'}
-                r_ship = requests.get(
-                    f'https://api.mercadolibre.com/shipments/{shipping_id_tel}',
-                    headers=headers_ml, timeout=8
-                )
-                if r_ship.status_code == 200:
-                    recv_phone = r_ship.json().get('receiver_address', {}).get('receiver_phone', '')
-                    if recv_phone:
-                        telefono_cliente = str(recv_phone).strip()
-                        print(f"[AUTO-ML] 📱 Teléfono obtenido del shipment: {telefono_cliente}")
-        except Exception as e_tel:
-            print(f"[AUTO-ML] No se pudo obtener teléfono del shipment: {e_tel}")
         tipo_entrega = 'envio' if shipping.get('tiene_envio') else 'retiro'
         metodo_envio = shipping.get('metodo_envio', '')
         ubicacion_despacho = 'FULL' if metodo_envio == 'Full' else 'DEP'
