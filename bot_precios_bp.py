@@ -319,11 +319,13 @@ def _fetch_mla(mla_id):
         db.commit(); cur.close(); db.close()
     except Exception:
         pass
+    sub_status = data.get('sub_status') or []
     return mla_id, {
         'mla_id':          mla_id,
         'titulo':          titulo,
         'precio_actual':   data.get('price'),
         'status':          data.get('status', 'unknown'),
+        'sub_status':      sub_status if isinstance(sub_status, list) else [sub_status],
         'listing_type':    _listing_type_from_ml(data),
         'catalog_listing': data.get('catalog_listing', False),
         'item_relations':  [r['id'] for r in data.get('item_relations', [])],
@@ -361,13 +363,27 @@ def tool_obtener_publis(skus):
                 b_act = rel['status'] == 'active'
                 a_cat = pub['catalog_listing']
                 b_cat = rel['catalog_listing']
+                a_oos = 'out_of_stock' in pub.get('sub_status', [])
+                b_oos = 'out_of_stock' in rel.get('sub_status', [])
+
                 if a_cat and a_act:
+                    # A catálogo activa → skipear B
                     rel['skip'] = True
                 elif b_cat and b_act:
+                    # B catálogo activa → skipear A
                     pub['skip'] = True
+                elif a_oos and b_oos:
+                    # Ambas pausadas por stock 0 → actualizar solo la catálogo
+                    if a_cat:
+                        rel['skip'] = True
+                    elif b_cat:
+                        pub['skip'] = True
+                    # Si ninguna es catálogo, dejar ambas (independientes)
                 elif a_cat and not a_act and b_act:
+                    # A catálogo pausada (no por stock), B activa → skipear A
                     pub['skip'] = True
                 elif b_cat and not b_act and a_act:
+                    # B catálogo pausada (no por stock), A activa → skipear B
                     rel['skip'] = True
                 elif a_act and not b_act:
                     rel['skip'] = True
