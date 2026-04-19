@@ -11695,7 +11695,7 @@ def _importar_orden_automatica(orden, access_token):
                 )
                 if r_ship.status_code == 200:
                     recv_phone = r_ship.json().get('receiver_address', {}).get('receiver_phone', '')
-                    if recv_phone:
+                    if recv_phone and 'X' not in str(recv_phone).upper():
                         telefono_cliente = str(recv_phone).strip()
                         print(f"[AUTO-ML] 📱 Teléfono obtenido del shipment: {telefono_cliente}")
         except Exception as e_tel:
