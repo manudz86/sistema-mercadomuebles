@@ -120,38 +120,28 @@ def _needs_flex(sku):
         return True           # sommiers sin Z: siempre con recargo
     return _sku_width(sku) > 100  # colchones: solo si ancho > 100cm
 
+CAMPAÑAS_CUOTAS = {
+    'pcj-co-funded': 'Cuota Simple',
+    '3x_campaign':   '3 cuotas s/interés',
+    '6x_campaign':   '6 cuotas s/interés',
+    '9x_campaign':   '9 cuotas s/interés',
+    '12x_campaign':  '12 cuotas s/interés',
+}
+
 def _listing_type_from_ml(ml_data):
-    """Detecta el tipo de cuotas de un item de ML usando listing_type_id y título"""
-    lt = (ml_data.get('listing_type_id') or '').lower()
-    title = (ml_data.get('title') or '').lower()
-
-    # listing_type_id directo
-    if '12' in lt: return '12 cuotas s/interés'
-    if '9'  in lt: return '9 cuotas s/interés'
-    if '6'  in lt: return '6 cuotas s/interés'
-    if '3'  in lt: return '3 cuotas s/interés'
-    if 'gold_special' in lt or 'gold_pro' in lt: return 'Cuota Simple'
-
-    # sale_terms INSTALLMENTS
+    """Detecta el tipo de cuotas — lógica exacta de app.py obtener_datos_ml"""
+    campaign = None
     for term in ml_data.get('sale_terms', []):
-        if term.get('id') == 'INSTALLMENTS':
-            n = (term.get('value_struct') or {}).get('number')
-            if n == 12: return '12 cuotas s/interés'
-            if n == 9:  return '9 cuotas s/interés'
-            if n == 6:  return '6 cuotas s/interés'
-            if n == 3:  return '3 cuotas s/interés'
-            if n == 1:  return 'Cuota Simple'
+        if term.get('id') == 'INSTALLMENTS_CAMPAIGN':
+            campaign = (term.get('value_name') or '').split('|')[0].strip()
 
-    # Fallback por título
-    for phrase, label in [
-        ('12 cuota', '12 cuotas s/interés'), ('9 cuota', '9 cuotas s/interés'),
-        ('6 cuota',  '6 cuotas s/interés'),  ('3 cuota', '3 cuotas s/interés'),
-        ('cuota simple', 'Cuota Simple'),
-    ]:
-        if phrase in title:
-            return label
-
-    return 'Sin cuotas propias'
+    listing_type_id = ml_data.get('listing_type_id', '')
+    if listing_type_id == 'gold_special':
+        return CAMPAÑAS_CUOTAS.get(campaign, 'Sin cuotas propias') if campaign else 'Sin cuotas propias'
+    elif listing_type_id == 'gold_pro':
+        return CAMPAÑAS_CUOTAS.get(campaign, '6 cuotas s/interés')
+    else:
+        return listing_type_id or 'Sin cuotas propias'
 
 _LT_TO_FIELD = {
     'Sin cuotas propias':   'sin_cuotas',
