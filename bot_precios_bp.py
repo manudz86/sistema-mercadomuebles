@@ -307,35 +307,72 @@ def tool_calcular(skus_recargos):
     return {"precios": [_calc_prices(i['sku'], i.get('recargo_flex', 0)) for i in skus_recargos]}
 
 def tool_obtener_publis(skus):
-    """Trae MLAs + datos de ML para lista de SKUs. Cachea títulos en la BD."""
+    """Trae MLAs + datos de ML. Deduplica pares por item_relations."""
     resultado = {}
     for sku in skus:
         rows = _query("SELECT mla_id FROM sku_mla_mapeo WHERE sku=%s AND activo=1", (sku,))
-        publis = []
+        publis_raw = {}
         for row in rows:
             mla_id = row['mla_id']
             data = _ml_get(mla_id)
-            if data:
-                titulo = data.get('title', '')
-                # Cachear título en BD
-                try:
-                    db = _db(); cur = db.cursor()
-                    cur.execute("UPDATE sku_mla_mapeo SET titulo_ml=%s WHERE mla_id=%s", (titulo, mla_id))
-                    db.commit(); cur.close(); db.close()
-                except Exception:
-                    pass
-                publis.append({
-                    'mla_id': mla_id,
-                    'titulo': titulo,
-                    'precio_actual': data.get('price'),
-                    'status': data.get('status'),
-                    'listing_type': _listing_type_from_ml(data),
-                    'tiene_almohada': 'almohada' in titulo.lower(),
-                })
+            if not data:
+                publis_raw[mla_id] = None
+                continue
+            titulo = data.get('title', '')
+            try:
+                db = _db(); cur = db.cursor()
+                cur.execute("UPDATE sku_mla_mapeo SET titulo_ml=%s WHERE mla_id=%s", (titulo, mla_id))
+                db.commit(); cur.close(); db.close()
+            except Exception:
+                pass
+            publis_raw[mla_id] = {
+                'mla_id':          mla_id,
+                'titulo':          titulo,
+                'precio_actual':   data.get('price'),
+                'status':          data.get('status', 'unknown'),
+                'listing_type':    _listing_type_from_ml(data),
+                'catalog_listing': data.get('catalog_listing', False),
+                'item_relations':  [r['id'] for r in data.get('item_relations', [])],
+                'tiene_almohada':  'almohada' in titulo.lower(),
+                'skip':            False,
+            }
+
+        # Deduplicar pares A<->B
+        # Regla: catálogo activa > catálogo pausada (usar la otra) > activa > cualquiera
+        procesados = set()
+        for mla_id, pub in publis_raw.items():
+            if pub is None or mla_id in procesados:
+                continue
+            for rel_id in pub.get('item_relations', []):
+                if rel_id not in publis_raw or publis_raw[rel_id] is None:
+                    continue
+                rel = publis_raw[rel_id]
+                procesados.update([mla_id, rel_id])
+                a_act = pub['status'] == 'active'
+                b_act = rel['status'] == 'active'
+                a_cat = pub['catalog_listing']
+                b_cat = rel['catalog_listing']
+                if a_cat and a_act:
+                    rel['skip'] = True
+                elif b_cat and b_act:
+                    pub['skip'] = True
+                elif a_cat and not a_act and b_act:
+                    pub['skip'] = True
+                elif b_cat and not b_act and a_act:
+                    rel['skip'] = True
+                elif a_act and not b_act:
+                    rel['skip'] = True
+                elif b_act and not a_act:
+                    pub['skip'] = True
+
+        publis = []
+        for mla_id, pub in publis_raw.items():
+            if pub is None:
+                publis.append({'mla_id': mla_id, 'titulo': None, 'precio_actual': None,
+                               'status': 'error', 'listing_type': None,
+                               'tiene_almohada': False, 'skip': False})
             else:
-                publis.append({'mla_id': mla_id, 'titulo': None,
-                               'precio_actual': None, 'status': 'error',
-                               'listing_type': None, 'tiene_almohada': False})
+                publis.append(pub)
         resultado[sku] = publis
     return {"publicaciones": resultado}
 
@@ -477,7 +514,9 @@ precio con cuotas = round(0.76/(0.76−pct/100) × base / 1000) × 1000
 2. Identificar cuáles necesitan recargo Flex → si no te los dieron, PREGUNTAR antes de continuar
 3. calcular_precios con los recargos correctos
 4. obtener_publicaciones para saber MLAs, precios actuales y tipos de cuota
-5. Mostrar tabla de preview con: SKU | MLA | Título | Cuotas | Precio actual | Precio nuevo | Δ
+5. Mostrar tabla de preview SOLO con publis donde skip=False. Las que tienen skip=True son secundarias sincronizadas automáticamente por ML — NO incluirlas en el preview ni en los CAMBIOS.
+   Columnas: SKU | MLA | Título | Cuotas | Precio actual | Precio nuevo | Δ
+   Si hay publis skipeadas, indicar al final cuántas se omitieron y por qué (ej: "3 publis omitidas — se sincronizan automáticamente con su par de catálogo").
 6. Al final del mensaje de preview, incluir EXACTAMENTE este marcador (sin espacios extra):
    <!--CAMBIOS:[{"mla_id":"MLA...","sku":"...","precio_nuevo":000000,"precio_anterior":000000,"titulo":"...","listing_type":"..."}]-->
 7. ESPERAR confirmación explícita del usuario
