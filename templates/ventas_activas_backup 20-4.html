@@ -421,7 +421,6 @@
                         <br><small class="text-muted"><i class="bi bi-telephone"></i> {{ venta.telefono_cliente }}</small>
                         <button class="btn btn-link p-0 ms-1 wa-entrega-btn"
                             data-venta-id="{{ venta.id }}"
-                            data-telefono="{{ venta.telefono_cliente or '' }}"
                             data-nombre="{{ venta.nombre_cliente or '' }}"
                             data-producto="{% for item in venta['items'] %}{{ item.cantidad }}x {{ item.nombre_producto }}{% if not loop.last %}, {% endif %}{% endfor %}"
                             data-direccion="{{ venta.direccion_entrega or '' }}"
@@ -679,7 +678,6 @@
                     <span class="text-muted ms-2" style="font-size:0.8rem;"><i class="bi bi-telephone"></i> {{ venta.telefono_cliente }}</span>
                     <button class="btn btn-link p-0 ms-1 wa-entrega-btn"
                         data-venta-id="{{ venta.id }}"
-                        data-telefono="{{ venta.telefono_cliente or '' }}"
                         data-nombre="{{ venta.nombre_cliente or '' }}"
                         data-producto="{% for item in venta['items'] %}{{ item.cantidad }}x {{ item.nombre_producto }}{% if not loop.last %}, {% endif %}{% endfor %}"
                         data-direccion="{{ venta.direccion_entrega or '' }}"
@@ -1380,142 +1378,174 @@ function toggleAutoImport(checkbox) {
     });
 // ── WhatsApp ──────────────────────────────────────────────────────
 (function() {
-    var waVentaId  = null;
-    var waTelefono = null;
+    var waVentaId = null;
     var DIAS_ES = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
 
-    function normalizar_tel(t) {
-        t = (t||'').replace(/[\s\+\-\(\)]/g,'');
-        if (t.startsWith('0054')) t = t.slice(2);
-        if (t.startsWith('0'))   t = '54' + t.slice(1);
-        if (t.startsWith('15'))  t = '5491' + t.slice(2);
-        if (t.startsWith('11') && !t.startsWith('549')) t = '549' + t;
-        if (!t.startsWith('54')) t = '549' + t;
-        return t;
-    }
-
+    // Poblar opciones de fecha al cargar
     function poblarFechas() {
         var sel = document.getElementById('wa-fecha');
         if (!sel) return;
         sel.innerHTML = '';
         var hoy = new Date();
         for (var i = 0; i <= 6; i++) {
-            var d = new Date(hoy); d.setDate(hoy.getDate() + i);
+            var d = new Date(hoy);
+            d.setDate(hoy.getDate() + i);
             var dia = DIAS_ES[d.getDay()];
-            var dd  = String(d.getDate()).padStart(2,'0');
-            var mm  = String(d.getMonth()+1).padStart(2,'0');
-            var label = i===0 ? 'hoy '+dia : (i===1 ? 'mañana '+dia : dia+' '+dd+'/'+mm);
+            var dd = String(d.getDate()).padStart(2,'0');
+            var mm = String(d.getMonth()+1).padStart(2,'0');
+            var label = i === 0 ? 'hoy ' + dia : (i === 1 ? 'mañana ' + dia : dia + ' ' + dd + '/' + mm);
             var opt = document.createElement('option');
-            opt.value = label; opt.textContent = label.charAt(0).toUpperCase()+label.slice(1);
+            opt.value = label;
+            opt.textContent = label.charAt(0).toUpperCase() + label.slice(1);
             sel.appendChild(opt);
         }
     }
 
-    function poblarHoras(iniId, finId) {
-        [iniId, finId].forEach(function(id) {
+    // Poblar horas
+    function poblarHoras() {
+        ['wa-hora-inicio','wa-hora-fin'].forEach(function(id) {
             var sel = document.getElementById(id);
             if (!sel) return;
             sel.innerHTML = '';
-            for (var h=0; h<24; h++) {
+            for (var h = 0; h < 24; h++) {
                 var opt = document.createElement('option');
-                opt.value = h; opt.textContent = (h<10?'0':'')+h+':00';
+                opt.value = h;
+                opt.textContent = (h < 10 ? '0' : '') + h + ':00';
                 sel.appendChild(opt);
             }
         });
-        var ini = document.getElementById(iniId);
-        var fin = document.getElementById(finId);
+        // Defaults: inicio 9, fin 12
+        var ini = document.getElementById('wa-hora-inicio');
+        var fin = document.getElementById('wa-hora-fin');
         if (ini) ini.value = 9;
         if (fin) fin.value = 12;
     }
 
-    function actualizarCampos() {
-        var tpl = (document.getElementById('wa-template')||{}).value||'';
-        document.getElementById('wa-campos-entrega').style.display  = tpl==='posible_entrega' ? '' : 'none';
-        document.getElementById('wa-campos-hoy').style.display      = tpl==='entrega_hoy'     ? '' : 'none';
-        document.getElementById('wa-campos-libre').style.display    = tpl==='mensaje_libre'   ? '' : 'none';
-    }
-
-    function armarMensaje() {
-        var tpl      = (document.getElementById('wa-template')||{}).value||'';
-        var nombre   = (document.getElementById('wa-nombre')||{}).value||'';
-        var producto = (document.getElementById('wa-producto')||{}).value||'';
-        var fecha    = (document.getElementById('wa-fecha')||{}).value||'';
-        var dir      = (document.getElementById('wa-direccion')||{}).value||'';
-        var hIni1    = (document.getElementById('wa-hora-inicio')||{}).value;
-        var hFin1    = (document.getElementById('wa-hora-fin')||{}).value;
-        var hIni2    = (document.getElementById('wa-hora-inicio-hoy')||{}).value;
-        var hFin2    = (document.getElementById('wa-hora-fin-hoy')||{}).value;
-        var libre    = (document.getElementById('wa-mensaje-libre')||{}).value||'';
-        var txt = '';
-        if (tpl === 'entrega_hoy') {
-            var horario = (hIni2!==undefined&&hFin2!==undefined) ? hIni2+':00 y las '+hFin2+':00hs' : '';
-            txt = 'Hola '+(nombre||'[nombre]')+', te escribimos de Mercadomuebles por la entrega de tu compra '+(producto||'[producto]')+'. Tu compra se entregará hoy en el transcurso del día entre las '+(horario||'[horario]')+'. Muchas gracias!';
-        } else if (tpl === 'posible_entrega') {
-            var horario = (hIni1!==undefined&&hFin1!==undefined) ? hIni1+':00 a '+hFin1+':00hs' : '';
-            txt = 'Hola '+(nombre||'[nombre]')+', te escribimos de Mercadomuebles para coordinar la entrega de tu compra '+(producto||'[producto]')+'. Podremos entregar '+(fecha||'[fecha]')+' en la dirección '+(dir||'[dirección]')+' de '+(horario||'[horario]')+'? Aguardamos tu confirmación. Muchas gracias!';
-        } else if (tpl === 'mensaje_libre') {
-            txt = 'Hola '+(nombre||'[nombre]')+', te escribimos de Mercadomuebles por tu compra de '+(producto||'[producto]')+'. '+(libre||'[mensaje]')+'. Muchas gracias!';
-        }
-        return txt;
-    }
-
-    function actualizarPreview() {
-        var prev = document.getElementById('wa-preview');
-        if (prev) prev.textContent = armarMensaje();
-    }
-
+    // Sincronizar fin = inicio + 1 al cambiar inicio
     document.addEventListener('change', function(e) {
         if (e.target.id === 'wa-hora-inicio') {
             var ini = parseInt(e.target.value);
             var fin = document.getElementById('wa-hora-fin');
-            if (fin && parseInt(fin.value) <= ini) fin.value = Math.min(ini+1,23);
+            if (fin && parseInt(fin.value) <= ini) {
+                fin.value = Math.min(ini + 1, 23);
+            }
         }
-        if (e.target.id === 'wa-hora-inicio-hoy') {
-            var ini = parseInt(e.target.value);
-            var fin = document.getElementById('wa-hora-fin-hoy');
-            if (fin && parseInt(fin.value) <= ini) fin.value = Math.min(ini+1,23);
-        }
-        if (e.target.id === 'wa-template') { actualizarCampos(); }
-        actualizarPreview();
-    });
-    document.addEventListener('input', function(e) {
-        if (['wa-nombre','wa-producto','wa-direccion','wa-mensaje-libre'].indexOf(e.target.id) !== -1) {
+        if (['wa-template','wa-nombre','wa-producto','wa-fecha','wa-direccion','wa-hora-inicio','wa-hora-fin'].indexOf(e.target.id) !== -1) {
             actualizarPreview();
         }
     });
 
+    document.addEventListener('input', function(e) {
+        if (['wa-nombre','wa-producto','wa-direccion'].indexOf(e.target.id) !== -1) {
+            actualizarPreview();
+        }
+    });
+
+    // Mostrar/ocultar campos según plantilla
+    function actualizarCampos() {
+        var tpl = document.getElementById('wa-template');
+        var campos = document.getElementById('wa-campos-entrega');
+        if (!tpl || !campos) return;
+        campos.style.display = tpl.value === 'posible_entrega' ? '' : 'none';
+    }
+
+    document.addEventListener('change', function(e) {
+        if (e.target.id === 'wa-template') { actualizarCampos(); actualizarPreview(); }
+    });
+
+    // Preview del mensaje
+    function actualizarPreview() {
+        var tpl      = (document.getElementById('wa-template') || {}).value || '';
+        var nombre   = (document.getElementById('wa-nombre') || {}).value || '';
+        var producto = (document.getElementById('wa-producto') || {}).value || '';
+        var fecha    = (document.getElementById('wa-fecha') || {}).value || '';
+        var dir      = (document.getElementById('wa-direccion') || {}).value || '';
+        var hIni     = (document.getElementById('wa-hora-inicio') || {}).value;
+        var hFin     = (document.getElementById('wa-hora-fin') || {}).value;
+        var horario  = (hIni !== undefined && hFin !== undefined) ? hIni + ':00 a ' + hFin + ':00hs' : '';
+        var prev = document.getElementById('wa-preview');
+        if (!prev) return;
+        var txt = '';
+        if (tpl === 'entrega_hoy') {
+            txt = 'Hola ' + (nombre||'[nombre]') + ', te escribimos de Mercadomuebles por la entrega de tu compra ' + (producto||'[producto]') + '. Tu compra se entregará hoy en el transcurso del día. Muchas gracias! Para consultas escribinos al +54 9 11 2627-5185 o llamarnos al (011) 4639-7370 de lunes a viernes de 8 a 17hs.';
+        } else {
+            txt = 'Hola ' + (nombre||'[nombre]') + ', te escribimos de Mercadomuebles para coordinar la entrega de tu compra ' + (producto||'[producto]') + '. Podremos entregar ' + (fecha||'[fecha]') + ' en la dirección ' + (dir||'[dirección]') + ' de ' + (horario||'[horario]') + '? Aguardamos tu confirmación. Muchas gracias!';
+        }
+        prev.textContent = txt;
+    }
+
+    // Abrir modal al clic en el ícono
     document.addEventListener('DOMContentLoaded', function() {
         poblarFechas();
-        poblarHoras('wa-hora-inicio', 'wa-hora-fin');
-        poblarHoras('wa-hora-inicio-hoy', 'wa-hora-fin-hoy');
+        poblarHoras();
 
         document.querySelectorAll('.wa-entrega-btn').forEach(function(btn) {
             btn.addEventListener('click', function() {
-                waVentaId  = this.dataset.ventaId;
-                waTelefono = this.dataset.telefono || '';
-                document.getElementById('wa-nombre').value    = this.dataset.nombre    || '';
-                document.getElementById('wa-producto').value  = this.dataset.producto  || '';
+                waVentaId = this.dataset.ventaId;
+                document.getElementById('wa-nombre').value    = this.dataset.nombre || '';
+                document.getElementById('wa-producto').value  = this.dataset.producto || '';
                 document.getElementById('wa-direccion').value = this.dataset.direccion || '';
-                document.getElementById('wa-mensaje-libre').value = '';
-                document.getElementById('wa-template').value = 'posible_entrega';
+                // Resetear template a posible_entrega
+                var tplSel = document.getElementById('wa-template');
+                tplSel.value = 'posible_entrega';
                 actualizarCampos();
                 actualizarPreview();
-                new bootstrap.Modal(document.getElementById('modalWA')).show();
+                var modal = new bootstrap.Modal(document.getElementById('modalWA'));
+                modal.show();
             });
         });
 
+        // Enviar
         document.getElementById('wa-enviar-btn').addEventListener('click', function() {
-            var msg = armarMensaje();
-            if (!msg || !waTelefono) {
-                alert('No hay teléfono registrado para esta venta.');
-                return;
-            }
-            var tel = normalizar_tel(waTelefono);
-            var url = 'https://wa.me/' + tel + '?text=' + encodeURIComponent(msg);
-            window.open(url, '_blank');
-            bootstrap.Modal.getInstance(document.getElementById('modalWA')).hide();
+            if (!waVentaId) return;
+            var btn = this;
+            btn.disabled = true;
+            btn.textContent = 'Enviando...';
+
+            var tpl      = document.getElementById('wa-template').value;
+            var nombre   = document.getElementById('wa-nombre').value;
+            var producto = document.getElementById('wa-producto').value;
+            var fecha    = (document.getElementById('wa-fecha') || {}).value || '';
+            var dir      = (document.getElementById('wa-direccion') || {}).value || '';
+            var hIni     = (document.getElementById('wa-hora-inicio') || {}).value;
+            var hFin     = (document.getElementById('wa-hora-fin') || {}).value;
+            var horario  = hIni + ':00 a ' + hFin + ':00hs';
+
+            fetch('/ventas/activas/' + waVentaId + '/whatsapp-enviar', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    template: tpl,
+                    nombre: nombre,
+                    producto: producto,
+                    fecha: fecha,
+                    direccion: dir,
+                    horario: horario
+                })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                bootstrap.Modal.getInstance(document.getElementById('modalWA')).hide();
+                mostrarToastWA(data.ok, data.ok ? data.mensaje : data.error);
+                btn.disabled = false;
+                btn.innerHTML = '✔ Enviar mensaje';
+            })
+            .catch(function() {
+                mostrarToastWA(false, 'Error de conexión');
+                btn.disabled = false;
+                btn.innerHTML = '✔ Enviar mensaje';
+            });
         });
     });
+
+    function mostrarToastWA(ok, msg) {
+        var toast = document.createElement('div');
+        toast.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;padding:10px 18px;border-radius:8px;color:#fff;font-size:0.9rem;box-shadow:0 2px 8px rgba(0,0,0,0.2);';
+        toast.style.background = ok ? '#25D366' : '#dc3545';
+        toast.innerHTML = (ok ? '✅ ' : '❌ ') + msg;
+        document.body.appendChild(toast);
+        setTimeout(function() { toast.remove(); }, 4000);
+    }
 })();
 // ─────────────────────────────────────────────────────────────────
 
@@ -1544,9 +1574,8 @@ function toggleAutoImport(checkbox) {
         <div class="mb-3">
           <label class="form-label fw-bold">Mensaje</label>
           <select class="form-select" id="wa-template">
-            <option value="posible_entrega" selected>📅 Coordinación de entrega</option>
             <option value="entrega_hoy">🚚 Tu compra se entrega hoy</option>
-            <option value="mensaje_libre">✏️ Mensaje libre</option>
+            <option value="posible_entrega" selected>📅 Coordinación de entrega</option>
           </select>
         </div>
         <div class="mb-2">
@@ -1557,8 +1586,6 @@ function toggleAutoImport(checkbox) {
           <label class="form-label">Producto</label>
           <input type="text" class="form-control" id="wa-producto">
         </div>
-
-        <!-- Campos: Coordinación de entrega -->
         <div id="wa-campos-entrega">
           <div class="mb-2">
             <label class="form-label">Fecha de entrega</label>
@@ -1577,35 +1604,12 @@ function toggleAutoImport(checkbox) {
             </div>
           </div>
         </div>
-
-        <!-- Campos: Entrega hoy -->
-        <div id="wa-campos-hoy" style="display:none;">
-          <div class="mb-2">
-            <label class="form-label">Horario estimado</label>
-            <div class="d-flex gap-2 align-items-center">
-              <select class="form-select" id="wa-hora-inicio-hoy" style="width:auto;"></select>
-              <span>a</span>
-              <select class="form-select" id="wa-hora-fin-hoy" style="width:auto;"></select>
-            </div>
-          </div>
-        </div>
-
-        <!-- Campos: Mensaje libre -->
-        <div id="wa-campos-libre" style="display:none;">
-          <div class="mb-2">
-            <label class="form-label">Mensaje</label>
-            <textarea class="form-control" id="wa-mensaje-libre" rows="3" placeholder="Escribí tu mensaje acá..."></textarea>
-          </div>
-        </div>
-
-        <!-- Preview -->
         <div class="mt-3 p-3 rounded" style="background:#DCF8C6; font-size:0.85rem; white-space:pre-wrap; border:1px solid #b2dfb0;" id="wa-preview"></div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button type="button" class="btn" id="wa-enviar-btn" style="background:#25D366; color:#fff;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="#fff" class="me-1"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-          Abrir en WhatsApp
+          ✔ Enviar mensaje
         </button>
       </div>
     </div>
