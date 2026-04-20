@@ -24,6 +24,8 @@ CAMPAÑAS_CUOTAS = {
     '6x_campaign':   '6 cuotas s/interés',
     '9x_campaign':   '9 cuotas s/interés',
     '12x_campaign':  '12 cuotas s/interés',
+    '18x_campaign':  '12 cuotas s/interés',  # pasaje a 18, publi base es 12c
+    '24x_campaign':  '12 cuotas s/interés',  # pasaje a 24, publi base es 12c
 }
 
 CPS = [
@@ -124,6 +126,37 @@ def _ml(url, params=None):
         return r.json() if r.status_code == 200 else None
     except Exception:
         return None
+
+def _ml_catalog_all(catalog_id, zip_code):
+    """Trae TODOS los resultados del catálogo con paginación."""
+    token = _token()
+    all_results = []
+    offset = 0
+    limit = 20
+    while True:
+        try:
+            r = requests.get(
+                f'https://api.mercadolibre.com/products/{catalog_id}/items',
+                headers={'Authorization': f'Bearer {token}'},
+                params={'zip_code': zip_code, 'limit': limit, 'offset': offset},
+                timeout=10
+            )
+            if r.status_code == 429:
+                time.sleep(2)
+                continue
+            if r.status_code != 200:
+                break
+            data = r.json()
+            results = data.get('results', [])
+            all_results.extend(results)
+            total = data.get('paging', {}).get('total', len(results))
+            offset += limit
+            if offset >= total or not results:
+                break
+            time.sleep(0.2)
+        except Exception:
+            break
+    return all_results
 
 def _envio_tipo(shipping):
     if not shipping:
@@ -245,115 +278,153 @@ def _get_mis_publis_pausadas(sku):
     return pausadas
 
 # ── Snapshot de un catálogo ───────────────────────────────────────
+def _get_mis_publis_all(sku):
+    """
+    Trae TODAS mis publis del SKU (activas y pausadas por stock).
+    SKU sin Z → FLEX, SKU con Z → ME1
+    """
+    result = []
+    for suffix, envio_t, envio_free in [
+        ('',  'FLEX', True),   # sin Z = Flex
+        ('Z', 'ME1',  False),  # con Z = ME1
+    ]:
+        sku_buscar = sku + suffix if not sku.endswith('Z') else sku
+        if suffix == 'Z' and sku.endswith('Z'):
+            sku_buscar = sku
+        elif suffix == '' and not sku.endswith('Z'):
+            sku_buscar = sku
+        else:
+            sku_buscar = sku.rstrip('Z') + suffix
+
+        rows = _q("SELECT mla_id FROM sku_mla_mapeo WHERE sku=%s AND activo=1", (sku_buscar,))
+        for row in rows:
+            data = _ml(f"https://api.mercadolibre.com/items/{row['mla_id']}?attributes=id,price,listing_type_id,sale_terms,status,sub_status,shipping")
+            if not data:
+                continue
+            status = data.get('status', '')
+            sub_status = data.get('sub_status') or []
+            if isinstance(sub_status, str):
+                sub_status = [sub_status]
+
+            lt = data.get('listing_type_id', '')
+            camp = next((t.get('value_name', '').split('|')[0].strip()
+                         for t in data.get('sale_terms', [])
+                         if t.get('id') == 'INSTALLMENTS_CAMPAIGN'), None)
+            cuotas_pub = _cuotas_publi(lt)
+            cuotas_ef  = _cuotas_efectivas(lt, camp)
+            pausada = (status == 'paused' and 'out_of_stock' in sub_status)
+
+            result.append({
+                'mla_id':     row['mla_id'],
+                'precio':     data.get('price'),
+                'cuotas_pub': cuotas_pub,
+                'cuotas_ef':  cuotas_ef,
+                'envio_t':    envio_t,
+                'envio_free': envio_free,
+                'pausada':    pausada,
+                'activa':     (status == 'active'),
+            })
+    return result
+
+
 def _snapshot_catalogo(sku, catalog_id, campaigns):
     """
-    Consulta el catálogo por CP y guarda snapshot deduplicado.
-    Un registro por: seller_id + cuotas_publi + cp (precio mínimo).
+    Guarda snapshot:
+    - Mis publis: desde sku_mla_mapeo directamente (sin Z=FLEX, con Z=ME1)
+    - Competidores: desde catalog endpoint, deduplicados por seller+cuotas+envio
+    Borra rows del día antes de insertar para evitar duplicados en re-runs.
     """
+    # Limpiar rows del día para este SKU (evita duplicados en re-run)
+    _exec("DELETE FROM competencia_snapshots WHERE sku=%s AND DATE(fecha)=CURDATE()", (sku,))
+
     rows_insertados = 0
+    cp = '1425'
+    cp_label = 'CABA'
 
-    for cp_info in CPS:
-        cp = cp_info['cp']
-        cp_label = cp_info['label']
+    # ── MIS PUBLIS ────────────────────────────────────────────────
+    mis_publis = _get_mis_publis_all(sku)
+    cuotas_vistas = set()  # para saber qué cuotas tengo activas
 
-        data = _ml(f"https://api.mercadolibre.com/products/{catalog_id}/items",
-                   params={'zip_code': cp})
-        if not data:
+    for p in mis_publis:
+        nick = 'MERCADOMUEBLES' if p['activa'] else 'MERCADOMUEBLES (pausada)'
+        _exec("""INSERT INTO competencia_snapshots
+                 (sku, catalog_product_id, cp, cp_label, seller_id, seller_nick, item_id,
+                  precio, cuotas_publi, cuotas_efectivas, envio_tipo,
+                  envio_gratis, envio_costo, es_propio, pausada_sin_stock)
+                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,1,%s)""",
+              (sku, catalog_id, cp, cp_label,
+               MY_SELLER_ID, nick, p['mla_id'],
+               p['precio'], p['cuotas_pub'], p['cuotas_ef'],
+               p['envio_t'], 1 if p['envio_free'] else 0,
+               1 if p['pausada'] else 0))
+        rows_insertados += 1
+        if p['activa']:
+            cuotas_vistas.add(p['cuotas_pub'])
+
+    # ── COMPETIDORES desde catálogo ───────────────────────────────
+    all_results = _ml_catalog_all(catalog_id, cp)
+    if not all_results:
+        return rows_insertados
+
+    # Resolver nicknames
+    seller_ids = {r['seller_id'] for r in all_results}
+    nicks = {}
+    for sid in seller_ids:
+        if sid == MY_SELLER_ID:
+            continue  # ya procesamos los nuestros
+        if sid in COMPETIDORES:
+            nicks[sid] = COMPETIDORES[sid]
+        else:
+            u = _ml(f"https://api.mercadolibre.com/users/{sid}?attributes=id,nickname")
+            if u:
+                nick_val = u.get('nickname', str(sid))
+                nicks[sid] = nick_val
+                if 'IVANA' in nick_val.upper():
+                    COMPETIDORES[sid] = nick_val
+            else:
+                nicks[sid] = str(sid)
+
+    dedup = {}
+    for r in all_results:
+        sid = r.get('seller_id')
+        if sid == MY_SELLER_ID or sid not in COMPETIDORES:
             continue
 
-        # Resolver nicknames desconocidos
-        seller_ids = {r['seller_id'] for r in data.get('results', [])}
-        nicks = {}
-        for sid in seller_ids:
-            if sid == MY_SELLER_ID:
-                nicks[sid] = 'MERCADOMUEBLES'
-            elif sid in COMPETIDORES:
-                nicks[sid] = COMPETIDORES[sid]
-            else:
-                u = _ml(f"https://api.mercadolibre.com/users/{sid}?attributes=id,nickname")
-                if u:
-                    nick = u.get('nickname', str(sid))
-                    nicks[sid] = nick
-                    # Auto-detectar Ivana
-                    if 'IVANA' in nick.upper():
-                        COMPETIDORES[sid] = nick
-                else:
-                    nicks[sid] = str(sid)
+        lt = r.get('listing_type_id', '')
+        sale_terms = r.get('sale_terms', [])
+        camp = next((t.get('value_name', '').split('|')[0].strip()
+                     for t in sale_terms
+                     if t.get('id') == 'INSTALLMENTS_CAMPAIGN'), None)
 
-        # Deduplicar: seller_id + cuotas_publi → mejor precio
-        dedup = {}  # (seller_id, cuotas_publi) → item_data
-        for r in data.get('results', []):
-            sid = r.get('seller_id')
-            es_propio = (sid == MY_SELLER_ID)
-            es_comp = sid in COMPETIDORES
-            if not es_propio and not es_comp:
-                continue
+        cuotas_pub = _cuotas_publi(lt)
+        cuotas_ef = CAMPAÑAS_CUOTAS.get(camp, campaigns.get(cuotas_pub, cuotas_pub)) if camp else campaigns.get(cuotas_pub, cuotas_pub)
 
-            lt = r.get('listing_type_id', '')
-            sale_terms = r.get('sale_terms', [])
-            camp = next((t.get('value_name', '').split('|')[0].strip()
-                         for t in sale_terms
-                         if t.get('id') == 'INSTALLMENTS_CAMPAIGN'), None)
+        envio_t, envio_free, _ = _envio_tipo(r.get('shipping', {}))
+        key = (sid, cuotas_pub, envio_t)
+        precio = r.get('price') or 0
+        if key not in dedup or precio < dedup[key]['precio']:
+            dedup[key] = {
+                'seller_nick': nicks.get(sid, str(sid)),
+                'item_id':     r.get('item_id'),
+                'precio':      precio,
+                'cuotas_pub':  cuotas_pub,
+                'cuotas_ef':   cuotas_ef,
+                'envio_t':     envio_t,
+                'envio_free':  envio_free,
+                'seller_id':   sid,
+            }
 
-            cuotas_pub = _cuotas_publi(lt)
-            # Aplicar campaign uniforme para todos (es por categoría)
-            if camp:
-                cuotas_ef = CAMPAÑAS_CUOTAS.get(camp, cuotas_pub)
-            else:
-                cuotas_ef = campaigns.get(cuotas_pub, cuotas_pub)
-
-            envio_t, envio_free, envio_costo = _envio_tipo(r.get('shipping', {}))
-            key = (sid, cuotas_pub, envio_t)
-            precio = r.get('price') or 0
-            if key not in dedup or precio < dedup[key]['precio']:
-                dedup[key] = {
-                    'seller_id':   sid,
-                    'seller_nick': nicks.get(sid, str(sid)),
-                    'item_id':     r.get('item_id'),
-                    'precio':      precio,
-                    'cuotas_pub':  cuotas_pub,
-                    'cuotas_ef':   cuotas_ef,
-                    'envio_t':     envio_t,
-                    'envio_free':  envio_free,
-                    'envio_costo': envio_costo,
-                    'es_propio':   es_propio,
-                }
-
-        # Guardar deduplicados
-        for item in dedup.values():
-            _exec("""INSERT INTO competencia_snapshots
-                     (sku, catalog_product_id, cp, cp_label, seller_id, seller_nick, item_id,
-                      precio, cuotas_publi, cuotas_efectivas, envio_tipo,
-                      envio_gratis, envio_costo, es_propio, pausada_sin_stock)
-                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0)""",
-                  (sku, catalog_id, cp, cp_label,
-                   item['seller_id'], item['seller_nick'], item['item_id'],
-                   item['precio'], item['cuotas_pub'], item['cuotas_ef'],
-                   item['envio_t'], 1 if item['envio_free'] else 0,
-                   item['envio_costo'], 1 if item['es_propio'] else 0))
-            rows_insertados += 1
-
-        # Agregar mis publis pausadas por stock como referencia
-        pausadas = _get_mis_publis_pausadas(sku)
-        for p in pausadas:
-            lt = p['lt']
-            camp = p['camp']
-            cuotas_pub = _cuotas_publi(lt)
-            cuotas_ef = _cuotas_efectivas(lt, camp)
-            # Solo si no hay ya una publi propia activa con mismas cuotas para este CP
-            key = (MY_SELLER_ID, cuotas_pub)
-            if key not in dedup:
-                envio_t, envio_free, envio_costo = _envio_tipo(p['shipping'])
-                _exec("""INSERT INTO competencia_snapshots
-                         (sku, catalog_product_id, cp, cp_label, seller_id, seller_nick, item_id,
-                          precio, cuotas_publi, cuotas_efectivas, envio_tipo,
-                          envio_gratis, envio_costo, es_propio, pausada_sin_stock)
-                         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1,1)""",
-                      (sku, catalog_id, cp, cp_label,
-                       MY_SELLER_ID, 'MERCADOMUEBLES (pausada)', p['mla_id'],
-                       p['precio'], cuotas_pub, cuotas_ef,
-                       envio_t, 1 if envio_free else 0, envio_costo))
-                rows_insertados += 1
+    for item in dedup.values():
+        _exec("""INSERT INTO competencia_snapshots
+                 (sku, catalog_product_id, cp, cp_label, seller_id, seller_nick, item_id,
+                  precio, cuotas_publi, cuotas_efectivas, envio_tipo,
+                  envio_gratis, envio_costo, es_propio, pausada_sin_stock)
+                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0,0,0)""",
+              (sku, catalog_id, cp, cp_label,
+               item['seller_id'], item['seller_nick'], item['item_id'],
+               item['precio'], item['cuotas_pub'], item['cuotas_ef'],
+               item['envio_t'], 1 if item['envio_free'] else 0))
+        rows_insertados += 1
 
     return rows_insertados
 
@@ -423,7 +494,7 @@ def competencia_correr():
 ORDEN_CUOTAS = [
     'Sin cuotas', 'Cuota Simple',
     '3 cuotas s/interés', '6 cuotas s/interés',
-    '9 cuotas s/interés', '12 cuotas s/interés'
+    '9 cuotas s/interés', '12 cuotas s/interés', '18 cuotas s/interés'
 ]
 
 @competencia_bp.route('/admin/competencia/datos')
