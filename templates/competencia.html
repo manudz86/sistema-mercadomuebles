@@ -8,29 +8,32 @@
 .precio-igual   { color: #fd7e14; font-weight: 700; }
 .badge-flex     { background: #0d6efd; color: #fff; }
 .badge-me1      { background: #6c757d; color: #fff; }
+.badge-colecta  { background: #6610f2; color: #fff; }
 .badge-turbo    { background: #198754; color: #fff; }
 .badge-acordar  { background: #ffc107; color: #000; }
 .badge-otro     { background: #dee2e6; color: #000; }
 .row-propio     { background: #f0f7ff !important; }
 .row-pausada    { background: #fff8e1 !important; opacity: .85; }
-.sku-header     { background: #2c3e50; color: #fff; font-weight: 700; font-size:.9rem; padding:8px 14px; border-radius: 6px 6px 0 0; }
+.sku-header     { background: #2c3e50; color: #fff; font-weight: 700; font-size:.9rem; padding:8px 14px; }
 .cuotas-header  { background: #f1f3f5; font-size:.75rem; font-weight:700; text-transform:uppercase;
                   letter-spacing:.5px; color:#495057; padding:4px 12px; border-bottom:1px solid #dee2e6; }
 .spinner-overlay { display:none; position:fixed; top:0;left:0;right:0;bottom:0;
                    background:rgba(0,0,0,.45); z-index:9999;
                    align-items:center; justify-content:center; }
+.progress-bar-wrap { height:6px; background:#e9ecef; border-radius:3px; overflow:hidden; }
 </style>
 
 <div class="spinner-overlay" id="spinner">
-    <div class="text-center text-white">
+    <div class="text-center text-white" style="min-width:320px">
         <div class="spinner-border mb-3" style="width:3rem;height:3rem"></div>
-        <div id="spinner-msg" class="fs-5">Consultando ML...</div>
-        <div class="text-white-50 small mt-2">Esto puede tardar varios minutos</div>
+        <div id="spinner-msg" class="fs-5 mb-2">Consultando ML...</div>
+        <div class="text-white-50 small mb-3">Procesando SKUs — puede tardar ~90 minutos para el run completo</div>
     </div>
 </div>
 
 <div class="container-fluid py-3">
 
+    <!-- Header -->
     <div class="d-flex align-items-center gap-2 mb-3">
         <div style="width:38px;height:38px;background:#2c3e50;border-radius:50%;display:flex;align-items:center;justify-content:center">
             <i class="bi bi-graph-up-arrow text-white fs-5"></i>
@@ -39,30 +42,57 @@
             <h5 class="mb-0">Monitor de Competencia ML</h5>
             <small class="text-muted" id="ultima-fecha-label">Cargando...</small>
         </div>
+        <div class="ms-auto d-flex gap-2">
+            <button class="btn btn-success btn-sm" onclick="correrAgente(false)">
+                <i class="bi bi-arrow-repeat me-1"></i>Actualizar todo
+            </button>
+            <button class="btn btn-outline-success btn-sm" onclick="correrAgente(true)">
+                <i class="bi bi-search me-1"></i>Actualizar SKU
+            </button>
+        </div>
     </div>
 
     <!-- Filtros -->
     <div class="card mb-3 shadow-sm">
-        <div class="card-body py-3">
+        <div class="card-body py-2">
             <div class="row g-2 align-items-end">
-                <div class="col-md-4">
-                    <label class="form-label small fw-bold">SKU específico</label>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold mb-1">SKU específico</label>
                     <input type="text" id="sku-input" class="form-control form-control-sm"
-                           placeholder="Ej: CDOP160 (vacío = todos)">
+                           placeholder="Ej: CDOP160">
                 </div>
                 <div class="col-md-2">
-                    <button class="btn btn-outline-primary btn-sm w-100" onclick="cargarDatos()">
+                    <label class="form-label small fw-bold mb-1">Tipo</label>
+                    <select id="tipo-select" class="form-select form-select-sm">
+                        <option value="">Todos</option>
+                        <option value="colchon">Colchones</option>
+                        <option value="sommier">Sommiers</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold mb-1">Modelo</label>
+                    <select id="modelo-select" class="form-select form-select-sm">
+                        <option value="">Todos</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold mb-1">Medida</label>
+                    <select id="medida-select" class="form-select form-select-sm">
+                        <option value="">Todas</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold mb-1">Envío</label>
+                    <select id="envio-select" class="form-select form-select-sm">
+                        <option value="">Todos</option>
+                        <option value="FLEX">FLEX</option>
+                        <option value="COLECTA">COLECTA</option>
+                        <option value="ME1">ME1</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary btn-sm w-100" onclick="cargarDatos()">
                         <i class="bi bi-funnel me-1"></i>Filtrar
-                    </button>
-                </div>
-                <div class="col-md-3">
-                    <button class="btn btn-success btn-sm w-100" onclick="correrAgente(false)">
-                        <i class="bi bi-arrow-repeat me-1"></i>Actualizar todo
-                    </button>
-                </div>
-                <div class="col-md-3">
-                    <button class="btn btn-outline-success btn-sm w-100" onclick="correrAgente(true)">
-                        <i class="bi bi-search me-1"></i>Actualizar SKU del input
                     </button>
                 </div>
             </div>
@@ -70,83 +100,96 @@
     </div>
 
     <!-- Leyenda -->
-    <div class="d-flex gap-2 flex-wrap mb-2 align-items-center" style="font-size:.8rem">
-        <span class="badge badge-flex rounded-pill px-3">FLEX</span>
-        <span class="badge badge-me1 rounded-pill px-3">ME1</span>
-        <span class="badge badge-turbo rounded-pill px-3">TURBO</span>
-        <span class="badge badge-acordar rounded-pill px-3">ACORDAR</span>
-        <span class="ms-2 text-muted"><span style="background:#f0f7ff;padding:2px 8px;border-radius:4px">Azul</span> = tus publis</span>
-        <span class="text-muted"><span style="background:#fff8e1;padding:2px 8px;border-radius:4px">Amarillo</span> = pausada s/stock</span>
-        <span class="text-muted"><span class="precio-mejor">Verde %</span> = competidor más caro · <span class="precio-peor">Rojo %</span> = competidor más barato</span>
-    </div>
-    <!-- Filtro envío -->
-    <div class="d-flex gap-2 mb-3 align-items-center">
-        <span class="small fw-bold text-muted">Filtrar envío:</span>
-        <div class="btn-group btn-group-sm" role="group">
-            <input type="radio" class="btn-check" name="filtroEnvio" id="filtroTodos" value="" checked>
-            <label class="btn btn-outline-secondary" for="filtroTodos">Todos</label>
-            <input type="radio" class="btn-check" name="filtroEnvio" id="filtroFlex" value="FLEX">
-            <label class="btn btn-outline-primary" for="filtroFlex">Solo FLEX</label>
-            <input type="radio" class="btn-check" name="filtroEnvio" id="filtroMe1" value="ME1">
-            <label class="btn btn-outline-secondary" for="filtroMe1">Solo ME1</label>
-        </div>
+    <div class="d-flex gap-2 flex-wrap mb-3 align-items-center" style="font-size:.78rem">
+        <span class="badge badge-flex rounded-pill px-2">FLEX</span>
+        <span class="badge badge-colecta rounded-pill px-2">COLECTA</span>
+        <span class="badge badge-me1 rounded-pill px-2">ME1</span>
+        <span class="badge badge-turbo rounded-pill px-2">TURBO</span>
+        <span class="badge badge-acordar rounded-pill px-2">ACORDAR</span>
+        <span class="ms-2 text-muted"><span style="background:#f0f7ff;padding:1px 6px;border-radius:3px">Azul</span> = tus publis</span>
+        <span class="text-muted"><span style="background:#fff8e1;padding:1px 6px;border-radius:3px">Amarillo</span> = pausada s/stock</span>
+        <span class="text-muted"><span class="precio-mejor">+% verde</span> = competidor más caro que vos</span>
+        <span class="text-muted"><span class="precio-peor">-% rojo</span> = competidor más barato que vos</span>
     </div>
 
     <div id="tabla-container">
         <div class="text-center text-muted py-5">
             <i class="bi bi-hourglass-split fs-1"></i>
-            <p class="mt-2">Cargando...</p>
+            <p class="mt-2">Cargando datos...</p>
         </div>
     </div>
 </div>
 
 <script>
 const ORDEN_CUOTAS = [
-    'Sin cuotas', 'Cuota Simple',
-    '3 cuotas s/interés', '6 cuotas s/interés',
-    '9 cuotas s/interés', '12 cuotas s/interés', '18 cuotas s/interés'
+    'Sin cuotas','Cuota Simple',
+    '3 cuotas s/interés','6 cuotas s/interés',
+    '9 cuotas s/interés','12 cuotas s/interés','18 cuotas s/interés'
 ];
 
+let _lastRows = [];
+let _filtrosDisponibles = {};
+
 document.addEventListener('DOMContentLoaded', cargarDatos);
-
-document.getElementById('sku-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') cargarDatos();
-});
-
-// Re-render on envio filter change (no re-fetch needed)
-document.querySelectorAll('input[name="filtroEnvio"]').forEach(r => {
-    r.addEventListener('change', () => {
-        const rows = window._lastRows || [];
-        renderTabla(rows);
-    });
-});
+document.getElementById('sku-input').addEventListener('keydown', e => { if (e.key==='Enter') cargarDatos(); });
 
 function cargarDatos() {
-    const sku = document.getElementById('sku-input').value.trim();
-    let url = `/admin/competencia/datos`;
-    if (sku) url += `?sku=${encodeURIComponent(sku.toUpperCase())}`;
+    const sku    = document.getElementById('sku-input').value.trim().toUpperCase();
+    const tipo   = document.getElementById('tipo-select').value;
+    const modelo = document.getElementById('modelo-select').value;
+    const medida = document.getElementById('medida-select').value;
+
+    let url = '/admin/competencia/datos?';
+    if (sku)    url += `sku=${encodeURIComponent(sku)}&`;
+    if (tipo)   url += `tipo=${tipo}&`;
+    if (modelo) url += `modelo=${encodeURIComponent(modelo)}&`;
+    if (medida) url += `medida=${medida}&`;
 
     fetch(url).then(r => r.json()).then(data => {
         if (data.ultima_fecha) {
             document.getElementById('ultima-fecha-label').textContent =
-                `Último snapshot: ${new Date(data.ultima_fecha).toLocaleString('es-AR')} · CABA (CP 1425)`;
+                `Último snapshot: ${new Date(data.ultima_fecha).toLocaleString('es-AR')}`;
         } else {
-            document.getElementById('ultima-fecha-label').textContent =
-                'Sin datos — ejecutá "Actualizar todo"';
+            document.getElementById('ultima-fecha-label').textContent = 'Sin datos — ejecutá "Actualizar todo"';
         }
-        window._lastRows = data.rows || [];
-        renderTabla(window._lastRows);
+        _lastRows = data.rows || [];
+        _filtrosDisponibles = data.filtros || {};
+        actualizarFiltros(_filtrosDisponibles);
+        renderTabla(_lastRows);
     }).catch(() => {
         document.getElementById('tabla-container').innerHTML =
             '<div class="alert alert-danger">Error cargando datos</div>';
     });
 }
 
+function actualizarFiltros(filtros) {
+    const modeloSel = document.getElementById('modelo-select');
+    const medidaSel = document.getElementById('medida-select');
+    const curModelo = modeloSel.value;
+    const curMedida = medidaSel.value;
+
+    modeloSel.innerHTML = '<option value="">Todos los modelos</option>';
+    (filtros.modelos || []).forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m; opt.textContent = m;
+        if (m === curModelo) opt.selected = true;
+        modeloSel.appendChild(opt);
+    });
+
+    medidaSel.innerHTML = '<option value="">Todas las medidas</option>';
+    (filtros.medidas || []).forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m; opt.textContent = m + 'cm';
+        if (String(m) === curMedida) opt.selected = true;
+        medidaSel.appendChild(opt);
+    });
+}
+
 function correrAgente(soloSku) {
     const sku = document.getElementById('sku-input').value.trim();
     if (soloSku && !sku) { alert('Ingresá un SKU en el campo de arriba'); return; }
-    document.getElementById('spinner-msg').textContent =
-        soloSku ? `Actualizando ${sku}...` : 'Consultando todos los SKUs en ML...';
+    const msg = soloSku ? `Actualizando ${sku}...` : 'Actualizando todos los SKUs...';
+    document.getElementById('spinner-msg').textContent = msg;
     document.getElementById('spinner').style.display = 'flex';
 
     fetch('/admin/competencia/correr', {
@@ -156,9 +199,9 @@ function correrAgente(soloSku) {
     }).then(r => r.json()).then(data => {
         document.getElementById('spinner').style.display = 'none';
         if (data.ok) {
-            let msg = `✅ Procesados: ${data.procesados} SKUs, ${data.total_rows} registros.`;
-            if (data.sin_catalogo?.length) msg += `\n⚠️ Sin catálogo: ${data.sin_catalogo.join(', ')}`;
-            if (data.errores?.length) msg += `\n❌ Errores: ${data.errores.slice(0,5).join('\n')}`;
+            let msg = `✅ Procesados: ${data.procesados}/${data.skus_total} SKUs`;
+            if (data.sin_catalogo?.length) msg += `\n⚠️ Sin catálogo (${data.sin_catalogo.length}): ${data.sin_catalogo.slice(0,5).join(', ')}`;
+            if (data.errores?.length) msg += `\n❌ Errores (${data.errores.length}): ${data.errores.slice(0,3).join('\n')}`;
             alert(msg);
             cargarDatos();
         } else {
@@ -166,98 +209,107 @@ function correrAgente(soloSku) {
         }
     }).catch(() => {
         document.getElementById('spinner').style.display = 'none';
-        alert('Timeout. Probá con un SKU específico.');
+        alert('Timeout. Para el run completo esperá que termine en segundo plano y recargá la página.');
     });
 }
 
-function getEnvioFiltro() {
-    return document.querySelector('input[name="filtroEnvio"]:checked')?.value || '';
-}
-
 function pctLabel(pct) {
-    if (pct === null) return '<span class="text-muted small">—</span>';
+    if (pct === null) return '<span class="text-muted" style="font-size:.75rem">—</span>';
     const sign = pct >= 0 ? '+' : '';
     const cls  = pct >= 0 ? 'precio-mejor' : 'precio-peor';
-    return `<span class="${cls}" style="font-size:.8rem;font-weight:700">${sign}${pct.toFixed(1)}%</span>`;
+    return `<span class="${cls}" style="font-size:.82rem;font-weight:700">${sign}${pct.toFixed(1)}%</span>`;
+}
+
+function envBadge(envio_tipo, envio_gratis) {
+    const cls = {FLEX:'badge-flex',COLECTA:'badge-colecta',ME1:'badge-me1',
+                 TURBO:'badge-turbo',ACORDAR:'badge-acordar'}[envio_tipo] || 'badge-otro';
+    const label = envio_tipo + (envio_gratis ? ' gratis' : '');
+    return `<span class="badge ${cls} rounded-pill" style="font-size:.7rem">${label}</span>`;
 }
 
 function renderTabla(rows) {
-    const filtroEnvio = getEnvioFiltro();
+    const filtroEnvio = document.getElementById('envio-select').value;
 
     if (!rows.length) {
         document.getElementById('tabla-container').innerHTML =
-            `<div class="alert alert-info">Sin datos. Ejecutá "Actualizar todo" o "Actualizar SKU".</div>`;
+            '<div class="alert alert-info">Sin datos para los filtros seleccionados.</div>';
         return;
     }
 
-    // Agrupar por SKU → cuotas_publi → filas
+    // Agrupar por SKU
     const bySku = {};
     rows.forEach(r => {
-        if (!bySku[r.sku]) bySku[r.sku] = {};
+        if (!bySku[r.sku]) bySku[r.sku] = { meta: r, byCuotas: {} };
         const cup = r.cuotas_publi || 'Sin cuotas';
-        if (!bySku[r.sku][cup]) bySku[r.sku][cup] = [];
-        bySku[r.sku][cup].push(r);
+        if (!bySku[r.sku].byCuotas[cup]) bySku[r.sku].byCuotas[cup] = [];
+        bySku[r.sku].byCuotas[cup].push(r);
     });
 
     let html = '';
 
-    for (const [sku, byCuotas] of Object.entries(bySku)) {
-        const catalogId = Object.values(byCuotas).flat()[0]?.catalog_product_id;
-        let skuHasRows = false;
+    for (const [sku, skuData] of Object.entries(bySku)) {
+        const { meta, byCuotas } = skuData;
+        const catalogId = meta.catalog_product_id;
         let skuHtml = '';
+        let skuHasRows = false;
 
         ORDEN_CUOTAS.forEach(cuotas => {
             const items = byCuotas[cuotas];
-            if (!items || !items.length) return;
+            if (!items?.length) return;
 
-            // Filtro envío — siempre mostrar mis publis
-            const itemsFiltrados = filtroEnvio
+            const filtered = filtroEnvio
                 ? items.filter(i => i.es_propio || i.envio_tipo === filtroEnvio)
                 : items;
-            if (!itemsFiltrados.length) return;
+            if (!filtered.length) return;
 
-            // Mis precios de referencia para % diferencia
-            const miFlexP = Math.min(...items.filter(i => i.es_propio && !i.pausada_sin_stock && i.envio_tipo === 'FLEX').map(i => i.precio).filter(Boolean), Infinity);
-            const miMe1P  = Math.min(...items.filter(i => i.es_propio && !i.pausada_sin_stock && i.envio_tipo === 'ME1').map(i => i.precio).filter(Boolean), Infinity);
-            const flexRef = isFinite(miFlexP) ? miFlexP : null;
-            const me1Ref  = isFinite(miMe1P)  ? miMe1P  : null;
+            // Mis precios de referencia por tipo de envío
+            const refs = {};
+            ['FLEX','COLECTA','ME1'].forEach(et => {
+                const mine = items.filter(i => i.es_propio && !i.pausada_sin_stock && i.envio_tipo === et)
+                                  .map(i => i.precio).filter(Boolean);
+                refs[et] = mine.length ? Math.min(...mine) : null;
+            });
+
+            // Label de referencia para la columna
+            const refLabel1 = refs.FLEX ? `FLEX $${Number(refs.FLEX).toLocaleString('es-AR')}` :
+                              refs.COLECTA ? `COLECTA $${Number(refs.COLECTA).toLocaleString('es-AR')}` : null;
+            const refLabel2 = refs.ME1 ? `ME1 $${Number(refs.ME1).toLocaleString('es-AR')}` : null;
 
             skuHasRows = true;
-            const activos = itemsFiltrados.filter(i => !i.pausada_sin_stock);
+            const activos = filtered.filter(i => !i.pausada_sin_stock);
             const precios  = activos.map(i => i.precio).filter(Boolean);
             const minP = precios.length ? Math.min(...precios) : null;
             const maxP = precios.length ? Math.max(...precios) : null;
 
-            skuHtml += `<div class="cuotas-header">
-                <i class="bi bi-credit-card me-1"></i>${cuotas}
-                <span class="text-muted fw-normal ms-2">(${itemsFiltrados.length} fila${itemsFiltrados.length!==1?'s':''})</span>
-                ${flexRef ? `<span class="ms-3 small text-muted">Ref FLEX: <strong>$${Number(flexRef).toLocaleString('es-AR')}</strong></span>` : ''}
-                ${me1Ref  ? `<span class="ms-2 small text-muted">Ref ME1: <strong>$${Number(me1Ref).toLocaleString('es-AR')}</strong></span>` : ''}
+            skuHtml += `<div class="cuotas-header d-flex align-items-center gap-3">
+                <span><i class="bi bi-credit-card me-1"></i>${cuotas}
+                <span class="fw-normal text-muted ms-1">(${filtered.length} fila${filtered.length!==1?'s':''})</span></span>
+                ${refLabel1 ? `<span class="small text-muted">Ref: <strong>${refLabel1}</strong></span>` : ''}
+                ${refLabel2 ? `<span class="small text-muted">/ <strong>${refLabel2}</strong></span>` : ''}
             </div>`;
-            skuHtml += `<div class="table-responsive"><table class="table table-sm table-hover mb-0" style="font-size:.82rem">`;
-            skuHtml += `<thead style="background:#f8f9fa;font-size:.75rem"><tr>`;
-            skuHtml += `<th style="width:22%">Vendedor</th><th style="width:13%">Precio</th>`;
-            skuHtml += `<th style="width:13%">Envío</th>`;
-            skuHtml += `<th style="width:16%">Δ vs mi FLEX</th>`;
-            skuHtml += `<th style="width:16%">Δ vs mi ME1</th>`;
-            skuHtml += `<th style="width:20%">Link</th>`;
-            skuHtml += `</tr></thead><tbody>`;
 
-            itemsFiltrados.sort((a, b) => {
+            skuHtml += `<div class="table-responsive"><table class="table table-sm table-hover mb-0" style="font-size:.82rem">
+<thead style="background:#f8f9fa;font-size:.74rem"><tr>
+<th style="width:20%">Vendedor</th>
+<th style="width:12%">Precio</th>
+<th style="width:12%">Envío</th>
+<th style="width:18%">Δ vs mi FLEX/COLECTA</th>
+<th style="width:18%">Δ vs mi ME1</th>
+<th style="width:20%">Link</th>
+</tr></thead><tbody>`;
+
+            filtered.sort((a, b) => {
                 if (a.es_propio && !b.es_propio) return -1;
                 if (!a.es_propio && b.es_propio) return 1;
-                return (a.precio || 0) - (b.precio || 0);
+                return (a.precio||0) - (b.precio||0);
             });
 
-            itemsFiltrados.forEach(item => {
+            filtered.forEach(item => {
                 const pausada  = !!item.pausada_sin_stock;
                 const rowClass = pausada ? 'row-pausada' : item.es_propio ? 'row-propio' : '';
                 const precioClass = pausada ? 'text-muted' :
                     item.precio === minP ? 'precio-mejor' :
                     item.precio === maxP ? 'precio-peor' : 'precio-igual';
-
-                const envClass = {FLEX:'badge-flex',ME1:'badge-me1',TURBO:'badge-turbo',ACORDAR:'badge-acordar'}[item.envio_tipo]||'badge-otro';
-                const envLabel = item.envio_tipo + (item.envio_gratis ? ' gratis' : '');
 
                 const nick = item.es_propio
                     ? `<strong>${item.seller_nick}</strong> ${pausada
@@ -265,33 +317,35 @@ function renderTabla(rows) {
                         : '<span class="badge bg-primary" style="font-size:.6rem">VOS</span>'}`
                     : item.seller_nick;
 
-                let difFlex = '<span class="text-muted small">—</span>';
-                let difMe1  = '<span class="text-muted small">—</span>';
+                // Diferencias solo para competidores
+                let difFlexCol = '<span class="text-muted" style="font-size:.75rem">—</span>';
+                let difMe1     = '<span class="text-muted" style="font-size:.75rem">—</span>';
                 if (!item.es_propio && item.precio) {
-                    difFlex = pctLabel(flexRef ? (item.precio - flexRef) / flexRef * 100 : null);
-                    difMe1  = pctLabel(me1Ref  ? (item.precio - me1Ref)  / me1Ref  * 100 : null);
+                    const flexColRef = refs.FLEX ?? refs.COLECTA;
+                    difFlexCol = pctLabel(flexColRef ? (item.precio - flexColRef) / flexColRef * 100 : null);
+                    difMe1     = pctLabel(refs.ME1   ? (item.precio - refs.ME1)   / refs.ME1   * 100 : null);
                 }
 
-                // Link: mis publis → editar, competidores → catálogo
+                // Links
                 let linkHtml = '—';
                 if (item.es_propio && item.item_id) {
-                    linkHtml = `<a href="https://www.mercadolibre.com.ar/syi/core/modify?itemId=${item.item_id}" target="_blank"
-                        class="btn btn-outline-warning btn-sm py-0 px-1 me-1" style="font-size:.65rem" title="Editar en ML">
+                    linkHtml = `<a href="https://www.mercadolibre.com.ar/syi/core/modify?itemId=${item.item_id}"
+                        target="_blank" class="btn btn-outline-warning btn-sm py-0 px-1 me-1" style="font-size:.65rem">
                         <i class="bi bi-pencil-square"></i> Editar</a>`;
-                } else if (item.catalog_product_id) {
-                    linkHtml = `<a href="https://www.mercadolibre.com.ar/p/${item.catalog_product_id}" target="_blank"
-                        class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size:.65rem" title="Ver catálogo">
+                } else if (catalogId) {
+                    linkHtml = `<a href="https://www.mercadolibre.com.ar/p/${catalogId}"
+                        target="_blank" class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size:.65rem">
                         <i class="bi bi-eye"></i> Catálogo</a>`;
                 }
 
-                skuHtml += `<tr class="${rowClass}">`;
-                skuHtml += `<td>${nick}</td>`;
-                skuHtml += `<td class="${precioClass}">$${Number(item.precio||0).toLocaleString('es-AR')}${pausada?' <span class="text-muted" style="font-size:.65rem">(ref.)</span>':''}</td>`;
-                skuHtml += `<td><span class="badge ${envClass} rounded-pill" style="font-size:.7rem">${envLabel}</span></td>`;
-                skuHtml += `<td>${difFlex}</td>`;
-                skuHtml += `<td>${difMe1}</td>`;
-                skuHtml += `<td>${linkHtml}</td>`;
-                skuHtml += `</tr>`;
+                skuHtml += `<tr class="${rowClass}">
+<td>${nick}</td>
+<td class="${precioClass}">$${Number(item.precio||0).toLocaleString('es-AR')}${pausada?' <small class="text-muted">(ref.)</small>':''}</td>
+<td>${envBadge(item.envio_tipo, item.envio_gratis)}</td>
+<td>${difFlexCol}</td>
+<td>${difMe1}</td>
+<td>${linkHtml}</td>
+</tr>`;
             });
 
             skuHtml += `</tbody></table></div>`;
@@ -299,19 +353,25 @@ function renderTabla(rows) {
 
         if (!skuHasRows) continue;
 
-        html += `<div class="card mb-4 shadow-sm" style="border-radius:8px;overflow:hidden">`;
-        html += `<div class="sku-header d-flex justify-content-between align-items-center">`;
-        html += `<span><i class="bi bi-tag-fill me-2"></i>${sku}</span>`;
-        if (catalogId) {
-            html += `<a href="https://www.mercadolibre.com.ar/p/${catalogId}" target="_blank"
-                class="btn btn-sm btn-outline-light py-0 px-2" style="font-size:.75rem">
-                <i class="bi bi-box-arrow-up-right me-1"></i>Ver catálogo ML</a>`;
-        }
-        html += `</div>${skuHtml}</div>`;
+        const tipoLabel = meta.tipo === 'sommier' ? '🛏️' : '😴';
+        html += `<div class="card mb-4 shadow-sm" style="border-radius:8px;overflow:hidden">
+<div class="sku-header d-flex justify-content-between align-items-center">
+  <span>${tipoLabel} <strong>${sku}</strong>
+    <span class="badge bg-light text-dark ms-2" style="font-size:.7rem">${meta.modelo} ${meta.medida}cm</span>
+  </span>
+  ${catalogId ? `<a href="https://www.mercadolibre.com.ar/p/${catalogId}" target="_blank"
+      class="btn btn-sm btn-outline-light py-0 px-2" style="font-size:.75rem">
+      <i class="bi bi-box-arrow-up-right me-1"></i>Ver catálogo ML</a>` : ''}
+</div>
+${skuHtml}
+</div>`;
     }
 
     document.getElementById('tabla-container').innerHTML =
-        html || '<div class="alert alert-info">Sin datos para ese filtro de envío.</div>';
+        html || '<div class="alert alert-info">Sin resultados para los filtros seleccionados.</div>';
 }
+
+// Filtro de envío re-renderiza sin re-fetch
+document.getElementById('envio-select').addEventListener('change', () => renderTabla(_lastRows));
 </script>
 {% endblock %}

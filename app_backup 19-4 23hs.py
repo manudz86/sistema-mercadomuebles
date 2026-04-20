@@ -12513,11 +12513,11 @@ def iniciar_scheduler():
         # Monitor de competencia — 2 veces por día
         try:
             from competencia_bp import job_competencia
-            scheduler.add_job(job_competencia, 'cron', hour=5, minute=0,
+            scheduler.add_job(job_competencia, 'cron', hour=8, minute=0,
                              id='job_competencia_manana', replace_existing=True)
             scheduler.add_job(job_competencia, 'cron', hour=18, minute=0,
                              id='job_competencia_tarde', replace_existing=True)
-            print("[COMPETENCIA] Jobs agendados: 5:00 y 18:00")
+            print("[COMPETENCIA] Jobs agendados: 8:00 y 18:00")
         except Exception as e:
             print(f"[COMPETENCIA] Error registrando jobs: {e}")
 
