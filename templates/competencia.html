@@ -238,6 +238,10 @@ function pctLabel(pct) {
     return `<span class="${cls}" style="font-size:.82rem;font-weight:700">${sign}${pct.toFixed(1)}%</span>`;
 }
 
+function envBadgeCls(t) {
+    return {FLEX:'badge-flex',COLECTA:'badge-colecta',ME1:'badge-me1',TURBO:'badge-turbo',ACORDAR:'badge-acordar'}[t]||'badge-otro';
+}
+
 function envBadge(envio_tipo, envio_gratis) {
     const cls = {FLEX:'badge-flex',COLECTA:'badge-colecta',ME1:'badge-me1',
                  TURBO:'badge-turbo',ACORDAR:'badge-acordar'}[envio_tipo] || 'badge-otro';
@@ -467,7 +471,7 @@ function renderInforme(data) {
 <td>$${Number(entry.mi_precio).toLocaleString('es-AR')} <span class="badge bg-primary" style="font-size:.6rem">${entry.mi_envio}</span></td>
 <td>${a.vendedor}</td>
 <td>$${Number(a.precio_comp).toLocaleString('es-AR')}</td>
-<td><span class="badge ${{'FLEX':'badge-flex','COLECTA':'badge-colecta','ME1':'badge-me1'}[a.envio_comp]||'bg-secondary'} rounded-pill" style="font-size:.7rem">${a.envio_comp}</span></td>
+<td><span class="badge ${envBadgeCls(a.envio_comp)} rounded-pill" style="font-size:.7rem">${a.envio_comp}</span></td>
 <td class="fw-bold text-danger">${a.pct.toFixed(1)}%</td>
 <td>${badge}</td>
 <td>${link}</td>
