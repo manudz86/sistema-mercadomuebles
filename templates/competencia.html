@@ -43,6 +43,9 @@
             <small class="text-muted" id="ultima-fecha-label">Cargando...</small>
         </div>
         <div class="ms-auto d-flex gap-2">
+            <button class="btn btn-outline-warning btn-sm" onclick="abrirInforme()" title="Informe de competitividad">
+                <i class="bi bi-file-earmark-bar-graph me-1"></i>Informe
+            </button>
             <button class="btn btn-success btn-sm" onclick="correrAgente(false)">
                 <i class="bi bi-arrow-repeat me-1"></i>Actualizar todo
             </button>
@@ -116,6 +119,21 @@
         <div class="text-center text-muted py-5">
             <i class="bi bi-hourglass-split fs-1"></i>
             <p class="mt-2">Cargando datos...</p>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Informe -->
+<div class="modal fade" id="modalInforme" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-file-earmark-bar-graph me-2"></i>Informe de Competitividad — Sin Cuotas</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="informe-body">
+                <div class="text-center py-4"><div class="spinner-border"></div></div>
+            </div>
         </div>
     </div>
 </div>
@@ -373,5 +391,110 @@ ${skuHtml}
 
 // Filtro de envío re-renderiza sin re-fetch
 document.getElementById('envio-select').addEventListener('change', () => renderTabla(_lastRows));
+
+// ── INFORME ───────────────────────────────────────────────────────
+function abrirInforme() {
+    document.getElementById('informe-body').innerHTML =
+        '<div class="text-center py-4"><div class="spinner-border"></div><p class="mt-2 text-muted">Calculando...</p></div>';
+    new bootstrap.Modal(document.getElementById('modalInforme')).show();
+
+    fetch('/admin/competencia/informe')
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('informe-body').innerHTML = renderInforme(data);
+        })
+        .catch(() => {
+            document.getElementById('informe-body').innerHTML =
+                '<div class="alert alert-danger">Error cargando informe</div>';
+        });
+}
+
+function renderInforme(data) {
+    if (!data.ultima_fecha) {
+        return '<div class="alert alert-warning">Sin datos disponibles. Ejecutá "Actualizar todo" primero.</div>';
+    }
+
+    const r = data.resumen || {};
+    const fecha = new Date(data.ultima_fecha).toLocaleString('es-AR');
+
+    let html = `
+    <div class="d-flex gap-3 mb-4 flex-wrap">
+        <div class="card border-danger flex-fill text-center p-3">
+            <div class="fs-1 fw-bold text-danger">${r.criticos || 0}</div>
+            <div class="small text-muted">Críticos (&gt;6% más baratos)</div>
+        </div>
+        <div class="card border-warning flex-fill text-center p-3">
+            <div class="fs-1 fw-bold text-warning">${(r.perdiendo||0) - (r.criticos||0)}</div>
+            <div class="small text-muted">En riesgo (0-6% más baratos)</div>
+        </div>
+        <div class="card border-success flex-fill text-center p-3">
+            <div class="fs-1 fw-bold text-success">${r.ganando || 0}</div>
+            <div class="small text-muted">Competitivos</div>
+        </div>
+        <div class="card border-secondary flex-fill text-center p-3">
+            <div class="fs-1 fw-bold text-secondary">${r.total_skus || 0}</div>
+            <div class="small text-muted">SKUs analizados</div>
+        </div>
+    </div>
+    <p class="text-muted small mb-3">Datos al ${fecha} · Comparación en Sin Cuotas · Mi referencia: mejor precio FLEX/COLECTA</p>`;
+
+    if (!data.alertas?.length) {
+        html += '<div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>¡Estás competitivo en todos los SKUs para Sin Cuotas!</div>';
+    } else {
+        html += `<h6 class="fw-bold mb-3">SKUs donde competidores están más baratos:</h6>`;
+        html += `<table class="table table-sm table-hover" style="font-size:.85rem">
+<thead class="table-dark"><tr>
+<th>SKU</th><th>Modelo</th><th>Mi precio</th><th>Competidor</th>
+<th>Su precio</th><th>Envío</th><th>Diferencia</th><th>Estado</th><th></th>
+</tr></thead><tbody>`;
+
+        data.alertas.forEach(entry => {
+            entry.alertas.forEach(a => {
+                const critico = a.critico;
+                const rowCls  = critico ? 'table-danger' : 'table-warning';
+                const badge   = critico
+                    ? '<span class="badge bg-danger">⚠️ Crítico</span>'
+                    : '<span class="badge bg-warning text-dark">Atención</span>';
+                const link = entry.catalog_id
+                    ? `<a href="https://www.mercadolibre.com.ar/p/${entry.catalog_id}" target="_blank"
+                          class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size:.7rem">
+                          <i class="bi bi-eye"></i></a>`
+                    : '';
+
+                html += `<tr class="${rowCls}">
+<td><strong>${entry.sku}</strong></td>
+<td>${entry.modelo} ${entry.medida}cm</td>
+<td>$${Number(entry.mi_precio).toLocaleString('es-AR')} <span class="badge bg-primary" style="font-size:.6rem">${entry.mi_envio}</span></td>
+<td>${a.vendedor}</td>
+<td>$${Number(a.precio_comp).toLocaleString('es-AR')}</td>
+<td><span class="badge ${{'FLEX':'badge-flex','COLECTA':'badge-colecta','ME1':'badge-me1'}[a.envio_comp]||'bg-secondary'} rounded-pill" style="font-size:.7rem">${a.envio_comp}</span></td>
+<td class="fw-bold text-danger">${a.pct.toFixed(1)}%</td>
+<td>${badge}</td>
+<td>${link}</td>
+</tr>`;
+            });
+        });
+
+        html += `</tbody></table>`;
+    }
+
+    if (data.ok_skus?.length) {
+        html += `<details class="mt-3"><summary class="text-success fw-bold" style="cursor:pointer">
+            <i class="bi bi-check-circle me-1"></i>${data.ok_skus.length} SKUs competitivos (click para ver)
+        </summary><div class="mt-2">`;
+        html += `<table class="table table-sm" style="font-size:.82rem">
+<thead class="table-success"><tr><th>SKU</th><th>Modelo</th><th>Mi precio</th><th>Mejor competidor</th></tr></thead><tbody>`;
+        data.ok_skus.forEach(entry => {
+            const bestComp = entry.alertas?.length ? null :
+                '<span class="text-success">✅ Mejor precio</span>';
+            html += `<tr><td>${entry.sku}</td><td>${entry.modelo} ${entry.medida}cm</td>
+<td>$${Number(entry.mi_precio).toLocaleString('es-AR')}</td>
+<td>${bestComp || '—'}</td></tr>`;
+        });
+        html += `</tbody></table></div></details>`;
+    }
+
+    return html;
+}
 </script>
 {% endblock %}

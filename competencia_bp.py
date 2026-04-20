@@ -556,3 +556,116 @@ def competencia_estado():
         'skus_faltantes': sin_cat['n'] if sin_cat else 0,
         'ultima_fecha': str(row['ultima_fecha']) if row and row['ultima_fecha'] else None,
     })
+
+@competencia_bp.route('/admin/competencia/informe')
+def competencia_informe():
+    """
+    Informe de competitividad para Sin cuotas:
+    SKUs donde algún competidor está más barato que yo,
+    comparando mi FLEX/COLECTA vs FLEX y ME1 de competidores.
+    """
+    ultima = _q("SELECT MAX(fecha) as f FROM competencia_snapshots", one=True)
+    if not ultima or not ultima['f']:
+        return jsonify({'alertas': [], 'ok_skus': [], 'ultima_fecha': None})
+
+    ultima_fecha = ultima['f']
+
+    rows = _q("""
+        SELECT sku, tipo, modelo, medida, seller_nick, precio, envio_tipo, es_propio, catalog_product_id
+        FROM competencia_snapshots
+        WHERE DATE(fecha) = DATE(%s)
+        AND cuotas_publi = 'Sin cuotas'
+        AND pausada_sin_stock = 0
+        ORDER BY sku, precio
+    """, [ultima_fecha])
+
+    # Agrupar por SKU
+    by_sku = {}
+    for r in rows:
+        sku = r['sku']
+        if sku not in by_sku:
+            by_sku[sku] = {'meta': r, 'mios': [], 'comps': []}
+        if r['es_propio']:
+            by_sku[sku]['mios'].append(r)
+        else:
+            by_sku[sku]['comps'].append(r)
+
+    alertas = []   # perdiendo
+    ok_skus = []   # ganando o sin datos suficientes
+
+    for sku, data in by_sku.items():
+        mios = data['mios']
+        comps = data['comps']
+        meta = data['meta']
+
+        if not mios or not comps:
+            continue
+
+        # Mi mejor precio FLEX o COLECTA
+        mi_flex = min((r['precio'] for r in mios if r['envio_tipo'] in ('FLEX','COLECTA')), default=None)
+        mi_me1  = min((r['precio'] for r in mios if r['envio_tipo'] == 'ME1'), default=None)
+        mi_ref  = mi_flex or mi_me1
+        if not mi_ref:
+            continue
+
+        # Peor competidor (más barato) por tipo de envío
+        comp_flex = min((r for r in comps if r['envio_tipo'] in ('FLEX','COLECTA')),
+                        key=lambda x: x['precio'], default=None)
+        comp_me1  = min((r for r in comps if r['envio_tipo'] == 'ME1'),
+                        key=lambda x: x['precio'], default=None)
+
+        alertas_sku = []
+
+        for comp, label in [(comp_flex, 'FLEX/COLECTA'), (comp_me1, 'ME1')]:
+            if not comp: continue
+            pct = (float(comp['precio']) - float(mi_ref)) / float(mi_ref) * 100
+            if pct < 0:  # competidor más barato
+                alertas_sku.append({
+                    'vendedor':    comp['seller_nick'],
+                    'envio_comp':  comp['envio_tipo'],
+                    'precio_comp': float(comp['precio']),
+                    'mi_precio':   float(mi_ref),
+                    'mi_envio':    'FLEX/COLECTA' if mi_flex else 'ME1',
+                    'pct':         round(pct, 1),
+                    'critico':     pct < -6,  # más del 6% más barato
+                    'label':       label,
+                })
+
+        def fix_dec(r):
+            return {k: (float(v) if hasattr(v,'__float__') and not isinstance(v,(int,bool)) else
+                        str(v) if hasattr(v,'strftime') else v)
+                    for k,v in r.items()}
+
+        entry = {
+            'sku':          sku,
+            'tipo':         meta['tipo'],
+            'modelo':       meta['modelo'],
+            'medida':       meta['medida'],
+            'mi_precio':    float(mi_ref),
+            'mi_envio':     'FLEX/COLECTA' if mi_flex else 'ME1',
+            'catalog_id':   meta['catalog_product_id'],
+            'alertas':      alertas_sku,
+        }
+
+        if alertas_sku:
+            alertas.append(entry)
+        else:
+            ok_skus.append(entry)
+
+    # Ordenar alertas: primero los críticos (>6%), luego por % más negativo
+    alertas.sort(key=lambda x: (
+        not any(a['critico'] for a in x['alertas']),
+        min(a['pct'] for a in x['alertas'])
+    ))
+
+    return jsonify({
+        'alertas':      alertas,
+        'ok_skus':      ok_skus,
+        'ultima_fecha': str(ultima_fecha),
+        'resumen': {
+            'total_skus':    len(by_sku),
+            'perdiendo':     len(alertas),
+            'criticos':      sum(1 for e in alertas if any(a['critico'] for a in e['alertas'])),
+            'ganando':       len(ok_skus),
+        }
+    })
