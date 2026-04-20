@@ -351,9 +351,24 @@ function renderTabla(rows) {
                 // Links
                 let linkHtml = '—';
                 if (item.es_propio && item.item_id) {
-                    linkHtml = `<a href="https://www.mercadolibre.com.ar/syi/core/modify?itemId=${item.item_id}"
-                        target="_blank" class="btn btn-outline-warning btn-sm py-0 px-1 me-1" style="font-size:.65rem">
-                        <i class="bi bi-pencil-square"></i> Editar</a>`;
+                    const mlaId = item.item_id;
+                    const precioActual = Math.round(item.precio || 0);
+                    linkHtml = `
+                        <div class="d-flex gap-1 align-items-center">
+                            <input type="number" id="precio_${mlaId}" class="form-control form-control-sm"
+                                   value="${precioActual}" min="0" step="1000"
+                                   style="width:100px;font-size:.75rem">
+                            <button class="btn btn-warning btn-sm py-0 px-1"
+                                    onclick="actualizarPrecioMLA('${mlaId}')"
+                                    style="font-size:.7rem;white-space:nowrap">
+                                <i class="bi bi-tag"></i> Aplicar
+                            </button>
+                            <a href="https://www.mercadolibre.com.ar/syi/core/modify?itemId=${mlaId}"
+                               target="_blank" class="btn btn-outline-secondary btn-sm py-0 px-1"
+                               style="font-size:.65rem" title="Editar en ML">
+                                <i class="bi bi-pencil-square"></i>
+                            </a>
+                        </div>`;
                 } else if (catalogId) {
                     linkHtml = `<a href="https://www.mercadolibre.com.ar/p/${catalogId}"
                         target="_blank" class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size:.65rem">
@@ -395,6 +410,47 @@ ${skuHtml}
 
 // Filtro de envío re-renderiza sin re-fetch
 document.getElementById('envio-select').addEventListener('change', () => renderTabla(_lastRows));
+
+// ── ACTUALIZAR PRECIO MLA ─────────────────────────────────────────
+function actualizarPrecioMLA(mlaId, inputId) {
+    const id = inputId || `precio_${mlaId}`;
+    const input = document.getElementById(id);
+    if (!input) return;
+    const precio = parseInt(input.value);
+    if (!precio || precio <= 0) { alert('Ingresá un precio válido'); return; }
+    if (!confirm(`¿Actualizar ${mlaId} a $${precio.toLocaleString('es-AR')}?`)) return;
+
+    const btn = input.nextElementSibling;
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    fetch('/admin/competencia/actualizar-precio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mla_id: mlaId, precio })
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+        if (data.ok) {
+            btn.classList.replace('btn-warning', 'btn-success');
+            btn.innerHTML = '<i class="bi bi-check"></i>';
+            setTimeout(() => {
+                btn.classList.replace('btn-success', 'btn-warning');
+                btn.innerHTML = origHtml;
+            }, 3000);
+        } else {
+            alert('Error: ' + (data.error || 'desconocido'));
+        }
+    })
+    .catch(() => {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+        alert('Error de conexión');
+    });
+}
 
 // ── INFORME ───────────────────────────────────────────────────────
 function abrirInforme() {
@@ -459,11 +515,25 @@ function renderInforme(data) {
                 const badge   = critico
                     ? '<span class="badge bg-danger">⚠️ Crítico</span>'
                     : '<span class="badge bg-warning text-dark">Atención</span>';
+                const mlaId = entry.mla_id || '';
+                const precioActual = Math.round(entry.mi_precio || 0);
                 const link = entry.catalog_id
                     ? `<a href="https://www.mercadolibre.com.ar/p/${entry.catalog_id}" target="_blank"
-                          class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size:.7rem">
+                          class="btn btn-outline-secondary btn-sm py-0 px-1 me-1" style="font-size:.7rem">
                           <i class="bi bi-eye"></i></a>`
                     : '';
+                const precioInput = mlaId ? `
+                    <div class="d-flex gap-1 align-items-center">
+                        <input type="number" id="inf_precio_${mlaId}" class="form-control form-control-sm"
+                               value="${precioActual}" min="0" step="1000"
+                               style="width:95px;font-size:.73rem">
+                        <button class="btn btn-warning btn-sm py-0 px-1"
+                                onclick="actualizarPrecioMLA('${mlaId}', 'inf_precio_${mlaId}')"
+                                style="font-size:.7rem">
+                            <i class="bi bi-tag"></i>
+                        </button>
+                        ${link}
+                    </div>` : link;
 
                 html += `<tr class="${rowCls}">
 <td><strong>${entry.sku}</strong></td>
@@ -474,7 +544,7 @@ function renderInforme(data) {
 <td><span class="badge ${envBadgeCls(a.envio_comp)} rounded-pill" style="font-size:.7rem">${a.envio_comp}</span></td>
 <td class="fw-bold text-danger">${a.pct.toFixed(1)}%</td>
 <td>${badge}</td>
-<td>${link}</td>
+<td>${precioInput}</td>
 </tr>`;
             });
         });

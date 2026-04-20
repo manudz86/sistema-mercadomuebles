@@ -536,6 +536,33 @@ def competencia_datos():
         }
     })
 
+@competencia_bp.route('/admin/competencia/actualizar-precio', methods=['POST'])
+def competencia_actualizar_precio():
+    """Actualiza el precio de un MLA específico."""
+    data = request.get_json() or {}
+    mla_id = data.get('mla_id')
+    precio = data.get('precio')
+    if not mla_id or not precio:
+        return jsonify({'ok': False, 'error': 'Faltan datos'})
+    try:
+        precio = int(precio)
+        if precio <= 0:
+            return jsonify({'ok': False, 'error': 'Precio inválido'})
+        token = _token()
+        import requests as req
+        r = req.put(
+            f'https://api.mercadolibre.com/items/{mla_id}',
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+            json={'price': precio},
+            timeout=10
+        )
+        if r.status_code == 200:
+            return jsonify({'ok': True, 'mla_id': mla_id, 'precio': precio})
+        else:
+            return jsonify({'ok': False, 'error': f'ML respondió {r.status_code}', 'detalle': r.text[:200]})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
 @competencia_bp.route('/admin/competencia/estado')
 def competencia_estado():
     """Estadísticas del último snapshot."""
@@ -571,7 +598,7 @@ def competencia_informe():
     ultima_fecha = ultima['f']
 
     rows = _q("""
-        SELECT sku, tipo, modelo, medida, seller_nick, precio, envio_tipo, es_propio, catalog_product_id
+        SELECT sku, tipo, modelo, medida, seller_nick, item_id, precio, envio_tipo, es_propio, catalog_product_id
         FROM competencia_snapshots
         WHERE DATE(fecha) = DATE(%s)
         AND cuotas_publi = 'Sin cuotas'
@@ -636,6 +663,11 @@ def competencia_informe():
                         str(v) if hasattr(v,'strftime') else v)
                     for k,v in r.items()}
 
+        # Encontrar el item_id de mi publi de referencia
+        mi_ref_item = next((r for r in mios
+                            if r['envio_tipo'] in ('FLEX','COLECTA') and float(r['precio']) == float(mi_ref or 0)),
+                           next((r for r in mios if float(r['precio']) == float(mi_ref or 0)), None))
+
         entry = {
             'sku':          sku,
             'tipo':         meta['tipo'],
@@ -643,6 +675,7 @@ def competencia_informe():
             'medida':       meta['medida'],
             'mi_precio':    float(mi_ref),
             'mi_envio':     'FLEX/COLECTA' if mi_flex else 'ME1',
+            'mla_id':       mi_ref_item['item_id'] if mi_ref_item else None,
             'catalog_id':   meta['catalog_product_id'],
             'alertas':      alertas_sku,
         }
