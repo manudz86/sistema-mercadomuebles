@@ -304,69 +304,58 @@ def _get_mis_publis_pausadas(sku):
     return pausadas
 
 # ── Snapshot de un catálogo ───────────────────────────────────────
-def _get_mis_publis_all(sku):
+def _get_mis_publis_all(catalog_id):
     """
-    Trae mis publis de catálogo del SKU:
-    - Solo catalog_listing=True
-    - Solo activas O pausadas por out_of_stock
-    - Excluye under_review, closed, etc.
-    SKU sin Z → FLEX, SKU con Z → ME1
+    Trae MIS publis del catálogo directamente desde ML.
+    Filtra por seller_id=MY_SELLER_ID en el endpoint de productos.
+    Lee campaign con token propio → detección exacta de cuotas.
+    Infiere envío: FLEX si me2/self_service, ME1 si me1/default.
     """
+    all_results = _ml_catalog_all(catalog_id, '1425')
+    mis_items = [r for r in all_results if r.get('seller_id') == MY_SELLER_ID]
+
     result = []
-    sku_base = sku.rstrip('Z') if sku.endswith('Z') else sku
+    for r in mis_items:
+        mla_id = r.get('item_id')
+        # Leer con token para obtener campaign exacto
+        data = _ml(f"https://api.mercadolibre.com/items/{mla_id}"
+                   "?attributes=id,price,listing_type_id,sale_terms,status,sub_status,tags")
+        if not data:
+            continue
 
-    for sku_buscar, envio_t, envio_free in [
-        (sku_base,        'FLEX', True),   # sin Z = Flex
-        (sku_base + 'Z',  'ME1',  False),  # con Z = ME1
-    ]:
-        rows = _q("SELECT mla_id FROM sku_mla_mapeo WHERE sku=%s AND activo=1", (sku_buscar,))
-        seen_cuotas_envio = set()  # dedup por cuotas_publi + envio_t
+        status = data.get('status', '')
+        sub_status = data.get('sub_status') or []
+        if isinstance(sub_status, str):
+            sub_status = [sub_status]
 
-        for row in rows:
-            data = _ml(
-                f"https://api.mercadolibre.com/items/{row['mla_id']}"
-                "?attributes=id,price,listing_type_id,sale_terms,status,sub_status,catalog_listing,tags"
-            )
-            if not data:
-                continue
+        pausada = (status == 'paused' and 'out_of_stock' in sub_status)
+        activa  = (status == 'active')
+        if not activa and not pausada:
+            continue
 
-            # Solo publis de catálogo
-            if not data.get('catalog_listing'):
-                continue
+        lt = data.get('listing_type_id', '')
+        camp = next((t.get('value_name', '').split('|')[0].strip()
+                     for t in data.get('sale_terms', [])
+                     if t.get('id') == 'INSTALLMENTS_CAMPAIGN'), None)
+        if not camp:
+            camp = _campaign_from_tags(data.get('tags', []))
 
-            status = data.get('status', '')
-            sub_status = data.get('sub_status') or []
-            if isinstance(sub_status, str):
-                sub_status = [sub_status]
+        cuotas_pub = _cuotas_publi(lt, camp)
 
-            pausada = (status == 'paused' and 'out_of_stock' in sub_status)
-            activa  = (status == 'active')
+        # Inferir envío desde el catálogo (más confiable que leer item individual)
+        shipping = r.get('shipping', {})
+        envio_t, envio_free, _ = _envio_tipo(shipping)
 
-            # Solo activas o pausadas por stock — excluir under_review, closed, etc.
-            if not activa and not pausada:
-                continue
-
-            lt   = data.get('listing_type_id', '')
-            camp = next((t.get('value_name', '').split('|')[0].strip()
-                         for t in data.get('sale_terms', [])
-                         if t.get('id') == 'INSTALLMENTS_CAMPAIGN'), None)
-            if not camp:
-                camp = _campaign_from_tags(data.get('tags', []))
-
-            cuotas_pub = _cuotas_publi(lt, camp)  # camp defines publi type
-            cuotas_ef  = cuotas_pub  # same - campaign already applied
-
-                # No deduplicar mis publis — cada MLA es una publi distinta
-            result.append({
-                'mla_id':     row['mla_id'],
-                'precio':     data.get('price'),
-                'cuotas_pub': cuotas_pub,
-                'cuotas_ef':  cuotas_ef,
-                'envio_t':    envio_t,
-                'envio_free': envio_free,
-                'pausada':    pausada,
-                'activa':     activa,
-            })
+        result.append({
+            'mla_id':     mla_id,
+            'precio':     data.get('price'),
+            'cuotas_pub': cuotas_pub,
+            'cuotas_ef':  cuotas_pub,
+            'envio_t':    envio_t,
+            'envio_free': envio_free,
+            'pausada':    pausada,
+            'activa':     activa,
+        })
     return result
 
 
@@ -385,7 +374,7 @@ def _snapshot_catalogo(sku, catalog_id, campaigns):
     cp_label = 'CABA'
 
     # ── MIS PUBLIS ────────────────────────────────────────────────
-    mis_publis = _get_mis_publis_all(sku)
+    mis_publis = _get_mis_publis_all(catalog_id)
     cuotas_vistas = set()  # para saber qué cuotas tengo activas
 
     for p in mis_publis:
@@ -434,11 +423,7 @@ def _snapshot_catalogo(sku, catalog_id, campaigns):
     # gold_pro → asignar tipo de cuota en orden de precio vs mis propias publis gold_pro
 
     # Mis cuotas gold_pro ordenadas por precio (referencia para el match)
-    mis_goldpro = sorted(
-        [p for p in mis_publis if p['cuotas_pub'] not in ('Sin cuotas','Cuota Simple') and p['activa']],
-        key=lambda x: x['precio'] or 0
-    )
-    mis_cuotas_orden = [p['cuotas_pub'] for p in mis_goldpro]
+    # (mis_cuotas_orden ya no se usa - competidores usan tags para detectar cuotas)
 
     # Agrupar items por seller
     _comp_dedup = {}
