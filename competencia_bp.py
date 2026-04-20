@@ -255,7 +255,7 @@ def _get_campaigns_activas(sku):
     campaigns = {}
     seen_keys = set()
     for row in rows:
-        data = _ml(f"https://api.mercadolibre.com/items/{row['mla_id']}?attributes=listing_type_id,sale_terms,status,sub_status")
+        data = _ml(f"https://api.mercadolibre.com/items/{row['mla_id']}?attributes=listing_type_id,sale_terms,status,sub_status,tags")
         if not data:
             continue
         lt = data.get('listing_type_id', '')
@@ -325,7 +325,7 @@ def _get_mis_publis_all(sku):
         for row in rows:
             data = _ml(
                 f"https://api.mercadolibre.com/items/{row['mla_id']}"
-                "?attributes=id,price,listing_type_id,sale_terms,status,sub_status,catalog_listing"
+                "?attributes=id,price,listing_type_id,sale_terms,status,sub_status,catalog_listing,tags"
             )
             if not data:
                 continue
