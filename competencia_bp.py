@@ -28,7 +28,6 @@ CAMPAÑAS_CUOTAS = {
 
 CPS = [
     {'cp': '1425', 'label': 'CABA'},
-    {'cp': '2000', 'label': 'Interior'},
 ]
 
 # ── DB ────────────────────────────────────────────────────────────
@@ -140,7 +139,7 @@ def _envio_tipo(shipping):
     if 'turbo' in tags.lower():
         return 'TURBO', free, cost
     if mode == 'me1':
-        return 'ME1', free, cost
+        return 'ME1', free, 0  # cost is unreliable from products endpoint
     if shipping.get('local_pick_up') and not free:
         return 'ACORDAR', False, 0
     return 'OTRO', free, cost
@@ -303,10 +302,10 @@ def _snapshot_catalogo(sku, catalog_id, campaigns):
             else:
                 cuotas_ef = campaigns.get(cuotas_pub, cuotas_pub)
 
-            key = (sid, cuotas_pub)
+            envio_t, envio_free, envio_costo = _envio_tipo(r.get('shipping', {}))
+            key = (sid, cuotas_pub, envio_t)
             precio = r.get('price') or 0
             if key not in dedup or precio < dedup[key]['precio']:
-                envio_t, envio_free, envio_costo = _envio_tipo(r.get('shipping', {}))
                 dedup[key] = {
                     'seller_id':   sid,
                     'seller_nick': nicks.get(sid, str(sid)),
@@ -421,19 +420,23 @@ def competencia_correr():
     t.join(timeout=300)
     return jsonify(resultado)
 
+ORDEN_CUOTAS = [
+    'Sin cuotas', 'Cuota Simple',
+    '3 cuotas s/interés', '6 cuotas s/interés',
+    '9 cuotas s/interés', '12 cuotas s/interés'
+]
+
 @competencia_bp.route('/admin/competencia/datos')
 def competencia_datos():
-    sku_filtro  = request.args.get('sku')
-    cuotas_filtro = request.args.get('cuotas', '6 cuotas s/interés')
-    cp_filtro   = request.args.get('cp', '1425')
+    sku_filtro = request.args.get('sku')
 
     ultima = _q("SELECT MAX(fecha) as f FROM competencia_snapshots", one=True)
     if not ultima or not ultima['f']:
         return jsonify({'rows': [], 'ultima_fecha': None})
 
     ultima_fecha = ultima['f']
-    where = "WHERE DATE(s.fecha) = DATE(%s) AND s.cuotas_publi = %s AND s.cp = %s"
-    params = [ultima_fecha, cuotas_filtro, cp_filtro]
+    where = "WHERE DATE(s.fecha) = DATE(%s) AND s.cp = '1425'"
+    params = [ultima_fecha]
 
     if sku_filtro:
         where += " AND s.sku = %s"
@@ -443,8 +446,7 @@ def competencia_datos():
         SELECT s.sku, s.seller_nick, s.item_id, s.precio,
                s.cuotas_publi, s.cuotas_efectivas,
                s.envio_tipo, s.envio_gratis, s.envio_costo,
-               s.es_propio, s.pausada_sin_stock, s.catalog_product_id,
-               s.cp, s.cp_label
+               s.es_propio, s.pausada_sin_stock, s.catalog_product_id
         FROM competencia_snapshots s
         {where}
         ORDER BY s.sku, s.precio ASC
@@ -458,6 +460,7 @@ def competencia_datos():
     return jsonify({
         'rows': [fix(r) for r in rows],
         'ultima_fecha': str(ultima_fecha),
+        'orden_cuotas': ORDEN_CUOTAS,
     })
 
 @competencia_bp.route('/admin/competencia/skus')
