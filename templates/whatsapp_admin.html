@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block title %}WhatsApp Bot{% endblock %}
+
+{% block content %}
+<style>
+.chat-item       { cursor:pointer; transition:.15s; border-left:3px solid transparent; }
+.chat-item:hover { background:#f8f9fa; border-left-color:#0d6efd; }
+.chat-item.activo{ background:#e8f4fd; border-left-color:#0d6efd; font-weight:600; }
+.msg-user        { background:#f0f0f0; border-radius:12px 12px 12px 0; max-width:80%; }
+.msg-bot         { background:#dcf8c6; border-radius:12px 12px 0 12px; max-width:80%; }
+.msg-derivado    { border:2px solid #ffc107 !important; }
+.chat-panel      { height: calc(100vh - 220px); overflow-y:auto; }
+.conv-panel      { height: calc(100vh - 220px); overflow-y:auto; display:flex; flex-direction:column; }
+.conv-messages   { flex:1; overflow-y:auto; padding:12px; }
+</style>
+
+<div class="container-fluid py-3">
+
+    <!-- Header -->
+    <div class="d-flex align-items-center gap-2 mb-3">
+        <div style="width:38px;height:38px;background:#25D366;border-radius:50%;display:flex;align-items:center;justify-content:center">
+            <i class="bi bi-whatsapp text-white fs-5"></i>
+        </div>
+        <div>
+            <h5 class="mb-0">Bot WhatsApp</h5>
+            <small class="text-muted">Conversaciones del agente</small>
+        </div>
+        <div class="ms-auto d-flex gap-2 align-items-center">
+            <input type="date" id="fecha-select" class="form-control form-control-sm" style="width:160px">
+            <button class="btn btn-outline-secondary btn-sm" onclick="cargarFechas()">
+                <i class="bi bi-calendar3"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <!-- Lista de chats -->
+        <div class="col-md-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-header d-flex justify-content-between align-items-center py-2">
+                    <span class="fw-bold small">Conversaciones</span>
+                    <span class="badge bg-secondary" id="total-badge">0</span>
+                </div>
+                <div class="chat-panel" id="lista-chats">
+                    <div class="text-center text-muted py-4 small">Cargando...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detalle conversación -->
+        <div class="col-md-8">
+            <div class="card shadow-sm h-100">
+                <div class="card-header d-flex justify-content-between align-items-center py-2">
+                    <span class="fw-bold small" id="chat-titulo">Seleccioná una conversación</span>
+                    <button class="btn btn-outline-warning btn-sm py-0 d-none" id="btn-limpiar" onclick="limpiarChat()">
+                        <i class="bi bi-trash me-1"></i>Limpiar memoria
+                    </button>
+                </div>
+                <div class="conv-panel" id="conv-panel">
+                    <div class="conv-messages" id="conv-messages">
+                        <div class="text-center text-muted py-5">
+                            <i class="bi bi-chat-dots fs-1"></i>
+                            <p class="mt-2 small">Seleccioná un chat para ver la conversación</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats de fechas -->
+    <div class="mt-3" id="stats-fechas"></div>
+</div>
+
+<script>
+let phoneActivo = null;
+const hoy = new Date().toISOString().split('T')[0];
+document.getElementById('fecha-select').value = hoy;
+document.getElementById('fecha-select').addEventListener('change', () => cargarChats());
+
+document.addEventListener('DOMContentLoaded', () => {
+    cargarChats();
+    cargarFechas();
+    setInterval(cargarChats, 30000); // auto-refresh cada 30s
+});
+
+function cargarChats() {
+    const fecha = document.getElementById('fecha-select').value;
+    fetch(`/admin/whatsapp/chats?fecha=${fecha}`)
+        .then(r => r.json())
+        .then(data => {
+            const lista = document.getElementById('lista-chats');
+            const chats = data.chats || [];
+            document.getElementById('total-badge').textContent = chats.length;
+
+            if (!chats.length) {
+                lista.innerHTML = '<div class="text-center text-muted py-4 small">Sin conversaciones este día</div>';
+                return;
+            }
+
+            lista.innerHTML = chats.map(c => `
+                <div class="chat-item p-3 border-bottom ${c.phone === phoneActivo ? 'activo' : ''}"
+                     onclick="verChat('${c.phone}')">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <span class="small fw-bold">+${c.phone}</span>
+                        <div class="d-flex gap-1">
+                            ${c.fue_derivado ? '<span class="badge bg-warning text-dark" style="font-size:.6rem">DERIVADO</span>' : ''}
+                            <span class="badge bg-light text-dark" style="font-size:.6rem">${c.total_msgs} msgs</span>
+                        </div>
+                    </div>
+                    <div class="text-muted" style="font-size:.75rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                        ${escHtml(c.ultimo_texto || '-')}
+                    </div>
+                    <div class="text-muted" style="font-size:.68rem">${formatFecha(c.ultimo_msg)}</div>
+                </div>
+            `).join('');
+        });
+}
+
+function verChat(phone) {
+    phoneActivo = phone;
+    const fecha = document.getElementById('fecha-select').value;
+    document.getElementById('chat-titulo').textContent = `+${phone}`;
+    document.getElementById('btn-limpiar').classList.remove('d-none');
+
+    // Highlight activo
+    document.querySelectorAll('.chat-item').forEach(el => {
+        el.classList.toggle('activo', el.onclick?.toString().includes(phone));
+    });
+
+    fetch(`/admin/whatsapp/chat/${phone}?fecha=${fecha}`)
+        .then(r => r.json())
+        .then(data => {
+            const msgs = data.mensajes || [];
+            const container = document.getElementById('conv-messages');
+
+            if (!msgs.length) {
+                container.innerHTML = '<div class="text-center text-muted py-4 small">Sin mensajes</div>';
+                return;
+            }
+
+            container.innerHTML = msgs.map(m => {
+                const esBot = m.rol === 'assistant';
+                const clsMsg = esBot ? 'msg-bot ms-auto' : 'msg-user';
+                const derivBadge = m.derivado ? '<span class="badge bg-warning text-dark ms-1" style="font-size:.6rem">DERIVADO</span>' : '';
+                return `
+                <div class="d-flex ${esBot ? 'justify-content-end' : 'justify-content-start'} mb-2">
+                    <div class="p-2 ${clsMsg} ${m.derivado ? 'msg-derivado' : ''}" style="font-size:.82rem">
+                        <div style="white-space:pre-wrap">${escHtml(m.contenido)}</div>
+                        <div class="text-muted mt-1 d-flex align-items-center gap-1" style="font-size:.68rem">
+                            ${formatHora(m.fecha)}
+                            ${derivBadge}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+
+            // Scroll al final
+            container.scrollTop = container.scrollHeight;
+        });
+}
+
+function limpiarChat() {
+    if (!phoneActivo) return;
+    if (!confirm(`¿Limpiar la memoria del bot para +${phoneActivo}? El historial en la BD se mantiene.`)) return;
+    fetch('/admin/whatsapp/limpiar', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({phone: phoneActivo})
+    }).then(() => alert('Memoria limpiada. El bot empezará una conversación nueva.'));
+}
+
+function cargarFechas() {
+    fetch('/admin/whatsapp/fechas')
+        .then(r => r.json())
+        .then(data => {
+            const fechas = data.fechas || [];
+            if (!fechas.length) return;
+            const html = fechas.slice(0,7).map(f => `
+                <span class="badge bg-light text-dark border me-1 mb-1" style="cursor:pointer;font-size:.75rem"
+                      onclick="document.getElementById('fecha-select').value='${f.fecha}';cargarChats()">
+                    ${f.fecha} · ${f.chats} chats · ${f.msgs} msgs
+                </span>`).join('');
+            document.getElementById('stats-fechas').innerHTML =
+                `<div class="small text-muted mb-1">Actividad reciente:</div>${html}`;
+        });
+}
+
+function escHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function formatFecha(str) {
+    if (!str) return '';
+    try { return new Date(str).toLocaleString('es-AR', {hour:'2-digit',minute:'2-digit'}); }
+    catch { return str; }
+}
+
+function formatHora(str) {
+    if (!str) return '';
+    try { return new Date(str).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'}); }
+    catch { return str; }
+}
+</script>
+{% endblock %}
