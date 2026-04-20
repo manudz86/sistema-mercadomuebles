@@ -350,6 +350,8 @@ def _get_mis_publis_all(sku):
             camp = next((t.get('value_name', '').split('|')[0].strip()
                          for t in data.get('sale_terms', [])
                          if t.get('id') == 'INSTALLMENTS_CAMPAIGN'), None)
+            if not camp:
+                camp = _campaign_from_tags(data.get('tags', []))
 
             cuotas_pub = _cuotas_publi(lt, camp)  # camp defines publi type
             cuotas_ef  = cuotas_pub  # same - campaign already applied
