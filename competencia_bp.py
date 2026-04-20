@@ -354,13 +354,7 @@ def _get_mis_publis_all(sku):
             cuotas_pub = _cuotas_publi(lt, camp)  # camp defines publi type
             cuotas_ef  = cuotas_pub  # same - campaign already applied
 
-            # Dedup: si ya tenemos esta cuota+envio activa, no agregar pausada
-            key = (cuotas_pub, envio_t)
-            if key in seen_cuotas_envio and pausada:
-                continue
-            if activa:
-                seen_cuotas_envio.add(key)
-
+                # No deduplicar mis publis — cada MLA es una publi distinta
             result.append({
                 'mla_id':     row['mla_id'],
                 'precio':     data.get('price'),
