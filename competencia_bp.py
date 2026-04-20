@@ -280,39 +280,60 @@ def _get_mis_publis_pausadas(sku):
 # ── Snapshot de un catálogo ───────────────────────────────────────
 def _get_mis_publis_all(sku):
     """
-    Trae TODAS mis publis del SKU (activas y pausadas por stock).
+    Trae mis publis de catálogo del SKU:
+    - Solo catalog_listing=True
+    - Solo activas O pausadas por out_of_stock
+    - Excluye under_review, closed, etc.
     SKU sin Z → FLEX, SKU con Z → ME1
     """
     result = []
-    for suffix, envio_t, envio_free in [
-        ('',  'FLEX', True),   # sin Z = Flex
-        ('Z', 'ME1',  False),  # con Z = ME1
-    ]:
-        sku_buscar = sku + suffix if not sku.endswith('Z') else sku
-        if suffix == 'Z' and sku.endswith('Z'):
-            sku_buscar = sku
-        elif suffix == '' and not sku.endswith('Z'):
-            sku_buscar = sku
-        else:
-            sku_buscar = sku.rstrip('Z') + suffix
+    sku_base = sku.rstrip('Z') if sku.endswith('Z') else sku
 
+    for sku_buscar, envio_t, envio_free in [
+        (sku_base,        'FLEX', True),   # sin Z = Flex
+        (sku_base + 'Z',  'ME1',  False),  # con Z = ME1
+    ]:
         rows = _q("SELECT mla_id FROM sku_mla_mapeo WHERE sku=%s AND activo=1", (sku_buscar,))
+        seen_cuotas_envio = set()  # dedup por cuotas_publi + envio_t
+
         for row in rows:
-            data = _ml(f"https://api.mercadolibre.com/items/{row['mla_id']}?attributes=id,price,listing_type_id,sale_terms,status,sub_status,shipping")
+            data = _ml(
+                f"https://api.mercadolibre.com/items/{row['mla_id']}"
+                "?attributes=id,price,listing_type_id,sale_terms,status,sub_status,catalog_listing"
+            )
             if not data:
                 continue
+
+            # Solo publis de catálogo
+            if not data.get('catalog_listing'):
+                continue
+
             status = data.get('status', '')
             sub_status = data.get('sub_status') or []
             if isinstance(sub_status, str):
                 sub_status = [sub_status]
 
-            lt = data.get('listing_type_id', '')
+            pausada = (status == 'paused' and 'out_of_stock' in sub_status)
+            activa  = (status == 'active')
+
+            # Solo activas o pausadas por stock — excluir under_review, closed, etc.
+            if not activa and not pausada:
+                continue
+
+            lt   = data.get('listing_type_id', '')
             camp = next((t.get('value_name', '').split('|')[0].strip()
                          for t in data.get('sale_terms', [])
                          if t.get('id') == 'INSTALLMENTS_CAMPAIGN'), None)
+
             cuotas_pub = _cuotas_publi(lt)
             cuotas_ef  = _cuotas_efectivas(lt, camp)
-            pausada = (status == 'paused' and 'out_of_stock' in sub_status)
+
+            # Dedup: si ya tenemos esta cuota+envio activa, no agregar pausada
+            key = (cuotas_pub, envio_t)
+            if key in seen_cuotas_envio and pausada:
+                continue
+            if activa:
+                seen_cuotas_envio.add(key)
 
             result.append({
                 'mla_id':     row['mla_id'],
@@ -322,7 +343,7 @@ def _get_mis_publis_all(sku):
                 'envio_t':    envio_t,
                 'envio_free': envio_free,
                 'pausada':    pausada,
-                'activa':     (status == 'active'),
+                'activa':     activa,
             })
     return result
 
@@ -397,7 +418,11 @@ def _snapshot_catalogo(sku, catalog_id, campaigns):
                      if t.get('id') == 'INSTALLMENTS_CAMPAIGN'), None)
 
         cuotas_pub = _cuotas_publi(lt)
+        # For gold_special with pcj-co-funded campaign → Cuota Simple
+        if camp and camp == 'pcj-co-funded':
+            cuotas_pub = 'Cuota Simple'
         cuotas_ef = CAMPAÑAS_CUOTAS.get(camp, campaigns.get(cuotas_pub, cuotas_pub)) if camp else campaigns.get(cuotas_pub, cuotas_pub)
+        print(f"[COMP] {COMPETIDORES.get(sid,sid)} item:{r.get('item_id')} lt:{lt} camp:{camp} cuotas_pub:{cuotas_pub} cuotas_ef:{cuotas_ef}")
 
         envio_t, envio_free, _ = _envio_tipo(r.get('shipping', {}))
         key = (sid, cuotas_pub, envio_t)
