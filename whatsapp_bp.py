@@ -183,35 +183,56 @@ GARANTÍA: 5 años de garantía de fábrica en todos los productos.
 
 def get_system_prompt():
     productos = get_productos_context()
-    return f"""Sos el asistente virtual de Mercado Muebles, distribuidora oficial de colchones Cannon en Buenos Aires. 
+    # Horario de atención
+    now = datetime.now()
+    # Argentina es UTC-3
+    hora_arg = (now.hour - 3) % 24
+    dia_semana = now.weekday()  # 0=lunes, 6=domingo
+    en_horario = (dia_semana < 5 and 8 <= hora_arg < 17)
+    horario_txt = (
+        "Estamos dentro del horario de atención (L-V 8-17hs)."
+        if en_horario else
+        "Estamos FUERA del horario de atención. El horario es lunes a viernes de 8 a 17hs. "
+        "Cuando derives o el cliente pida hablar con alguien, avisale que un asesor lo va a contactar en ese horario."
+    )
+
+    return f"""Sos el asistente virtual de Mercado Muebles, distribuidora oficial de colchones Cannon en Buenos Aires.
 Atendés consultas de clientes por WhatsApp.
 
-PERSONALIDAD:
+PERSONALIDAD Y FORMATO:
 - Amable y cercano, sin ser exagerado ni adulador
 - Usás el voseo rioplatense (vos, tenés, podés)
-- Respuestas concisas — no más de 3-4 párrafos por mensaje
-- Si el cliente pregunta algo puntual, respondés puntualmente
-- No usés asteriscos, bullets ni markdown — es WhatsApp, texto plano
+- Respuestas concisas, máximo 4 párrafos
+- NUNCA uses asteriscos (*), guiones (-) al inicio, ni ningún formato markdown
+- Es WhatsApp: texto plano solamente. Usá saltos de línea para separar ideas.
+- Podés usar emojis con moderación si viene al caso
 
-PODÉS AYUDAR CON:
-- Precios y características de productos
-- Comparaciones entre modelos
-- Medios de pago y cuotas
-- Links a productos en la tienda web
-- Envíos (aclarás que el costo exacto se calcula en el checkout según la ubicación)
-- Recomendaciones según necesidad del cliente (peso, preferencia de firmeza, presupuesto)
+COTIZACIONES:
+- Cuando el cliente no especifica modelo exacto, siempre cotizá 2 opciones similares dentro del rango pedido
+- "2 plazas" puede ser 140x190 O 150x190. SIEMPRE preguntá la medida exacta para que coincida con su base/cama
+- "Con base" o "con box" = sommier (colchón + base). Cotizá el sommier correspondiente
+- Cuando cotices con Payway, el formato correcto es: "3 cuotas fijas de $XX.XXX (total $XXX.XXX)"
+  NUNCA digas "sin interés" — las cuotas de Payway tienen interés embebido en el precio
+- No expliques cómo se calcula el recargo — solo mostrá el precio de cuota y el total
+
+MEDIOS DE PAGO:
+- MercadoPago: precio de lista, todas las formas (débito, crédito, transferencia, PagoFácil/RapiPago)
+- Payway: Visa o Mastercard bancarizadas. Formato: "3 cuotas fijas de $X (total $Y)" o "6 cuotas fijas de $X (total $Y)"
+
+HORARIO: {horario_txt}
 
 DERIVAR A HUMANO cuando:
 - El cliente pide hablar con una persona
 - El cliente consulta por una compra ya realizada (pedido, entrega, reclamo)
-- Detectás frustración clara (más de 2 respuestas sin resolver su consulta)
+- Detectás frustración (frases como "no entendés", "no me ayudás", más de 2 intentos fallidos)
 - Pregunta algo fuera de tu alcance
-Cuando derivés, usá exactamente este formato en tu respuesta: [DERIVAR] seguido de tu mensaje al cliente.
-Ejemplo: "[DERIVAR] Entiendo, te voy a conectar con un asesor que te va a ayudar en breve."
+Cuando derivés, usá EXACTAMENTE: [DERIVAR] seguido de tu mensaje.
+Ejemplo: "[DERIVAR] Entiendo, te voy a conectar con un asesor que te va a atender."
+Si estás fuera de horario, avisale que lo van a contactar en el próximo horario hábil.
 
 NUNCA:
 - Inventes precios o características que no estén en la info provista
-- Des información sobre pedidos ya realizados — derivá siempre
+- Des información sobre pedidos ya realizados
 - Prometás fechas de entrega exactas
 
 {CATALOGO_INFO}
@@ -261,40 +282,44 @@ def wa_mark_read(phone, msg_id):
 # ── Derivación ────────────────────────────────────────────────────
 def derivar_a_humano(phone_cliente, historial):
     """Manda resumen al número de derivación."""
-    # Armar resumen con Claude
     try:
         msgs_texto = '\n'.join(
             f"{'Cliente' if m['role']=='user' else 'Bot'}: {m['content']}"
-            for m in historial[-10:]  # últimos 10 mensajes
+            for m in historial[-10:]
         )
         resumen_resp = anthropic.messages.create(
             model='claude-sonnet-4-5',
-            max_tokens=300,
+            max_tokens=200,
             messages=[{
                 'role': 'user',
-                'content': f"""Resumí esta conversación de WhatsApp en 2-3 líneas:
-1. Qué estaba buscando el cliente
-2. En qué quedó la consulta
+                'content': f"""Resumí esta conversación en 2 líneas máximo:
+1. Qué buscaba el cliente
+2. Por qué se derivó
 
-Conversación:
 {msgs_texto}
 
-Respondé solo el resumen, sin introducción."""
+Solo el resumen, sin introducción."""
             }]
         )
         resumen = resumen_resp.content[0].text.strip()
-    except Exception:
-        resumen = "No se pudo generar resumen automático."
+    except Exception as e:
+        print(f"[WA] Error generando resumen: {e}")
+        resumen = "No se pudo generar resumen."
 
-    msg_derivacion = (
-        f"🔔 *Derivación WhatsApp*\n"
-        f"📱 Cliente: +{phone_cliente}\n"
-        f"📝 {resumen}\n"
-        f"💬 Última consulta: {historial[-1]['content'][:100] if historial else '-'}"
+    ultima = historial[-1]['content'][:120] if historial else '-'
+    msg = (
+        f"Derivacion WA\n"
+        f"Cliente: +{phone_cliente}\n"
+        f"Resumen: {resumen}\n"
+        f"Ultima consulta: {ultima}"
     )
 
-    wa_send(NUMERO_DERIVAR, msg_derivacion)
-    print(f"[WA] Derivación enviada a {NUMERO_DERIVAR} para cliente {phone_cliente}")
+    ok = wa_send(NUMERO_DERIVAR.replace('+', ''), msg)
+    print(f"[WA] Derivacion {'OK' if ok else 'FALLO'} para {phone_cliente} → {NUMERO_DERIVAR}")
+    if not ok:
+        # Segundo intento sin el +
+        num = NUMERO_DERIVAR.lstrip('+')
+        wa_send(num, msg)
 
 # ── Claude ────────────────────────────────────────────────────────
 def _guardar_mensaje(phone, rol, contenido, derivado=False):
