@@ -70,14 +70,26 @@
     </div>
 
     <!-- Leyenda -->
-    <div class="d-flex gap-2 flex-wrap mb-3 align-items-center" style="font-size:.8rem">
+    <div class="d-flex gap-2 flex-wrap mb-2 align-items-center" style="font-size:.8rem">
         <span class="badge badge-flex rounded-pill px-3">FLEX</span>
         <span class="badge badge-me1 rounded-pill px-3">ME1</span>
         <span class="badge badge-turbo rounded-pill px-3">TURBO</span>
         <span class="badge badge-acordar rounded-pill px-3">ACORDAR</span>
-        <span class="ms-2 text-muted"><span style="background:#f0f7ff;padding:2px 8px;border-radius:4px">Azul</span> = tus publis activas</span>
-        <span class="text-muted"><span style="background:#fff8e1;padding:2px 8px;border-radius:4px">Amarillo</span> = pausada s/stock (ref.)</span>
-        <span class="text-muted"><span class="precio-mejor">Verde</span> = mejor · <span class="precio-peor">Rojo</span> = más caro</span>
+        <span class="ms-2 text-muted"><span style="background:#f0f7ff;padding:2px 8px;border-radius:4px">Azul</span> = tus publis</span>
+        <span class="text-muted"><span style="background:#fff8e1;padding:2px 8px;border-radius:4px">Amarillo</span> = pausada s/stock</span>
+        <span class="text-muted"><span class="precio-mejor">Verde %</span> = competidor más caro · <span class="precio-peor">Rojo %</span> = competidor más barato</span>
+    </div>
+    <!-- Filtro envío -->
+    <div class="d-flex gap-2 mb-3 align-items-center">
+        <span class="small fw-bold text-muted">Filtrar envío:</span>
+        <div class="btn-group btn-group-sm" role="group">
+            <input type="radio" class="btn-check" name="filtroEnvio" id="filtroTodos" value="" checked>
+            <label class="btn btn-outline-secondary" for="filtroTodos">Todos</label>
+            <input type="radio" class="btn-check" name="filtroEnvio" id="filtroFlex" value="FLEX">
+            <label class="btn btn-outline-primary" for="filtroFlex">Solo FLEX</label>
+            <input type="radio" class="btn-check" name="filtroEnvio" id="filtroMe1" value="ME1">
+            <label class="btn btn-outline-secondary" for="filtroMe1">Solo ME1</label>
+        </div>
     </div>
 
     <div id="tabla-container">
@@ -101,6 +113,14 @@ document.getElementById('sku-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') cargarDatos();
 });
 
+// Re-render on envio filter change (no re-fetch needed)
+document.querySelectorAll('input[name="filtroEnvio"]').forEach(r => {
+    r.addEventListener('change', () => {
+        const rows = window._lastRows || [];
+        renderTabla(rows);
+    });
+});
+
 function cargarDatos() {
     const sku = document.getElementById('sku-input').value.trim();
     let url = `/admin/competencia/datos`;
@@ -114,7 +134,8 @@ function cargarDatos() {
             document.getElementById('ultima-fecha-label').textContent =
                 'Sin datos — ejecutá "Actualizar todo"';
         }
-        renderTabla(data.rows || []);
+        window._lastRows = data.rows || [];
+        renderTabla(window._lastRows);
     }).catch(() => {
         document.getElementById('tabla-container').innerHTML =
             '<div class="alert alert-danger">Error cargando datos</div>';
@@ -149,7 +170,20 @@ function correrAgente(soloSku) {
     });
 }
 
+function getEnvioFiltro() {
+    return document.querySelector('input[name="filtroEnvio"]:checked')?.value || '';
+}
+
+function pctLabel(pct) {
+    if (pct === null) return '<span class="text-muted small">—</span>';
+    const sign = pct >= 0 ? '+' : '';
+    const cls  = pct >= 0 ? 'precio-mejor' : 'precio-peor';
+    return `<span class="${cls}" style="font-size:.8rem;font-weight:700">${sign}${pct.toFixed(1)}%</span>`;
+}
+
 function renderTabla(rows) {
+    const filtroEnvio = getEnvioFiltro();
+
     if (!rows.length) {
         document.getElementById('tabla-container').innerHTML =
             `<div class="alert alert-info">Sin datos. Ejecutá "Actualizar todo" o "Actualizar SKU".</div>`;
@@ -169,53 +203,58 @@ function renderTabla(rows) {
 
     for (const [sku, byCuotas] of Object.entries(bySku)) {
         const catalogId = Object.values(byCuotas).flat()[0]?.catalog_product_id;
+        let skuHasRows = false;
+        let skuHtml = '';
 
-        html += `<div class="card mb-4 shadow-sm" style="border-radius:8px;overflow:hidden">`;
-        html += `<div class="sku-header d-flex justify-content-between align-items-center">`;
-        html += `<span><i class="bi bi-tag-fill me-2"></i>${sku}</span>`;
-        if (catalogId) {
-            html += `<a href="https://www.mercadolibre.com.ar/p/${catalogId}" target="_blank"
-                        class="btn btn-sm btn-outline-light py-0 px-2" style="font-size:.75rem">
-                        <i class="bi bi-box-arrow-up-right me-1"></i>Ver catálogo ML
-                     </a>`;
-        }
-        html += `</div>`;
-
-        // Iterar cuotas en orden
         ORDEN_CUOTAS.forEach(cuotas => {
             const items = byCuotas[cuotas];
             if (!items || !items.length) return;
 
-            // Precios de items activos para colorear
-            const activos = items.filter(i => !i.pausada_sin_stock);
-            const precios = activos.map(i => i.precio).filter(Boolean);
+            // Filtro envío — siempre mostrar mis publis
+            const itemsFiltrados = filtroEnvio
+                ? items.filter(i => i.es_propio || i.envio_tipo === filtroEnvio)
+                : items;
+            if (!itemsFiltrados.length) return;
+
+            // Mis precios de referencia para % diferencia
+            const miFlexP = Math.min(...items.filter(i => i.es_propio && !i.pausada_sin_stock && i.envio_tipo === 'FLEX').map(i => i.precio).filter(Boolean), Infinity);
+            const miMe1P  = Math.min(...items.filter(i => i.es_propio && !i.pausada_sin_stock && i.envio_tipo === 'ME1').map(i => i.precio).filter(Boolean), Infinity);
+            const flexRef = isFinite(miFlexP) ? miFlexP : null;
+            const me1Ref  = isFinite(miMe1P)  ? miMe1P  : null;
+
+            skuHasRows = true;
+            const activos = itemsFiltrados.filter(i => !i.pausada_sin_stock);
+            const precios  = activos.map(i => i.precio).filter(Boolean);
             const minP = precios.length ? Math.min(...precios) : null;
             const maxP = precios.length ? Math.max(...precios) : null;
 
-            html += `<div class="cuotas-header">
+            skuHtml += `<div class="cuotas-header">
                 <i class="bi bi-credit-card me-1"></i>${cuotas}
-                <span class="text-muted fw-normal ms-2">(${items.length} vendedor${items.length !== 1 ? 'es' : ''})</span>
-             </div>`;
-            html += `<div class="table-responsive">`;
-            html += `<table class="table table-sm table-hover mb-0" style="font-size:.82rem">`;
-            html += `<thead style="background:#f8f9fa;font-size:.75rem"><tr>`;
-            html += `<th style="width:35%">Vendedor</th><th style="width:20%">Precio</th>`;
-            html += `<th style="width:25%">Pasaje activo</th><th style="width:20%">Envío</th>`;
-            html += `</tr></thead><tbody>`;
+                <span class="text-muted fw-normal ms-2">(${itemsFiltrados.length} fila${itemsFiltrados.length!==1?'s':''})</span>
+                ${flexRef ? `<span class="ms-3 small text-muted">Ref FLEX: <strong>$${Number(flexRef).toLocaleString('es-AR')}</strong></span>` : ''}
+                ${me1Ref  ? `<span class="ms-2 small text-muted">Ref ME1: <strong>$${Number(me1Ref).toLocaleString('es-AR')}</strong></span>` : ''}
+            </div>`;
+            skuHtml += `<div class="table-responsive"><table class="table table-sm table-hover mb-0" style="font-size:.82rem">`;
+            skuHtml += `<thead style="background:#f8f9fa;font-size:.75rem"><tr>`;
+            skuHtml += `<th style="width:22%">Vendedor</th><th style="width:13%">Precio</th>`;
+            skuHtml += `<th style="width:13%">Envío</th>`;
+            skuHtml += `<th style="width:16%">Δ vs mi FLEX</th>`;
+            skuHtml += `<th style="width:16%">Δ vs mi ME1</th>`;
+            skuHtml += `<th style="width:20%">Link</th>`;
+            skuHtml += `</tr></thead><tbody>`;
 
-            // Ordenar: propios primero, luego precio
-            items.sort((a, b) => {
+            itemsFiltrados.sort((a, b) => {
                 if (a.es_propio && !b.es_propio) return -1;
                 if (!a.es_propio && b.es_propio) return 1;
                 return (a.precio || 0) - (b.precio || 0);
             });
 
-            items.forEach(item => {
-                const pausada = !!item.pausada_sin_stock;
+            itemsFiltrados.forEach(item => {
+                const pausada  = !!item.pausada_sin_stock;
                 const rowClass = pausada ? 'row-pausada' : item.es_propio ? 'row-propio' : '';
                 const precioClass = pausada ? 'text-muted' :
-                    (item.precio === minP ? 'precio-mejor' :
-                     item.precio === maxP ? 'precio-peor' : 'precio-igual');
+                    item.precio === minP ? 'precio-mejor' :
+                    item.precio === maxP ? 'precio-peor' : 'precio-igual';
 
                 const envClass = {FLEX:'badge-flex',ME1:'badge-me1',TURBO:'badge-turbo',ACORDAR:'badge-acordar'}[item.envio_tipo]||'badge-otro';
                 const envLabel = item.envio_tipo + (item.envio_gratis ? ' gratis' : '');
@@ -226,27 +265,53 @@ function renderTabla(rows) {
                         : '<span class="badge bg-primary" style="font-size:.6rem">VOS</span>'}`
                     : item.seller_nick;
 
-                const ef = item.cuotas_efectivas !== item.cuotas_publi
-                    ? `<span class="badge bg-warning text-dark" style="font-size:.7rem">${item.cuotas_efectivas} ↑</span>`
-                    : `<span class="text-muted small">—</span>`;
+                let difFlex = '<span class="text-muted small">—</span>';
+                let difMe1  = '<span class="text-muted small">—</span>';
+                if (!item.es_propio && item.precio) {
+                    difFlex = pctLabel(flexRef ? (item.precio - flexRef) / flexRef * 100 : null);
+                    difMe1  = pctLabel(me1Ref  ? (item.precio - me1Ref)  / me1Ref  * 100 : null);
+                }
 
-                html += `<tr class="${rowClass}">`;
-                html += `<td>${nick}</td>`;
-                html += `<td class="${precioClass}">$${Number(item.precio||0).toLocaleString('es-AR')}`;
-                if (pausada) html += ` <span class="text-muted" style="font-size:.7rem">(ref.)</span>`;
-                html += `</td>`;
-                html += `<td>${ef}</td>`;
-                html += `<td><span class="badge ${envClass} rounded-pill" style="font-size:.7rem">${envLabel}</span></td>`;
-                html += `</tr>`;
+                // Link: mis publis → editar, competidores → catálogo
+                let linkHtml = '—';
+                if (item.es_propio && item.item_id) {
+                    linkHtml = `<a href="https://www.mercadolibre.com.ar/syi/core/modify?itemId=${item.item_id}" target="_blank"
+                        class="btn btn-outline-warning btn-sm py-0 px-1 me-1" style="font-size:.65rem" title="Editar en ML">
+                        <i class="bi bi-pencil-square"></i> Editar</a>`;
+                } else if (item.catalog_product_id) {
+                    linkHtml = `<a href="https://www.mercadolibre.com.ar/p/${item.catalog_product_id}" target="_blank"
+                        class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size:.65rem" title="Ver catálogo">
+                        <i class="bi bi-eye"></i> Catálogo</a>`;
+                }
+
+                skuHtml += `<tr class="${rowClass}">`;
+                skuHtml += `<td>${nick}</td>`;
+                skuHtml += `<td class="${precioClass}">$${Number(item.precio||0).toLocaleString('es-AR')}${pausada?' <span class="text-muted" style="font-size:.65rem">(ref.)</span>':''}</td>`;
+                skuHtml += `<td><span class="badge ${envClass} rounded-pill" style="font-size:.7rem">${envLabel}</span></td>`;
+                skuHtml += `<td>${difFlex}</td>`;
+                skuHtml += `<td>${difMe1}</td>`;
+                skuHtml += `<td>${linkHtml}</td>`;
+                skuHtml += `</tr>`;
             });
 
-            html += `</tbody></table></div>`;
+            skuHtml += `</tbody></table></div>`;
         });
 
-        html += `</div>`;  // end card
+        if (!skuHasRows) continue;
+
+        html += `<div class="card mb-4 shadow-sm" style="border-radius:8px;overflow:hidden">`;
+        html += `<div class="sku-header d-flex justify-content-between align-items-center">`;
+        html += `<span><i class="bi bi-tag-fill me-2"></i>${sku}</span>`;
+        if (catalogId) {
+            html += `<a href="https://www.mercadolibre.com.ar/p/${catalogId}" target="_blank"
+                class="btn btn-sm btn-outline-light py-0 px-2" style="font-size:.75rem">
+                <i class="bi bi-box-arrow-up-right me-1"></i>Ver catálogo ML</a>`;
+        }
+        html += `</div>${skuHtml}</div>`;
     }
 
-    document.getElementById('tabla-container').innerHTML = html;
+    document.getElementById('tabla-container').innerHTML =
+        html || '<div class="alert alert-info">Sin datos para ese filtro de envío.</div>';
 }
 </script>
 {% endblock %}
