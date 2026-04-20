@@ -177,21 +177,23 @@ def _envio_tipo(shipping):
         return 'ACORDAR', False, 0
     return 'OTRO', free, cost
 
-def _cuotas_publi(lt):
-    """Cuotas de la publicación SIN tener en cuenta campaigns (estructura base)"""
+def _cuotas_publi(lt, campaign=None):
+    """
+    Determina las cuotas de la publicación.
+    El campaign define el tipo real de la publi (no es solo un pasaje temporal).
+    Ej: gold_pro + 9x_campaign = publi de 9 cuotas (no de 6c con pasaje).
+    """
     if lt == 'gold_special':
-        return 'Sin cuotas'
-    elif lt == 'gold_pro':
-        return '6 cuotas s/interés'
-    return lt or 'Sin cuotas'
-
-def _cuotas_efectivas(lt, campaign):
-    """Cuotas efectivas CON campaign aplicada"""
-    if lt == 'gold_special':
+        if campaign == 'pcj-co-funded':
+            return 'Cuota Simple'
         return CAMPAÑAS_CUOTAS.get(campaign, 'Sin cuotas') if campaign else 'Sin cuotas'
     elif lt == 'gold_pro':
         return CAMPAÑAS_CUOTAS.get(campaign, '6 cuotas s/interés')
     return lt or 'Sin cuotas'
+
+def _cuotas_efectivas(lt, campaign):
+    """Alias de _cuotas_publi — el campaign ya define el tipo efectivo."""
+    return _cuotas_publi(lt, campaign)
 
 # ── Mapeo SKU → catalog_product_id ───────────────────────────────
 def _get_catalog_id(sku):
@@ -230,22 +232,22 @@ def _get_campaigns_activas(sku):
     """
     rows = _q("SELECT mla_id FROM sku_mla_mapeo WHERE sku=%s AND activo=1", (sku,))
     campaigns = {}
-    seen_lts = set()
+    seen_keys = set()
     for row in rows:
         data = _ml(f"https://api.mercadolibre.com/items/{row['mla_id']}?attributes=listing_type_id,sale_terms,status,sub_status")
         if not data:
             continue
         lt = data.get('listing_type_id', '')
-        if lt in seen_lts:
-            continue
-        seen_lts.add(lt)
         camp = next((t.get('value_name', '').split('|')[0].strip()
                      for t in data.get('sale_terms', [])
                      if t.get('id') == 'INSTALLMENTS_CAMPAIGN'), None)
-        publi = _cuotas_publi(lt)
-        efectiva = _cuotas_efectivas(lt, camp)
+        key = (lt, camp)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        publi = _cuotas_publi(lt, camp)
         if publi not in campaigns:
-            campaigns[publi] = efectiva
+            campaigns[publi] = publi  # campaign already applied in publi
     return campaigns
 
 # ── Mis publis pausadas (sin stock) ──────────────────────────────
@@ -325,8 +327,8 @@ def _get_mis_publis_all(sku):
                          for t in data.get('sale_terms', [])
                          if t.get('id') == 'INSTALLMENTS_CAMPAIGN'), None)
 
-            cuotas_pub = _cuotas_publi(lt)
-            cuotas_ef  = _cuotas_efectivas(lt, camp)
+            cuotas_pub = _cuotas_publi(lt, camp)  # camp defines publi type
+            cuotas_ef  = cuotas_pub  # same - campaign already applied
 
             # Dedup: si ya tenemos esta cuota+envio activa, no agregar pausada
             key = (cuotas_pub, envio_t)
@@ -417,12 +419,13 @@ def _snapshot_catalogo(sku, catalog_id, campaigns):
                      for t in sale_terms
                      if t.get('id') == 'INSTALLMENTS_CAMPAIGN'), None)
 
-        cuotas_pub = _cuotas_publi(lt)
-        # For gold_special with pcj-co-funded campaign → Cuota Simple
-        if camp and camp == 'pcj-co-funded':
-            cuotas_pub = 'Cuota Simple'
-        cuotas_ef = CAMPAÑAS_CUOTAS.get(camp, campaigns.get(cuotas_pub, cuotas_pub)) if camp else campaigns.get(cuotas_pub, cuotas_pub)
-        print(f"[COMP] {COMPETIDORES.get(sid,sid)} item:{r.get('item_id')} lt:{lt} camp:{camp} cuotas_pub:{cuotas_pub} cuotas_ef:{cuotas_ef}")
+        cuotas_pub = _cuotas_publi(lt, camp)
+        # If no campaign from catalog, try to infer from our own campaigns dict
+        if not camp:
+            cuotas_pub_inferred = campaigns.get(cuotas_pub)
+            cuotas_ef = cuotas_pub_inferred if cuotas_pub_inferred else cuotas_pub
+        else:
+            cuotas_ef = cuotas_pub  # already includes campaign
 
         envio_t, envio_free, _ = _envio_tipo(r.get('shipping', {}))
         key = (sid, cuotas_pub, envio_t)
