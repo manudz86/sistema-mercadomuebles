@@ -68,6 +68,122 @@ try:
 except Exception as e:
     print(f"[WA] Error creando tablas: {e}")
 
+# ── Zipnova ───────────────────────────────────────────────────────
+ZIPNOVA_BASE_URL   = 'https://api.zipnova.com.ar/v2'
+ZIPNOVA_ACCOUNT_ID = os.getenv('ZIPNOVA_ACCOUNT_ID', '5786')
+ZIPNOVA_ORIGIN_ID  = os.getenv('ZIPNOVA_ORIGIN_ID', '374397')
+ZIPNOVA_API_KEY    = os.getenv('ZIPNOVA_API_KEY', '')
+ZIPNOVA_API_SECRET = os.getenv('ZIPNOVA_API_SECRET', '')
+ZIPNOVA_PATAS_PESO = 2000
+
+def _armar_bultos_bot(sku):
+    """Arma bultos para un único SKU (colchon o sommier)."""
+    bultos = []
+    peso_patas = 0
+    hay_patas  = False
+    SKUS_ALM   = {'CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE'}
+
+    # ¿Es sommier?
+    comp = _q("SELECT id FROM productos_compuestos WHERE sku=%s LIMIT 1", (sku,))
+    if comp:
+        comp_id = comp[0]['id']
+        rows = _q("""
+            SELECT pb.sku, pb.nombre, pb.alto_cm, pb.ancho_cm, pb.largo_cm,
+                   pb.peso_gramos, c.cantidad_necesaria
+            FROM componentes c
+            JOIN productos_base pb ON c.producto_base_id = pb.id
+            WHERE c.producto_compuesto_id = %s
+        """, (comp_id,))
+        for r in rows:
+            csku = r['sku']; cant = r['cantidad_necesaria']
+            if csku in SKUS_ALM:
+                peso_patas += (r['peso_gramos'] or 0) * cant
+            else:
+                for _ in range(cant):
+                    bultos.append({
+                        'sku': csku, 'description': r['nombre'],
+                        'weight': max(10, r['peso_gramos'] or 20000),
+                        'height': r['alto_cm'] or 27,
+                        'width':  r['ancho_cm'] or 100,
+                        'length': r['largo_cm'] or 190,
+                    })
+        peso_patas += ZIPNOVA_PATAS_PESO
+        hay_patas = True
+    else:
+        row = _q("SELECT nombre, alto_cm, ancho_cm, largo_cm, peso_gramos FROM productos_base WHERE sku=%s", (sku,))
+        if row:
+            r = row[0]
+            bultos.append({
+                'sku': sku, 'description': r['nombre'],
+                'weight': max(10, r['peso_gramos'] or 20000),
+                'height': r['alto_cm'] or 27,
+                'width':  r['ancho_cm'] or 100,
+                'length': r['largo_cm'] or 190,
+            })
+
+    if hay_patas:
+        bultos.append({'sku':'PATAS','description':'Patas y accesorios',
+                       'weight': max(10, int(peso_patas)), 'height':30,'width':20,'length':10})
+    return bultos
+
+def cotizar_envio_bot(sku, cp, ciudad, provincia, precio_producto):
+    """Cotiza envío con Zipnova. Retorna string listo para enviar al cliente."""
+    try:
+        bultos = _armar_bultos_bot(sku)
+        if not bultos:
+            return None
+        payload = {
+            'account_id':     ZIPNOVA_ACCOUNT_ID,
+            'origin_id':      ZIPNOVA_ORIGIN_ID,
+            'declared_value': int(precio_producto),
+            'destination':    {'zipcode': cp, 'city': ciudad, 'state': provincia},
+            'items':          bultos,
+        }
+        resp = requests.post(
+            f"{ZIPNOVA_BASE_URL}/shipments/quote",
+            json=payload,
+            auth=(ZIPNOVA_API_KEY, ZIPNOVA_API_SECRET),
+            timeout=15
+        )
+        if resp.status_code != 200:
+            return None
+        resultados = resp.json().get('all_results') or resp.json().get('results') or []
+        if not resultados:
+            return None
+        # Tomar la opción más barata
+        mejor = min(resultados, key=lambda x: x.get('price', 9999999))
+        costo = mejor.get('price', 0)
+        dias  = mejor.get('estimated_days', '?')
+        carrier = mejor.get('carrier', {})
+        carrier_name = carrier.get('name', '') if isinstance(carrier, dict) else str(carrier)
+        return f"Envío a CP {cp}: ${int(costo):,} ({carrier_name}, {dias} días hábiles aprox.)"
+    except Exception as e:
+        print(f"[WA] Error Zipnova: {e}")
+        return None
+
+# ── Fotos ──────────────────────────────────────────────────────────
+FOTO_BASE_URL = "https://sistema.mercadomuebles.com.ar/static/img/productos"
+
+def wa_send_foto(to, sku, caption=""):
+    """Envía foto del producto por WhatsApp."""
+    foto_url = f"{FOTO_BASE_URL}/{sku}/1.jpg"
+    try:
+        r = requests.post(
+            f"https://graph.facebook.com/v19.0/{WA_PHONE_ID}/messages",
+            headers={'Authorization': f'Bearer {WA_TOKEN}', 'Content-Type': 'application/json'},
+            json={
+                'messaging_product': 'whatsapp',
+                'to': to,
+                'type': 'image',
+                'image': {'link': foto_url, 'caption': caption}
+            },
+            timeout=10
+        )
+        return r.status_code == 200
+    except Exception as e:
+        print(f"[WA] Error enviando foto: {e}")
+        return False
+
 # ── Productos ─────────────────────────────────────────────────────
 def get_productos_context():
     """Devuelve contexto de productos para el system prompt (cacheado 10 min)."""
@@ -121,11 +237,16 @@ def get_productos_context():
             f"• {p['nombre']} (SKU:{p['sku']}) | Precio: ${pf:,} "
             f"{'(-'+str(int(desc))+'%)' if desc > 0 else ''} | {stock} | {link}"
         )
+        total_3 = round(pf * coef_3)
+        total_6 = round(pf * coef_6)
+        cuota_3 = round(total_3 / 3)
+        cuota_6 = round(total_6 / 6)
         lines.append(
-            f"  Payway 3c: ${round(pf*coef_3):,} | Payway 6c: ${round(pf*coef_6):,}"
+            f"  Payway 3 cuotas: ${cuota_3:,} x3 (total ${total_3:,}) | "
+            f"Payway 6 cuotas: ${cuota_6:,} x6 (total ${total_6:,})"
         )
 
-    lines.append("\n--- SOMMIERS (colchón + base) ---")
+    lines.append("\n--- SOMMIERS / CONJUNTOS (colchón + base) ---")
     for p in sommiers:
         if not p['precio_base']:
             continue
@@ -136,9 +257,25 @@ def get_productos_context():
             f"• {p['nombre']} (SKU:{p['sku']}) | Precio: ${pf:,} "
             f"{'(-'+str(int(desc))+'%)' if desc > 0 else ''} | {link}"
         )
+        total_3 = round(pf * coef_3)
+        total_6 = round(pf * coef_6)
+        cuota_3 = round(total_3 / 3)
+        cuota_6 = round(total_6 / 6)
         lines.append(
-            f"  Payway 3c: ${round(pf*coef_3):,} | Payway 6c: ${round(pf*coef_6):,}"
+            f"  Payway 3 cuotas: ${cuota_3:,} x3 (total ${total_3:,}) | "
+            f"Payway 6 cuotas: ${cuota_6:,} x6 (total ${total_6:,})"
         )
+
+    # Bases sueltas
+    bases = _q("""
+        SELECT sku, nombre, precio_base FROM productos_base
+        WHERE sku LIKE 'BASE%' AND activo=1 ORDER BY nombre
+    """)
+    if bases:
+        lines.append("\n--- BASES SUELTAS (precio por unidad, color fijo por modelo) ---")
+        for b in bases:
+            if b['precio_base']:
+                lines.append(f"• {b['nombre']} (SKU:{b['sku']}) | ${int(b['precio_base']):,}")
 
     data = '\n'.join(lines)
     get_productos_context._cache = {'ts': time.time(), 'data': data}
@@ -148,37 +285,49 @@ def get_productos_context():
 CATALOGO_INFO = """
 CATÁLOGO CANNON 2025 — CARACTERÍSTICAS DE PRODUCTOS:
 
+VOCABULARIO IMPORTANTE:
+- "Sommier", "conjunto" o "sommier conjunto" = colchón + base/box. Son sinónimos.
+- "Colchón solo" = solo el colchón, sin base.
+- "Base" o "box" = la base del sommier (se vende sola o en conjunto).
+- "2 plazas" puede ser 140x190 cm O 150x190 cm — siempre confirmar medida exacta.
+
 COLCHONES DE ESPUMA:
-• Tropical Matelaseado: espuma 22kg/m³, 18cm alto, sistema flip, sensación suave, soporte 70kg. Ideal para uso diario con mejor relación calidad/precio.
-• Princess 20: espuma 24kg/m³, 20cm, flip, firme, soporte 80kg. Práctico y económico.
-• Princess 23: espuma 24kg/m³, 23cm, flip, firme, tela Jacquard, soporte 80kg.
-• Exclusive: espuma alta densidad 30kg/m³, 25cm, flip, firme, soporte 100kg. Máxima durabilidad.
-• Exclusive Pillow Top: igual que Exclusive con capa pillow top para más suavidad, 29cm.
-• Renovation: espuma altísima densidad 35kg/m³, 26cm, flip, extra firme, soporte 120kg.
-• Renovation Euro Pillow: igual que Renovation con euro pillow, 33cm, extra firme.
-• Compac: espuma multicapa 30kg/m³, 25cm, sistema NO flip (no se da vuelta), firme, soporte 100kg.
+- Tropical Matelaseado: espuma 22kg/m³, 18cm alto, sistema flip, sensación suave, soporte 70kg. Color: diseño tropical multicolor. Ideal para uso diario.
+- Princess 20: espuma 24kg/m³, 20cm, flip, firme, soporte 80kg. Color: diseño floral lila/gris. Tela sábana matelaseada.
+- Princess 23: espuma 24kg/m³, 23cm, flip, firme, soporte 80kg. Color: blanco con banda gris oscura. Tela Jacquard.
+- Exclusive: espuma alta densidad 30kg/m³, 25cm, flip, firme, soporte 100kg. Color: blanco con banda marrón oscuro. Máxima durabilidad.
+- Exclusive Pillow Top: igual que Exclusive con capa pillow top, 29cm. Más suavidad al tacto.
+- Renovation: espuma altísima densidad 35kg/m³, 26cm, flip, extra firme, soporte 120kg. Color: blanco/gris neutro.
+- Renovation Euro Pillow: igual que Renovation con euro pillow, 33cm, extra firme.
+- Compac: espuma multicapa 30kg/m³, 25cm, sistema NO flip, firme, soporte 100kg.
 
 COLCHONES DE RESORTES:
-• Soñar: resortes bicónicos reforzados, 23cm, flip, suave, soporte 80kg. Entrada de gama de resortes.
-• Doral: resortes continuos Ultracoil, 27cm, flip, firme, soporte 100kg. Muy buena estabilidad.
-• Doral Pillow Top: igual que Doral con pillow top, 33cm, firme.
-• Sublime: resortes individuales Pocket, 32cm, flip, firme, soporte 120kg. Máxima calidad de resortes, no transmite movimiento entre personas.
-• Sublime Euro Pillow: igual que Sublime con euro pillow, 35cm.
+- Soñar: resortes bicónicos reforzados, 23cm, flip, suave, soporte 80kg. Entrada de gama resortes.
+- Doral: resortes continuos Ultracoil, 27cm, flip, firme, soporte 100kg. Color: diseño gris jaspeado con banda gris. Muy buena estabilidad.
+- Doral Pillow Top: igual que Doral con pillow top, 33cm, firme.
+- Sublime: resortes individuales Pocket, 32cm, flip, firme, soporte 120kg. Color: blanco perla con detalles dorados. No transmite movimiento entre personas.
+- Sublime Euro Pillow: igual que Sublime con euro pillow, 35cm.
 
-MEDIDAS DISPONIBLES (según modelo): 80x190, 90x190, 100x190, 130x190, 140x190, 150x190, 160x200, 180x200, 200x200
+BASES / BOX — COLORES FIJOS POR MODELO (no son intercambiables):
+Los colores de las bases hacen juego con la banda lateral del colchón correspondiente. NO se puede elegir color — cada modelo tiene su base específica.
+- Base Sábana: color gris claro suave. Va con modelos Princess, Soñar, Tropical.
+- Base Chocolate: color marrón oscuro. Va con modelos Exclusive, Doral.
+- Base Gris: color gris oscuro. Va con Renovation, algunos Doral.
+- Base Sublime: color beige/crema. Va exclusivamente con el Sublime.
+Cada base tiene precio propio según modelo y medida (NO son todas al mismo precio).
 
-SOMMIERS: Colchón + base(s). Disponibles en los modelos Princess, Doral, Exclusive, Renovation, Sublime.
+MEDIDAS DISPONIBLES (según modelo): 80x190, 90x190, 100x190, 140x190, 150x190, 160x200, 180x200, 200x200
 
 ENVÍOS:
-• Colchones y sommiers: Zipnova (costo varía según ubicación, se calcula en el checkout)
-• Almohadas: calculado por MercadoPago en el checkout
-• El envío a CABA y GBA suele ser más económico que al interior
+- Colchones y sommiers: Zipnova. Costo exacto se puede calcular con el código postal del cliente.
+- Almohadas: calculado por MercadoPago en el checkout.
+- CABA y GBA suelen ser más económicos que el interior del país.
 
 MEDIOS DE PAGO:
-• MercadoPago: todas las opciones (tarjeta débito/crédito, transferencia, depósito, PagoFácil/RapiPago, dinero en cuenta MP). Cuotas según banco emisor.
-• Payway: Visa o Mastercard bancarizadas. 3 cuotas o 6 cuotas sin interés (con recargo sobre el precio de lista, ya incluido en los precios que mostrás).
+- MercadoPago: todas las formas (débito, crédito, transferencia, depósito, PagoFácil/RapiPago, dinero en cuenta MP).
+- Payway: Visa o Mastercard bancarizadas. 3 o 6 cuotas fijas (con interés embebido).
 
-GARANTÍA: 5 años de garantía de fábrica en todos los productos.
+GARANTÍA: 5 años de garantía de fábrica.
 """
 
 def get_system_prompt():
@@ -206,6 +355,8 @@ PERSONALIDAD Y FORMATO:
 - NUNCA uses asteriscos (*), guiones (-) al inicio, ni ningún formato markdown
 - Es WhatsApp: texto plano solamente. Usá saltos de línea para separar ideas.
 - Podés usar emojis con moderación si viene al caso
+- NUNCA te presentes como bot, agente virtual, IA o asistente automático a menos que el cliente lo pregunte explícitamente
+- Si el cliente pregunta si sos un bot o una persona, podés responder honestamente que sos un asistente virtual
 
 COTIZACIONES:
 - Cuando el cliente no especifica modelo exacto, siempre cotizá 2 opciones similares dentro del rango pedido
@@ -214,6 +365,20 @@ COTIZACIONES:
 - Cuando cotices con Payway, el formato correcto es: "3 cuotas fijas de $XX.XXX (total $XXX.XXX)"
   NUNCA digas "sin interés" — las cuotas de Payway tienen interés embebido en el precio
 - No expliques cómo se calcula el recargo — solo mostrá el precio de cuota y el total
+
+ENVÍOS:
+- Podés calcular el costo de envío exacto si el cliente te da su código postal
+- Cuando el cliente pida el costo de envío, pedile el código postal si no lo tenés
+- Una vez que tengas SKU + CP, usá el comando [COTIZAR_ENVIO:SKU:CP:CIUDAD:PROVINCIA] en tu respuesta
+  Ejemplo: "Te calculo el envío ahora. [COTIZAR_ENVIO:CDO140:2000:Rosario:Santa Fe]"
+  El sistema reemplaza ese comando con el costo real antes de enviarlo al cliente
+- Si no sabés la ciudad o provincia, podés usar el CP solo y la ciudad como "N/A"
+
+FOTOS:
+- Cuando recomendés o cotices un producto específico, podés enviar la foto usando [FOTO:SKU]
+  Ejemplo: "Acá te muestro cómo es. [FOTO:CDOP160]"
+- Usá solo la primera foto (orden 1) — no mandes varias fotos seguidas
+- Solo enviá foto cuando el cliente pregunta por un modelo específico o cuando lo recomendás puntualmente
 
 MEDIOS DE PAGO:
 - MercadoPago: precio de lista, todas las formas (débito, crédito, transferencia, PagoFácil/RapiPago)
@@ -288,7 +453,7 @@ def derivar_a_humano(phone_cliente, historial):
             for m in historial[-10:]
         )
         resumen_resp = anthropic.messages.create(
-            model='claude-sonnet-4-5',
+            model='claude-sonnet-4-6',
             max_tokens=200,
             messages=[{
                 'role': 'user',
@@ -348,7 +513,7 @@ def procesar_mensaje(phone, texto):
 
     try:
         resp = anthropic.messages.create(
-            model='claude-sonnet-4-5',
+            model='claude-sonnet-4-6',
             max_tokens=600,
             system=get_system_prompt(),
             messages=historial
@@ -357,6 +522,36 @@ def procesar_mensaje(phone, texto):
     except Exception as e:
         print(f"[WA] Error Claude: {e}")
         respuesta = "Disculpá, tuve un problema técnico. Podés intentar de nuevo en unos minutos."
+
+    # Limpiar markdown que no funciona en WhatsApp
+    import re as _re
+    respuesta = _re.sub(r'\*\*(.+?)\*\*', r'\1', respuesta)
+    respuesta = _re.sub(r'\*(.+?)\*', r'\1', respuesta)
+    respuesta = _re.sub(r'^[•\-]\s+', '', respuesta, flags=_re.MULTILINE)
+    respuesta = _re.sub(r'^\d+\.\s+', '', respuesta, flags=_re.MULTILINE)
+
+    # Procesar [COTIZAR_ENVIO:SKU:CP:CIUDAD:PROVINCIA]
+    envio_match = _re.search(r'\[COTIZAR_ENVIO:([^:\]]+):([^:\]]+):([^:\]]+):([^:\]]+)\]', respuesta)
+    if envio_match:
+        sku_env, cp_env, ciudad_env, prov_env = envio_match.groups()
+        # Buscar precio del producto
+        prod = _q("SELECT precio_base, descuento_catalogo FROM productos_base WHERE sku=%s", (sku_env.strip(),))
+        if not prod:
+            prod = _q("SELECT precio_base, descuento_catalogo FROM productos_compuestos WHERE sku=%s", (sku_env.strip(),))
+        precio_env = 0
+        if prod:
+            pb = float(prod[0]['precio_base'] or 0)
+            desc = float(prod[0]['descuento_catalogo'] or 0)
+            precio_env = round(pb * (1 - desc/100))
+        costo_txt = cotizar_envio_bot(sku_env.strip(), cp_env.strip(), ciudad_env.strip(), prov_env.strip(), precio_env)
+        if costo_txt:
+            respuesta = respuesta.replace(envio_match.group(0), costo_txt)
+        else:
+            respuesta = respuesta.replace(envio_match.group(0), "No pude calcular el envío en este momento. Podés consultar en el checkout de nuestra tienda.")
+
+    # Extraer comandos [FOTO:SKU] para enviarlos después
+    fotos_a_enviar = _re.findall(r'\[FOTO:([A-Z0-9]+)\]', respuesta)
+    respuesta = _re.sub(r'\[FOTO:[A-Z0-9]+\]', '', respuesta).strip()
 
     # Detectar derivación
     derivar = '[DERIVAR]' in respuesta
@@ -373,7 +568,7 @@ def procesar_mensaje(phone, texto):
             daemon=True
         ).start()
 
-    return respuesta
+    return respuesta, fotos_a_enviar
 
 # ── Webhook ───────────────────────────────────────────────────────
 @whatsapp_bp.route('/webhook/whatsapp', methods=['GET'])
@@ -426,8 +621,11 @@ def webhook_message():
             # Procesar en thread para no bloquear
             def responder(ph=phone, tx=texto, mid=msg_id):
                 try:
-                    respuesta = procesar_mensaje(ph, tx)
+                    respuesta, fotos = procesar_mensaje(ph, tx)
                     wa_send(ph, respuesta)
+                    # Enviar fotos después del texto
+                    for sku_foto in fotos:
+                        wa_send_foto(ph, sku_foto)
                 except Exception as e:
                     print(f"[WA] Error procesando {ph}: {e}")
                 finally:
