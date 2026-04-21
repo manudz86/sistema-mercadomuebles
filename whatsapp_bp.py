@@ -411,19 +411,21 @@ Cuando derivés, usá EXACTAMENTE: [DERIVAR] seguido de tu mensaje.
 Ejemplo: "[DERIVAR] Entiendo, te voy a conectar con un asesor que te va a atender."
 Si estás fuera de horario, avisale que lo van a contactar en el próximo horario hábil.
 
+REGLAS CRÍTICAS — INCUMPLIRLAS ES UN ERROR GRAVE:
+1. NUNCA preguntes algo que el cliente ya respondió en esta conversación
+2. NUNCA hagas más de UNA pregunta por mensaje
+3. Si el cliente dijo "colchón solo" → NUNCA vuelvas a preguntar si quiere con base
+4. Si el cliente dio una medida → NUNCA vuelvas a preguntar la medida
+5. Si el cliente dio un CP → calculá el envío directamente, no preguntes de qué producto
+6. Si el cliente mencionó un modelo → no preguntes el modelo de nuevo
+7. Leé el bloque "DATOS YA CONFIRMADOS" al inicio y úsalos como hechos firmes
+8. Cuando tengas producto + medida + CP → ejecutá [COTIZAR_ENVIO:SKU:CP:CIUDAD:PROVINCIA] sin preguntar nada
+
 NUNCA:
 - Inventes precios o características que no estén en la info provista
 - Des información sobre pedidos ya realizados
 - Prometás fechas de entrega exactas
-- Vuelvas a pedir información que el cliente ya dio en esta conversación
-- Digas que "no recibiste" mensajes anteriores — el historial completo está disponible
-- Hagas más de UNA pregunta por mensaje. Si necesitás varios datos, preguntá el más importante primero
-
-MANEJO DEL CONTEXTO:
-- Antes de responder, releé toda la conversación para no repetir preguntas
-- Si el cliente ya confirmó la medida, el modelo y el CP, calculá el envío directamente con [COTIZAR_ENVIO:SKU:CP:CIUDAD:PROVINCIA] sin preguntar nada más
-- Si tenés SKU y CP pero no la ciudad, usá el CP como ciudad (ej: [COTIZAR_ENVIO:CPR8020:2000:Rosario:Santa Fe])
-- Cuando el cliente menciona un producto y luego un CP, asumí que quiere cotizar el envío de ese producto
+- Digas "no recibí mensajes anteriores" — el historial completo está disponible
 
 {CATALOGO_INFO}
 
@@ -514,41 +516,93 @@ Solo el resumen, sin introducción."""
 # ── Claude ────────────────────────────────────────────────────────
 def _extraer_contexto(historial):
     """
-    Analiza el historial y extrae un resumen estructurado del contexto acumulado.
-    Se inyecta en cada llamada a Claude para evitar que pierda información ya dada.
+    Extractor rápido basado en reglas. Busca datos clave en el historial
+    y los inyecta como contexto explícito para evitar re-preguntas.
     """
     if not historial or len(historial) < 2:
         return ""
-    
-    # Solo usar últimos 20 mensajes para el análisis
-    msgs = historial[-20:]
-    conv = '\n'.join(
-        f"{'Cliente' if m['role']=='user' else 'Asesor'}: {m['content']}"
-        for m in msgs
+
+    import re as _re
+
+    # Texto completo del cliente (mensajes user)
+    texto_cliente = ' '.join(
+        m['content'].lower() for m in historial if m['role'] == 'user'
     )
-    
-    try:
-        resp = anthropic.messages.create(
-            model='claude-sonnet-4-6',
-            max_tokens=200,
-            system="""Analizá esta conversación de ventas y extraé SOLO los datos que el cliente ya confirmó.
-Respondé en este formato exacto (omití las líneas donde no hay dato confirmado):
-- Medida: [si se confirmó]
-- Tipo: [colchón solo / sommier / base sola]
-- Modelo: [si se mencionó]
-- SKU: [si se identificó]
-- CP destino: [si se dio]
-- Ciudad: [si se mencionó]
-- Presupuesto: [económico/medio/alto si se infiere]
-- Pendiente: [qué falta saber para completar la consulta, máximo 1 línea]""",
-            messages=[{'role': 'user', 'content': conv}]
-        )
-        ctx = resp.content[0].text.strip()
-        if ctx:
-            return f"\n\nCONTEXTO YA ESTABLECIDO EN ESTA CONVERSACIÓN (NO volver a preguntar esto):\n{ctx}\n"
-    except Exception:
-        pass
-    return ""
+    # Texto completo de toda la conv
+    texto_todo = ' '.join(m['content'].lower() for m in historial)
+
+    datos = {}
+
+    # Medida
+    medida_match = _re.search(r'\b(80|90|100|130|140|150|160|180|200)\s*[xX×]\s*1[89]0\b', texto_cliente)
+    if medida_match:
+        datos['Medida confirmada'] = medida_match.group(0).replace(' ','').upper()
+    elif _re.search(r'\b80\b', texto_cliente) and _re.search(r'plaza', texto_cliente):
+        datos['Medida confirmada'] = '80x190'
+    elif _re.search(r'\b(140|150)\b', texto_cliente) and not medida_match:
+        n = _re.search(r'\b(140|150)\b', texto_cliente).group(1)
+        datos['Medida confirmada'] = f'{n}x190 (confirmar si es x190 o x200)'
+
+    # Tipo de producto
+    if _re.search(r'\b(solo colch[oó]n|colch[oó]n solo|sin base|sin box|solo el colch[oó]n)\b', texto_cliente):
+        datos['Tipo'] = 'solo colchón (SIN base/sommier)'
+    elif _re.search(r'\b(con base|con box|sommier|conjunto|set)\b', texto_cliente):
+        datos['Tipo'] = 'sommier/conjunto (colchón + base)'
+
+    # Modelo mencionado
+    modelos = {
+        'tropical': 'Tropical', 'princess': 'Princess',
+        'exclusive': 'Exclusive', 'renovation': 'Renovation',
+        'doral': 'Doral', 'sublime': 'Sublime', 'soñar': 'Soñar',
+        'sonar': 'Soñar', 'compac': 'Compac',
+    }
+    for k, v in modelos.items():
+        if k in texto_cliente:
+            datos['Modelo mencionado'] = v
+            break
+
+    # Pillow top
+    if _re.search(r'\b(pillow|euro pillow|con pillow)\b', texto_cliente):
+        datos['Variante'] = 'con Pillow Top'
+
+    # Densidad
+    dens = _re.search(r'\b(22|24|30|35)\s*kg\b', texto_cliente)
+    if dens:
+        datos['Densidad requerida'] = f'{dens.group(1)} kg/m³'
+
+    # Código postal
+    cp_match = _re.search(r'\bcp\s*(\d{4})\b|\b(\d{4})\b(?=.*rosario|.*córdoba|.*mendoza|.*tucumán)', texto_cliente)
+    if not cp_match:
+        cp_match = _re.search(r'(?:cp|código postal|codigo postal)[:\s]*(\d{4})', texto_cliente)
+    if cp_match:
+        cp = cp_match.group(1) or cp_match.group(2)
+        datos['CP destino'] = cp
+
+    # Ciudad mencionada
+    ciudades = ['rosario', 'córdoba', 'cordoba', 'mendoza', 'tucumán', 'tucuman',
+                'la plata', 'mar del plata', 'santa fe', 'bahía blanca', 'bahia blanca',
+                'salta', 'neuquén', 'neuquen', 'resistencia', 'posadas']
+    for c in ciudades:
+        if c in texto_cliente:
+            datos['Ciudad destino'] = c.title()
+            break
+
+    # Presupuesto
+    if _re.search(r'\b(econ[oó]mico|barato|lo m[aá]s barato|precio bajo|entry)\b', texto_cliente):
+        datos['Preferencia'] = 'económico'
+    elif _re.search(r'\b(gama media|intermedio|relaci[oó]n calidad)\b', texto_cliente):
+        datos['Preferencia'] = 'gama media'
+    elif _re.search(r'\b(lo mejor|premium|alta gama|el mejor)\b', texto_cliente):
+        datos['Preferencia'] = 'premium'
+
+    if not datos:
+        return ""
+
+    lineas = ['\n⚠️ DATOS YA CONFIRMADOS (NO volver a preguntar):']
+    for k, v in datos.items():
+        lineas.append(f'  {k}: {v}')
+    lineas.append('  → Usá estos datos directamente sin pedir confirmación.\n')
+    return '\n'.join(lineas)
 
 def _guardar_mensaje(phone, rol, contenido, derivado=False):
     """Guarda mensaje en BD para historial persistente."""
