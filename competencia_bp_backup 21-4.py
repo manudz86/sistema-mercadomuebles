@@ -423,35 +423,19 @@ def correr_agente(skus_filtro=None, delay_entre_skus=60):
 
     return {'ok': True, **resultado}
 
-def _adquirir_lock(nombre='competencia', timeout=5):
-    """Lock atómico usando GET_LOCK de MySQL — solo un proceso lo obtiene."""
-    db = _db(); cur = db.cursor()
-    try:
-        cur.execute("SELECT GET_LOCK(%s, %s)", (nombre, timeout))
-        result = cur.fetchone()
-        return db, cur, bool(result and result[0] == 1)
-    except Exception as e:
-        cur.close(); db.close()
-        return None, None, False
-
-def _liberar_lock(db, cur, nombre='competencia'):
-    try:
-        cur.execute("SELECT RELEASE_LOCK(%s)", (nombre,))
-        cur.fetchone()
-    except Exception:
-        pass
-    finally:
-        try: cur.close()
-        except: pass
-        try: db.close()
-        except: pass
-
 def job_competencia():
-    """Job scheduler — usa GET_LOCK de MySQL para garantizar ejecución en un solo worker."""
-    db, cur, got_lock = _adquirir_lock('competencia_job', timeout=3)
-    if not got_lock:
-        print("[COMPETENCIA] Otro worker ya tiene el lock, saltando.")
-        if db: _liberar_lock(db, cur, 'competencia_job')
+    """Job scheduler — usa lock en DB para evitar ejecución simultánea en múltiples workers."""
+    # Intentar adquirir lock
+    try:
+        lock_row = _q("SELECT valor FROM configuracion WHERE clave='competencia_running'", one=True)
+        if lock_row and lock_row['valor'] == '1':
+            print("[COMPETENCIA] Ya hay un proceso corriendo, saltando este worker.")
+            return
+        _exec("""INSERT INTO configuracion (clave, valor)
+                  VALUES ('competencia_running','1')
+                  ON DUPLICATE KEY UPDATE valor='1'""")
+    except Exception as e:
+        print(f"[COMPETENCIA] Error adquiriendo lock: {e}")
         return
 
     try:
@@ -465,7 +449,11 @@ def job_competencia():
         if r.get('errores'):
             print(f"[COMPETENCIA] Errores: {r['errores']}")
     finally:
-        _liberar_lock(db, cur, 'competencia_job')
+        # Liberar lock siempre
+        try:
+            _exec("UPDATE configuracion SET valor='0' WHERE clave='competencia_running'")
+        except Exception:
+            pass
 
 # ── Rutas ──────────────────────────────────────────────────────────
 @competencia_bp.route('/admin/competencia')
@@ -478,21 +466,13 @@ def competencia_correr():
     skus = data.get('skus')
     if skus and isinstance(skus, str):
         skus = [s.strip() for s in skus.split(',') if s.strip()]
-
-    db, cur, got_lock = _adquirir_lock('competencia_job', timeout=3)
-    if not got_lock:
-        if db: _liberar_lock(db, cur, 'competencia_job')
-        return jsonify({'ok': False, 'error': 'Ya hay un proceso corriendo'})
-
+    # On-demand: sin delay entre SKUs si es un solo SKU, 5s si son varios
     delay = 0 if (skus and len(skus) == 1) else 5
     import threading
     resultado = {}
     def run():
         nonlocal resultado
-        try:
-            resultado = correr_agente(skus, delay_entre_skus=delay)
-        finally:
-            _liberar_lock(db, cur, 'competencia_job')
+        resultado = correr_agente(skus, delay_entre_skus=delay)
     t = threading.Thread(target=run)
     t.start()
     t.join(timeout=600)
