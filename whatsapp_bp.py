@@ -299,7 +299,7 @@ def get_productos_context():
 
 # ── System prompt ─────────────────────────────────────────────────
 CATALOGO_INFO = """
-CATÁLOGO CANNON 2025 — CARACTERÍSTICAS DE PRODUCTOS:
+LÍNEA CANNON ACTUAL — CARACTERÍSTICAS DE PRODUCTOS:
 
 VOCABULARIO IMPORTANTE:
 - "Sommier", "conjunto" o "sommier conjunto" = colchón + base/box. Son sinónimos.
@@ -533,20 +533,21 @@ def _extraer_contexto(historial):
 
     datos = {}
 
-    # Medida
-    medida_match = _re.search(r'\b(80|90|100|130|140|150|160|180|200)\s*[xX×]\s*1[89]0\b', texto_cliente)
+    # Medida — acepta "140x190", "de 140", "el 140", "140 está bien", "140 esta bien"
+    medida_match = _re.search(r'(80|90|100|130|140|150|160|180|200)\s*[xX×]\s*1[89]0', texto_cliente)
     if medida_match:
         datos['Medida confirmada'] = medida_match.group(0).replace(' ','').upper()
-    elif _re.search(r'\b80\b', texto_cliente) and _re.search(r'plaza', texto_cliente):
-        datos['Medida confirmada'] = '80x190'
-    elif _re.search(r'\b(140|150)\b', texto_cliente) and not medida_match:
-        n = _re.search(r'\b(140|150)\b', texto_cliente).group(1)
-        datos['Medida confirmada'] = f'{n}x190 (confirmar si es x190 o x200)'
+    else:
+        solo_num = _re.search(r'(?:(?:de(?:l)?|el|con|un|una)\s+)?(80|90|100|130|140|150|160|180|200)(?=\s|$|x|,|\.)', texto_cliente)
+        if solo_num:
+            n = int(solo_num.group(1))
+            largo = '200' if n >= 160 else '190'
+            datos['Medida confirmada'] = f'{n}x{largo}'
 
     # Tipo de producto
-    if _re.search(r'\b(solo colch[oó]n|colch[oó]n solo|sin base|sin box|solo el colch[oó]n)\b', texto_cliente):
-        datos['Tipo'] = 'solo colchón (SIN base/sommier)'
-    elif _re.search(r'\b(con base|con box|sommier|conjunto|set)\b', texto_cliente):
+    if _re.search(r'(solo\s*colch[oó]n|colch[oó]n\s*solo|sin\s*base|sin\s*box|solo\s*el\s*colch[oó]n|colch[oó]n\s*(?:de|solo|nada\s*mas))', texto_cliente):
+        datos['Tipo'] = 'solo colchón (SIN base/sommier) — NO volver a preguntar'
+    elif _re.search(r'(con\s*base|con\s*box|sommier|conjunto|set)', texto_cliente):
         datos['Tipo'] = 'sommier/conjunto (colchón + base)'
 
     # Modelo mencionado
@@ -616,17 +617,25 @@ def _guardar_mensaje(phone, rol, contenido, derivado=False):
 
 def procesar_mensaje(phone, texto):
     """Procesa mensaje del cliente y genera respuesta."""
-    if phone not in conversaciones:
-        conversaciones[phone] = []
-
-    historial = conversaciones[phone]
-    historial.append({'role': 'user', 'content': texto})
+    # Guardar mensaje en BD primero
     _guardar_mensaje(phone, 'user', texto)
 
-    # Limitar historial a 20 mensajes
-    if len(historial) > 20:
-        historial = historial[-20:]
-        conversaciones[phone] = historial
+    # Cargar historial desde BD (funciona en todos los workers)
+    rows = _q("""
+        SELECT rol, contenido FROM wa_mensajes
+        WHERE phone = %s AND fecha >= NOW() - INTERVAL 4 HOUR
+        ORDER BY fecha ASC
+        LIMIT 30
+    """, (phone,))
+
+    historial = [{'role': r['rol'], 'content': r['contenido']} for r in rows]
+
+    # Fallback: si la BD no tiene aún el mensaje actual, usar memoria
+    if not historial or historial[-1]['content'] != texto:
+        if phone not in conversaciones:
+            conversaciones[phone] = []
+        conversaciones[phone].append({'role': 'user', 'content': texto})
+        historial = conversaciones[phone][-20:]
 
     # Extraer contexto acumulado e inyectarlo al system prompt
     ctx_acumulado = _extraer_contexto(historial[:-1])  # sin el último mensaje del usuario
@@ -687,6 +696,8 @@ def procesar_mensaje(phone, texto):
 
     historial.append({'role': 'assistant', 'content': respuesta})
     _guardar_mensaje(phone, 'assistant', respuesta, derivado=derivar)
+    # Actualizar memoria también por si el próximo mensaje va al mismo worker
+    conversaciones[phone] = historial[-20:]
 
     if derivar:
         threading.Thread(
