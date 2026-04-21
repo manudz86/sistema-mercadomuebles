@@ -126,6 +126,22 @@ def _armar_bultos_bot(sku):
                        'weight': max(10, int(peso_patas)), 'height':30,'width':20,'length':10})
     return bultos
 
+CP_CIUDADES = {
+    '1000': ('Buenos Aires', 'Buenos Aires'), '1425': ('Buenos Aires', 'Buenos Aires'),
+    '1640': ('Martínez', 'Buenos Aires'), '1602': ('Florida', 'Buenos Aires'),
+    '1706': ('Ituzaingó', 'Buenos Aires'), '1832': ('Lomas de Zamora', 'Buenos Aires'),
+    '1900': ('La Plata', 'Buenos Aires'), '2000': ('Rosario', 'Santa Fe'),
+    '2400': ('San Francisco', 'Córdoba'), '3000': ('Santa Fe', 'Santa Fe'),
+    '3500': ('Resistencia', 'Chaco'), '4000': ('San Miguel de Tucumán', 'Tucumán'),
+    '5000': ('Córdoba', 'Córdoba'), '5500': ('Mendoza', 'Mendoza'),
+    '6000': ('Junín', 'Buenos Aires'), '7000': ('Tandil', 'Buenos Aires'),
+    '8000': ('Bahía Blanca', 'Buenos Aires'), '9000': ('Comodoro Rivadavia', 'Chubut'),
+}
+
+def _cp_a_ciudad(cp):
+    """Intenta resolver ciudad y provincia desde CP conocidos."""
+    return CP_CIUDADES.get(cp, (cp, 'Buenos Aires'))
+
 def cotizar_envio_bot(sku, cp, ciudad, provincia, precio_producto):
     """Cotiza envío con Zipnova. Retorna string listo para enviar al cliente."""
     try:
@@ -399,6 +415,15 @@ NUNCA:
 - Inventes precios o características que no estén en la info provista
 - Des información sobre pedidos ya realizados
 - Prometás fechas de entrega exactas
+- Vuelvas a pedir información que el cliente ya dio en esta conversación
+- Digas que "no recibiste" mensajes anteriores — el historial completo está disponible
+- Hagas más de UNA pregunta por mensaje. Si necesitás varios datos, preguntá el más importante primero
+
+MANEJO DEL CONTEXTO:
+- Antes de responder, releé toda la conversación para no repetir preguntas
+- Si el cliente ya confirmó la medida, el modelo y el CP, calculá el envío directamente con [COTIZAR_ENVIO:SKU:CP:CIUDAD:PROVINCIA] sin preguntar nada más
+- Si tenés SKU y CP pero no la ciudad, usá el CP como ciudad (ej: [COTIZAR_ENVIO:CPR8020:2000:Rosario:Santa Fe])
+- Cuando el cliente menciona un producto y luego un CP, asumí que quiere cotizar el envío de ese producto
 
 {CATALOGO_INFO}
 
@@ -487,6 +512,44 @@ Solo el resumen, sin introducción."""
         wa_send(num, msg)
 
 # ── Claude ────────────────────────────────────────────────────────
+def _extraer_contexto(historial):
+    """
+    Analiza el historial y extrae un resumen estructurado del contexto acumulado.
+    Se inyecta en cada llamada a Claude para evitar que pierda información ya dada.
+    """
+    if not historial or len(historial) < 2:
+        return ""
+    
+    # Solo usar últimos 20 mensajes para el análisis
+    msgs = historial[-20:]
+    conv = '\n'.join(
+        f"{'Cliente' if m['role']=='user' else 'Asesor'}: {m['content']}"
+        for m in msgs
+    )
+    
+    try:
+        resp = anthropic.messages.create(
+            model='claude-sonnet-4-6',
+            max_tokens=200,
+            system="""Analizá esta conversación de ventas y extraé SOLO los datos que el cliente ya confirmó.
+Respondé en este formato exacto (omití las líneas donde no hay dato confirmado):
+- Medida: [si se confirmó]
+- Tipo: [colchón solo / sommier / base sola]
+- Modelo: [si se mencionó]
+- SKU: [si se identificó]
+- CP destino: [si se dio]
+- Ciudad: [si se mencionó]
+- Presupuesto: [económico/medio/alto si se infiere]
+- Pendiente: [qué falta saber para completar la consulta, máximo 1 línea]""",
+            messages=[{'role': 'user', 'content': conv}]
+        )
+        ctx = resp.content[0].text.strip()
+        if ctx:
+            return f"\n\nCONTEXTO YA ESTABLECIDO EN ESTA CONVERSACIÓN (NO volver a preguntar esto):\n{ctx}\n"
+    except Exception:
+        pass
+    return ""
+
 def _guardar_mensaje(phone, rol, contenido, derivado=False):
     """Guarda mensaje en BD para historial persistente."""
     try:
@@ -511,11 +574,15 @@ def procesar_mensaje(phone, texto):
         historial = historial[-20:]
         conversaciones[phone] = historial
 
+    # Extraer contexto acumulado e inyectarlo al system prompt
+    ctx_acumulado = _extraer_contexto(historial[:-1])  # sin el último mensaje del usuario
+    system = get_system_prompt() + ctx_acumulado
+
     try:
         resp = anthropic.messages.create(
             model='claude-sonnet-4-6',
             max_tokens=600,
-            system=get_system_prompt(),
+            system=system,
             messages=historial
         )
         respuesta = resp.content[0].text.strip()
@@ -534,20 +601,26 @@ def procesar_mensaje(phone, texto):
     envio_match = _re.search(r'\[COTIZAR_ENVIO:([^:\]]+):([^:\]]+):([^:\]]+):([^:\]]+)\]', respuesta)
     if envio_match:
         sku_env, cp_env, ciudad_env, prov_env = envio_match.groups()
+        sku_env = sku_env.strip(); cp_env = cp_env.strip()
+        # Auto-resolver ciudad/provincia si no se conocen
+        if not ciudad_env.strip() or ciudad_env.strip() in ('N/A', '?', 'desconocida'):
+            ciudad_env, prov_env = _cp_a_ciudad(cp_env)
+        else:
+            ciudad_env = ciudad_env.strip(); prov_env = prov_env.strip()
         # Buscar precio del producto
-        prod = _q("SELECT precio_base, descuento_catalogo FROM productos_base WHERE sku=%s", (sku_env.strip(),))
+        prod = _q("SELECT precio_base, descuento_catalogo FROM productos_base WHERE sku=%s", (sku_env,))
         if not prod:
-            prod = _q("SELECT precio_base, descuento_catalogo FROM productos_compuestos WHERE sku=%s", (sku_env.strip(),))
+            prod = _q("SELECT precio_base, descuento_catalogo FROM productos_compuestos WHERE sku=%s", (sku_env,))
         precio_env = 0
         if prod:
             pb = float(prod[0]['precio_base'] or 0)
             desc = float(prod[0]['descuento_catalogo'] or 0)
             precio_env = round(pb * (1 - desc/100))
-        costo_txt = cotizar_envio_bot(sku_env.strip(), cp_env.strip(), ciudad_env.strip(), prov_env.strip(), precio_env)
+        costo_txt = cotizar_envio_bot(sku_env, cp_env, ciudad_env, prov_env, precio_env)
         if costo_txt:
             respuesta = respuesta.replace(envio_match.group(0), costo_txt)
         else:
-            respuesta = respuesta.replace(envio_match.group(0), "No pude calcular el envío en este momento. Podés consultar en el checkout de nuestra tienda.")
+            respuesta = respuesta.replace(envio_match.group(0), "No pude calcular el envío ahora. Podés consultarlo en el checkout de la tienda.")
 
     # Extraer comandos [FOTO:SKU] para enviarlos después
     fotos_a_enviar = _re.findall(r'\[FOTO:([A-Z0-9]+)\]', respuesta)
