@@ -620,22 +620,36 @@ def procesar_mensaje(phone, texto):
     # Guardar mensaje en BD primero
     _guardar_mensaje(phone, 'user', texto)
 
-    # Cargar historial desde BD (funciona en todos los workers)
+    # Cargar historial desde BD — sin filtro de tiempo, últimos 30 mensajes
+    # Funciona en todos los workers de gunicorn (estado compartido via BD)
     rows = _q("""
-        SELECT rol, contenido FROM wa_mensajes
-        WHERE phone = %s AND fecha >= NOW() - INTERVAL 4 HOUR
-        ORDER BY fecha ASC
-        LIMIT 30
+        SELECT rol, contenido, fecha FROM wa_mensajes
+        WHERE phone = %s
+        ORDER BY fecha DESC
+        LIMIT 40
     """, (phone,))
 
-    historial = [{'role': r['rol'], 'content': r['contenido']} for r in rows]
+    if rows:
+        # Si el mensaje más reciente tiene más de 8hs de antigüedad → nueva sesión
+        from datetime import timezone
+        ultimo_ts = rows[0].get('fecha')
+        if ultimo_ts:
+            if hasattr(ultimo_ts, 'replace'):
+                ultimo_ts = ultimo_ts.replace(tzinfo=timezone.utc) if ultimo_ts.tzinfo is None else ultimo_ts
+            from datetime import datetime as _dt
+            ahora = _dt.now(timezone.utc)
+            diff_horas = (ahora - ultimo_ts).total_seconds() / 3600
+            if diff_horas > 8:
+                # Nueva sesión — solo el mensaje actual
+                rows = [rows[0]]  # solo el que acabamos de guardar
 
-    # Fallback: si la BD no tiene aún el mensaje actual, usar memoria
-    if not historial or historial[-1]['content'] != texto:
-        if phone not in conversaciones:
-            conversaciones[phone] = []
-        conversaciones[phone].append({'role': 'user', 'content': texto})
-        historial = conversaciones[phone][-20:]
+    # Invertir para orden cronológico
+    historial = [{'role': r['rol'], 'content': r['contenido']} for r in reversed(rows)]
+
+    if not historial:
+        historial = [{'role': 'user', 'content': texto}]
+
+    print(f"[WA] {phone} — historial: {len(historial)} msgs, último: {historial[-1]['content'][:40]}")
 
     # Extraer contexto acumulado e inyectarlo al system prompt
     ctx_acumulado = _extraer_contexto(historial[:-1])  # sin el último mensaje del usuario
