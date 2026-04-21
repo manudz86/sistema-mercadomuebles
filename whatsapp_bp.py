@@ -70,11 +70,21 @@ except Exception as e:
 
 # ── Zipnova ───────────────────────────────────────────────────────
 ZIPNOVA_BASE_URL   = 'https://api.zipnova.com.ar/v2'
-ZIPNOVA_ACCOUNT_ID = os.getenv('ZIPNOVA_ACCOUNT_ID', '5786')
-ZIPNOVA_ORIGIN_ID  = os.getenv('ZIPNOVA_ORIGIN_ID', '374397')
-ZIPNOVA_API_KEY    = os.getenv('ZIPNOVA_API_KEY', '')
-ZIPNOVA_API_SECRET = os.getenv('ZIPNOVA_API_SECRET', '')
 ZIPNOVA_PATAS_PESO = 2000
+
+def _zn_creds():
+    """Lee credenciales Zipnova en runtime para garantizar que dotenv ya cargó."""
+    # Re-cargar por si acaso el path relativo no resolvió al importar
+    from dotenv import load_dotenv as _lde
+    import os as _os
+    for p in ['config/.env', '/home/cannon/app/config/.env']:
+        _lde(p, override=False)
+    return (
+        _os.getenv('ZIPNOVA_ACCOUNT_ID', '5786'),
+        _os.getenv('ZIPNOVA_ORIGIN_ID', '374397'),
+        _os.getenv('ZIPNOVA_API_KEY', ''),
+        _os.getenv('ZIPNOVA_API_SECRET', ''),
+    )
 
 def _armar_bultos_bot(sku):
     """Arma bultos para un único SKU (colchon o sommier)."""
@@ -148,9 +158,10 @@ def cotizar_envio_bot(sku, cp, ciudad, provincia, precio_producto):
         bultos = _armar_bultos_bot(sku)
         if not bultos:
             return None
+        zn_account, zn_origin, zn_key, zn_secret = _zn_creds()
         payload = {
-            'account_id':     ZIPNOVA_ACCOUNT_ID,
-            'origin_id':      ZIPNOVA_ORIGIN_ID,
+            'account_id':     zn_account,
+            'origin_id':      zn_origin,
             'declared_value': int(precio_producto),
             'destination':    {'zipcode': cp, 'city': ciudad, 'state': provincia},
             'items':          bultos,
@@ -158,7 +169,7 @@ def cotizar_envio_bot(sku, cp, ciudad, provincia, precio_producto):
         resp = requests.post(
             f"{ZIPNOVA_BASE_URL}/shipments/quote",
             json=payload,
-            auth=(ZIPNOVA_API_KEY, ZIPNOVA_API_SECRET),
+            auth=(zn_key, zn_secret),
             timeout=15
         )
         if resp.status_code != 200:
@@ -172,7 +183,8 @@ def cotizar_envio_bot(sku, cp, ciudad, provincia, precio_producto):
         dias  = mejor.get('estimated_days', '?')
         carrier = mejor.get('carrier', {})
         carrier_name = carrier.get('name', '') if isinstance(carrier, dict) else str(carrier)
-        return f"Envío a CP {cp}: ${int(costo):,} ({carrier_name}, {dias} días hábiles aprox.)"
+        carrier_name = carrier_name or 'transportista'
+        return f"Envío a domicilio en {ciudad} (CP {cp}): ${int(costo):,} ({carrier_name}, {dias} días hábiles aprox.)"
     except Exception as e:
         print(f"[WA] Error Zipnova: {e}")
         return None
@@ -385,10 +397,14 @@ COTIZACIONES:
 ENVÍOS:
 - Podés calcular el costo de envío exacto si el cliente te da su código postal
 - Cuando el cliente pida el costo de envío, pedile el código postal si no lo tenés
-- Una vez que tengas SKU + CP, usá el comando [COTIZAR_ENVIO:SKU:CP:CIUDAD:PROVINCIA] en tu respuesta
-  Ejemplo: "Te calculo el envío ahora. [COTIZAR_ENVIO:CDO140:2000:Rosario:Santa Fe]"
+- Una vez que tengas SKU + CP, usá el comando [COTIZAR_ENVIO:SKU:CP:CIUDAD:PROVINCIA]
+  Ejemplo: "El envío del Colchón Doral 140x190 a Rosario te sale: [COTIZAR_ENVIO:CDO140:2000:Rosario:Santa Fe]"
   El sistema reemplaza ese comando con el costo real antes de enviarlo al cliente
-- Si no sabés la ciudad o provincia, podés usar el CP solo y la ciudad como "N/A"
+- Si el cliente pregunta el envío de DOS modelos, hacé DOS cotizaciones, una por línea
+  Ejemplo: [COTIZAR_ENVIO:CEXP140:2000:Rosario:Santa Fe]
+           [COTIZAR_ENVIO:CREP140:2000:Rosario:Santa Fe]
+- Si no sabés la ciudad, usá "N/A" como ciudad
+- SIEMPRE antes del comando aclarás qué producto estás cotizando
 
 FOTOS:
 - Cuando recomendés o cotices un producto específico, podés enviar la foto usando [FOTO:SKU]
@@ -674,9 +690,8 @@ def procesar_mensaje(phone, texto):
     respuesta = _re.sub(r'^[•\-]\s+', '', respuesta, flags=_re.MULTILINE)
     respuesta = _re.sub(r'^\d+\.\s+', '', respuesta, flags=_re.MULTILINE)
 
-    # Procesar [COTIZAR_ENVIO:SKU:CP:CIUDAD:PROVINCIA]
-    envio_match = _re.search(r'\[COTIZAR_ENVIO:([^:\]]+):([^:\]]+):([^:\]]+):([^:\]]+)\]', respuesta)
-    if envio_match:
+    # Procesar todos los [COTIZAR_ENVIO:SKU:CP:CIUDAD:PROVINCIA] que haya
+    for envio_match in list(_re.finditer(r'\[COTIZAR_ENVIO:([^:\]]+):([^:\]]+):([^:\]]+):([^:\]]+)\]', respuesta)):
         sku_env, cp_env, ciudad_env, prov_env = envio_match.groups()
         sku_env = sku_env.strip(); cp_env = cp_env.strip()
         # Auto-resolver ciudad/provincia si no se conocen
@@ -685,19 +700,29 @@ def procesar_mensaje(phone, texto):
         else:
             ciudad_env = ciudad_env.strip(); prov_env = prov_env.strip()
         # Buscar precio del producto
-        prod = _q("SELECT precio_base, descuento_catalogo FROM productos_base WHERE sku=%s", (sku_env,))
+        prod = _q("SELECT nombre, precio_base, descuento_catalogo FROM productos_base WHERE sku=%s", (sku_env,))
         if not prod:
-            prod = _q("SELECT precio_base, descuento_catalogo FROM productos_compuestos WHERE sku=%s", (sku_env,))
+            prod = _q("SELECT nombre, precio_base, descuento_catalogo FROM productos_compuestos WHERE sku=%s", (sku_env,))
         precio_env = 0
+        nombre_prod = sku_env
         if prod:
             pb = float(prod[0]['precio_base'] or 0)
             desc = float(prod[0]['descuento_catalogo'] or 0)
             precio_env = round(pb * (1 - desc/100))
+            nombre_prod = prod[0].get('nombre', sku_env)
         costo_txt = cotizar_envio_bot(sku_env, cp_env, ciudad_env, prov_env, precio_env)
         if costo_txt:
-            respuesta = respuesta.replace(envio_match.group(0), costo_txt)
+            # Replace generic message with product-specific one
+            costo_con_prod = costo_txt.replace(
+                f"Envío a domicilio en",
+                f"Envío del {nombre_prod} a domicilio en"
+            )
+            respuesta = respuesta.replace(envio_match.group(0), costo_con_prod)
         else:
-            respuesta = respuesta.replace(envio_match.group(0), "No pude calcular el envío ahora. Podés consultarlo en el checkout de la tienda.")
+            # Zipnova falló - reemplazar con mensaje útil, no el comando crudo
+            sku_display = sku_env
+            respuesta = respuesta.replace(envio_match.group(0), 
+                f"El costo de envío del {sku_display} a {ciudad_env} (CP {cp_env}) lo podés consultar directamente en el checkout de la tienda al ingresar tu código postal.")
 
     # Extraer comandos [FOTO:SKU] para enviarlos después
     fotos_a_enviar = _re.findall(r'\[FOTO:([A-Z0-9]+)\]', respuesta)
