@@ -178,13 +178,27 @@ def cotizar_envio_bot(sku, cp, ciudad, provincia, precio_producto):
         if not resultados:
             return None
         # Tomar la opción más barata
-        mejor = min(resultados, key=lambda x: x.get('price', 9999999))
-        costo = mejor.get('price', 0)
-        dias  = mejor.get('estimated_days', '?')
+        def _get_price(r):
+            amounts = r.get('amounts', {})
+            return amounts.get('price_incl_tax') or amounts.get('price') or 0
+        def _get_dias(r):
+            dt = r.get('delivery_time', {})
+            mn = dt.get('min', '?')
+            mx = dt.get('max', '?')
+            if mn != '?' and mx != '?':
+                return f"{mn}-{mx}"
+            return str(mn)
+        mejor = min(resultados, key=lambda x: _get_price(x) or 9999999)
+        costo = _get_price(mejor)
+        dias  = _get_dias(mejor)
         carrier = mejor.get('carrier', {})
         carrier_name = carrier.get('name', '') if isinstance(carrier, dict) else str(carrier)
+        print(f"[WA] Zipnova OK: costo={costo} dias={dias} carrier={carrier_name}")
         carrier_name = carrier_name or 'transportista'
-        return f"Envío a domicilio en {ciudad} (CP {cp}): ${int(costo):,} ({carrier_name}, {dias} días hábiles aprox.)"
+        if not costo or costo == 0:
+            print(f"[WA] Zipnova devolvió $0 para {sku} CP {cp}")
+            return None
+        return f"envío a domicilio en {ciudad} (CP {cp}) te sale ${int(costo):,} por {carrier_name} y llega en aproximadamente {dias} días hábiles"
     except Exception as e:
         print(f"[WA] Error Zipnova: {e}")
         return None
@@ -346,10 +360,14 @@ Cada base tiene precio propio según modelo y medida (NO son todas al mismo prec
 
 MEDIDAS DISPONIBLES (según modelo): 80x190, 90x190, 100x190, 140x190, 150x190, 160x200, 180x200, 200x200
 
-ENVÍOS:
+ENVÍOS Y RETIRO:
 - Colchones y sommiers: Zipnova. Costo exacto se puede calcular con el código postal del cliente.
 - Almohadas: calculado por MercadoPago en el checkout.
 - CABA y GBA suelen ser más económicos que el interior del país.
+- RETIRO EN LOCAL: todos los productos se pueden retirar sin costo en nuestro local.
+  Dirección: Bahía Blanca 1777, Floresta, Ciudad de Buenos Aires.
+  Horario: lunes a viernes de 8 a 12hs y de 14 a 16.30hs.
+  Sin costo de envío al retirar personalmente.
 
 MEDIOS DE PAGO:
 - MercadoPago: todas las formas (débito, crédito, transferencia, depósito, PagoFácil/RapiPago, dinero en cuenta MP).
@@ -398,8 +416,8 @@ ENVÍOS:
 - Podés calcular el costo de envío exacto si el cliente te da su código postal
 - Cuando el cliente pida el costo de envío, pedile el código postal si no lo tenés
 - Una vez que tengas SKU + CP, usá el comando [COTIZAR_ENVIO:SKU:CP:CIUDAD:PROVINCIA]
-  Ejemplo: "El envío del Colchón Doral 140x190 a Rosario te sale: [COTIZAR_ENVIO:CDO140:2000:Rosario:Santa Fe]"
-  El sistema reemplaza ese comando con el costo real antes de enviarlo al cliente
+  Ejemplo: "[COTIZAR_ENVIO:CDO140:2000:Rosario:Santa Fe]"
+  El sistema reemplaza ese comando con el costo real. NO escribas el nombre del producto antes del comando, el sistema lo agrega automáticamente.
 - Si el cliente pregunta el envío de DOS modelos, hacé DOS cotizaciones, una por línea
   Ejemplo: [COTIZAR_ENVIO:CEXP140:2000:Rosario:Santa Fe]
            [COTIZAR_ENVIO:CREP140:2000:Rosario:Santa Fe]
@@ -713,11 +731,9 @@ def procesar_mensaje(phone, texto):
         costo_txt = cotizar_envio_bot(sku_env, cp_env, ciudad_env, prov_env, precio_env)
         if costo_txt:
             # Replace generic message with product-specific one
-            costo_con_prod = costo_txt.replace(
-                f"Envío a domicilio en",
-                f"Envío del {nombre_prod} a domicilio en"
-            )
-            respuesta = respuesta.replace(envio_match.group(0), costo_con_prod)
+            # Armar mensaje completo con nombre del producto
+            msg_envio = f"El envío del {nombre_prod} a {costo_txt}."
+            respuesta = respuesta.replace(envio_match.group(0), msg_envio)
         else:
             # Zipnova falló - reemplazar con mensaje útil, no el comando crudo
             sku_display = sku_env
