@@ -405,34 +405,30 @@ PERSONALIDAD Y FORMATO:
 - Si el cliente pregunta si sos un bot o una persona, podés responder honestamente que sos un asistente virtual
 
 COTIZACIONES:
-- Cuando el cliente no especifica modelo exacto, siempre cotizá 2 opciones similares dentro del rango pedido
-- "2 plazas" puede ser 140x190 O 150x190. SIEMPRE preguntá la medida exacta para que coincida con su base/cama
-- "Con base" o "con box" = sommier (colchón + base). Cotizá el sommier correspondiente
-- Cuando cotices con Payway, el formato correcto es: "3 cuotas fijas de $XX.XXX (total $XXX.XXX)"
-  NUNCA digas "sin interés" — las cuotas de Payway tienen interés embebido en el precio
-- No expliques cómo se calcula el recargo — solo mostrá el precio de cuota y el total
+- "2 plazas" puede ser 140x190 O 150x190. SIEMPRE preguntá la medida exacta si no está confirmada.
+- "Con base" o "con box" = sommier (colchón + base). Cotizá el sommier correspondiente.
+- Cuando el cliente da 2 o más requisitos (medida + tipo + preferencia), mostrá TODOS los modelos que encajan, no solo los 2 más económicos. Si hay más de 3 que encajan, cotizá los 3 principales y mencioná los demás por nombre ofreciendo cotizarlos si el cliente quiere.
+  Ejemplo: "También hay Sublime Euro Pillow y Exclusive Pillow Top que podrían interesarte, ¿querés que te los cotice?"
+- Cuando cotices con Payway: "3 cuotas fijas de $XX.XXX (total $XXX.XXX)"
+- Si el cliente pregunta por cuotas sin interés: explicá que las cuotas de Payway son fijas (el importe no varía cuota a cuota). No menciones ni confirmes ni niegues si tienen interés embebido.
 
 ENVÍOS:
 - Podés calcular el costo de envío exacto si el cliente te da su código postal
 - Cuando el cliente pida el costo de envío, pedile el código postal si no lo tenés
-- Una vez que tengas SKU + CP, usá el comando [COTIZAR_ENVIO:SKU:CP:CIUDAD:PROVINCIA]
-  Ejemplo: "[COTIZAR_ENVIO:CDO140:2000:Rosario:Santa Fe]"
-  El sistema reemplaza ese comando con el costo real. NO escribas el nombre del producto antes del comando, el sistema lo agrega automáticamente.
-- Si el cliente pregunta el envío de DOS modelos, hacé DOS cotizaciones, una por línea
-  Ejemplo: [COTIZAR_ENVIO:CEXP140:2000:Rosario:Santa Fe]
-           [COTIZAR_ENVIO:CREP140:2000:Rosario:Santa Fe]
+- Una vez que tengas SKU + CP, usá SOLO el comando sin texto adicional antes: [COTIZAR_ENVIO:SKU:CP:CIUDAD:PROVINCIA]
+  El sistema genera el mensaje completo automáticamente. NO escribas nada antes del comando.
+- Si el cliente pregunta el envío de DOS modelos, hacé DOS comandos separados
 - Si no sabés la ciudad, usá "N/A" como ciudad
-- SIEMPRE antes del comando aclarás qué producto estás cotizando
 
 FOTOS:
 - Cuando recomendés o cotices un producto específico, podés enviar la foto usando [FOTO:SKU]
   Ejemplo: "Acá te muestro cómo es. [FOTO:CDOP160]"
-- Usá solo la primera foto (orden 1) — no mandes varias fotos seguidas
-- Solo enviá foto cuando el cliente pregunta por un modelo específico o cuando lo recomendás puntualmente
+- Usá solo la primera foto — no mandes varias fotos seguidas
+- Solo enviá foto cuando el cliente pregunta por un modelo específico
 
 MEDIOS DE PAGO:
 - MercadoPago: precio de lista, todas las formas (débito, crédito, transferencia, PagoFácil/RapiPago)
-- Payway: Visa o Mastercard bancarizadas. Formato: "3 cuotas fijas de $X (total $Y)" o "6 cuotas fijas de $X (total $Y)"
+- Payway: Visa o Mastercard bancarizadas. Cuotas fijas de 3 o 6 meses.
 
 HORARIO: {horario_txt}
 
@@ -511,16 +507,17 @@ def derivar_a_humano(phone_cliente, historial):
     try:
         msgs_texto = '\n'.join(
             f"{'Cliente' if m['role']=='user' else 'Bot'}: {m['content']}"
-            for m in historial[-10:]
+            for m in historial[-14:]
         )
         resumen_resp = anthropic.messages.create(
             model='claude-sonnet-4-6',
-            max_tokens=200,
+            max_tokens=300,
             messages=[{
                 'role': 'user',
-                'content': f"""Resumí esta conversación en 2 líneas máximo:
-1. Qué buscaba el cliente
-2. Por qué se derivó
+                'content': f"""Resumí esta conversación de ventas en 3-4 líneas:
+1. Qué producto buscaba (modelo, medida, con/sin base)
+2. Qué info se le dio (precios, envío, medios de pago)
+3. Por qué se derivó
 
 {msgs_texto}
 
@@ -532,18 +529,20 @@ Solo el resumen, sin introducción."""
         print(f"[WA] Error generando resumen: {e}")
         resumen = "No se pudo generar resumen."
 
-    ultima = historial[-1]['content'][:120] if historial else '-'
+    # Último mensaje del CLIENTE, no del bot
+    msgs_cliente = [m for m in historial if m['role'] == 'user']
+    ultima_cliente = msgs_cliente[-1]['content'][:150] if msgs_cliente else '-'
+
     msg = (
         f"Derivacion WA\n"
         f"Cliente: +{phone_cliente}\n"
         f"Resumen: {resumen}\n"
-        f"Ultima consulta: {ultima}"
+        f"Ultimo mensaje del cliente: {ultima_cliente}"
     )
 
     ok = wa_send(NUMERO_DERIVAR.replace('+', ''), msg)
     print(f"[WA] Derivacion {'OK' if ok else 'FALLO'} para {phone_cliente} → {NUMERO_DERIVAR}")
     if not ok:
-        # Segundo intento sin el +
         num = NUMERO_DERIVAR.lstrip('+')
         wa_send(num, msg)
 
@@ -731,9 +730,15 @@ def procesar_mensaje(phone, texto):
         costo_txt = cotizar_envio_bot(sku_env, cp_env, ciudad_env, prov_env, precio_env)
         if costo_txt:
             # Replace generic message with product-specific one
-            # Armar mensaje completo con nombre del producto
+            # Mensaje completo con nombre del producto
             msg_envio = f"El envío del {nombre_prod} a {costo_txt}."
-            respuesta = respuesta.replace(envio_match.group(0), msg_envio)
+            # Si el bot escribió el nombre antes del comando, reemplazar todo para evitar duplicado
+            import re as _re3
+            patron_dup = r'(?:El envío del |el envío del )[^\[]{0,60}\[COTIZAR_ENVIO:[^\]]+\]'
+            if _re3.search(patron_dup, respuesta):
+                respuesta = _re3.sub(patron_dup, msg_envio, respuesta)
+            else:
+                respuesta = respuesta.replace(envio_match.group(0), msg_envio)
         else:
             # Zipnova falló - reemplazar con mensaje útil, no el comando crudo
             sku_display = sku_env
