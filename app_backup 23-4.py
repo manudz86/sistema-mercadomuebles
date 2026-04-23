@@ -2703,30 +2703,7 @@ def editar_venta(venta_id):
         conn.commit()
         cursor.close()
         conn.close()
-
-        # ========================================
-        # 6. SINCRONIZAR PUBLICACIONES ML (background)
-        # ========================================
-        # Editar una venta puede cambiar qué SKUs están reservados y
-        # en qué cantidades. Tomamos la UNIÓN de SKUs anteriores y
-        # nuevos para actualizar todas las publicaciones afectadas.
-        try:
-            skus_union = set(items_anteriores.keys()) | set(items_nuevos.keys())
-            if skus_union:
-                # _extraer_skus_base_de_items necesita dicts con 'sku' y 'cantidad'
-                items_para_sync = [{'sku': sku, 'cantidad': 1} for sku in skus_union]
-                skus_afectados = _extraer_skus_base_de_items(items_para_sync)
-                if skus_afectados:
-                    import threading
-                    def _editar_venta_ml_bg():
-                        try:
-                            actualizar_publicaciones_ml_con_progreso(skus_afectados)
-                        except Exception as e_ml:
-                            print(f"[AUTO-ML] Error actualizando ML tras editar venta: {e_ml}")
-                    threading.Thread(target=_editar_venta_ml_bg, daemon=True).start()
-        except Exception as e_ml_init:
-            print(f"[AUTO-ML] Error iniciando thread ML tras editar venta: {e_ml_init}")
-
+        
         flash(f'✅ Venta {numero_venta} actualizada correctamente. Total: ${importe_total:,.0f}', 'success')
         return redirect(url_for('ventas_activas'))
         
@@ -4557,17 +4534,11 @@ def guardar_stock():
         
         if productos_cargados > 0:
             flash(f'✅ Stock cargado correctamente ({productos_cargados} productos)', 'success')
-            # Actualizar publicaciones ML con los SKUs base cargados (background)
+            # Actualizar publicaciones ML con los SKUs base cargados
             try:
-                import threading
-                def _guardar_stock_ml_bg():
-                    try:
-                        actualizar_publicaciones_ml_con_progreso(skus_cargados)
-                    except Exception as e_ml:
-                        print(f"[AUTO-ML] Error actualizando ML tras carga stock: {e_ml}")
-                threading.Thread(target=_guardar_stock_ml_bg, daemon=True).start()
-            except Exception as e_ml_init:
-                print(f"[AUTO-ML] Error iniciando thread ML tras carga stock: {e_ml_init}")
+                actualizar_publicaciones_ml(skus_cargados)
+            except Exception as e_ml:
+                print(f"[AUTO-ML] Error actualizando ML tras carga stock: {e_ml}")
         else:
             flash('ℹ️ No se agregó stock. Ingresá cantidades mayores a 0.', 'info')
         
@@ -5351,26 +5322,7 @@ def guardar_venta():
         conn.commit()
         cursor.close()
         conn.close()
-
-        # ========================================
-        # 9.5. SINCRONIZAR PUBLICACIONES ML (background)
-        # ========================================
-        # Una venta nueva reduce el stock_disponible (porque suma a
-        # items_venta con estado 'pendiente'). Hay que avisarle a ML
-        # para que las publicaciones reflejen el stock real.
-        try:
-            skus_afectados = _extraer_skus_base_de_items(items_vendidos_lista)
-            if skus_afectados:
-                import threading
-                def _nueva_venta_ml_bg():
-                    try:
-                        actualizar_publicaciones_ml_con_progreso(skus_afectados)
-                    except Exception as e_ml:
-                        print(f"[AUTO-ML] Error actualizando ML tras nueva venta manual: {e_ml}")
-                threading.Thread(target=_nueva_venta_ml_bg, daemon=True).start()
-        except Exception as e_ml_init:
-            print(f"[AUTO-ML] Error iniciando thread ML tras nueva venta manual: {e_ml_init}")
-
+        
         # ========================================
         # 10. LIMPIAR SESIÓN DE ML
         # ========================================
