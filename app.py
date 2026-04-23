@@ -10007,6 +10007,9 @@ app.register_blueprint(bot_precios_bp)
 from competencia_bp import competencia_bp
 app.register_blueprint(competencia_bp)
 
+from competencia_scraper_bp import competencia_scraper_bp
+app.register_blueprint(competencia_scraper_bp)
+
 from whatsapp_bp import whatsapp_bp
 app.register_blueprint(whatsapp_bp)
 

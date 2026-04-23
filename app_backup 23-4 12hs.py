@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 import pymysql
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from utils import log_evento, crear_tabla_sistema_logs
 
 import threading
 
@@ -164,6 +165,63 @@ def execute_db(query, params=None):
             return cursor.lastrowid
     finally:
         conn.close()
+
+# ============================================================================
+# WHATSAPP CLOUD API
+# ============================================================================
+
+def enviar_whatsapp(telefono, template_name, componentes=None):
+    """
+    Envía un mensaje de WhatsApp usando una plantilla aprobada por Meta.
+    
+    telefono: string con formato internacional sin '+', ej: '5491126275185'
+    template_name: nombre exacto de la plantilla en Meta
+    componentes: lista de parámetros variables de la plantilla (opcional)
+    
+    Ejemplo de uso:
+        enviar_whatsapp('5491126275185', 'pedido_confirmado', componentes=[
+            {
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": "Juan"},
+                    {"type": "text", "text": "12345"}
+                ]
+            }
+        ])
+    """
+    token    = os.getenv('WA_ACCESS_TOKEN')
+    phone_id = os.getenv('WA_PHONE_NUMBER_ID')
+
+    if not token or not phone_id:
+        return {"ok": False, "error": "WA_ACCESS_TOKEN o WA_PHONE_NUMBER_ID no configurados en .env"}
+
+    url = f"https://graph.facebook.com/v25.0/{phone_id}/messages"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": telefono,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {"code": "es_AR"},
+            "components": componentes or []
+        }
+    }
+
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=10)
+        r.raise_for_status()
+        return {"ok": True, "data": r.json()}
+    except requests.exceptions.HTTPError as e:
+        return {"ok": False, "error": str(e), "detalle": r.text}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 
 # ============================================================================
 # RUTAS - PÁGINAS
@@ -821,6 +879,89 @@ metodo_pago, importe_total, importe_abonado,
         traceback.print_exc()
         return redirect(url_for('index'))
 
+@app.route('/ventas/activas/<int:venta_id>/whatsapp-enviar', methods=['POST'])
+@login_required
+@vendedor_required
+def whatsapp_enviar(venta_id):
+    """
+    Envía mensaje de WhatsApp al cliente de una venta activa.
+    Soporta plantillas: entrega_hoy, posible_entrega.
+    Body JSON esperado:
+      { "template": "entrega_hoy"|"posible_entrega",
+        "nombre": "...", "producto": "...",
+        "fecha": "...", "direccion": "...", "horario": "..." }
+    """
+    venta = query_one(
+        "SELECT nombre_cliente, telefono_cliente, numero_venta FROM ventas WHERE id = %s",
+        (venta_id,)
+    )
+    if not venta:
+        return jsonify({"ok": False, "error": "Venta no encontrada"}), 404
+
+    telefono_raw = (venta.get('telefono_cliente') or '').strip()
+    if not telefono_raw:
+        return jsonify({"ok": False, "error": "Esta venta no tiene teléfono registrado"}), 400
+
+    # Normalizar teléfono a formato internacional sin '+': 549XXXXXXXXXX
+    telefono = telefono_raw.replace('+', '').replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+    if telefono.startswith('0054'):
+        telefono = telefono[2:]
+    elif telefono.startswith('00'):
+        telefono = telefono[2:]
+    if telefono.startswith('+'):
+        telefono = telefono[1:]
+    if telefono.startswith('0'):
+        telefono = '54' + telefono[1:]
+    elif telefono.startswith('15'):
+        telefono = '5491' + telefono[2:]
+    elif telefono.startswith('11') and not telefono.startswith('549'):
+        telefono = '549' + telefono
+    elif not telefono.startswith('54'):
+        telefono = '549' + telefono
+
+    data       = request.get_json() or {}
+    template   = data.get('template', 'entrega_hoy')
+    nombre     = data.get('nombre') or venta.get('nombre_cliente') or 'Cliente'
+    producto   = data.get('producto', '')
+    fecha      = data.get('fecha', '')
+    direccion  = data.get('direccion', '')
+    horario    = data.get('horario', '')
+
+    # Armar componentes según plantilla
+    PLANTILLAS_VALIDAS = {'entrega_hoy', 'posible_entrega'}
+    if template not in PLANTILLAS_VALIDAS:
+        return jsonify({"ok": False, "error": f"Plantilla '{template}' no válida"}), 400
+
+    if template == 'entrega_hoy':
+        componentes = [{
+            "type": "body",
+            "parameters": [
+                {"type": "text", "text": nombre},
+                {"type": "text", "text": producto}
+            ]
+        }]
+    elif template == 'posible_entrega':
+        componentes = [{
+            "type": "body",
+            "parameters": [
+                {"type": "text", "text": nombre},
+                {"type": "text", "text": producto},
+                {"type": "text", "text": fecha},
+                {"type": "text", "text": direccion},
+                {"type": "text", "text": horario}
+            ]
+        }]
+
+    resultado = enviar_whatsapp(telefono, template, componentes)
+
+    if resultado['ok']:
+        log_evento(f"WhatsApp '{template}' enviado a {telefono} (venta {venta['numero_venta']})", current_user.username)
+        return jsonify({"ok": True, "mensaje": f"Mensaje enviado a {telefono_raw}"})
+    else:
+        return jsonify({"ok": False, "error": resultado.get('error', 'Error desconocido'),
+                        "detalle": resultado.get('detalle', '')}), 500
+
+
 @app.route('/ventas/activas/<int:venta_id>/etiqueta-ml')
 @login_required
 def etiqueta_ml(venta_id):
@@ -1389,6 +1530,9 @@ def marcar_entregada(venta_id):
         ''', (venta_id,))
         
         conn.commit()
+        log_evento('INFO', 'entrega', 'venta_entregada',
+            f"Venta {venta['numero_venta']} marcada como entregada. Canal: {venta.get('canal','')}",
+            venta_id=venta_id, usuario=current_user.username if current_user.is_authenticated else 'Sistema')
         flash(f'✅ Venta {venta["numero_venta"]} marcada como Entregada.', 'success')
         
     except Exception as e:
@@ -1687,6 +1831,9 @@ def marcar_entregadas_multiple():
                 ''', (venta_id,))
                 
                 ventas_procesadas += 1
+                log_evento('INFO', 'entrega', 'venta_entregada',
+                    f"Venta {venta['numero_venta']} marcada como entregada (masivo). Canal: {venta.get('canal','')}",
+                    venta_id=int(venta_id), usuario=current_user.username if current_user.is_authenticated else 'Sistema')
             
             except Exception as e:
                 print(f"⚠️ Error al procesar venta {venta_id}: {str(e)}")
@@ -2556,7 +2703,30 @@ def editar_venta(venta_id):
         conn.commit()
         cursor.close()
         conn.close()
-        
+
+        # ========================================
+        # 6. SINCRONIZAR PUBLICACIONES ML (background)
+        # ========================================
+        # Editar una venta puede cambiar qué SKUs están reservados y
+        # en qué cantidades. Tomamos la UNIÓN de SKUs anteriores y
+        # nuevos para actualizar todas las publicaciones afectadas.
+        try:
+            skus_union = set(items_anteriores.keys()) | set(items_nuevos.keys())
+            if skus_union:
+                # _extraer_skus_base_de_items necesita dicts con 'sku' y 'cantidad'
+                items_para_sync = [{'sku': sku, 'cantidad': 1} for sku in skus_union]
+                skus_afectados = _extraer_skus_base_de_items(items_para_sync)
+                if skus_afectados:
+                    import threading
+                    def _editar_venta_ml_bg():
+                        try:
+                            actualizar_publicaciones_ml_con_progreso(skus_afectados)
+                        except Exception as e_ml:
+                            print(f"[AUTO-ML] Error actualizando ML tras editar venta: {e_ml}")
+                    threading.Thread(target=_editar_venta_ml_bg, daemon=True).start()
+        except Exception as e_ml_init:
+            print(f"[AUTO-ML] Error iniciando thread ML tras editar venta: {e_ml_init}")
+
         flash(f'✅ Venta {numero_venta} actualizada correctamente. Total: ${importe_total:,.0f}', 'success')
         return redirect(url_for('ventas_activas'))
         
@@ -2736,69 +2906,65 @@ def descontar_stock_item(cursor, item, ubicacion_despacho):
 
 
 def descontar_stock_simple(cursor, sku, cantidad, tipo, ubicacion_despacho):
-    """Descuenta stock de un producto simple según ubicación"""
-    
+    """Descuenta stock de un producto simple según ubicación y registra en movimientos_stock"""
+
+    def _descontar_y_registrar(sku_real, cant):
+        cursor.execute('SELECT stock_actual, nombre FROM productos_base WHERE sku = %s', (sku_real,))
+        prod = cursor.fetchone()
+        stock_anterior = int(prod['stock_actual'] or 0) if prod else 0
+        nombre_prod = prod['nombre'] if prod else sku_real
+        stock_nuevo = stock_anterior - cant
+        cursor.execute(
+            'UPDATE productos_base SET stock_actual = stock_actual - %s WHERE sku = %s',
+            (cant, sku_real))
+        cursor.execute("""
+            INSERT INTO movimientos_stock
+                (sku, nombre_producto, tipo_movimiento, cantidad, stock_anterior, stock_nuevo, motivo, usuario)
+            VALUES (%s, %s, 'venta', %s, %s, %s, 'Descuento por entrega', 'Sistema')
+        """, (sku_real, nombre_prod, cant, stock_anterior, stock_nuevo))
+
     # COMPAC: tiene _DEP y _FULL
     if '_DEP' in sku or '_FULL' in sku:
-        if ubicacion_despacho == 'FULL':
-            sku_real = sku.replace('_DEP', '_FULL')
-        else:
-            sku_real = sku.replace('_FULL', '_DEP')
-        
-        cursor.execute('''
-            UPDATE productos_base 
-            SET stock_actual = stock_actual - %s 
-            WHERE sku = %s
-        ''', (cantidad, sku_real))
-    
+        sku_real = sku.replace('_DEP', '_FULL') if ubicacion_despacho == 'FULL' else sku.replace('_FULL', '_DEP')
+        _descontar_y_registrar(sku_real, cantidad)
+
     # ALMOHADAS: tienen stock_actual (DEP) y stock_full (FULL)
     elif tipo == 'almohada':
         if ubicacion_despacho == 'FULL':
-            cursor.execute('''
-                UPDATE productos_base 
-                SET stock_full = stock_full - %s 
-                WHERE sku = %s
-            ''', (cantidad, sku))
+            cursor.execute('SELECT stock_full, nombre FROM productos_base WHERE sku = %s', (sku,))
+            prod = cursor.fetchone()
+            stock_anterior = int(prod['stock_full'] or 0) if prod else 0
+            nombre_prod = prod['nombre'] if prod else sku
+            cursor.execute('UPDATE productos_base SET stock_full = stock_full - %s WHERE sku = %s', (cantidad, sku))
         else:
-            cursor.execute('''
-                UPDATE productos_base 
-                SET stock_actual = stock_actual - %s 
-                WHERE sku = %s
-            ''', (cantidad, sku))
-    
+            cursor.execute('SELECT stock_actual, nombre FROM productos_base WHERE sku = %s', (sku,))
+            prod = cursor.fetchone()
+            stock_anterior = int(prod['stock_actual'] or 0) if prod else 0
+            nombre_prod = prod['nombre'] if prod else sku
+            cursor.execute('UPDATE productos_base SET stock_actual = stock_actual - %s WHERE sku = %s', (cantidad, sku))
+        cursor.execute("""
+            INSERT INTO movimientos_stock
+                (sku, nombre_producto, tipo_movimiento, cantidad, stock_anterior, stock_nuevo, motivo, usuario)
+            VALUES (%s, %s, 'venta', %s, %s, %s, 'Descuento por entrega', 'Sistema')
+        """, (sku, nombre_prod, cantidad, stock_anterior, stock_anterior - cantidad))
+
     # BASES CHICAS (80200, 90200, 100200): descontar directamente
     elif tipo == 'base' and any(x in sku for x in ['80200', '90200', '100200']):
-        cursor.execute('''
-            UPDATE productos_base 
-            SET stock_actual = stock_actual - %s 
-            WHERE sku = %s
-        ''', (cantidad, sku))
-    
+        _descontar_y_registrar(sku, cantidad)
+
     # BASES GRANDES (160, 180, 200): descuentan 2 bases chicas
     elif tipo == 'base' and any(x in sku for x in ['160', '180', '200']):
         if '160' in sku:
             sku_chica = sku.replace('160', '80200')
-            cant_bases = cantidad * 2
         elif '180' in sku:
             sku_chica = sku.replace('180', '90200')
-            cant_bases = cantidad * 2
-        elif '200' in sku:
+        else:
             sku_chica = sku.replace('200', '100200')
-            cant_bases = cantidad * 2
-        
-        cursor.execute('''
-            UPDATE productos_base 
-            SET stock_actual = stock_actual - %s 
-            WHERE sku = %s
-        ''', (cant_bases, sku_chica))
-    
+        _descontar_y_registrar(sku_chica, cantidad * 2)
+
     # OTROS: descontar de stock_actual
     else:
-        cursor.execute('''
-            UPDATE productos_base 
-            SET stock_actual = stock_actual - %s 
-            WHERE sku = %s
-        ''', (cantidad, sku))
+        _descontar_y_registrar(sku, cantidad)
 
 
 
@@ -4379,7 +4545,11 @@ def guardar_stock():
                             (sku, nombre_producto, tipo_movimiento, cantidad, stock_anterior, stock_nuevo, motivo)
                             VALUES (%s, %s, %s, %s, %s, %s, %s)
                         ''', (sku, nombre_producto, 'carga', cantidad_agregar, stock_anterior, stock_nuevo, 'Carga de stock nuevo'))
-                        
+
+                        log_evento('INFO', 'stock', 'carga_stock',
+                            f"Carga manual: {nombre_producto} ({sku}) +{cantidad_agregar} unidades. Stock: {stock_anterior} → {stock_nuevo}",
+                            sku=sku, usuario=current_user.username if current_user.is_authenticated else 'Sistema')
+
                         productos_cargados += 1
                         skus_cargados.add(sku)
         
@@ -4387,11 +4557,17 @@ def guardar_stock():
         
         if productos_cargados > 0:
             flash(f'✅ Stock cargado correctamente ({productos_cargados} productos)', 'success')
-            # Actualizar publicaciones ML con los SKUs base cargados
+            # Actualizar publicaciones ML con los SKUs base cargados (background)
             try:
-                actualizar_publicaciones_ml(skus_cargados)
-            except Exception as e_ml:
-                print(f"[AUTO-ML] Error actualizando ML tras carga stock: {e_ml}")
+                import threading
+                def _guardar_stock_ml_bg():
+                    try:
+                        actualizar_publicaciones_ml_con_progreso(skus_cargados)
+                    except Exception as e_ml:
+                        print(f"[AUTO-ML] Error actualizando ML tras carga stock: {e_ml}")
+                threading.Thread(target=_guardar_stock_ml_bg, daemon=True).start()
+            except Exception as e_ml_init:
+                print(f"[AUTO-ML] Error iniciando thread ML tras carga stock: {e_ml_init}")
         else:
             flash('ℹ️ No se agregó stock. Ingresá cantidades mayores a 0.', 'info')
         
@@ -4463,6 +4639,9 @@ def bajar_stock_guardar():
                 (sku, nombre_producto, tipo_movimiento, cantidad, stock_anterior, stock_nuevo, motivo)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             ''', (sku, nombre_producto, 'baja', cantidad_baja, stock_anterior, stock_nuevo, motivo))
+            log_evento('INFO', 'stock', 'baja_stock',
+                f"Baja manual: {nombre_producto} ({sku}) -{cantidad_baja} unidades. Stock: {stock_anterior} → {stock_nuevo}. Motivo: {motivo}",
+                sku=sku, usuario=current_user.username if current_user.is_authenticated else 'Sistema')
 
         conn.commit()
 
@@ -5172,7 +5351,26 @@ def guardar_venta():
         conn.commit()
         cursor.close()
         conn.close()
-        
+
+        # ========================================
+        # 9.5. SINCRONIZAR PUBLICACIONES ML (background)
+        # ========================================
+        # Una venta nueva reduce el stock_disponible (porque suma a
+        # items_venta con estado 'pendiente'). Hay que avisarle a ML
+        # para que las publicaciones reflejen el stock real.
+        try:
+            skus_afectados = _extraer_skus_base_de_items(items_vendidos_lista)
+            if skus_afectados:
+                import threading
+                def _nueva_venta_ml_bg():
+                    try:
+                        actualizar_publicaciones_ml_con_progreso(skus_afectados)
+                    except Exception as e_ml:
+                        print(f"[AUTO-ML] Error actualizando ML tras nueva venta manual: {e_ml}")
+                threading.Thread(target=_nueva_venta_ml_bg, daemon=True).start()
+        except Exception as e_ml_init:
+            print(f"[AUTO-ML] Error iniciando thread ML tras nueva venta manual: {e_ml_init}")
+
         # ========================================
         # 10. LIMPIAR SESIÓN DE ML
         # ========================================
@@ -5187,6 +5385,10 @@ def guardar_venta():
         # ========================================
         # 11. MENSAJE Y REDIRECCIÓN
         # ========================================
+        log_evento('INFO', 'venta', 'nueva_venta',
+            f"Nueva venta {numero_venta} registrada. Canal: {canal}. Cliente: {nombre_cliente}. Total: ${importe_total}",
+            venta_id=venta_id, usuario=current_user.username if current_user.is_authenticated else 'Sistema',
+            ip=request.remote_addr)
         if productos_sin_stock:
             productos_base = [p for p in productos_sin_stock if p.get('tipo_producto') == 'base']
             combos_afectados = [p for p in productos_sin_stock if p.get('tipo_producto') == 'combo']
@@ -9759,8 +9961,7 @@ def ml_callback():
 # ============================================================================
 # TIENDANUBE Y TIENDA PROPIA
 # ============================================================================
-from tiendanube_bp import tiendanube_bp
-app.register_blueprint(tiendanube_bp)
+
 
 @app.route('/ventas/guardar-trid', methods=['POST'])
 @login_required
@@ -9800,6 +10001,14 @@ def guardar_trid():
 from tienda_bp import tienda_bp
 app.register_blueprint(tienda_bp)
 
+from bot_precios_bp import bot_precios_bp
+app.register_blueprint(bot_precios_bp)
+
+from competencia_bp import competencia_bp
+app.register_blueprint(competencia_bp)
+
+from whatsapp_bp import whatsapp_bp
+app.register_blueprint(whatsapp_bp)
 
 
 # ============================================================================
@@ -9827,6 +10036,202 @@ def _crear_tablas_fletes():
             FOREIGN KEY (fletero_id) REFERENCES fleteros(id)
         )
     """)
+
+# ============================================================================
+# MÓDULO PAGOS CANNON
+# ============================================================================
+
+def _crear_tablas_pagos_cannon():
+    execute_db("""
+        CREATE TABLE IF NOT EXISTS cannon_facturas (
+            id                  INT AUTO_INCREMENT PRIMARY KEY,
+            nro_comprobante     VARCHAR(30) NOT NULL,
+            fecha_comprobante   DATE NOT NULL,
+            fecha_recepcion     DATE NOT NULL,
+            importe_total       DECIMAL(14,2) NOT NULL,
+            descuento_pp_pct    DECIMAL(5,2) NOT NULL DEFAULT 5.00,
+            importe_pp          INT NOT NULL,
+            descuento_pp_monto  INT NOT NULL,
+            fecha_pago          DATE NOT NULL,
+            tiene_error         TINYINT(1) DEFAULT 0,
+            notas               TEXT,
+            created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    execute_db("""
+        CREATE TABLE IF NOT EXISTS cannon_pagos (
+            id              INT AUTO_INCREMENT PRIMARY KEY,
+            fecha_pago      DATE NOT NULL UNIQUE,
+            monto_abonado   DECIMAL(14,2),
+            fecha_abono     DATE,
+            pp_recibido     TINYINT(1) DEFAULT 0,
+            fecha_pp        DATE,
+            notas           TEXT,
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    execute_db("""
+        CREATE TABLE IF NOT EXISTS cannon_reclamos (
+            id                  INT AUTO_INCREMENT PRIMARY KEY,
+            factura_id          INT NOT NULL,
+            detalle_error       TEXT NOT NULL,
+            fecha_reclamo       DATE NOT NULL,
+            nro_nc_resolucion   VARCHAR(30),
+            resuelto            TINYINT(1) DEFAULT 0,
+            fecha_resolucion    DATE,
+            created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (factura_id) REFERENCES cannon_facturas(id)
+        )
+    """)
+
+
+def _calcular_importe_pp(importe_total, pct):
+    """Calcula importe con pronto pago. Ej: 5% → total/1.05, redondeado sin decimales."""
+    divisor = 1 + float(pct) / 100
+    return round(float(importe_total) / divisor)
+
+
+@app.route('/pagos-cannon', methods=['GET'])
+@login_required
+@admin_required
+def pagos_cannon():
+    _crear_tablas_pagos_cannon()
+    from datetime import date
+
+    tab = request.args.get('tab', 'pendientes')
+
+    # Facturas pendientes de pago (agrupadas por fecha_pago)
+    grupos_pendientes = query_db("""
+        SELECT
+            f.fecha_pago,
+            COUNT(f.id) AS total_fcs,
+            SUM(f.importe_total) AS total_bruto,
+            SUM(f.importe_pp) AS total_pp,
+            SUM(f.descuento_pp_monto) AS total_descuento,
+            p.id AS pago_id,
+            p.monto_abonado,
+            p.fecha_abono,
+            p.pp_recibido,
+            p.fecha_pp,
+            p.notas AS pago_notas
+        FROM cannon_facturas f
+        LEFT JOIN cannon_pagos p ON p.fecha_pago = f.fecha_pago
+        GROUP BY f.fecha_pago, p.id
+        ORDER BY f.fecha_pago ASC
+    """)
+
+    # Detalle de facturas por grupo
+    facturas_por_fecha = {}
+    todas_facturas = query_db("""
+        SELECT f.*, r.id AS reclamo_id
+        FROM cannon_facturas f
+        LEFT JOIN cannon_reclamos r ON r.factura_id = f.id AND r.resuelto = 0
+        ORDER BY f.fecha_pago ASC, f.fecha_comprobante ASC
+    """)
+    for fc in todas_facturas:
+        k = str(fc['fecha_pago'])
+        if k not in facturas_por_fecha:
+            facturas_por_fecha[k] = []
+        facturas_por_fecha[k].append(fc)
+
+    # Reclamos
+    reclamos = query_db("""
+        SELECT r.*, f.nro_comprobante, f.importe_total, f.fecha_comprobante
+        FROM cannon_reclamos r
+        JOIN cannon_facturas f ON f.id = r.factura_id
+        ORDER BY r.resuelto ASC, r.fecha_reclamo DESC
+    """)
+
+    return render_template('pagos_cannon.html',
+        grupos=grupos_pendientes,
+        facturas_por_fecha=facturas_por_fecha,
+        reclamos=reclamos,
+        tab=tab,
+        hoy=date.today(),
+    )
+
+
+@app.route('/pagos-cannon/guardar', methods=['POST'])
+@login_required
+@admin_required
+def pagos_cannon_guardar():
+    _crear_tablas_pagos_cannon()
+    data   = request.get_json()
+    accion = data.get('accion')
+    from datetime import date, timedelta
+
+    try:
+        if accion == 'nueva_factura':
+            importe   = float(data['importe_total'])
+            pct       = float(data.get('descuento_pp_pct', 5))
+            fecha_rec = data['fecha_recepcion']
+            # fecha_pago = recepcion + 6 días corridos
+            from datetime import datetime
+            fecha_pago = (datetime.strptime(fecha_rec, '%Y-%m-%d').date() + timedelta(days=6)).isoformat()
+            imp_pp     = _calcular_importe_pp(importe, pct)
+            descuento  = round(importe) - imp_pp
+
+            # Verificar duplicado
+            existe = query_one("SELECT id FROM cannon_facturas WHERE nro_comprobante = %s", (data['nro_comprobante'],))
+            if existe:
+                return jsonify({'ok': False, 'error': 'Ya existe una factura con ese número'})
+
+            execute_db("""
+                INSERT INTO cannon_facturas
+                    (nro_comprobante, fecha_comprobante, fecha_recepcion,
+                     importe_total, descuento_pp_pct, importe_pp, descuento_pp_monto,
+                     fecha_pago, notas)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (data['nro_comprobante'], data['fecha_comprobante'], fecha_rec,
+                  importe, pct, imp_pp, descuento, fecha_pago, data.get('notas', '')))
+
+            # Crear registro de pago para esa fecha si no existe
+            execute_db("""
+                INSERT IGNORE INTO cannon_pagos (fecha_pago) VALUES (%s)
+            """, (fecha_pago,))
+
+            return jsonify({'ok': True, 'fecha_pago': fecha_pago,
+                            'importe_pp': imp_pp, 'descuento': descuento})
+
+        elif accion == 'eliminar_factura':
+            execute_db("DELETE FROM cannon_facturas WHERE id = %s", (data['id'],))
+
+        elif accion == 'marcar_pagado':
+            execute_db("""
+                UPDATE cannon_pagos
+                SET monto_abonado = %s, fecha_abono = %s, notas = %s
+                WHERE fecha_pago = %s
+            """, (float(data['monto_abonado']), data['fecha_abono'],
+                  data.get('notas', ''), data['fecha_pago']))
+
+        elif accion == 'marcar_pp_recibido':
+            execute_db("""
+                UPDATE cannon_pagos
+                SET pp_recibido = %s, fecha_pp = %s
+                WHERE fecha_pago = %s
+            """, (int(data['recibido']), data.get('fecha_pp') or None, data['fecha_pago']))
+
+        elif accion == 'marcar_error':
+            execute_db("UPDATE cannon_facturas SET tiene_error = 1 WHERE id = %s", (data['factura_id'],))
+
+        elif accion == 'nuevo_reclamo':
+            execute_db("""
+                INSERT INTO cannon_reclamos (factura_id, detalle_error, fecha_reclamo)
+                VALUES (%s, %s, %s)
+            """, (data['factura_id'], data['detalle_error'], data.get('fecha_reclamo', date.today().isoformat())))
+            execute_db("UPDATE cannon_facturas SET tiene_error = 1 WHERE id = %s", (data['factura_id'],))
+
+        elif accion == 'resolver_reclamo':
+            execute_db("""
+                UPDATE cannon_reclamos
+                SET resuelto = 1, nro_nc_resolucion = %s, fecha_resolucion = %s
+                WHERE id = %s
+            """, (data.get('nro_nc', ''), data.get('fecha_resolucion', date.today().isoformat()), data['reclamo_id']))
+
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+    return jsonify({'ok': True})
+
 
 @app.route('/fletes', methods=['GET'])
 @login_required
@@ -11332,6 +11737,23 @@ def _importar_orden_automatica(orden, access_token):
         nombre_cliente = nombre_real if nombre_real else mla_code
         numero_venta = f"ML-{orden_id}"
         telefono_cliente = ''
+
+        # Intentar obtener teléfono del destinatario desde el shipment
+        try:
+            shipping_id_tel = orden_data['shipping'].get('shipping_id') or (shipping.get('shipping_id') if shipping else None)
+            if shipping_id_tel:
+                headers_ml = {'Authorization': f'Bearer {access_token}'}
+                r_ship = requests.get(
+                    f'https://api.mercadolibre.com/shipments/{shipping_id_tel}',
+                    headers=headers_ml, timeout=8
+                )
+                if r_ship.status_code == 200:
+                    recv_phone = r_ship.json().get('receiver_address', {}).get('receiver_phone', '')
+                    if recv_phone and 'X' not in str(recv_phone).upper():
+                        telefono_cliente = str(recv_phone).strip()
+                        print(f"[AUTO-ML] 📱 Teléfono obtenido del shipment: {telefono_cliente}")
+        except Exception as e_tel:
+            print(f"[AUTO-ML] No se pudo obtener teléfono del shipment: {e_tel}")
         tipo_entrega = 'envio' if shipping.get('tiene_envio') else 'retiro'
         metodo_envio = shipping.get('metodo_envio', '')
         ubicacion_despacho = 'FULL' if metodo_envio == 'Full' else 'DEP'
@@ -12138,6 +12560,18 @@ def iniciar_scheduler():
         )
         scheduler.start()
         print("[AUTO-ML] ✅ Scheduler iniciado — auto-import cada 120s, cancelaciones cada 10min, notas MP cada 10min")
+
+        # Monitor de competencia — 2 veces por día
+        try:
+            from competencia_bp import job_competencia
+            scheduler.add_job(job_competencia, 'cron', hour=5, minute=0,
+                             id='job_competencia_manana', replace_existing=True)
+            scheduler.add_job(job_competencia, 'cron', hour=12, minute=30,
+                             id='job_competencia_tarde', replace_existing=True)
+            print("[COMPETENCIA] Jobs agendados: 5:00 y 12:30")
+        except Exception as e:
+            print(f"[COMPETENCIA] Error registrando jobs: {e}")
+
         return scheduler
     except Exception as e:
         print(f"[AUTO-ML] Error iniciando scheduler: {e}")
@@ -12146,6 +12580,63 @@ def iniciar_scheduler():
 
 # Iniciar al cargar el módulo (funciona con gunicorn y Flask dev)
 _scheduler = iniciar_scheduler()
+
+# Crear tabla de logs si no existe
+crear_tabla_sistema_logs()
+
+
+# ============================================================================
+# SISTEMA DE LOGS
+# ============================================================================
+
+@app.route('/admin/logs')
+@login_required
+@admin_required
+def admin_logs():
+    from datetime import timedelta
+    from flask import make_response
+    import csv, io
+
+    nivel    = request.args.get('nivel', '')
+    modulo   = request.args.get('modulo', '')
+    sku      = request.args.get('sku', '').strip()
+    desde    = request.args.get('desde', '')
+    hasta    = request.args.get('hasta', '')
+    exportar = request.args.get('exportar', '')
+
+    conditions = []
+    params = []
+    if nivel:
+        conditions.append('nivel = %s'); params.append(nivel)
+    if modulo:
+        conditions.append('modulo = %s'); params.append(modulo)
+    if sku:
+        conditions.append('sku LIKE %s'); params.append(f'%{sku}%')
+    if desde:
+        conditions.append('timestamp >= %s'); params.append(desde)
+    if hasta:
+        conditions.append('timestamp <= %s'); params.append(hasta + ' 23:59:59')
+
+    where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
+
+    if exportar == 'csv':
+        logs = query_db(f"SELECT * FROM sistema_logs {where} ORDER BY timestamp DESC LIMIT 5000", params)
+        si = io.StringIO()
+        writer = csv.writer(si)
+        writer.writerow(['id','timestamp','nivel','modulo','accion','detalle','sku','venta_id','usuario','ip'])
+        for row in logs:
+            writer.writerow([row.get(k,'') for k in ['id','timestamp','nivel','modulo','accion','detalle','sku','venta_id','usuario','ip']])
+        output = make_response(si.getvalue())
+        output.headers['Content-Disposition'] = 'attachment; filename=sistema_logs.csv'
+        output.headers['Content-type'] = 'text/csv'
+        return output
+
+    logs   = query_db(f"SELECT * FROM sistema_logs {where} ORDER BY timestamp DESC LIMIT 500", params)
+    modulos = query_db("SELECT DISTINCT modulo FROM sistema_logs WHERE modulo IS NOT NULL ORDER BY modulo")
+
+    return render_template('admin_logs.html',
+        logs=logs, modulos=modulos,
+        filtros={'nivel': nivel, 'modulo': modulo, 'sku': sku, 'desde': desde, 'hasta': hasta})
 
 
 # ============================================================================

@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Monitor Competencia (Scraper){% endblock %}
+
+{% block content %}
+<style>
+.filtros-bar { background:#f8f9fa; border-bottom:1px solid #dee2e6; position:sticky; top:0; z-index:100; padding:10px 16px; }
+.filtros-bar select, .filtros-bar input { font-size:.8rem; }
+.tabla-comp th { font-size:.75rem; white-space:nowrap; background:#212529; color:#fff; position:sticky; top:62px; z-index:50; }
+.tabla-comp td { font-size:.78rem; vertical-align:middle; }
+.badge-tienda-tms    { background:#0d6efd; color:#fff; }
+.badge-tienda-ivana  { background:#6f42c1; color:#fff; }
+.badge-tienda-lanus  { background:#d63384; color:#fff; }
+.badge-tipo-colchon  { background:#198754; color:#fff; }
+.badge-tipo-sommier  { background:#fd7e14; color:#fff; }
+.sku-badge { background:#e9ecef; color:#495057; font-family:monospace; font-size:.72rem; border-radius:4px; padding:1px 5px; }
+.precio-principal { font-weight:700; color:#212529; }
+.cuotas-si { font-size:.72rem; color:#0d6efd; }
+.variante-extra { font-size:.72rem; color:#6c757d; border-top:1px dashed #dee2e6; padding-top:3px; margin-top:3px; }
+.alm-badge { background:#fff3cd; color:#856404; border-radius:4px; padding:1px 5px; font-size:.7rem; }
+.titulo-link { color:#212529; text-decoration:none; }
+.titulo-link:hover { text-decoration:underline; color:#0d6efd; }
+.row-sin-match { opacity:.65; }
+#contador { font-weight:600; }
+</style>
+
+<div class="filtros-bar">
+  <div class="d-flex gap-2 flex-wrap align-items-center">
+    <select id="f-tienda" class="form-select form-select-sm" style="width:110px" onchange="filtrar()">
+      <option value="">Tienda</option>
+      <option>TMS</option>
+      <option>Ivana</option>
+      <option>Lanus</option>
+    </select>
+    <select id="f-tipo" class="form-select form-select-sm" style="width:120px" onchange="filtrar()">
+      <option value="">Tipo</option>
+      <option value="colchon">Colchón</option>
+      <option value="sommier">Sommier</option>
+    </select>
+    <select id="f-modelo" class="form-select form-select-sm" style="width:160px" onchange="filtrar()">
+      <option value="">Modelo</option>
+      {% for m in modelos %}<option>{{ m }}</option>{% endfor %}
+    </select>
+    <select id="f-medida" class="form-select form-select-sm" style="width:120px" onchange="filtrar()">
+      <option value="">Medida</option>
+      {% for m in medidas %}<option>{{ m }}</option>{% endfor %}
+    </select>
+    <select id="f-cuotas" class="form-select form-select-sm" style="width:155px" onchange="filtrar()">
+      <option value="">Cuotas s/interés</option>
+      <option value="si">Con cuotas s/interés</option>
+      <option value="no">Sin cuotas s/interés</option>
+    </select>
+    <select id="f-match" class="form-select form-select-sm" style="width:130px" onchange="filtrar()">
+      <option value="">SKU match</option>
+      <option value="si">Con match</option>
+      <option value="no">Sin match</option>
+    </select>
+    <input type="text" id="f-buscar" class="form-control form-control-sm" style="width:180px" placeholder="Buscar título..." oninput="filtrar()">
+    <button class="btn btn-sm btn-outline-secondary" onclick="limpiarFiltros()">✕ Limpiar</button>
+    <span class="text-muted small ms-2"><span id="contador">{{ productos|length }}</span> productos</span>
+  </div>
+</div>
+
+<div class="px-3 pt-2">
+  <table class="table table-sm table-hover tabla-comp">
+    <thead>
+      <tr>
+        <th>Tienda</th>
+        <th>Tipo</th>
+        <th>Modelo</th>
+        <th>Medida</th>
+        <th>Precio / Cuotas</th>
+        <th>Alm.</th>
+        <th>SKU</th>
+        <th>Título</th>
+      </tr>
+    </thead>
+    <tbody id="tbody">
+    {% for p in productos %}
+    <tr class="fila {{ 'row-sin-match' if not p.sku_match else '' }}"
+        data-tienda="{{ p.tienda|lower }}"
+        data-tipo="{{ p.tipo }}"
+        data-modelo="{{ p.modelo|lower }}"
+        data-medida="{{ p.medida }}"
+        data-match="{{ 'si' if p.sku_match else 'no' }}"
+        data-cuotas="{{ 'si' if p.opciones|selectattr('cuotas_si')|list else 'no' }}"
+        data-titulo="{{ p.titulo|lower }}">
+      <td><span class="badge badge-tienda-{{ p.tienda|lower }}">{{ p.tienda }}</span></td>
+      <td><span class="badge badge-tipo-{{ p.tipo }}">{{ 'Colchón' if p.tipo == 'colchon' else 'Sommier' }}</span></td>
+      <td><small>{{ p.modelo }}</small></td>
+      <td><code style="font-size:.75rem">{{ p.medida }}</code></td>
+      <td>
+        {% for op in p.opciones %}
+          <div class="{{ 'variante-extra' if not loop.first else '' }}">
+            <span class="precio-principal">${{ "{:,.0f}".format(op.precio|int).replace(",",".") }}</span>
+            {% if op.cuotas_si %}
+              <span class="cuotas-si ms-1">{{ op.cuotas_si }}c s/int</span>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </td>
+      <td>
+        {% if p.almohadas|int > 0 %}
+          <span class="alm-badge">+{{ p.almohadas }} alm</span>
+        {% else %}-{% endif %}
+      </td>
+      <td>
+        {% if p.sku_match %}
+          <span class="sku-badge">{{ p.sku_match }}</span>
+        {% else %}
+          <span class="text-muted">—</span>
+        {% endif %}
+      </td>
+      <td style="max-width:320px">
+        <a href="{{ p.url }}" target="_blank" class="titulo-link">{{ p.titulo[:80] }}{% if p.titulo|length > 80 %}…{% endif %}</a>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+function filtrar() {
+  const tienda  = document.getElementById('f-tienda').value.toLowerCase();
+  const tipo    = document.getElementById('f-tipo').value;
+  const modelo  = document.getElementById('f-modelo').value.toLowerCase();
+  const medida  = document.getElementById('f-medida').value;
+  const cuotas  = document.getElementById('f-cuotas').value;
+  const match   = document.getElementById('f-match').value;
+  const buscar  = document.getElementById('f-buscar').value.toLowerCase();
+
+  let visible = 0;
+  document.querySelectorAll('.fila').forEach(row => {
+    const ok =
+      (!tienda  || row.dataset.tienda  === tienda) &&
+      (!tipo    || row.dataset.tipo    === tipo) &&
+      (!modelo  || row.dataset.modelo.includes(modelo)) &&
+      (!medida  || row.dataset.medida  === medida) &&
+      (!cuotas  || row.dataset.cuotas  === cuotas) &&
+      (!match   || row.dataset.match   === match) &&
+      (!buscar  || row.dataset.titulo.includes(buscar));
+
+    row.style.display = ok ? '' : 'none';
+    if (ok) visible++;
+  });
+  document.getElementById('contador').textContent = visible;
+}
+
+function limpiarFiltros() {
+  ['f-tienda','f-tipo','f-modelo','f-medida','f-cuotas','f-match'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('f-buscar').value = '';
+  filtrar();
+}
+</script>
+{% endblock %}
