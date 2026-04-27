@@ -1,0 +1,234 @@
+{% extends 'tienda/base.html' %}
+
+{% block titulo %}Seguimiento de pedido — Mercadomuebles{% endblock %}
+
+{% block contenido %}
+<div style="max-width:640px; margin:40px auto; padding:0 16px;">
+
+  <h2 style="font-size:1.4rem; font-weight:700; color:#1a1a2e; margin-bottom:8px;">
+    Seguimiento de pedido
+  </h2>
+  <p style="color:#666; margin-bottom:28px; font-size:0.95rem;">
+    Ingresá tu número de operación (ej: <strong>149228510813</strong>) o número de pedido (<strong>MP-149228510813</strong>).
+  </p>
+
+  <!-- Buscador -->
+  <form method="GET" action="{{ url_for('tienda.seguimiento') }}"
+        style="display:flex; gap:10px; margin-bottom:32px;">
+    <input type="text" name="numero" value="{{ numero }}" placeholder="Número de operación o pedido"
+      style="flex:1; padding:11px 16px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem;">
+    <button type="submit"
+      style="padding:11px 24px; background:#1a1a2e; color:#fff; border:none; border-radius:8px;
+             font-weight:700; cursor:pointer; white-space:nowrap;">
+      Buscar
+    </button>
+  </form>
+
+  {% if error %}
+  <div style="background:#fff0f0; border:1px solid #ffcccc; border-radius:10px; padding:20px; color:#c0392b; text-align:center;">
+    {{ error }}
+  </div>
+
+  {% elif venta %}
+  <!-- Cabecera de la venta -->
+  {% set estado_color = {'ACTIVA': '#2196F3', 'EN_PROCESO': '#FF9800', 'ENTREGADA': '#4CAF50', 'CANCELADA': '#F44336'} %}
+  {% set pago_color   = {'pagado': '#4CAF50', 'pendiente': '#FF9800', 'rechazado': '#F44336'} %}
+
+  <div style="background:#fff; border:1px solid #e8e8e8; border-radius:12px; padding:24px; margin-bottom:20px; box-shadow:0 2px 8px rgba(0,0,0,0.05);">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px;">
+      <div>
+        <p style="font-size:0.82rem; color:#888; margin:0 0 4px;">Número de pedido</p>
+        <p style="font-size:1.1rem; font-weight:800; color:#1a1a2e; margin:0;">{{ venta.numero_venta }}</p>
+      </div>
+      <span style="background:{{ estado_color.get(venta.estado, '#ccc') }}22;
+                   color:{{ estado_color.get(venta.estado, '#666') }};
+                   padding:4px 14px; border-radius:20px; font-size:0.82rem; font-weight:700;">
+        {{ venta.estado }}
+      </span>
+    </div>
+
+    <hr style="border:none; border-top:1px solid #f0f0f0; margin:16px 0;">
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; font-size:0.88rem;">
+      <div>
+        <p style="color:#888; margin:0 0 2px;">Fecha</p>
+        <p style="font-weight:600; margin:0;">{{ venta.fecha_venta.strftime('%d/%m/%Y %H:%M') if venta.fecha_venta else '-' }}</p>
+      </div>
+      <div>
+        <p style="color:#888; margin:0 0 2px;">Estado de pago</p>
+        <span style="background:{{ pago_color.get(venta.estado_pago, '#ccc') }}22;
+                     color:{{ pago_color.get(venta.estado_pago, '#666') }};
+                     padding:2px 12px; border-radius:20px; font-size:0.82rem; font-weight:700;">
+          {{ venta.estado_pago | capitalize }}
+        </span>
+      </div>
+      <div>
+        <p style="color:#888; margin:0 0 2px;">Cliente</p>
+        <p style="font-weight:600; margin:0;">{{ venta.nombre_cliente }}</p>
+      </div>
+      <div>
+        <p style="color:#888; margin:0 0 2px;">Entrega</p>
+        {% if venta.tipo_entrega == 'retiro' %}
+          <p style="font-weight:600; margin:0;">🏪 Retiro en local</p>
+        {% else %}
+          <p style="font-weight:600; margin:0;">🚚 Envío a domicilio</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Aviso de demora -->
+  {% if demora_dias %}
+  <div style="background:#fff3cd; border:1px solid #ffc107; border-radius:12px; padding:18px 20px; margin-bottom:20px;">
+    <p style="margin:0; font-size:0.95rem; font-weight:700; color:#7a5800;">&#9203; Pedido con demora de entrega</p>
+    <p style="margin:6px 0 0; font-size:0.88rem; color:#7a5800;">
+      Este producto estará disponible en <strong>{{ demora_dias }} días</strong>
+      {% if fecha_disponible %} — a partir del <strong>{{ fecha_disponible }}</strong>{% endif %}.
+      Te avisaremos cuando esté listo para enviarse o retirarse.
+    </p>
+  </div>
+  {% endif %}
+
+  <!-- Items -->
+  {% if items %}
+  <div style="background:#fff; border:1px solid #e8e8e8; border-radius:12px; padding:20px; margin-bottom:20px;">
+    <h3 style="font-size:0.95rem; font-weight:700; color:#1a1a2e; margin:0 0 14px;">Productos</h3>
+    {% for item in items %}
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0;
+                border-bottom:1px solid #f5f5f5; font-size:0.9rem;">
+      <span>{{ item.cantidad }}× {{ item.nombre or item.sku }}</span>
+      <span style="font-weight:600; color:#444;">${{ "{:,.0f}".format(item.precio_unitario * item.cantidad).replace(",",".") }}</span>
+    </div>
+    {% endfor %}
+    <div style="display:flex; justify-content:space-between; padding:10px 0 0; font-weight:700;">
+      <span>Productos</span>
+      <span>${{ "{:,.0f}".format(venta.importe_abonado | int).replace(",",".") }}</span>
+    </div>
+    {% if venta.costo_flete %}
+    <div style="display:flex; justify-content:space-between; padding:4px 0; font-size:0.88rem; color:#666;">
+      <span>Envío</span>
+      <span>${{ "{:,.0f}".format(venta.costo_flete | int).replace(",",".") }}</span>
+    </div>
+    {% endif %}
+    <div style="display:flex; justify-content:space-between; padding:8px 0 0; font-size:1.05rem; font-weight:800; color:#1a1a2e; border-top:2px solid #f0f0f0; margin-top:6px;">
+      <span>Total</span>
+      <span>${{ "{:,.0f}".format(venta.importe_total | int).replace(",",".") }}</span>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Datos de entrega -->
+  <div style="background:#fff; border:1px solid #e8e8e8; border-radius:12px; padding:20px; margin-bottom:20px;">
+    <h3 style="font-size:0.95rem; font-weight:700; color:#1a1a2e; margin:0 0 14px;">
+      {% if venta.tipo_entrega == 'retiro' %}🏪 Retiro en local{% else %}🚚 Datos de envío{% endif %}
+    </h3>
+    {% if venta.tipo_entrega == 'retiro' %}
+      <div style="background:#f0f7ff; border-radius:8px; padding:14px 16px; font-size:0.9rem; color:#444; line-height:1.8;">
+        <strong>Bahía Blanca 1777</strong>, Floresta, Capital Federal<br>
+        Lunes a Viernes 8 a 12hs y 14 a 16:30hs<br>
+        <a href="https://maps.google.com/?q=Bahia+Blanca+1777+Buenos+Aires" target="_blank"
+           style="color:#1a7fe8; font-size:0.85rem;">Ver en Google Maps →</a>
+      </div>
+    {% else %}
+      <div style="font-size:0.9rem; color:#444; line-height:1.8;">
+        {% if venta.direccion_entrega %}
+          📍 {{ venta.direccion_entrega }}
+        {% else %}
+          <span style="color:#888;">Sin dirección registrada</span>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- Estado del envío -->
+  {% if shipment_info %}
+  <div style="background:#fff; border:1px solid #e8e8e8; border-radius:12px; padding:20px;">
+
+    {% if shipment_info.tipo == 'me2' %}
+    <h3 style="font-size:0.95rem; font-weight:700; color:#1a1a2e; margin:0 0 6px;">🚚 Estado del envío</h3>
+    <p style="font-weight:700; color:#2196F3; font-size:0.9rem; margin:0 0 18px;">{{ shipment_info.status }}</p>
+
+    <div style="display:flex; flex-wrap:wrap; gap:10px;">
+
+      {# Botón MP — siempre visible si hay MPID #}
+      {% if mpid %}
+      <a href="https://www.mercadopago.com.ar/activities/1?q={{ mpid }}" target="_blank"
+         style="display:inline-flex; align-items:center; gap:8px; padding:10px 18px;
+                background:#009ee3; color:#fff; border-radius:8px; text-decoration:none;
+                font-weight:700; font-size:0.88rem;">
+        Seguir en MercadoPago →
+      </a>
+      {% endif %}
+
+      {# Botón Correo — solo si hay TRID cargado por el admin #}
+      {% if shipment_info.trid %}
+      {% set trid_num = shipment_info.trid | replace('HC','') | replace('AR','') %}
+      <div>
+        <button onclick="copiarYAbrirCorreo('{{ trid_num }}')"
+           style="display:inline-flex; align-items:center; gap:8px; padding:10px 18px;
+                  background:#f0a500; color:#fff; border-radius:8px; border:none;
+                  font-weight:700; font-size:0.88rem; cursor:pointer;">
+          📦 Rastrear en Correo Argentino →
+        </button>
+        <p style="font-size:0.78rem; color:#999; margin:6px 0 0;">
+          Se copiará el código <strong style="font-family:monospace;">{{ trid_num }}</strong> al portapapeles.<br>
+          En la página de Correo: seleccioná <strong>HC</strong> en el primer campo y pegá el número.
+        </p>
+      </div>
+      {% else %}
+      <p style="font-size:0.82rem; color:#999; margin:6px 0 0; width:100%;">
+        El código de seguimiento de Correo estará disponible pronto.
+        También podés verificar el email que te envió MercadoPago.
+      </p>
+      {% endif %}
+
+    </div>
+
+    {% elif shipment_info.tipo == 'zipnova' %}
+    <h3 style="font-size:0.95rem; font-weight:700; color:#1a1a2e; margin:0 0 6px;">🚚 Seguimiento de envío</h3>
+    <p style="font-weight:700; color:#2196F3; font-size:0.9rem; margin:0 0 14px;">{{ shipment_info.status }}</p>
+    {% if shipment_info.tracking_number %}
+    <p style="font-size:0.85rem; color:#888; margin:0 0 12px;">ID de envío: <strong style="font-family:monospace;">{{ shipment_info.tracking_number }}</strong></p>
+    {% endif %}
+    {% if shipment_info.correo_url %}
+    <a href="{{ shipment_info.correo_url }}" target="_blank"
+       style="display:inline-block; padding:10px 20px; background:#1a1a2e;
+              color:#fff; border-radius:8px; text-decoration:none; font-weight:700; font-size:0.88rem;">
+      Seguir mi envío →
+    </a>
+    {% endif %}
+    {% endif %}
+
+  </div>
+  {% elif venta.metodo_envio == 'ME2' %}
+  <div style="background:#f8f8f8; border-radius:10px; padding:16px; text-align:center; color:#888; font-size:0.88rem;">
+    📦 Tu pedido fue enviado por Correo Argentino (Mercado Envíos).<br>
+    Recibirás actualizaciones cuando sea despachado.
+  </div>
+  {% elif venta.metodo_envio == 'ZIPNOVA' %}
+  <div style="background:#f8f8f8; border-radius:10px; padding:16px; text-align:center; color:#888; font-size:0.88rem;">
+    🚚 Tu pedido fue despachado con flete a domicilio.<br>
+    Recibirás actualizaciones a la brevedad.
+  </div>
+  {% endif %}
+
+  {% endif %}
+
+  <!-- Link a la tienda -->
+  <div style="text-align:center; margin-top:28px;">
+    <a href="{{ url_for('tienda.home') }}" style="color:#666; font-size:0.88rem;">← Volver a la tienda</a>
+  </div>
+
+</div>
+
+<script>
+function copiarYAbrirCorreo(codigo) {
+  navigator.clipboard.writeText(codigo).then(function() {
+    window.open('https://www.correoargentino.com.ar/formularios/ondnc', '_blank');
+  }).catch(function() {
+    window.open('https://www.correoargentino.com.ar/formularios/ondnc', '_blank');
+  });
+}
+</script>
+
+{% endblock %}

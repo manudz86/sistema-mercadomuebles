@@ -1,0 +1,55 @@
+{% extends "tienda/base.html" %}
+{% block titulo %}¡Pago exitoso! — Mercadomuebles{% endblock %}
+{% block contenido %}
+
+{% if payment_id %}
+<script>
+  gtag('event', 'purchase', {
+    transaction_id: 'MP-{{ payment_id }}',
+    currency: 'ARS',
+    value: {{ ga_value | int }},
+    items: [
+      {% for item in ga_items %}
+      {
+        item_id:   '{{ item.item_id }}',
+        item_name: '{{ item.item_name }}',
+        price:     {{ item.price | int }},
+        quantity:  {{ item.quantity }},
+      }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ]
+  });
+</script>
+{% endif %}
+<div class="pago-container">
+  <div class="pago-card pago-exito">
+    <div class="pago-icon">✅</div>
+    <h1>¡Gracias por tu compra!</h1>
+    <p>Tu pago fue procesado correctamente.</p>
+    {% if payment_id %}
+    <div class="pago-ref">Referencia de pago: <strong>#{{ payment_id }}</strong></div>
+    {% endif %}
+    <p class="pago-info">Nos pondremos en contacto a la brevedad para coordinar la entrega.</p>
+    <div class="pago-acciones">
+      <a href="/tienda/" class="btn-primary">Seguir comprando</a>
+    </div>
+    {% if payment_id %}
+    <div style="display:flex; flex-direction:column; gap:10px; margin-top:14px; width:100%;">
+      <a href="/tienda/seguimiento?numero=MP-{{ payment_id }}"
+         style="display:block; padding:12px 20px; background:#f5f5f5; color:#1a1a2e;
+                border-radius:8px; text-decoration:none; font-weight:600; font-size:0.92rem;
+                text-align:center; border:1px solid #e0e0e0;">
+        🔍 Ver estado de mi pedido
+      </a>
+      <a href="https://wa.me/5491131890519?text=Hola%2C%20compré%20y%20quiero%20consultar%20mi%20pedido%20MP-{{ payment_id }}"
+         target="_blank" rel="noopener"
+         style="display:block; padding:12px 20px; background:#25D366; color:#fff;
+                border-radius:8px; text-decoration:none; font-weight:600; font-size:0.92rem;
+                text-align:center;">
+        💬 Consultar por WhatsApp
+      </a>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,166 @@
+{% extends "tienda/base.html" %}
+{% block titulo %}Política de Devolución y Garantía | Mercadomuebles{% endblock %}
+{% block contenido %}
+
+<style>
+  .legal-container {
+    max-width: 820px;
+    margin: 40px auto;
+    padding: 0 20px 60px;
+    color: #333;
+    font-family: inherit;
+    line-height: 1.75;
+  }
+  .legal-container h1 {
+    font-size: 2rem;
+    font-weight: 800;
+    color: #1a1a2e;
+    margin-bottom: 6px;
+  }
+  .legal-container .subtitulo {
+    font-size: 0.9rem;
+    color: #888;
+    margin-bottom: 36px;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 16px;
+  }
+  .legal-container h2 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-top: 36px;
+    margin-bottom: 8px;
+  }
+  .legal-container p {
+    margin-bottom: 14px;
+    font-size: 0.95rem;
+  }
+  .legal-container ul {
+    padding-left: 20px;
+    margin-bottom: 14px;
+    font-size: 0.95rem;
+  }
+  .legal-container ul li {
+    margin-bottom: 8px;
+  }
+  .legal-container a {
+    color: #1a1a2e;
+    text-decoration: underline;
+  }
+  .legal-highlight {
+    background: #f7f7f7;
+    border-left: 3px solid #1a1a2e;
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 20px 0;
+    font-size: 0.92rem;
+    color: #555;
+  }
+  .legal-highlight.verde {
+    border-left-color: #2e7d32;
+    background: #f0faf0;
+  }
+  .legal-highlight.amarillo {
+    border-left-color: #f57c00;
+    background: #fff8f0;
+  }
+  .pasos {
+    counter-reset: pasos;
+    list-style: none;
+    padding: 0;
+  }
+  .pasos li {
+    counter-increment: pasos;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    margin-bottom: 16px;
+    font-size: 0.95rem;
+  }
+  .pasos li::before {
+    content: counter(pasos);
+    background: #1a1a2e;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.8rem;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+</style>
+
+<div class="legal-container">
+
+  <h1>Devoluciones y Garantía</h1>
+  <p class="subtitulo">Cimater SRL · CUIT 30-53471680-6 · Distribuidores oficiales Cannon</p>
+
+  <p>En Mercadomuebles queremos que tu experiencia de compra sea completamente satisfactoria. Por eso te explicamos claramente cuáles son nuestras políticas de devolución y cómo funciona la garantía oficial Cannon, para que puedas comprar con total tranquilidad.</p>
+
+  <!-- DEVOLUCIONES -->
+  <h2>🔄 Política de Devoluciones</h2>
+
+  <h2 style="font-size:1rem; font-weight:600; color:#444; margin-top:20px;">¿Cuánto tiempo tengo para devolver?</h2>
+  <p>Aceptamos devoluciones dentro de los <strong>5 días corridos</strong> desde la fecha de recepción del producto, siempre que se cumplan las condiciones detalladas a continuación.</p>
+
+  <h2 style="font-size:1rem; font-weight:600; color:#444; margin-top:20px;">Condiciones para la devolución</h2>
+  <p>Para poder procesar una devolución, el producto debe ser entregado en nuestro local en exactamente las mismas condiciones en que fue recibido:</p>
+  <ul>
+    <li>Con el <strong>film plástico original intacto</strong> y sin abrir</li>
+    <li>Con todos los <strong>cartones protectores</strong> en buen estado</li>
+    <li>Con el <strong>cartón de garantía</strong> incluido</li>
+    <li>Sin señales de uso, manchas, roturas ni modificaciones de ningún tipo</li>
+  </ul>
+
+  <div class="legal-highlight amarillo">
+    <strong>Consejo importante:</strong> Te recomendamos verificar el modelo y la medida del producto antes de abrir el film que recubre el colchón o sommier. Una vez que el film es retirado, el producto no puede ser devuelto, ya que no puede ser comercializado nuevamente en condiciones de higiene adecuadas.
+  </div>
+
+  <h2 style="font-size:1rem; font-weight:600; color:#444; margin-top:20px;">¿Cómo se realiza la devolución?</h2>
+  <p>Las devoluciones se realizan <strong>exclusivamente en nuestro local</strong>, ubicado en <strong>Bahía Blanca 1777, Floresta, Ciudad Autónoma de Buenos Aires</strong>, en el horario de atención habitual.</p>
+
+  <div class="legal-highlight">
+    El costo de traslado del producto hasta nuestro local corre por cuenta del cliente. Mercadomuebles no se hace cargo de fletes de devolución bajo ninguna circunstancia.
+  </div>
+
+  <p>Una vez recibido e inspeccionado el producto y verificado que cumple con todas las condiciones, procederemos al reembolso o cambio según corresponda.</p>
+
+  <!-- GARANTÍA -->
+  <h2>🛡️ Garantía Cannon</h2>
+
+  <p>Todos los productos que comercializamos son fabricados por <strong>Cannon Argentina</strong> y cuentan con su garantía oficial. Como distribuidores autorizados, actuamos como nexo entre el cliente y la marca para facilitar cualquier trámite de garantía.</p>
+
+  <div class="legal-highlight verde">
+    <strong>Garantía de 6 meses automática</strong> desde la fecha de compra, extendible <strong>sin cargo a 5 años</strong> registrando el producto en <a href="https://www.cannon.com.ar" target="_blank" rel="noopener">www.cannon.com.ar</a>.
+  </div>
+
+  <h2 style="font-size:1rem; font-weight:600; color:#444; margin-top:20px;">¿Cómo iniciar un reclamo de garantía?</h2>
+  <p>Si tu producto presenta algún defecto de fabricación, seguí estos pasos:</p>
+
+  <ol class="pasos">
+    <li>Envianos un correo a <a href="mailto:info@mercadomuebles.com.ar">info@mercadomuebles.com.ar</a> con el asunto <em>"Reclamo de Garantía"</em>.</li>
+    <li>Incluí en el correo una <strong>breve descripción del desperfecto</strong>, explicando qué observás y desde cuándo.</li>
+    <li>Adjuntá <strong>factura o comprobante de compra</strong>.</li>
+    <li>Adjuntá <strong>fotos del colchón o sommier</strong> mostrando el defecto.</li>
+    <li>Adjuntá <strong>foto del cartón de garantía</strong>.</li>
+    <li>Incluí tus <strong>datos de contacto</strong> (nombre, teléfono, domicilio).</li>
+    <li>Nosotros remitiremos la documentación a Cannon y te comunicaremos la respuesta oficial una vez que la recibamos.</li>
+    <li>En caso de que Cannon apruebe el cambio o reparación, el mismo se realiza en nuestro local de <strong>Bahía Blanca 1777, Floresta, CABA</strong>.</li>
+  </ol>
+
+  <div class="legal-highlight">
+    Los tiempos de respuesta dependen de Cannon Argentina. Hacemos todo lo posible para agilizar cada caso y mantenerte informado durante el proceso.
+  </div>
+
+  <h2>📍 Dónde encontrarnos</h2>
+  <p><strong>Mercadomuebles · Cimater SRL</strong><br>
+  Bahía Blanca 1777, Floresta, Ciudad Autónoma de Buenos Aires<br>
+  Lunes a Viernes de 8:00 a 12:00 y de 14:00 a 16:30 hs<br>
+  <a href="mailto:info@mercadomuebles.com.ar">info@mercadomuebles.com.ar</a></p>
+
+</div>
+{% endblock %}

@@ -26,11 +26,15 @@ processing = {}
 
 # ── DB ────────────────────────────────────────────────────────────
 def _db():
-    return mysql.connector.connect(
+    db = mysql.connector.connect(
         host='localhost', user='cannon',
         password=os.getenv('DB_PASSWORD', 'Sistema@32267845'),
         database='inventario_cannon'
     )
+    cur = db.cursor()
+    cur.execute("SET time_zone = '-03:00'")
+    cur.close()
+    return db
 
 def _q(sql, params=None):
     db = _db(); cur = db.cursor(dictionary=True)
@@ -245,15 +249,48 @@ def get_productos_context():
         ORDER BY p.modelo, p.medida
     """)
 
-    # Sommiers
-    sommiers = _q("""
-        SELECT pc.sku, pc.nombre, pc.precio_base, pc.descuento_catalogo,
-               COALESCE(o.descuento_pct, 0) as oferta_pct
+    # Sommiers — precio calculado sumando componentes (igual que la tienda web)
+    sommiers_base = _q("""
+        SELECT pc.sku, pc.nombre, pc.descuento_catalogo,
+               COALESCE(o.descuento_pct, 0) as oferta_pct,
+               pc.activo
         FROM productos_compuestos pc
         LEFT JOIN ofertas_home o ON o.sku = pc.sku AND o.activo = 1
         WHERE pc.activo = 1
         ORDER BY pc.nombre
     """)
+
+    # Sumar precios de componentes para cada sommier
+    sommiers = []
+    for pc in sommiers_base:
+        componentes = _q("""
+            SELECT pb.precio_base, pb.descuento_catalogo as comp_desc, c.cantidad_necesaria
+            FROM componentes c
+            JOIN productos_base pb ON pb.id = c.producto_base_id
+            WHERE c.producto_compuesto_id = (
+                SELECT id FROM productos_compuestos WHERE sku = %s LIMIT 1
+            )
+        """, (pc['sku'],))
+
+        if not componentes:
+            continue
+
+        # Precio base = suma de (precio_componente × cantidad)
+        precio_sum = sum(
+            float(c['precio_base'] or 0) * int(c['cantidad_necesaria'] or 1)
+            for c in componentes
+        )
+
+        if precio_sum <= 0:
+            continue
+
+        sommiers.append({
+            'sku':               pc['sku'],
+            'nombre':            pc['nombre'],
+            'precio_base':       precio_sum,
+            'descuento_catalogo': pc['descuento_catalogo'],
+            'oferta_pct':        pc['oferta_pct'],
+        })
 
     # Recargos Payway
     coefs = _q("SELECT clave, valor FROM configuracion WHERE clave LIKE 'cuotas_%_coef'")
@@ -294,7 +331,7 @@ def get_productos_context():
             continue
         pf = precio_final(p['precio_base'], p['descuento_catalogo'], p['oferta_pct'])
         desc = max(float(p['descuento_catalogo'] or 0), float(p['oferta_pct'] or 0))
-        link = f"https://www.mercadolibre.com.ar/tienda/producto/{p['sku']}"
+        link = f"https://www.mercadomuebles.com.ar/tienda/producto/{p['sku']}"
         lines.append(
             f"• {p['nombre']} (SKU:{p['sku']}) | Precio: ${pf:,} "
             f"{'(-'+str(int(desc))+'%)' if desc > 0 else ''} | {link}"

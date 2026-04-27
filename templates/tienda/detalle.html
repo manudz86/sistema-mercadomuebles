@@ -1,0 +1,462 @@
+{% extends "tienda/base.html" %}
+
+{% block titulo %}{{ producto.nombre }} | Comprar en Mercadomuebles{% endblock %}
+
+{% block contenido %}
+<!-- Meta tags SEO -->
+<meta name="description" content="{{ producto.seo_desc }}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://www.mercadomuebles.com.ar/tienda/producto/{{ producto.slug }}">
+<meta property="og:title" content="{{ producto.nombre }} — Mercadomuebles">
+<meta property="og:description" content="{{ producto.seo_desc }}">
+<meta property="og:image" content="{{ producto.fotos[0] if producto.fotos else '' }}">
+<meta property="og:url" content="https://www.mercadomuebles.com.ar/tienda/producto/{{ producto.slug }}">
+<meta property="og:type" content="product">
+
+<!-- Schema.org Product -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Product",
+  "name": "{{ producto.nombre }}",
+  "description": "{{ producto.seo_desc }}",
+  "image": [{% for f in producto.fotos %}"{{ request.host_url[:-1] }}{{ f }}"{% if not loop.last %},{% endif %}{% endfor %}],
+  "brand": { "@type": "Brand", "name": "Cannon" },
+  "sku": "{{ producto.sku_colchon }}",
+  "offers": {
+    "@type": "Offer",
+    "url": "https://www.mercadomuebles.com.ar/tienda/producto/{{ producto.slug }}",
+    "priceCurrency": "ARS",
+    "price": "{{ producto.precio | int }}",
+    "priceValidUntil": "{{ now.year + 1 }}-12-31",
+    "availability": "{% if producto.stock > 0 %}https://schema.org/InStock{% else %}https://schema.org/OutOfStock{% endif %}",
+    "seller": { "@type": "Organization", "name": "Mercadomuebles" },
+    "shippingDetails": {
+      "@type": "OfferShippingDetails",
+      "shippingRate": {
+        "@type": "MonetaryAmount",
+        "currency": "ARS"
+      },
+      "shippingDestination": {
+        "@type": "DefinedRegion",
+        "addressCountry": "AR"
+      },
+      "deliveryTime": {
+        "@type": "ShippingDeliveryTime",
+        "handlingTime": {
+          "@type": "QuantitativeValue",
+          "minValue": 1,
+          "maxValue": 2,
+          "unitCode": "DAY"
+        },
+        "transitTime": {
+          "@type": "QuantitativeValue",
+          "minValue": 1,
+          "maxValue": 10,
+          "unitCode": "DAY"
+        }
+      }
+    },
+    "hasMerchantReturnPolicy": {
+      "@type": "MerchantReturnPolicy",
+      "applicableCountry": "AR",
+      "returnPolicyCategory": "https://schema.org/MerchantReturnFiniteReturnWindow",
+      "merchantReturnDays": 30,
+      "returnMethod": "https://schema.org/ReturnByMail",
+      "returnFees": "https://schema.org/FreeReturn"
+    }
+  }
+}
+</script>
+<div class="detalle-container">
+
+  <nav class="breadcrumb">
+    <a href="/tienda/">Inicio</a> /
+    <a href="/tienda/?linea={{ producto.linea }}">{{ producto.linea | title }}</a> /
+    <span>{{ producto.nombre }}</span>
+  </nav>
+
+  <div class="detalle-grid">
+
+    <!-- Imagen -->
+    <div class="detalle-imagen">
+      <div class="img-principal" id="img-principal-box">
+        <img src="{{ producto.fotos[0] }}" alt="{{ producto.nombre }} - foto principal" id="img-principal">
+        <div class="zoom-hint">🔍 Click para ampliar</div>
+        {% if producto.fotos | length > 1 %}
+        <button class="detalle-arrow prev" onclick="event.stopPropagation(); detalleFoto(-1)">&#8249;</button>
+        <button class="detalle-arrow next" onclick="event.stopPropagation(); detalleFoto(1)">&#8250;</button>
+        {% endif %}
+      </div>
+      {% if producto.fotos | length > 1 %}
+      <div class="img-miniaturas">
+        {% for foto in producto.fotos %}
+        <div class="miniatura {% if loop.first %}active{% endif %}" onclick="cambiarFoto('{{ foto }}', this)">
+          <img src="{{ foto }}" alt="{{ producto.nombre }} - foto {{ loop.index }}">
+        </div>
+        {% endfor %}
+      </div>
+      <div class="img-dots" id="img-dots">
+        {% for foto in producto.fotos %}
+        <div class="img-dot {% if loop.first %}active{% endif %}" onclick="irAFoto({{ loop.index0 }})"></div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Info -->
+    <div class="detalle-info">
+
+      <div class="detalle-tags">
+        <span class="product-tag tag-{{ producto.linea }}">{{ producto.linea | title }}</span>
+        <span class="product-tag">{{ producto.tipo_label }}</span>
+      </div>
+
+      <h1>{{ producto.nombre }}</h1>
+
+      <div class="detalle-medida">
+        <span>{{ producto.plaza }}</span>
+        {% if producto.medida %}<span>· {{ producto.medida }}cm</span>{% endif %}
+      </div>
+
+      <div class="detalle-precio">
+        {% if producto.precio_original_fmt %}
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <span class="precio-grande">{{ producto.precio_fmt }}</span>
+          <span style="font-size:1.1rem; color:#888; text-decoration:line-through;">{{ producto.precio_original_fmt }}</span>
+          <span style="background:#e74c3c; color:#fff; border-radius:20px; padding:2px 10px; font-size:0.82rem; font-weight:700;">-{{ producto.descuento_catalogo | int }}%</span>
+        </div>
+        {% else %}
+        <span class="precio-grande">{{ producto.precio_fmt }}</span>
+        {% endif %}
+      </div>
+
+      {% if cuotas %}
+      <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:130px; background:#f8f8f8; border:1px solid #e8e8e8; border-radius:8px; padding:10px 14px;">
+          <div style="font-size:0.75rem; color:#888; margin-bottom:2px;">3 cuotas de</div>
+          <div style="font-size:1.05rem; font-weight:700; color:#1a1a2e;">{{ cuotas['3'].cuota }}</div>
+          <div style="font-size:0.72rem; color:#aaa; margin-top:2px;">Total {{ cuotas['3'].total }}</div>
+        </div>
+        <div style="flex:1; min-width:130px; background:#f8f8f8; border:1px solid #e8e8e8; border-radius:8px; padding:10px 14px;">
+          <div style="font-size:0.75rem; color:#888; margin-bottom:2px;">6 cuotas de</div>
+          <div style="font-size:1.05rem; font-weight:700; color:#1a1a2e;">{{ cuotas['6'].cuota }}</div>
+          <div style="font-size:0.72rem; color:#aaa; margin-top:2px;">Total {{ cuotas['6'].total }}</div>
+        </div>
+      </div>
+      <p style="font-size:0.72rem; color:#bbb; margin-top:6px;">
+        Con tarjeta de credito bancaria · Visa, Mastercard, Cabal, Amex
+      </p>
+      {% endif %}
+
+      <!-- Medidas -->
+      <div class="medidas-section">
+        <h4>Medidas disponibles</h4>
+        <div class="medidas-grid">
+          <a href="/tienda/producto/{{ producto.sku }}" class="medida-btn active">
+            {{ producto.medida }}cm
+            <small>{{ producto.precio_fmt }}</small>
+          </a>
+          {% for r in relacionados %}
+          {% if not r.activo %}
+          {% set tiene_demora = r.sin_stock and demora_dias and r.demora_aplica %}
+          <a href="/tienda/producto/{{ r.sku }}"
+             class="medida-btn {% if r.sin_stock and not tiene_demora %}sin-stock{% endif %}">
+            {{ r.medida }}cm
+            <small>{{ r.precio_fmt }}</small>
+            {% if tiene_demora %}
+              <span class="medida-sin-stock-label" style="color:#f59e0b;font-size:0.7em">{{ demora_dias }} días</span>
+            {% elif r.sin_stock %}
+              <span class="medida-sin-stock-label">Sin stock</span>
+            {% endif %}
+          </a>
+          {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Modalidad (solo si existe conjunto) -->
+      {% if producto.tiene_conjunto %}
+      <div class="tipo-section">
+        <h4>Modalidad</h4>
+        <div class="tipo-grid">
+          <a href="/tienda/producto/{{ producto.sku_colchon }}"
+             class="tipo-btn {% if producto.tipo == 'colchon' %}active{% endif %}">
+            <span>🛏️</span> Solo Colchón
+          </a>
+          <a href="/tienda/producto/S{{ producto.sku_colchon[1:] }}"
+             class="tipo-btn {% if producto.tipo == 'conjunto' %}active{% endif %}">
+            <span>🏠</span> Con Sommier
+          </a>
+        </div>
+      </div>
+      {% endif %}
+
+      {% set producto_demora = producto.stock == 0 and demora_dias and producto.demora_aplica %}
+      <div class="detalle-stock">
+        <span class="stock-dot {% if producto.stock > 3 %}ok{% elif producto.stock > 0 %}low{% elif producto_demora %}low{% else %}out{% endif %}"></span>
+        {% if producto.stock > 0 %}{{ producto.stock }} unidades en stock
+        {% elif producto_demora %}Disponible en {{ demora_dias }} días
+        {% else %}Sin stock disponible{% endif %}
+      </div>
+
+      {% if producto.stock > 0 or producto_demora %}
+      <div class="detalle-acciones">
+        <div class="qty-selector">
+          <button onclick="cambiarQty(-1)">−</button>
+          <span id="qty">1</span>
+          <button onclick="cambiarQty(1)">+</button>
+        </div>
+        <button class="btn-agregar-grande"
+          onclick="agregarCarrito('{{ producto.sku }}', '{{ producto.nombre | replace("'", "\\'") }}', {{ producto.precio }}, parseInt(document.getElementById('qty').textContent)); gtag('event', 'add_to_cart', {currency: 'ARS', value: {{ producto.precio }} * parseInt(document.getElementById('qty').textContent), items: [{item_id: '{{ producto.sku }}', item_name: '{{ producto.nombre | replace("'", "\\'") }}', price: {{ producto.precio }}, quantity: parseInt(document.getElementById('qty').textContent)}]});">
+          🛒 Agregar al carrito
+        </button>
+      </div>
+      {% else %}
+      <button class="btn-agregar-grande" disabled style="opacity:0.5;cursor:not-allowed;">Sin stock</button>
+      {% endif %}
+      {% if producto_demora and producto.fecha_demora %}
+      <p class="mt-2 small" style="color:#f59e0b;">⏳ Este producto estará disponible para envío o retiro a partir del <strong>{{ producto.fecha_demora }}</strong>.</p>
+      {% endif %}
+
+      <div class="detalle-trust">
+        <div class="trust-item-sm">🚚 Envíos a CABA en el día</div>
+        <div class="trust-item-sm">🛡️ Garantía oficial Cannon</div>
+        <div class="trust-item-sm">💳 Hasta 12 cuotas</div>
+        <div class="trust-item-sm">✅ Producto original Cannon</div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="detalle-descripcion">
+
+    {% if desc_bajada %}
+    <div style="margin-bottom:28px;">
+      <h3 style="font-size:1.1rem; font-weight:800; color:#1a1a2e; margin:0 0 12px;">Sobre este producto</h3>
+      <p style="font-size:0.95rem; color:#444; line-height:1.7; margin:0;">{{ desc_bajada }}</p>
+    </div>
+    {% endif %}
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:32px; align-items:start;">
+
+      {% if desc_bullets %}
+      <div>
+        <h4 style="font-size:0.88rem; font-weight:700; color:#1a1a2e; margin:0 0 12px; text-transform:uppercase; letter-spacing:0.5px;">Características</h4>
+        <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px;">
+          {% for b in desc_bullets %}
+          <li style="display:flex; align-items:flex-start; gap:10px; font-size:0.88rem; color:#444; line-height:1.5;">
+            <span style="color:#1a7fe8; font-size:1rem; flex-shrink:0; margin-top:1px;">✓</span>
+            {{ b }}
+          </li>
+          {% endfor %}
+          {% if patas_sommier %}
+          <li style="display:flex; align-items:flex-start; gap:10px; font-size:0.88rem; color:#444; line-height:1.5;">
+            <span style="color:#1a7fe8; font-size:1rem; flex-shrink:0; margin-top:1px;">✓</span>
+            Sommier incluye {{ patas_sommier }} patas cromadas
+          </li>
+          {% endif %}
+        </ul>
+      </div>
+      {% endif %}
+
+      {% if specs %}
+      <div>
+        <h4 style="font-size:0.88rem; font-weight:700; color:#1a1a2e; margin:0 0 12px; text-transform:uppercase; letter-spacing:0.5px;">Ficha técnica</h4>
+        <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+          <tr style="border-bottom:1px solid #f0f0f0;">
+            <td style="padding:7px 0; color:#888; width:45%;">Material</td>
+            <td style="padding:7px 0; font-weight:600; color:#1a1a2e;">{{ specs.material }}</td>
+          </tr>
+          {% if specs.densidad and specs.densidad != '—' %}
+          <tr style="border-bottom:1px solid #f0f0f0;">
+            <td style="padding:7px 0; color:#888;">Densidad</td>
+            <td style="padding:7px 0; font-weight:600; color:#1a1a2e;">{{ specs.densidad }}</td>
+          </tr>
+          {% endif %}
+          <tr style="border-bottom:1px solid #f0f0f0;">
+            <td style="padding:7px 0; color:#888;">Sistema</td>
+            <td style="padding:7px 0; font-weight:600; color:#1a1a2e;">{{ specs.sistema }}</td>
+          </tr>
+          <tr style="border-bottom:1px solid #f0f0f0;">
+            <td style="padding:7px 0; color:#888;">Altura colchón</td>
+            <td style="padding:7px 0; font-weight:600; color:#1a1a2e;">{{ specs.altura_col }}</td>
+          </tr>
+          {% if producto.tipo == 'conjunto' and altura_total_sommier %}
+          <tr style="border-bottom:1px solid #f0f0f0;">
+            <td style="padding:7px 0; color:#888;">Altura col. + base</td>
+            <td style="padding:7px 0; font-weight:600; color:#1a1a2e;">{{ specs.altura_col + 22 }} cm</td>
+          </tr>
+          <tr style="border-bottom:1px solid #f0f0f0;">
+            <td style="padding:7px 0; color:#888;">Altura total c/patas</td>
+            <td style="padding:7px 0; font-weight:700; color:#e74c3c;">{{ altura_total_sommier }} cm</td>
+          </tr>
+          {% endif %}
+          <tr style="border-bottom:1px solid #f0f0f0;">
+            <td style="padding:7px 0; color:#888;">Medida</td>
+            <td style="padding:7px 0; font-weight:600; color:#1a1a2e;">{{ producto.medida }}cm</td>
+          </tr>
+          <tr>
+            <td style="padding:7px 0; color:#888;">Garantía</td>
+            <td style="padding:7px 0; font-weight:600; color:#1a1a2e;">6 meses + 5 años</td>
+          </tr>
+        </table>
+      </div>
+      {% else %}
+      <div>
+        <h4 style="font-size:0.88rem; font-weight:700; color:#1a1a2e; margin:0 0 12px; text-transform:uppercase; letter-spacing:0.5px;">Ficha técnica</h4>
+        <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+          <tr style="border-bottom:1px solid #f0f0f0;">
+            <td style="padding:7px 0; color:#888;">Medida</td>
+            <td style="padding:7px 0; font-weight:600; color:#1a1a2e;">{{ producto.medida }}cm</td>
+          </tr>
+          <tr style="border-bottom:1px solid #f0f0f0;">
+            <td style="padding:7px 0; color:#888;">Plaza</td>
+            <td style="padding:7px 0; font-weight:600; color:#1a1a2e;">{{ producto.plaza }}</td>
+          </tr>
+          {% if producto.tipo == 'conjunto' %}
+          <tr style="border-bottom:1px solid #f0f0f0;">
+            <td style="padding:7px 0; color:#888;">Incluye</td>
+            <td style="padding:7px 0; font-weight:600; color:#1a1a2e;">Sommier Cannon</td>
+          </tr>
+          {% endif %}
+          <tr>
+            <td style="padding:7px 0; color:#888;">Garantía</td>
+            <td style="padding:7px 0; font-weight:600; color:#1a1a2e;">6 meses + 5 años</td>
+          </tr>
+        </table>
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+
+</div>
+
+<!-- Lightbox -->
+<div id="lightbox" onclick="cerrarZoom()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:9999;align-items:center;justify-content:center;">
+  <img id="lightbox-img" src="" style="max-width:88vw;max-height:90vh;object-fit:contain;border-radius:8px;">
+  <button id="lightbox-close" onclick="event.stopPropagation();cerrarZoom()" style="position:fixed;top:20px;right:28px;background:none;border:none;color:#fff;font-size:40px;cursor:pointer;line-height:1;">&#215;</button>
+  <button id="lb-prev" onclick="event.stopPropagation();lbNavegar(-1)" style="position:fixed;left:20px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:40px;cursor:pointer;border-radius:50%;width:52px;height:52px;display:flex;align-items:center;justify-content:center;">&#8249;</button>
+  <button id="lb-next" onclick="event.stopPropagation();lbNavegar(1)" style="position:fixed;right:20px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,0.15);border:none;color:#fff;font-size:40px;cursor:pointer;border-radius:50%;width:52px;height:52px;display:flex;align-items:center;justify-content:center;">&#8250;</button>
+  <div id="lb-counter" style="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.7);font-size:13px;"></div>
+</div>
+
+<script>
+const detalleFootos = {{ producto.fotos | tojson }};
+let detalleFotoIdx = 0;
+let lbFotos = [], lbIdx = 0;
+
+function cambiarQty(delta) {
+  const el = document.getElementById('qty');
+  el.textContent = Math.max(1, parseInt(el.textContent) + delta);
+}
+
+function cambiarFoto(url, el) {
+  detalleFotoIdx = detalleFootos.indexOf(url);
+  document.getElementById('img-principal').src = url;
+  document.querySelectorAll('.miniatura').forEach(m => m.classList.remove('active'));
+  el.classList.add('active');
+  actualizarDots(); actualizarFlechasDetalle();
+}
+
+function detalleFoto(dir) {
+  irAFoto((detalleFotoIdx + dir + detalleFootos.length) % detalleFootos.length);
+}
+
+function irAFoto(idx) {
+  detalleFotoIdx = idx;
+  document.getElementById('img-principal').src = detalleFootos[idx];
+  document.querySelectorAll('.miniatura').forEach((m, i) => m.classList.toggle('active', i === idx));
+  actualizarDots(); actualizarFlechasDetalle();
+}
+
+function actualizarDots() {
+  document.querySelectorAll('.img-dot').forEach((d, i) => d.classList.toggle('active', i === detalleFotoIdx));
+}
+
+function actualizarFlechasDetalle() {
+  const prev = document.querySelector('.detalle-arrow.prev');
+  const next = document.querySelector('.detalle-arrow.next');
+  if (prev) prev.style.visibility = detalleFotoIdx === 0 ? 'hidden' : 'visible';
+  if (next) next.style.visibility = detalleFotoIdx === detalleFootos.length - 1 ? 'hidden' : 'visible';
+}
+
+function abrirZoom(url) {
+  lbFotos = detalleFootos;
+  lbIdx = lbFotos.indexOf(url); if (lbIdx === -1) lbIdx = 0;
+  lbMostrar();
+  document.getElementById('lightbox').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function lbMostrar() {
+  document.getElementById('lightbox-img').src = lbFotos[lbIdx];
+  document.getElementById('lb-prev').style.visibility = lbIdx === 0 ? 'hidden' : 'visible';
+  document.getElementById('lb-next').style.visibility = lbIdx === lbFotos.length - 1 ? 'hidden' : 'visible';
+  document.getElementById('lb-counter').textContent = lbFotos.length > 1 ? (lbIdx+1)+' / '+lbFotos.length : '';
+}
+
+function lbNavegar(dir) {
+  lbIdx = Math.max(0, Math.min(lbFotos.length-1, lbIdx+dir));
+  lbMostrar(); irAFoto(lbIdx);
+}
+
+function cerrarZoom() {
+  document.getElementById('lightbox').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  actualizarFlechasDetalle();
+  const imgBox = document.getElementById('img-principal-box');
+
+  // Swipe / tap en mobile
+  let tsX = 0, tsMoved = false;
+  imgBox.addEventListener('touchstart', e => { tsX = e.touches[0].clientX; tsMoved = false; }, {passive: true});
+  imgBox.addEventListener('touchmove',  () => { tsMoved = true; }, {passive: true});
+  imgBox.addEventListener('touchend', e => {
+    const diff = tsX - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 40) {
+      detalleFoto(diff > 0 ? 1 : -1);
+    } else if (!tsMoved) {
+      abrirZoom(document.getElementById('img-principal').src);
+    }
+  });
+
+  // Click en desktop abre lightbox
+  imgBox.addEventListener('click', function(e) {
+    if (e.pointerType === 'touch') return; // ya manejado por touchend
+    abrirZoom(document.getElementById('img-principal').src);
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if (document.getElementById('lightbox').style.display === 'flex') {
+      if (e.key === 'ArrowLeft')  lbNavegar(-1);
+      if (e.key === 'ArrowRight') lbNavegar(1);
+      if (e.key === 'Escape')     cerrarZoom();
+    }
+  });
+});
+
+// ── GA4: view_item ────────────────────────────────────────────────────────────
+{% if ga4_view_item is defined and ga4_view_item %}
+(function() {
+  var item = {{ ga4_view_item | tojson }};
+  if (typeof gtag === 'function') {
+    gtag('event', 'view_item', {
+      currency: 'ARS',
+      value: item.price,
+      items: [{
+        item_id:       item.item_id,
+        item_name:     item.item_name,
+        item_category: item.item_category,
+        price:         item.price,
+        quantity:      1
+      }]
+    });
+  }
+})();
+{% endif %}
+</script>
+{% endblock %}

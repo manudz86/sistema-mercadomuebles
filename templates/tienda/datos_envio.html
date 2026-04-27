@@ -1,0 +1,394 @@
+{% extends 'tienda/base.html' %}
+
+{% block titulo %}Datos de entrega — Mercadomuebles{% endblock %}
+
+{% block contenido %}
+<div style="max-width:600px; margin:40px auto; padding:0 16px;">
+
+  <h2 style="font-size:1.4rem; font-weight:700; color:#1a1a2e; margin-bottom:8px;">
+    Datos de entrega
+  </h2>
+  <p style="color:#666; margin-bottom:28px; font-size:0.95rem;">
+    Completá tus datos para continuar con el pago.
+  </p>
+
+  <!-- Resumen del carrito -->
+  <div style="background:#f8f8f8; border-radius:10px; padding:16px 20px; margin-bottom:28px;">
+    {% for item in carrito %}
+    <div style="display:flex; justify-content:space-between; padding:4px 0; font-size:0.92rem;">
+      <span>{{ item.cantidad }}× {{ item.nombre }}</span>
+      <span style="font-weight:600;">${{ "{:,.0f}".format(item.precio * item.cantidad | int).replace(',', '.') }}</span>
+    </div>
+    {% endfor %}
+    <hr style="margin:10px 0; border:none; border-top:1px solid #ddd;">
+    <div style="display:flex; justify-content:space-between; font-weight:700;">
+      <span>Total productos</span>
+      <span>${{ "{:,.0f}".format(total | int).replace(',', '.') }}</span>
+    </div>
+
+    {% if shipping_tipo == 'zipnova' %}
+      {% if zipnova_quote %}
+        <div id="linea-flete" style="display:flex; justify-content:space-between; margin-top:8px; color:#444;">
+          <span style="font-size:0.88rem;">🚚 Envío estimado</span>
+          <span style="font-size:0.88rem; font-weight:600;">
+            $ {{ "{:,.0f}".format(zipnova_quote.precio).replace(',', '.') }}
+          </span>
+        </div>
+        <div id="bloque-total-envio" style="display:flex; justify-content:space-between; margin-top:8px; font-weight:700; font-size:1.05rem; border-top:1px solid #ddd; padding-top:8px;">
+          <span>Total con envío</span>
+          <span>$ {{ "{:,.0f}".format(total + zipnova_quote.precio).replace(',', '.') }}</span>
+        </div>
+        <p style="font-size:0.78rem; color:#888; margin-top:6px;" id="nota-envio">
+          📦 {{ zipnova_quote.bultos_count }} bulto{{ 's' if zipnova_quote.bultos_count > 1 else '' }}
+          {% if zipnova_quote.dias %} · {{ zipnova_quote.dias }} días hábiles{% endif %}
+          {% if zipnova_quote.carrier_name %} · {{ zipnova_quote.carrier_name }}{% endif %}
+          {% if hay_demora and fecha_disponible %}
+          <br><span style="color:#856404;">⏳ Despacho a partir del {{ fecha_disponible }} ({{ demora_dias }} días por fabricación bajo demanda)</span>
+          {% endif %}
+        </p>
+      {% else %}
+        <p style="font-size:0.8rem; color:#888; margin-top:6px;" id="nota-envio">
+          🚚 Flete a coordinar — podés cotizarlo desde el carrito
+        </p>
+      {% endif %}
+    {% else %}
+      <p style="font-size:0.8rem; color:#888; margin-top:6px;" id="nota-envio">+ costo de envío (calculado por Mercado Pago)</p>
+    {% endif %}
+  </div>
+
+  <!-- Selector de tipo de entrega -->
+  <div style="margin-bottom:24px;">
+    <label style="display:block; font-size:0.88rem; font-weight:600; color:#444; margin-bottom:10px;">
+      ¿Cómo querés recibir tu pedido? *
+    </label>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+
+      <label id="card-envio"
+        {% if not forzar_retiro %}onclick="setEntrega('envio')"{% endif %}
+        style="border:2px solid {% if forzar_retiro %}#eee{% else %}#1a1a2e{% endif %}; border-radius:10px; padding:16px; {% if forzar_retiro %}cursor:not-allowed; opacity:0.45;{% else %}cursor:pointer;{% endif %} text-align:center; background:{% if forzar_retiro %}#f5f5f5{% else %}#1a1a2e{% endif %}; color:{% if forzar_retiro %}#aaa{% else %}#fff{% endif %}; transition:all 0.2s;">
+        <div style="font-size:1.6rem; margin-bottom:6px;">🚚</div>
+        <div style="font-weight:700; font-size:0.95rem;">Envío a domicilio</div>
+        <div style="font-size:0.78rem; margin-top:4px; opacity:0.8;">
+          {% if shipping_tipo == 'zipnova' and zipnova_quote %}
+            Flete incluido en el total
+          {% else %}
+            Costo calculado por MP
+          {% endif %}
+        </div>
+      </label>
+
+      <label id="card-retiro" onclick="setEntrega('retiro')"
+        style="border:2px solid {% if forzar_retiro %}#1a1a2e{% else %}#ddd{% endif %}; border-radius:10px; padding:16px; cursor:pointer; text-align:center; background:{% if forzar_retiro %}#1a1a2e{% else %}#fff{% endif %}; color:{% if forzar_retiro %}#fff{% else %}#444{% endif %}; transition:all 0.2s;">
+        <div style="font-size:1.6rem; margin-bottom:6px;">🏪</div>
+        <div style="font-weight:700; font-size:0.95rem;">Retiro en local</div>
+        <div style="font-size:0.78rem; margin-top:4px; opacity:0.7;">Sin costo de envío</div>
+        {% if hay_demora and fecha_disponible %}
+        <div style="font-size:0.75rem; margin-top:5px; color:#856404; font-weight:600;">
+          ⏳ Disponible desde {{ fecha_disponible }}
+        </div>
+        {% endif %}
+      </label>
+
+    </div>
+  </div>
+
+  <!-- Formulario -->
+  <form action="{{ url_for('tienda.checkout') }}" method="POST" id="form-datos">
+    <input type="hidden" name="tipo_entrega" id="input-tipo-entrega" value="{{ 'retiro' if forzar_retiro else 'envio' }}">
+
+    <!-- Datos personales -->
+    <div style="margin-bottom:16px;">
+      <label style="display:block; font-size:0.88rem; font-weight:600; color:#444; margin-bottom:5px;">
+        Nombre completo *
+      </label>
+      <input type="text" name="nombre" required placeholder="Juan García"
+        style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
+      <div>
+        <label style="display:block; font-size:0.88rem; font-weight:600; color:#444; margin-bottom:5px;">
+          Teléfono / WhatsApp *
+        </label>
+        <input type="tel" name="telefono" required placeholder="1150001234"
+          style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+      </div>
+      <div>
+        <label style="display:block; font-size:0.88rem; font-weight:600; color:#444; margin-bottom:5px;">
+          DNI
+        </label>
+        <input type="text" name="dni" placeholder="12345678"
+          style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+      </div>
+    </div>
+
+    <div style="margin-bottom:16px;">
+      <label style="display:block; font-size:0.88rem; font-weight:600; color:#444; margin-bottom:5px;">
+        Email
+      </label>
+      <input type="email" name="email" placeholder="juan@email.com"
+        style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+      <p style="font-size:0.78rem; color:#888; margin-top:4px;">Te enviamos la confirmación del pedido.</p>
+    </div>
+
+    <!-- Dirección (solo envío) -->
+    <div id="bloque-direccion">
+      <div style="display:grid; grid-template-columns:2fr 1fr; gap:12px; margin-bottom:16px;">
+        <div>
+          <label style="display:block; font-size:0.88rem; font-weight:600; color:#444; margin-bottom:5px;">
+            Calle *
+          </label>
+          <input type="text" name="calle" id="input-calle" placeholder="Av. Corrientes"
+            style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+        </div>
+        <div>
+          <label style="display:block; font-size:0.88rem; font-weight:600; color:#444; margin-bottom:5px;">
+            Número *
+          </label>
+          <input type="text" name="altura" id="input-altura" placeholder="1234"
+            style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
+        <div>
+          <label style="display:block; font-size:0.88rem; font-weight:600; color:#444; margin-bottom:5px;">
+            Piso / Depto (opcional)
+          </label>
+          <input type="text" name="piso_depto" placeholder="3° B"
+            style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+        </div>
+        <div>
+          <label style="display:block; font-size:0.88rem; font-weight:600; color:#444; margin-bottom:5px;">
+            Código postal *
+          </label>
+          <input type="text" name="cp" id="input-cp" placeholder="1407" autocomplete="off"
+            value="{{ zipnova_quote.cp_destino if (zipnova_quote and shipping_tipo == 'zipnova') else '' }}"
+            style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <label style="display:block; font-size:0.88rem; font-weight:600; color:#444; margin-bottom:5px;">
+          Ciudad / Localidad
+        </label>
+        {% if shipping_tipo == 'zipnova' %}
+          {% if localidades_precargadas %}
+          <select name="ciudad" id="select-ciudad-envio"
+            style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box; background:#fff;">
+            <option value="">Seleccioná tu localidad</option>
+            {% for loc in localidades_precargadas %}
+            <option value="{{ loc }}" {% if zipnova_quote and zipnova_quote.ciudad == loc %}selected{% endif %}>{{ loc }}</option>
+            {% endfor %}
+          </select>
+          {% else %}
+          <select name="ciudad" id="select-ciudad-envio"
+            style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box; background:#f5f5f5;">
+            <option value="">Ingresá el CP para ver localidades</option>
+          </select>
+          {% endif %}
+        {% else %}
+        <select name="ciudad" id="select-ciudad-envio"
+          style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box; background:#f5f5f5;">
+          <option value="">Ingresá el CP para ver localidades</option>
+        </select>
+        {% endif %}
+      </div>
+
+      <div style="margin-bottom:24px;">
+        <label style="display:block; font-size:0.88rem; font-weight:600; color:#444; margin-bottom:5px;">
+          Provincia
+        </label>
+        <input type="text" name="provincia" id="input-provincia-envio" readonly autocomplete="off"
+          value="{% if shipping_tipo == 'zipnova' and zipnova_quote %}{{ zipnova_quote.provincia }}{% endif %}"
+          placeholder="Se completa con el CP"
+          style="width:100%; padding:11px 14px; border:1px solid #e0e0e0; border-radius:8px; font-size:0.95rem; box-sizing:border-box; background:#f5f5f5; color:#666; cursor:default;">
+        <input type="hidden" name="provincia_hidden" id="input-provincia-hidden"
+          value="{% if shipping_tipo == 'zipnova' and zipnova_quote %}{{ zipnova_quote.provincia }}{% endif %}">
+      </div>
+    </div>
+
+    <!-- Info retiro en local -->
+    <div id="bloque-retiro" style="display:none; background:#f0f7ff; border:1px solid #c8e0ff; border-radius:10px; padding:16px; margin-bottom:24px;">
+      <p style="font-weight:700; color:#1a1a2e; margin:0 0 8px;">📍 Dirección de retiro</p>
+      <p style="color:#444; margin:0; font-size:0.92rem;">
+        <strong>Bahía Blanca 1777</strong>, Floresta, Capital Federal<br>
+        Lunes a Viernes 8 a 12hs y 14 a 16:30hs<br>
+        <a href="https://maps.google.com/?q=Bahia+Blanca+1775+Buenos+Aires" target="_blank"
+           style="color:#1a7fe8; font-size:0.85rem;">Ver en Google Maps →</a>
+      </p>
+    </div>
+
+    <button type="submit"
+      style="width:100%; padding:15px; background:#1a1a2e; color:#fff; border:none; border-radius:10px;
+             font-size:1rem; font-weight:700; cursor:pointer; letter-spacing:0.3px;">
+      Continuar con el pago →
+    </button>
+
+    <p style="text-align:center; margin-top:14px; font-size:0.82rem; color:#888;">
+      Serás redirigido a Mercado Pago para completar el pago de forma segura.
+    </p>
+  </form>
+
+  <div style="text-align:center; margin-top:20px;">
+    <a href="{{ url_for('tienda.ver_carrito') }}"
+       style="color:#666; font-size:0.88rem; text-decoration:none;">← Volver al carrito</a>
+  </div>
+
+</div>
+
+<script>
+// Mapa CP -> provincia
+function provinciaDesdeCP(cp) {
+  const n = parseInt(cp);
+  if (!n) return null;
+  if (n >= 1000 && n <= 1499) return 'Capital Federal';
+  if (n >= 1500 && n <= 1999) return 'Buenos Aires';
+  if (n >= 2000 && n <= 2499) return 'Santa Fe';
+  if (n >= 2500 && n <= 2799) return 'Santa Fe';
+  if (n >= 2800 && n <= 2999) return 'Entre Ríos';
+  if (n >= 3000 && n <= 3099) return 'Santa Fe';
+  if (n >= 3100 && n <= 3199) return 'Entre Ríos';
+  if (n >= 3200 && n <= 3299) return 'Corrientes';
+  if (n >= 3300 && n <= 3399) return 'Misiones';
+  if (n >= 3400 && n <= 3499) return 'Corrientes';
+  if (n >= 3500 && n <= 3799) return 'Chaco';
+  if (n >= 3800 && n <= 3899) return 'Formosa';
+  if (n >= 3900 && n <= 3999) return 'Jujuy';
+  if (n >= 4000 && n <= 4499) return 'Salta';
+  if (n >= 4500 && n <= 4699) return 'Tucumán';
+  if (n >= 4700 && n <= 4799) return 'Catamarca';
+  if (n >= 4800 && n <= 4999) return 'La Rioja';
+  if (n >= 5000 && n <= 5499) return 'Córdoba';
+  if (n >= 5400 && n <= 5599) return 'San Juan';
+  if (n >= 5600 && n <= 5699) return 'Mendoza';
+  if (n >= 5700 && n <= 5799) return 'San Luis';
+  if (n >= 5800 && n <= 5999) return 'Córdoba';
+  if (n >= 6000 && n <= 6299) return 'Buenos Aires';
+  if (n >= 6300 && n <= 6399) return 'Santiago del Estero';
+  if (n >= 6400 && n <= 8399) return 'Buenos Aires';
+  if (n >= 8400 && n <= 8499) return 'Río Negro';
+  if (n >= 8500 && n <= 8699) return 'Neuquén';
+  if (n >= 8700 && n <= 8799) return 'Río Negro';
+  if (n >= 8800 && n <= 8999) return 'Chubut';
+  if (n >= 9000 && n <= 9099) return 'Santa Cruz';
+  if (n >= 9100 && n <= 9199) return 'Chubut';
+  if (n >= 9200 && n <= 9399) return 'Santa Cruz';
+  if (n >= 9400 && n <= 9499) return 'Tierra del Fuego';
+  return null;
+}
+
+async function cargarLocalidades(cp) {
+  try {
+    const res = await fetch(`https://apis.datos.gob.ar/georef/api/localidades?codigo_postal=${cp}&campos=nombre&max=50`);
+    const data = await res.json();
+    const localidades = data.localidades || [];
+    return [...new Set(localidades.map(l => l.nombre).filter(Boolean))].sort();
+  } catch(e) { return []; }
+}
+
+async function actualizarCP(cp) {
+  if (!cp || cp.length < 4) return;
+  const prov = provinciaDesdeCP(cp);
+  const provInput  = document.getElementById('input-provincia-envio');
+  const provHidden = document.getElementById('input-provincia-hidden');
+  if (prov && provInput) {
+    provInput.value  = prov;
+    if (provHidden) provHidden.value = prov;
+  }
+  const sel = document.getElementById('select-ciudad-envio');
+  if (!sel) return;
+  try {
+    const res    = await fetch(`/tienda/localidades?cp=${cp}`);
+    const nombres = await res.json();
+    const valorActual = sel.value;
+    sel.innerHTML = '<option value="">Seleccioná tu localidad</option>';
+    if (nombres.length > 0) {
+      nombres.forEach(nom => {
+        const opt = document.createElement('option');
+        opt.value = nom; opt.textContent = nom;
+        if (nom === valorActual) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.style.background = '#fff';
+    } else {
+      // Fallback: input libre
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.name = 'ciudad';
+      inp.placeholder = 'Ingresá tu localidad'; inp.autocomplete = 'off';
+      inp.style.cssText = 'width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;';
+      sel.parentNode.replaceChild(inp, sel);
+    }
+  } catch(e) { /* silencioso */ }
+}
+
+// Al cargar la página
+window.addEventListener('DOMContentLoaded', function() {
+  const cpInput = document.getElementById('input-cp');
+  // Solo cargar localidades si hay CP pre-llenado (zipnova)
+  if (cpInput && cpInput.value) actualizarCP(cpInput.value);
+  // Si viene con retiro forzado, pre-seleccionar retiro y bloquear envio
+  {% if forzar_retiro %}
+  setEntrega('retiro');
+  {% endif %}
+});
+
+// Al cambiar CP manualmente
+document.getElementById('input-cp') && document.getElementById('input-cp').addEventListener('blur', function() {
+  const val = this.value.trim();
+  if (val) actualizarCP(val);
+});
+
+const PRECIO_FLETE = {{ zipnova_quote.precio if zipnova_quote else 0 }};
+const TOTAL_PRODUCTOS = {{ total | int }};
+
+function setEntrega(tipo) {
+  // Si viene con retiro forzado desde el carrito, no permitir cambio a envio
+  if (tipo === 'envio' && {{ 'true' if forzar_retiro else 'false' }}) return;
+  document.getElementById('input-tipo-entrega').value = tipo;
+
+  const cardEnvio   = document.getElementById('card-envio');
+  const cardRetiro  = document.getElementById('card-retiro');
+  const bloqDir     = document.getElementById('bloque-direccion');
+  const bloqRet     = document.getElementById('bloque-retiro');
+  const notaEnvio   = document.getElementById('nota-envio');
+  const inputCalle  = document.getElementById('input-calle');
+  const inputAltura = document.getElementById('input-altura');
+  const inputCp     = document.getElementById('input-cp');
+  const bloqTotalEnvio = document.getElementById('bloque-total-envio');
+  const lineaFlete     = document.getElementById('linea-flete');
+
+  if (tipo === 'envio') {
+    cardEnvio.style.background   = '#1a1a2e';
+    cardEnvio.style.color        = '#fff';
+    cardEnvio.style.borderColor  = '#1a1a2e';
+    cardRetiro.style.background  = '#fff';
+    cardRetiro.style.color       = '#444';
+    cardRetiro.style.borderColor = '#ddd';
+    bloqDir.style.display  = 'block';
+    bloqRet.style.display  = 'none';
+    if (notaEnvio)      notaEnvio.style.display      = 'block';
+    if (bloqTotalEnvio) bloqTotalEnvio.style.display  = '';
+    if (lineaFlete)     lineaFlete.style.display      = '';
+    inputCalle.required  = true;
+    inputAltura.required = true;
+    inputCp.required     = true;
+  } else {
+    cardRetiro.style.background  = '#1a1a2e';
+    cardRetiro.style.color       = '#fff';
+    cardRetiro.style.borderColor = '#1a1a2e';
+    cardEnvio.style.background   = '#fff';
+    cardEnvio.style.color        = '#444';
+    cardEnvio.style.borderColor  = '#ddd';
+    bloqDir.style.display  = 'none';
+    bloqRet.style.display  = 'block';
+    if (notaEnvio)      notaEnvio.style.display      = 'none';
+    if (bloqTotalEnvio) bloqTotalEnvio.style.display  = 'none';
+    if (lineaFlete)     lineaFlete.style.display      = 'none';
+    inputCalle.required  = false;
+    inputAltura.required = false;
+    inputCp.required     = false;
+  }
+}
+</script>
+{% endblock %}

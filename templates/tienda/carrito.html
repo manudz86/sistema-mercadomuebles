@@ -1,0 +1,440 @@
+{% extends 'tienda/base.html' %}
+
+{% block titulo %}Carrito – Mercadomuebles{% endblock %}
+
+{% block contenido %}
+<style>
+.carrito-wrap { max-width:900px; margin:32px auto; padding:0 16px; }
+.carrito-titulo { font-size:1.3rem; font-weight:700; color:#1a1a2e; margin-bottom:20px; }
+.carrito-grid { display:grid; grid-template-columns:1fr 320px; gap:20px; align-items:start; }
+@media(max-width:700px){ .carrito-grid { grid-template-columns:1fr; } }
+/* Items */
+.carrito-items { background:#fff; border:1px solid #e8e8e8; border-radius:12px; overflow:hidden; }
+.carrito-item { display:grid; grid-template-columns:1fr auto; gap:12px; padding:14px 16px; border-bottom:1px solid #f0f0f0; align-items:center; }
+.carrito-item:last-child { border-bottom:none; }
+.item-nombre { font-weight:600; color:#1a1a2e; font-size:0.92rem; line-height:1.3; }
+.item-sku { font-size:0.75rem; color:#aaa; margin-top:2px; }
+.item-precio-unit { font-size:0.82rem; color:#888; margin-top:4px; }
+.item-right { display:flex; flex-direction:column; align-items:flex-end; gap:8px; }
+.item-subtotal { font-weight:700; color:#1a1a2e; font-size:0.95rem; white-space:nowrap; }
+.item-controls { display:flex; align-items:center; gap:6px; }
+.qty-btn-cart { width:28px; height:28px; border:1px solid #ddd; border-radius:6px; background:#fff; cursor:pointer; font-size:1rem; display:flex; align-items:center; justify-content:center; touch-action:manipulation; }
+.qty-num-cart { min-width:22px; text-align:center; font-weight:600; font-size:0.9rem; }
+.btn-eliminar-cart { background:none; border:none; color:#ccc; cursor:pointer; font-size:1rem; padding:2px 4px; touch-action:manipulation; line-height:1; }
+.btn-eliminar-cart:hover { color:#e00; }
+
+/* Acciones bajo items */
+.carrito-acciones { display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
+.btn-seguir { display:inline-block; padding:9px 16px; border:1px solid #ccc; border-radius:8px; color:#444; text-decoration:none; font-size:0.85rem; touch-action:manipulation; }
+.btn-vaciar { padding:9px 16px; border:1px solid #e00; border-radius:8px; background:none; color:#e00; cursor:pointer; font-size:0.85rem; touch-action:manipulation; }
+
+/* Resumen */
+.carrito-resumen { background:#fff; border:1px solid #e8e8e8; border-radius:12px; padding:20px; }
+.resumen-titulo { font-size:0.95rem; font-weight:700; color:#1a1a2e; margin:0 0 14px; }
+.resumen-fila { display:flex; justify-content:space-between; font-size:0.88rem; margin-bottom:8px; color:#555; }
+.resumen-total { display:flex; justify-content:space-between; font-weight:700; font-size:1rem; margin:14px 0; }
+.btn-continuar { display:block; text-align:center; background:#1a1a2e; color:#fff; padding:13px; border-radius:9px; text-decoration:none; font-weight:600; font-size:0.95rem; touch-action:manipulation; }
+.btn-continuar:hover { background:#2a2a4e; }
+</style>
+
+<div class="carrito-wrap">
+  <h2 class="carrito-titulo">🛒 Tu carrito</h2>
+
+  {% if not carrito %}
+  <div style="background:#f0f4ff; border-radius:10px; padding:28px; text-align:center; color:#444;">
+    Tu carrito está vacío.
+    <a href="{{ url_for('tienda.home') }}" style="color:#1a1a2e; font-weight:600; margin-left:6px;">Ver productos →</a>
+  </div>
+
+  {% else %}
+
+  <div id="aviso-demora" style="background:#fff3cd; border:1.5px solid #ffc107; border-radius:10px; padding:14px 18px; margin-bottom:16px; gap:12px; align-items:flex-start; display:{% if hay_demora %}flex{% else %}none{% endif %};">
+    <span style="font-size:1.4rem;">⏳</span>
+    <div>
+      <div style="font-weight:700; color:#856404; font-size:0.95rem;">Pedido con fabricación bajo demanda</div>
+      <div style="color:#856404; font-size:0.87rem; margin-top:3px;">
+        Uno o más productos de tu carrito no tienen stock inmediato.
+        Disponible para retiro o despacho <strong id="demora-fecha">a partir del {{ fecha_disponible }}</strong>
+        (<span id="demora-dias">{{ demora_dias }}</span> días desde hoy).
+      </div>
+    </div>
+  </div>
+  <div class="carrito-grid">
+
+    <!-- Items -->
+    <div>
+      <div class="carrito-items">
+        {% for item in carrito %}
+        <div class="carrito-item" id="row-{{ item.sku | replace('+','PLUS') | replace('_','-') }}">
+          <div>
+            <div class="item-nombre">{{ item.nombre }}</div>
+            <div class="item-sku">SKU: {{ item.sku }}</div>
+            <div class="item-precio-unit">${{ "{:,.0f}".format(item.precio).replace(',','.') }} c/u</div>
+          </div>
+          <div class="item-right">
+            <span class="item-subtotal" id="cart-sub-{{ item.sku | replace('+','PLUS') }}">${{ "{:,.0f}".format(item.precio * item.cantidad).replace(',','.') }}</span>
+            <div class="item-controls">
+              <button class="qty-btn-cart" onclick="cartCambiar('{{ item.sku }}', -1, '{{ item.nombre | replace("'","\\'") }}', {{ item.precio }})">−</button>
+              <span class="qty-num-cart" id="cart-qnum-{{ item.sku | replace('+','PLUS') }}">{{ item.cantidad }}</span>
+              <button class="qty-btn-cart" onclick="cartCambiar('{{ item.sku }}', +1, '{{ item.nombre | replace("'","\\'") }}', {{ item.precio }})">+</button>
+              <button class="btn-eliminar-cart" data-sku="{{ item.sku }}" title="Eliminar">✕</button>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="carrito-acciones">
+        <a href="{{ url_for('tienda.home') }}" class="btn-seguir">← Seguir comprando</a>
+        <form method="POST" action="{{ url_for('tienda.vaciar_carrito') }}" style="margin:0;">
+          <button type="submit" class="btn-vaciar">Vaciar carrito</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Resumen -->
+    <div class="carrito-resumen">
+      <h5 class="resumen-titulo">Resumen del pedido</h5>
+
+      <div class="resumen-fila">
+        <span>Productos</span>
+        <strong id="resumen-subtotal">{{ subtotal_fmt }}</strong>
+      </div>
+
+      <hr style="border:none; border-top:1px solid #eee; margin:10px 0;">
+
+      <!-- CUPÓN — opcional, colapsable -->
+      {% if cupon %}
+      <div style="background:#f0faf0; border-radius:8px; padding:8px 12px; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <span style="font-size:0.78rem; color:#2e7d32; font-weight:700;">🎟 {{ cupon.codigo }}</span>
+          <span style="font-size:0.82rem; color:#388e3c; margin-left:6px;">{{ cupon.label }}</span>
+        </div>
+        <button onclick="quitarCupon()" style="background:none; border:none; color:#aaa; cursor:pointer; font-size:0.78rem; touch-action:manipulation;">✕ Quitar</button>
+      </div>
+      <div class="resumen-fila" style="color:#2e7d32; margin-bottom:4px;">
+        <span>Descuento cupón</span>
+        <strong>-{{ descuento_fmt }}</strong>
+      </div>
+      {% else %}
+      <details style="margin-bottom:10px;">
+        <summary style="font-size:0.8rem; color:#aaa; cursor:pointer; list-style:none; user-select:none;">
+          + Tengo un cupón de descuento
+        </summary>
+        <div style="display:flex; gap:6px; margin-top:8px;">
+          <input type="text" id="input-cupon" placeholder="Código de cupón" maxlength="30"
+            style="flex:1; padding:8px 10px; border:1px solid #ddd; border-radius:7px; font-size:0.85rem; min-width:0; text-transform:uppercase; background:#fff;">
+          <button onclick="aplicarCupon()"
+            style="padding:8px 12px; background:#555; color:#fff; border:none; border-radius:7px; cursor:pointer; font-size:0.82rem; white-space:nowrap; touch-action:manipulation;">
+            Aplicar
+          </button>
+        </div>
+        <div id="cupon-msg" style="font-size:0.8rem; margin-top:5px; display:none;"></div>
+      </details>
+      {% endif %}
+
+      <hr style="border:none; border-top:1px solid #eee; margin:4px 0 12px;">
+      {% if shipping_tipo == 'zipnova' %}
+      <p style="font-size:0.82rem; color:#666; margin:0 0 10px;">
+        🚚 Este pedido se entrega con flete. Ingresá tu CP para ver el costo.
+      </p>
+      <div style="display:flex; gap:6px; margin-bottom:8px;">
+        <input type="text" id="input-cp" placeholder="Código postal" maxlength="8" inputmode="numeric"
+          style="flex:1; padding:9px 10px; border:1px solid #ddd; border-radius:7px; font-size:0.88rem; min-width:0;">
+        <button id="btn-buscar-cp"
+          style="padding:9px 12px; background:#1a1a2e; color:#fff; border:none; border-radius:7px; cursor:pointer; font-size:0.85rem; white-space:nowrap; touch-action:manipulation;">
+          Buscar
+        </button>
+      </div>
+      <div id="bloque-ciudad" style="display:none; margin-bottom:8px;"></div>
+      <div id="resultado-cotizacion" style="font-size:0.85rem; margin-bottom:8px;"></div>
+
+      {% elif shipping_tipo == 'me2_paid' %}
+      <div class="resumen-fila">
+        <span>🚚 Envío</span>
+        <span style="color:#888;">Calculado por Correo Argentino</span>
+      </div>
+      {% endif %}
+
+      <hr style="border:none; border-top:1px solid #eee; margin:12px 0;">
+      <div class="resumen-total">
+        <span>Total</span>
+        <span id="total-display">{{ total_fmt }}</span>
+      </div>
+
+      {% if shipping_tipo == 'zipnova' %}
+      <a href="{{ url_for('tienda.datos_envio') }}" class="btn-continuar" id="btn-continuar"
+         style="opacity:0.4; pointer-events:none; cursor:not-allowed; margin-bottom:10px;">
+        Cotizá el envío para continuar
+      </a>
+      <a href="{{ url_for('tienda.datos_envio') }}?retiro=1"
+         style="display:block; text-align:center; background:#fff; color:#1a1a2e; border:2px solid #1a1a2e; padding:11px; border-radius:9px; text-decoration:none; font-weight:600; font-size:0.88rem; touch-action:manipulation;">
+        🏪 Retirar en local (Floresta, CABA)
+      </a>
+      <p id="aviso-retiro" style="text-align:center; font-size:0.78rem; color:#856404; margin:6px 0 0; display:{% if hay_demora and fecha_disponible %}block{% else %}none{% endif %};">
+        ⏳ Retiro disponible a partir del <span id="retiro-fecha">{{ fecha_disponible }}</span>
+      </p>
+      {% else %}
+      <a href="{{ url_for('tienda.datos_envio') }}" class="btn-continuar" id="btn-continuar">
+        Continuar con la compra →
+      </a>
+      {% endif %}
+    </div>
+
+  </div>
+  {% endif %}
+</div>
+
+<script>
+document.querySelectorAll('.btn-eliminar-cart').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const res = await fetch('{{ url_for("tienda.eliminar_carrito") }}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({sku: btn.dataset.sku}),
+    });
+    if (res.ok) location.reload();
+  });
+});
+
+async function cartCambiar(sku, delta, nombre, precio) {
+  const res = await fetch('{{ url_for("tienda.actualizar_carrito") }}', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({sku, delta}),
+  });
+  const data = await res.json();
+  if (!data.ok) { alert(data.msg || 'Error'); return; }
+  if (data.cantidad_sku <= 0) {
+    location.reload();
+    return;
+  }
+  // Actualizar cantidad y subtotal en la fila sin recargar
+  const id = sku.replace(/\+/g, 'PLUS');
+  const qspan = document.getElementById('cart-qnum-' + id);
+  if (qspan) qspan.textContent = data.cantidad_sku;
+  const subspan = document.getElementById('cart-sub-' + id);
+  if (subspan) subspan.textContent = '$ ' + (precio * data.cantidad_sku).toLocaleString('es-AR', {maximumFractionDigits:0});
+  // Actualizar total global
+  document.getElementById('cart-count').textContent = data.total_items;
+  // Recalcular subtotal y total en el resumen
+  let nuevo_subtotal = 0;
+  document.querySelectorAll('[id^="cart-sub-"]').forEach(el => {
+    const val = parseInt(el.textContent.replace(/[^0-9]/g, '')) || 0;
+    nuevo_subtotal += val;
+  });
+  const fmtSub = '$ ' + nuevo_subtotal.toLocaleString('es-AR', {maximumFractionDigits:0});
+  document.getElementById('resumen-subtotal').textContent = fmtSub;
+  document.getElementById('total-display').textContent = fmtSub;
+  // Actualizar aviso demora
+  const avisoDemora = document.getElementById('aviso-demora');
+  if (avisoDemora) {
+    if (data.hay_demora) {
+      avisoDemora.style.display = 'flex';
+      const demFecha = document.getElementById('demora-fecha');
+      if (demFecha) demFecha.textContent = 'a partir del ' + data.fecha_disponible;
+      const demDias = document.getElementById('demora-dias');
+      if (demDias) demDias.textContent = data.demora_dias;
+    } else {
+      avisoDemora.style.display = 'none';
+    }
+  }
+  const avisoRetiro = document.getElementById('aviso-retiro');
+  if (avisoRetiro) {
+    if (data.hay_demora && data.fecha_disponible) {
+      avisoRetiro.style.display = 'block';
+      const retFecha = document.getElementById('retiro-fecha');
+      if (retFecha) retFecha.textContent = data.fecha_disponible;
+    } else {
+      avisoRetiro.style.display = 'none';
+    }
+  }
+}
+
+const btnBuscarCp  = document.getElementById('btn-buscar-cp');
+const inputCp      = document.getElementById('input-cp');
+const bloqueCiudad = document.getElementById('bloque-ciudad');
+const resultadoDiv = document.getElementById('resultado-cotizacion');
+const totalDisplay = document.getElementById('total-display');
+const btnContinuar = document.getElementById('btn-continuar');
+const subtotalBase = {{ subtotal }};
+const totalSinFlete = {{ total }};  // subtotal ya con descuento de cupón aplicado
+
+function provinciaDesdeCP(cp) {
+  const n = parseInt(cp);
+  if (!n) return null;
+  if (n >= 1000 && n <= 1499) return 'Capital Federal';
+  if (n >= 1500 && n <= 1999) return 'Buenos Aires';
+  if (n >= 2000 && n <= 2799) return 'Santa Fe';
+  if (n >= 2800 && n <= 2999) return 'Entre Ríos';
+  if (n >= 3000 && n <= 3099) return 'Santa Fe';
+  if (n >= 3100 && n <= 3199) return 'Entre Ríos';
+  if (n >= 3200 && n <= 3299) return 'Corrientes';
+  if (n >= 3300 && n <= 3399) return 'Misiones';
+  if (n >= 3400 && n <= 3499) return 'Corrientes';
+  if (n >= 3500 && n <= 3799) return 'Chaco';
+  if (n >= 3800 && n <= 3899) return 'Formosa';
+  if (n >= 3900 && n <= 3999) return 'Jujuy';
+  if (n >= 4000 && n <= 4499) return 'Salta';
+  if (n >= 4500 && n <= 4699) return 'Tucumán';
+  if (n >= 4700 && n <= 4799) return 'Catamarca';
+  if (n >= 4800 && n <= 4999) return 'La Rioja';
+  if (n >= 5000 && n <= 5499) return 'Córdoba';
+  if (n >= 5400 && n <= 5599) return 'San Juan';
+  if (n >= 5600 && n <= 5699) return 'Mendoza';
+  if (n >= 5700 && n <= 5799) return 'San Luis';
+  if (n >= 5800 && n <= 5999) return 'Córdoba';
+  if (n >= 6000 && n <= 6299) return 'Buenos Aires';
+  if (n >= 6300 && n <= 6399) return 'Santiago del Estero';
+  if (n >= 6400 && n <= 8399) return 'Buenos Aires';
+  if (n >= 8400 && n <= 8499) return 'Río Negro';
+  if (n >= 8500 && n <= 8699) return 'Neuquén';
+  if (n >= 8700 && n <= 8799) return 'Río Negro';
+  if (n >= 8800 && n <= 8999) return 'Chubut';
+  if (n >= 9000 && n <= 9099) return 'Santa Cruz';
+  if (n >= 9100 && n <= 9199) return 'Chubut';
+  if (n >= 9200 && n <= 9399) return 'Santa Cruz';
+  if (n >= 9400 && n <= 9499) return 'Tierra del Fuego';
+  return null;
+}
+
+async function cotizarEnvio(cp, ciudad, prov) {
+  resultadoDiv.innerHTML = '<span style="color:#888;font-size:0.82rem;">Calculando envío...</span>';
+  try {
+    const res  = await fetch('{{ url_for("tienda.cotizar_envio") }}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({cp, ciudad, provincia: prov}),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const total    = totalSinFlete + data.precio;
+      const fmtTotal = '$ ' + total.toLocaleString('es-AR', {maximumFractionDigits: 0});
+      totalDisplay.textContent = fmtTotal;
+      resultadoDiv.innerHTML = `
+        <div style="background:#e8f5e9; border-radius:7px; padding:10px 12px; margin-top:4px;">
+          <strong>Envío: ${data.precio_fmt}</strong>
+          ${data.dias ? `<br><span style="font-size:0.8rem;color:#555;">Entrega estimada: ${data.dias} días hábiles${data.fecha_estimada ? ` (aprox. ${data.fecha_estimada})` : ''}</span>` : ''}
+          ${data.demora_dias ? `<br><span style="font-size:0.78rem;color:#856404;">⏳ Incluye ${data.demora_dias} días por fabricación bajo demanda</span>` : ''}
+          ${data.carrier ? `<br><span style="font-size:0.8rem;color:#555;">${data.carrier}</span>` : ''}
+        </div>`;
+      // Desbloquear botón continuar
+      if (btnContinuar) {
+        btnContinuar.style.opacity = '1';
+        btnContinuar.style.pointerEvents = 'auto';
+        btnContinuar.style.cursor = 'pointer';
+        btnContinuar.textContent = 'Continuar con la compra →';
+      }
+    } else {
+      resultadoDiv.innerHTML = `<div style="background:#fff3cd;border-radius:7px;padding:8px 12px;margin-top:4px;color:#856404;">${data.error || 'No se pudo cotizar'}</div>`;
+    }
+  } catch(e) {
+    resultadoDiv.innerHTML = '<div style="color:#c00;margin-top:4px;font-size:0.82rem;">Error de conexión</div>';
+  }
+}
+
+async function buscarCP() {
+  const cp   = inputCp ? inputCp.value.trim() : '';
+  const prov = provinciaDesdeCP(cp) || 'Buenos Aires';
+  if (cp.length < 4) { inputCp && inputCp.focus(); return; }
+
+  bloqueCiudad.innerHTML = '<p style="font-size:0.8rem;color:#888;margin:0;">Cargando localidades...</p>';
+  bloqueCiudad.style.display = 'block';
+  resultadoDiv.innerHTML = '';
+
+  try {
+    const res = await fetch(`/tienda/localidades?cp=${cp}`);
+    const localidades = await res.json();
+
+    if (localidades.length === 1) {
+      // Una sola localidad → cotizar directo sin mostrar select
+      bloqueCiudad.innerHTML = `<p style="font-size:0.82rem;color:#555;margin:0;">📍 ${localidades[0]}, ${prov}</p>`;
+      await cotizarEnvio(cp, localidades[0], prov);
+    } else if (localidades.length > 1) {
+      // Varias localidades → mostrar select y auto-cotizar al elegir
+      bloqueCiudad.innerHTML = `
+        <select id="select-ciudad"
+          style="width:100%; padding:9px 10px; border:1px solid #ddd; border-radius:7px; font-size:0.88rem; background:#fff;">
+          <option value="">Seleccioná tu localidad</option>
+          ${localidades.map(n => `<option value="${n}">${n}</option>`).join('')}
+        </select>
+        <p style="font-size:0.78rem;color:#888;margin:4px 0 0;">📍 ${prov}</p>`;
+      document.getElementById('select-ciudad').addEventListener('change', async function() {
+        if (this.value) await cotizarEnvio(cp, this.value, prov);
+      });
+    } else {
+      // Sin localidades en dict → input libre y botón cotizar
+      bloqueCiudad.innerHTML = `
+        <div style="display:flex;gap:6px;">
+          <input type="text" id="select-ciudad" placeholder="Ingresá tu localidad"
+            style="flex:1;padding:9px 10px;border:1px solid #ddd;border-radius:7px;font-size:0.88rem;">
+          <button onclick="cotizarManual()" style="padding:9px 12px;background:#1a1a2e;color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:0.82rem;">Cotizar</button>
+        </div>
+        <p style="font-size:0.78rem;color:#888;margin:4px 0 0;">📍 ${prov}</p>`;
+    }
+  } catch(e) {
+    bloqueCiudad.innerHTML = '<p style="font-size:0.8rem;color:#c00;margin:0;">Error cargando localidades</p>';
+  }
+}
+
+async function cotizarManual() {
+  const cp   = inputCp ? inputCp.value.trim() : '';
+  const prov = provinciaDesdeCP(cp) || 'Buenos Aires';
+  const el   = document.getElementById('select-ciudad');
+  if (el && el.value.trim()) await cotizarEnvio(cp, el.value.trim(), prov);
+}
+
+if (btnBuscarCp) {
+  btnBuscarCp.addEventListener('click', buscarCP);
+}
+inputCp && inputCp.addEventListener('keydown', e => { if (e.key === 'Enter') buscarCP(); });
+
+async function aplicarCupon() {
+  const codigo = document.getElementById('input-cupon')?.value.trim().toUpperCase();
+  const msg    = document.getElementById('cupon-msg');
+  if (!codigo) return;
+  msg.style.display = 'none';
+  try {
+    const res  = await fetch('/tienda/carrito/validar-cupon', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({codigo}),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      // Recargar para mostrar el estado del cupón aplicado
+      location.reload();
+    } else {
+      msg.textContent = '⚠️ ' + data.error;
+      msg.style.color = '#c00';
+      msg.style.display = 'block';
+    }
+  } catch(e) {
+    msg.textContent = 'Error de conexión';
+    msg.style.display = 'block';
+  }
+}
+
+async function quitarCupon() {
+  await fetch('/tienda/carrito/quitar-cupon', {method:'POST', headers:{'Content-Type':'application/json'}});
+  location.reload();
+}
+
+// Enter en campo cupón
+document.getElementById('input-cupon')?.addEventListener('keydown', e => { if (e.key === 'Enter') aplicarCupon(); });
+
+// ── GA4: begin_checkout ───────────────────────────────────────────────────────
+{% if ga4_items is defined and ga4_items %}
+(function() {
+  if (typeof gtag === 'function') {
+    gtag('event', 'begin_checkout', {
+      currency: 'ARS',
+      value:    {{ ga4_value | default(0) }},
+      items:    {{ ga4_items | tojson }}
+    });
+  }
+})();
+{% endif %}
+</script>
+
+{% endblock %}

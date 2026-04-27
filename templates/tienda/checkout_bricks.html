@@ -1,0 +1,570 @@
+{% set url_carrito = url_for('tienda.ver_carrito') %}
+{% extends 'tienda/base.html' %}
+{% block titulo %}Pago seguro — Mercadomuebles{% endblock %}
+
+{% block contenido %}
+<div style="max-width:600px; margin:40px auto; padding:0 16px 60px;">
+
+  <h2 style="font-size:1.4rem; font-weight:700; color:#1a1a2e; margin-bottom:8px;">Completá tu pago</h2>
+  <p style="color:#666; margin-bottom:24px; font-size:0.95rem;">Pagá de forma segura sin salir de Mercadomuebles.</p>
+
+  <!-- Resumen del pedido -->
+  <div style="background:#f8f8f8; border-radius:10px; padding:16px 20px; margin-bottom:24px;">
+    <div style="font-size:0.78rem; font-weight:700; color:#888; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:10px;">Resumen</div>
+    {% for item in items %}
+    <div style="display:flex; justify-content:space-between; padding:3px 0; font-size:0.92rem;">
+      <span>{{ item.quantity }}x {{ item.title }}</span>
+      <span style="font-weight:600;">${{ "{:,.0f}".format((item.unit_price * item.quantity) | int).replace(',', '.') }}</span>
+    </div>
+    {% endfor %}
+    <hr style="margin:10px 0; border:none; border-top:1px solid #ddd;">
+    <div style="display:flex; justify-content:space-between; font-weight:700; font-size:1.05rem;">
+      <span>Total</span>
+      <span>${{ "{:,.0f}".format(total | int).replace(',', '.') }}</span>
+    </div>
+    {% if cliente.nombre %}
+    <div style="margin-top:8px; font-size:0.82rem; color:#666;">
+      {{ cliente.nombre }}
+      {% if cliente.tipo_entrega == 'retiro' %} · Retiro en local
+      {% elif cliente.direccion %} · {{ cliente.direccion }}{% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  {% if total and total | float > 1000000 %}
+  <!-- Aviso pago en efectivo no disponible > $1M -->
+  <div style="background:#fff8e1; border:1px solid #ffc107; border-left:4px solid #ffc107; color:#6b4e00; padding:12px 14px; border-radius:8px; margin-bottom:20px; font-size:0.88rem; line-height:1.4;">
+    <strong>⚠️ Atención:</strong> Para compras superiores a $1.000.000, MercadoPago <strong>no permite pagos en efectivo</strong> (Rapipago, Pago Fácil). Usá tarjeta de crédito, débito, transferencia o dinero en cuenta MP.
+  </div>
+  {% endif %}
+
+  <!-- Selector de método de pago -->
+  <div style="margin-bottom:24px;">
+    <div style="font-size:0.88rem; font-weight:700; color:#444; margin-bottom:12px;">Como queres pagar?</div>
+    <div style="display:flex; flex-direction:column; gap:10px;">
+
+      <!-- Opcion MP Wallet (solo desktop) -->
+      <label id="opt-mp-wallet" onclick="seleccionarMetodo('mp-wallet')"
+        style="display:flex; align-items:center; gap:14px; border:2px solid #ddd; border-radius:10px; padding:14px 16px; cursor:pointer; background:#fff; color:#333; transition:all 0.2s;">
+        <input type="radio" name="metodo_pago" value="mp-wallet" style="display:none;">
+        <span class="card-icon" style="font-size:1.3rem; color:#009ee3;">💼</span>
+        <div>
+          <div style="font-weight:700; font-size:0.95rem;">Pagar con cuenta Mercado Pago</div>
+          <div class="card-sub" style="font-size:0.78rem; color:#888;">Dinero en cuenta, tarjetas guardadas, cuotas sin interés</div>
+        </div>
+      </label>
+
+      <!-- Opcion MP -->
+      <label id="opt-mp" onclick="seleccionarMetodo('mp')"
+        style="display:flex; align-items:center; gap:14px; border:2px solid #ddd; border-radius:10px; padding:14px 16px; cursor:pointer; background:#fff; color:#333; transition:all 0.2s;">
+        <input type="radio" name="metodo_pago" value="mp" style="display:none;">
+        <span class="card-icon" style="font-size:1.4rem; color:#009ee3;">💳</span>
+        <div>
+          <div style="font-weight:700; font-size:0.95rem;">MercadoPago</div>
+          <div class="card-sub" style="font-size:0.78rem; color:#888;">Debito, credito, QR{% if not (total and total | float > 1000000) %}, efectivo{% endif %}, cuotas MP</div>
+        </div>
+      </label>
+
+      <!-- Opcion Payway 3 cuotas -->
+      <label id="opt-pw3" onclick="seleccionarMetodo('pw3')"
+        style="display:flex; align-items:center; gap:14px; border:2px solid #ddd; border-radius:10px; padding:14px 16px; cursor:pointer; background:#fff; color:#333; transition:all 0.2s;">
+        <input type="radio" name="metodo_pago" value="pw3" style="display:none;">
+        <span class="card-icon" style="font-size:1.4rem; color:#003087;">🏦</span>
+        <div>
+          <div style="font-weight:700; font-size:0.95rem;">3 cuotas de {{ cuota_3_fmt }}</div>
+          <div class="card-sub" style="font-size:0.78rem; color:#888;">Total {{ total_3_fmt }} · Visa, Mastercard, Amex, Cabal (bancarias)</div>
+        </div>
+      </label>
+
+      <!-- Opcion Payway 6 cuotas -->
+      <label id="opt-pw6" onclick="seleccionarMetodo('pw6')"
+        style="display:flex; align-items:center; gap:14px; border:2px solid #ddd; border-radius:10px; padding:14px 16px; cursor:pointer; background:#fff; color:#333; transition:all 0.2s;">
+        <input type="radio" name="metodo_pago" value="pw6" style="display:none;">
+        <span class="card-icon" style="font-size:1.4rem; color:#003087;">🏦</span>
+        <div>
+          <div style="font-weight:700; font-size:0.95rem;">6 cuotas de {{ cuota_6_fmt }}</div>
+          <div class="card-sub" style="font-size:0.78rem; color:#888;">Total {{ total_6_fmt }} · Visa, Mastercard, Amex, Cabal (bancarias)</div>
+        </div>
+      </label>
+
+      {% if getnet_enabled %}
+      <!-- Opcion GetNet 6 cuotas Santander MiPyme -->
+      <label id="opt-getnet" onclick="seleccionarMetodo('getnet')"
+        style="display:flex; align-items:center; gap:14px; border:2px solid #ddd; border-radius:10px; padding:14px 16px; cursor:pointer; background:#fff; color:#333; transition:all 0.2s;">
+        <input type="radio" name="metodo_pago" value="getnet" style="display:none;">
+        <div class="card-icon" style="font-size:1.2rem; font-weight:800; color:#EC0000;">S</div>
+        <div>
+          <div style="font-weight:700; font-size:0.95rem;">
+            6 cuotas de {{ cuota_6_fmt }} — Santander GetNet
+          </div>
+          <div class="card-sub" style="font-size:0.78rem; color:#888;">
+            Total {{ total_6_fmt }} · Cuota Simple MiPyme · Visa, Mastercard, Amex bancarias
+          </div>
+        </div>
+      </label>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Loader MP (oculto hasta que elijan MP) -->
+  <div id="mp-loader" style="display:none; text-align:center; padding:30px 0; color:#888; font-size:0.95rem;">
+    <div style="font-size:1.5rem; margin-bottom:8px;">...</div>Cargando formulario seguro...
+  </div>
+
+  <!-- Brick de MP (oculto hasta que elijan MP) -->
+  <div id="paymentBrick_container" style="display:none;"></div>
+
+  <!-- Wallet Brick de MP (solo desktop, oculto hasta que elijan mp-wallet) -->
+  <div id="walletBrick_container" style="display:none; margin-top:16px;"></div>
+
+  <!-- Botón Checkout Pro mobile (oculto hasta que elijan MP en mobile) -->
+  <div id="mp-mobile-redirect" style="display:none; margin-top:16px;">
+    <a href="{{ mp_init_point }}"
+       style="display:flex; align-items:center; justify-content:center; gap:8px; width:100%; padding:16px; background:#009ee3; color:#fff; border:none; border-radius:10px; font-size:1rem; font-weight:700; text-decoration:none; box-sizing:border-box;">
+      Continuar con MercadoPago →
+    </a>
+    <p style="font-size:0.72rem; color:#aaa; text-align:center; margin-top:10px;">
+      Serás redirigido al checkout seguro de MercadoPago.
+    </p>
+  </div>
+
+  <!-- Formulario Payway (oculto por defecto) -->
+  <div id="payway-form-container" style="display:none;">
+    <form id="payway-form" autocomplete="off">
+
+      <!-- Tipo de tarjeta -->
+      <div style="margin-bottom:14px;">
+        <label style="display:block; font-size:0.85rem; font-weight:600; color:#444; margin-bottom:5px;">Tipo de tarjeta</label>
+        <select id="pw-card-type" style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; background:#fff;">
+          <option value="1">Visa</option>
+          <option value="104">Mastercard</option>
+          <option value="65">American Express</option>
+          <option value="63">Cabal</option>
+        </select>
+      </div>
+
+      <!-- Numero de tarjeta -->
+      <div style="margin-bottom:14px;">
+        <label style="display:block; font-size:0.85rem; font-weight:600; color:#444; margin-bottom:5px;">Numero de tarjeta</label>
+        <input type="text" data-decidir="card_number" id="pw-card-number" maxlength="19"
+          placeholder="0000 0000 0000 0000" autocomplete="cc-number"
+          style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box; letter-spacing:1px;">
+      </div>
+
+      <!-- Vencimiento y CVV -->
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:14px;">
+        <div>
+          <label style="display:block; font-size:0.85rem; font-weight:600; color:#444; margin-bottom:5px;">Mes</label>
+          <input type="text" data-decidir="card_expiration_month" maxlength="2" placeholder="MM"
+            style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+        </div>
+        <div>
+          <label style="display:block; font-size:0.85rem; font-weight:600; color:#444; margin-bottom:5px;">Año</label>
+          <input type="text" data-decidir="card_expiration_year" maxlength="2" placeholder="AA"
+            style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+        </div>
+        <div>
+          <label style="display:block; font-size:0.85rem; font-weight:600; color:#444; margin-bottom:5px;">CVV</label>
+          <input type="text" data-decidir="security_code" maxlength="4" placeholder="123"
+            style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+        </div>
+      </div>
+
+      <!-- Titular -->
+      <div style="margin-bottom:14px;">
+        <label style="display:block; font-size:0.85rem; font-weight:600; color:#444; margin-bottom:5px;">Nombre del titular (como figura en la tarjeta)</label>
+        <input type="text" data-decidir="card_holder_name" placeholder="JUAN GARCIA"
+          style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box; text-transform:uppercase;">
+      </div>
+
+      <!-- DNI -->
+      <div style="display:grid; grid-template-columns:auto 1fr; gap:12px; margin-bottom:20px;">
+        <div>
+          <label style="display:block; font-size:0.85rem; font-weight:600; color:#444; margin-bottom:5px;">Tipo doc.</label>
+          <select data-decidir="card_holder_doc_type"
+            style="padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; background:#fff;">
+            <option value="dni">DNI</option>
+            <option value="cuil">CUIL</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block; font-size:0.85rem; font-weight:600; color:#444; margin-bottom:5px;">Numero de documento</label>
+          <input type="text" data-decidir="card_holder_doc_number" maxlength="11" placeholder="12345678"
+            style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+        </div>
+      </div>
+
+      <!-- Mensaje de error -->
+      <div id="pw-error" style="display:none; background:#fff0f0; border:1px solid #fcc; border-radius:8px; padding:12px 16px; margin-bottom:16px; font-size:0.88rem; color:#c00;"></div>
+
+      <!-- Boton pagar -->
+      <button type="submit" id="pw-btn"
+        style="width:100%; padding:16px; background:#1a1a2e; color:#fff; border:none; border-radius:10px; font-size:1rem; font-weight:700; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;">
+        <span>🔒</span> <span id="pw-btn-text">Pagar</span>
+      </button>
+
+      <p style="font-size:0.72rem; color:#aaa; text-align:center; margin-top:10px;">
+        Transaccion procesada por Payway. Tus datos estan protegidos.
+      </p>
+    </form>
+  </div>
+
+  {% if getnet_enabled %}
+  <!-- Sección GetNet (oculta por defecto) -->
+  <div id="getnet-section" style="display:none; text-align:center; padding:24px 0;">
+    <div id="getnet-loader" style="color:#888; font-size:0.95rem;">
+      <div style="font-size:1.5rem; margin-bottom:8px;">⏳</div>
+      Preparando pago seguro con Santander GetNet...
+    </div>
+    <div id="getnet-error" style="display:none; color:#dc2626; background:#fef2f2;
+         border:1px solid #fecaca; border-radius:8px; padding:12px; margin-top:12px;"></div>
+  </div>
+  {% endif %}
+
+  <!-- Volver al carrito -->
+  <div style="text-align:center; margin-top:24px;">
+    <a href="{{ url_carrito }}" style="font-size:0.85rem; color:#888; text-decoration:none;">Volver al carrito</a>
+  </div>
+
+</div>
+
+<!-- SDK Payway JS -->
+<!-- CyberSource Device Fingerprint (requerido por Payway antifraude) -->
+<script>
+var TMXSESSIONID = 'mmu-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+</script>
+<script src="https://h.online-metrix.net/fp/tags.js?org_id=k8vif92e&session_id=mercadomuebles" async></script>
+<noscript>
+  <iframe style="width:100px;height:100px;border:0;position:absolute;top:-5000px;"
+    src="https://h.online-metrix.net/fp/tags?org_id=k8vif92e&session_id=mercadomuebles"></iframe>
+</noscript>
+
+<!-- SDK MercadoPago -->
+<script src="https://sdk.mercadopago.com/js/v2"></script>
+
+<script>
+var metodoActual = '';  // ninguna opcion preseleccionada
+var mpBrickCreado = false;
+var walletBrickCreado = false;
+var bricksBuilder = null;
+var isMobile = window.innerWidth < 768;
+var urlCarrito = "{{ url_carrito }}";
+var paywayPublicKey = "{{ payway_public_key }}";
+var totalPW3 = {{ total_pw_3 | int }};
+var totalPW6 = {{ total_pw_6 | int }};
+var getnetCreando = false;
+
+// Colores de marca por método de pago (border, bg de la card seleccionada y color del ícono sin seleccionar)
+var cardColors = {
+  'mp-wallet': { border: '#009ee3', bg: '#009ee3' },
+  'mp':        { border: '#009ee3', bg: '#009ee3' },
+  'pw3':       { border: '#003087', bg: '#003087' },
+  'pw6':       { border: '#003087', bg: '#003087' },
+  'getnet':    { border: '#EC0000', bg: '#EC0000' },
+};
+
+var cardIds = ['opt-mp-wallet', 'opt-mp', 'opt-pw3', 'opt-pw6', 'opt-getnet'];
+
+// ── Selector de método ────────────────────────────────────────────────────────
+function seleccionarMetodo(metodo) {
+  // En mobile, MP redirige directo a Checkout Pro (no se renderiza el Brick)
+  if (metodo === 'mp' && isMobile) {
+    window.location.href = "{{ mp_init_point }}";
+    return;
+  }
+
+  metodoActual = metodo;
+
+  // Resaltar card seleccionada con color de marca; resto en estado neutro
+  cardIds.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var key  = id.replace('opt-', '');
+    var c    = cardColors[key];
+    var icon = el.querySelector('.card-icon');
+    var sub  = el.querySelector('.card-sub');
+    if (key === metodo) {
+      el.style.border     = '2px solid ' + c.border;
+      el.style.background = c.bg;
+      el.style.color      = '#fff';
+      if (icon) icon.style.color = '#fff';
+      if (sub)  sub.style.color  = 'rgba(255,255,255,0.8)';
+    } else {
+      el.style.border     = '2px solid #ddd';
+      el.style.background = '#fff';
+      el.style.color      = '#333';
+      if (icon) icon.style.color = c.bg;  // ícono toma el color de marca
+      if (sub)  sub.style.color  = '#888';
+    }
+  });
+
+  var mpSection     = document.getElementById('paymentBrick_container');
+  var mpLoader      = document.getElementById('mp-loader');
+  var pwSection     = document.getElementById('payway-form-container');
+  var gnSection     = document.getElementById('getnet-section');
+  var walletSection = document.getElementById('walletBrick_container');
+  var mobileRedir   = document.getElementById('mp-mobile-redirect');
+
+  // Ocultar todas las secciones primero
+  mpSection.style.display = 'none';
+  mpLoader.style.display  = 'none';
+  pwSection.style.display = 'none';
+  if (gnSection)     gnSection.style.display     = 'none';
+  if (walletSection) walletSection.style.display = 'none';
+  if (mobileRedir)   mobileRedir.style.display   = 'none';
+
+  if (metodo === 'mp') {
+    mpSection.style.display = 'block';
+    if (!mpBrickCreado) {
+      mpLoader.style.display = 'block';
+      initBrick();
+    }
+  } else if (metodo === 'mp-wallet') {
+    walletSection.style.display = 'block';
+    if (!walletBrickCreado) {
+      initWalletBrick();
+    }
+  } else if (metodo === 'getnet') {
+    iniciarGetNet();
+  } else {
+    pwSection.style.display = 'block';
+    // Actualizar texto del boton segun cuotas
+    var cuotas = metodo === 'pw3' ? 3 : 6;
+    var total  = metodo === 'pw3' ? totalPW3 : totalPW6;
+    var cuota  = Math.round(total / cuotas);
+    document.getElementById('pw-btn-text').textContent =
+      'Pagar ' + cuotas + ' cuotas de $' + cuota.toLocaleString('es-AR');
+  }
+}
+
+// ── GetNet: pedir payment-intent y redirigir ──────────────────────────────────
+function iniciarGetNet() {
+  var section = document.getElementById('getnet-section');
+  var loader  = document.getElementById('getnet-loader');
+  var errDiv  = document.getElementById('getnet-error');
+  if (!section) return;
+  section.style.display = 'block';
+  if (loader) loader.style.display = 'block';
+  if (errDiv) { errDiv.style.display = 'none'; errDiv.textContent = ''; }
+
+  if (getnetCreando) return;  // evitar dobles fetches si re-clickean
+  getnetCreando = true;
+
+  fetch('/tienda/pago/getnet/crear', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' }
+  })
+  .then(function(res) { return res.json().then(function(d) { return { ok: res.ok, data: d }; }); })
+  .then(function(r) {
+    if (r.ok && r.data.redirect_url) {
+      window.location.href = r.data.redirect_url;
+    } else {
+      throw new Error((r.data && r.data.error) || 'No se pudo iniciar el pago.');
+    }
+  })
+  .catch(function(err) {
+    console.error('[GetNet]', err);
+    getnetCreando = false;
+    if (loader) loader.style.display = 'none';
+    if (errDiv) {
+      errDiv.textContent   = err.message || 'No se pudo iniciar el pago con GetNet. Intentá con otro método.';
+      errDiv.style.display = 'block';
+    }
+  });
+}
+
+// ── MercadoPago Bricks ────────────────────────────────────────────────────────
+function getBricksBuilder() {
+  if (!bricksBuilder) {
+    var mp = new MercadoPago("{{ mp_public_key }}", { locale: 'es-AR' });
+    bricksBuilder = mp.bricks();
+  }
+  return bricksBuilder;
+}
+
+async function initBrick() {
+  if (mpBrickCreado) return;
+  mpBrickCreado = true;
+  var builder = getBricksBuilder();
+  var settings = {
+    initialization: {
+      amount: {{ total | int }},
+      preferenceId: "{{ preference_id }}"
+    },
+    customization: {
+      paymentMethods: { creditCard: 'all', debitCard: 'all', ticket: 'all', mercadoPago: 'all' },
+      visual: {
+        style: { theme: 'default', customVariables: { baseColor: '#1a1a2e', buttonTextColor: '#ffffff', borderRadiusLarge: '10px', borderRadiusMedium: '8px' } },
+        hideFormTitle: true
+      }
+    },
+    callbacks: {
+      onReady: function() { document.getElementById('mp-loader').style.display = 'none'; },
+      onSubmit: function(params) {
+        var formData = params.formData;
+        return new Promise(function(resolve, reject) {
+          fetch('/tienda/pago/ejecutar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+          })
+          .then(function(res) { return res.json().then(function(d) { return { ok: res.ok, data: d }; }); })
+          .then(function(r) {
+            if (r.data.redirect_url) { window.location.href = r.data.redirect_url; resolve(); }
+            else { reject(r.data); }
+          })
+          .catch(function(e) { reject(e); });
+        });
+      },
+      onError: function(error) {
+        if (error.type !== 'non_critical') {
+          document.getElementById('mp-loader').style.display = 'block';
+          document.getElementById('mp-loader').innerHTML = '<p style="color:#c00;font-size:0.9rem;">Problema al cargar el pago. <a href="' + urlCarrito + '">Volver al carrito</a>.</p>';
+        }
+      }
+    }
+  };
+  try {
+    await builder.create('payment', 'paymentBrick_container', settings);
+  } catch(e) {
+    document.getElementById('mp-loader').innerHTML = '<p style="color:#c00;font-size:0.9rem;">No se pudo inicializar. <a href="' + urlCarrito + '">Volver al carrito</a>.</p>';
+  }
+}
+
+async function initWalletBrick() {
+  if (walletBrickCreado) return;
+  walletBrickCreado = true;
+  var builder = getBricksBuilder();
+  try {
+    await builder.create('wallet', 'walletBrick_container', {
+      initialization: {
+        preferenceId: "{{ preference_id }}",
+        redirectMode: 'self'
+      },
+      customization: {
+        texts: { valueProp: 'convenience' }
+      },
+      callbacks: {
+        onReady: function() {},
+        onError: function(error) { console.error('[WalletBrick]', error); }
+      }
+    });
+  } catch(e) {
+    walletBrickCreado = false;
+    document.getElementById('walletBrick_container').innerHTML =
+      '<p style="color:#c00;font-size:0.9rem;">No se pudo cargar. <a href="' + urlCarrito + '">Volver al carrito</a>.</p>';
+  }
+}
+
+// ── Payway tokenizacion via fetch directo (sin addEvent del SDK) ─────────────
+// No usamos decidir.createToken(form, cb) porque el SDK usa addEvent internamente
+// y falla en browsers modernos. En cambio tokenizamos con fetch directo a la API.
+
+document.getElementById('pw-btn').addEventListener('click', function(e) {
+  e.preventDefault();
+  var btn     = document.getElementById('pw-btn');
+  var btnText = document.getElementById('pw-btn-text');
+  var errDiv  = document.getElementById('pw-error');
+
+  // Leer valores del form
+  var cardNumber = document.getElementById('pw-card-number').value.replace(/\s/g, '');
+  var expMonth   = document.querySelector('[data-decidir="card_expiration_month"]').value.trim();
+  var expYear    = document.querySelector('[data-decidir="card_expiration_year"]').value.trim();
+  var cvv        = document.querySelector('[data-decidir="security_code"]').value.trim();
+  var holderName = document.querySelector('[data-decidir="card_holder_name"]').value.trim();
+  var docType    = document.querySelector('[data-decidir="card_holder_doc_type"]').value.trim();
+  var docNumber  = document.querySelector('[data-decidir="card_holder_doc_number"]').value.trim();
+
+  // Validaciones basicas
+  if (!cardNumber || cardNumber.length < 15) {
+    errDiv.textContent = 'Ingresa el numero de tarjeta completo.';
+    errDiv.style.display = 'block'; return;
+  }
+  if (!expMonth || !expYear) {
+    errDiv.textContent = 'Ingresa la fecha de vencimiento.';
+    errDiv.style.display = 'block'; return;
+  }
+  if (!holderName) {
+    errDiv.textContent = 'Ingresa el nombre del titular.';
+    errDiv.style.display = 'block'; return;
+  }
+
+  btn.disabled = true;
+  btnText.textContent = 'Procesando...';
+  errDiv.style.display = 'none';
+
+  var bin    = cardNumber.substring(0, 6);
+  var pmId   = parseInt(document.getElementById('pw-card-type').value);
+  var cuotas = metodoActual === 'pw3' ? 3 : 6;
+
+  // Tokenizar directamente contra la API de Payway
+  var tokenBody = {
+    card_number:            cardNumber,
+    card_expiration_month:  expMonth,
+    card_expiration_year:   expYear,
+    security_code:          cvv,
+    card_holder_name:       holderName,
+    card_holder_identification: { type: docType, number: docNumber }
+  };
+
+  // Tokenizamos via nuestro proxy Flask (CORS impide llamar directo a Payway desde el browser)
+  fetch('/tienda/pago/payway/token', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(tokenBody)
+  })
+  .then(function(res) { return res.json().then(function(d) { return { status: res.status, data: d }; }); })
+  .then(function(r) {
+    if (r.status !== 200 && r.status !== 201) {
+      throw new Error(r.data.error_type || 'token_error');
+    }
+    var token = r.data.id;
+    // Enviar token al backend Flask
+    return fetch('/tienda/pago/payway', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        token:                 token,
+        payment_method_id:     pmId,
+        bin:                   bin,
+        installments:          cuotas,
+        device_fingerprint_id: typeof TMXSESSIONID !== 'undefined' ? TMXSESSIONID : ''
+      })
+    }).then(function(res2) { return res2.json().then(function(d) { return { status: res2.status, data: d }; }); });
+  })
+  .then(function(r) {
+    if (r.data.redirect_url) {
+      window.location.href = r.data.redirect_url;
+    } else {
+      throw new Error('sin redirect_url');
+    }
+  })
+  .catch(function(err) {
+    console.error('[Payway error]', err);
+    var msg = 'El pago fue rechazado. Verifica los datos o intenta con otra tarjeta.';
+    if (err.message && err.message.indexOf('invalid_card') !== -1) msg = 'Numero de tarjeta invalido.';
+    if (err.message && err.message.indexOf('invalid_expiry') !== -1) msg = 'Fecha de vencimiento incorrecta.';
+    errDiv.textContent   = msg;
+    errDiv.style.display = 'block';
+    btn.disabled         = false;
+    var c = metodoActual === 'pw3' ? 3 : 6;
+    var t = metodoActual === 'pw3' ? totalPW3 : totalPW6;
+    btnText.textContent = 'Pagar ' + c + ' cuotas de $' + Math.round(t/c).toLocaleString('es-AR');
+  });
+});
+
+// No precargar ningun metodo — el usuario debe elegir
+
+// En mobile: ocultar la card de Wallet (solo se muestra en desktop)
+if (isMobile) {
+  var optWallet = document.getElementById('opt-mp-wallet');
+  if (optWallet) optWallet.style.display = 'none';
+}
+
+// Formateo automatico del numero de tarjeta
+document.getElementById('pw-card-number').addEventListener('input', function() {
+  var v = this.value.replace(/\D/g,'').substring(0,16);
+  this.value = v.replace(/(.{4})/g,'$1 ').trim();
+});
+</script>
+{% endblock %}

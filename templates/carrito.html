@@ -1,0 +1,192 @@
+{% extends 'tienda/base.html' %}
+
+{% block titulo %}Carrito – Mercadomuebles{% endblock %}
+
+{% block contenido %}
+<div class="container my-5">
+  <h2 class="mb-4">Tu carrito</h2>
+
+  {% if not carrito %}
+    <div class="alert alert-info">
+      Tu carrito está vacío.
+      <a href="{{ url_for('tienda.home') }}" class="alert-link">Ver productos</a>
+    </div>
+  {% else %}
+
+  <div class="row g-4">
+    <!-- Tabla de items -->
+    <div class="col-lg-8">
+      <div class="card shadow-sm">
+        <div class="card-body p-0">
+          <table class="table mb-0 align-middle">
+            <thead class="table-light">
+              <tr>
+                <th class="ps-3">Producto</th>
+                <th class="text-center">Cant.</th>
+                <th class="text-end">Precio</th>
+                <th class="text-end">Subtotal</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in carrito %}
+              <tr>
+                <td class="ps-3">
+                  <strong>{{ item.nombre }}</strong>
+                  <div class="text-muted small">SKU: {{ item.sku }}</div>
+                </td>
+                <td class="text-center">{{ item.cantidad }}</td>
+                <td class="text-end">${{ "{:,.0f}".format(item.precio).replace(',', '.') }}</td>
+                <td class="text-end">${{ "{:,.0f}".format(item.precio * item.cantidad).replace(',', '.') }}</td>
+                <td class="text-end pe-3">
+                  <button class="btn btn-sm btn-outline-danger btn-eliminar" data-sku="{{ item.sku }}">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="mt-3 d-flex gap-2">
+        <a href="{{ url_for('tienda.home') }}" class="btn btn-outline-secondary btn-sm">
+          ← Seguir comprando
+        </a>
+        <form method="POST" action="{{ url_for('tienda.vaciar_carrito') }}" class="m-0">
+          <button type="submit" class="btn btn-outline-danger btn-sm">Vaciar carrito</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Panel resumen + envío -->
+    <div class="col-lg-4">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h5 class="card-title mb-3">Resumen</h5>
+
+          <div class="d-flex justify-content-between mb-2">
+            <span>Productos</span>
+            <strong>${{ subtotal_fmt }}</strong>
+          </div>
+
+          <!-- ── Widget cotización Zipnova ── -->
+          {% if shipping_tipo == 'zipnova' %}
+          <hr>
+          <div id="bloque-zipnova">
+            <p class="small text-muted mb-2">
+              <i class="bi bi-truck"></i> Este pedido se entrega con flete a domicilio.
+              Ingresá tu código postal para ver el costo.
+            </p>
+            <div class="input-group input-group-sm mb-2">
+              <input type="text" id="input-cp" class="form-control" placeholder="Código postal" maxlength="8" inputmode="numeric">
+              <input type="text" id="input-ciudad" class="form-control" placeholder="Ciudad">
+              <button class="btn btn-outline-primary" id="btn-cotizar" type="button">Cotizar</button>
+            </div>
+            <div id="resultado-cotizacion" class="small"></div>
+          </div>
+          {% elif shipping_tipo == 'me2_paid' %}
+          <hr>
+          <div class="d-flex justify-content-between mb-2 text-muted small">
+            <span><i class="bi bi-truck"></i> Envío</span>
+            <span>A calcular por Correo Argentino</span>
+          </div>
+          {% endif %}
+
+          <hr>
+          <div class="d-flex justify-content-between mb-3">
+            <strong>Total</strong>
+            <strong id="total-display">${{ subtotal_fmt }}</strong>
+          </div>
+
+          <a href="{{ url_for('tienda.datos_envio') }}" class="btn btn-success w-100" id="btn-continuar">
+            Continuar con la compra
+          </a>
+
+          {% if shipping_tipo == 'zipnova' %}
+          <p class="text-muted small mt-2 mb-0" id="aviso-cotizacion">
+            * Podés continuar sin cotizar y el flete se calcula en el siguiente paso.
+          </p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% endif %}
+</div>
+
+<script>
+// ── Eliminar item ─────────────────────────────────────────────────────────────
+document.querySelectorAll('.btn-eliminar').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const sku = btn.dataset.sku;
+    const res = await fetch('{{ url_for("tienda.eliminar_carrito") }}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({sku}),
+    });
+    if (res.ok) location.reload();
+  });
+});
+
+// ── Cotizador Zipnova ─────────────────────────────────────────────────────────
+const btnCotizar   = document.getElementById('btn-cotizar');
+const inputCp      = document.getElementById('input-cp');
+const inputCiudad  = document.getElementById('input-ciudad');
+const resultadoDiv = document.getElementById('resultado-cotizacion');
+const totalDisplay = document.getElementById('total-display');
+const subtotalBase = {{ subtotal }};
+const totalSinFlete = {{ total }};
+
+if (btnCotizar) {
+  btnCotizar.addEventListener('click', async () => {
+    const cp     = inputCp.value.trim();
+    const ciudad = inputCiudad.value.trim();
+    if (!cp) { inputCp.focus(); return; }
+
+    btnCotizar.disabled = true;
+    btnCotizar.textContent = '...';
+    resultadoDiv.innerHTML = '<span class="text-muted">Consultando...</span>';
+
+    try {
+      const res = await fetch('{{ url_for("tienda.cotizar_envio") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({cp, ciudad, provincia: 'Buenos Aires'}),
+      });
+      const data = await res.json();
+
+      if (data.ok) {
+        const totalConFlete = totalSinFlete + data.precio;
+        const fmtTotal = '$ ' + totalConFlete.toLocaleString('es-AR', {maximumFractionDigits: 0});
+        totalDisplay.textContent = fmtTotal;
+
+        resultadoDiv.innerHTML = `
+          <div class="alert alert-success py-2 px-3 mb-0">
+            <strong>Envío: ${data.precio_fmt}</strong>
+            ${data.dias ? `<br><small>Entrega estimada: ${data.dias} días hábiles</small>` : ''}
+            ${data.carrier ? `<br><small>Transportista: ${data.carrier}</small>` : ''}
+            <br><small class="text-muted">${data.bultos} bulto${data.bultos > 1 ? 's' : ''}</small>
+          </div>`;
+
+        document.getElementById('aviso-cotizacion') && (document.getElementById('aviso-cotizacion').style.display = 'none');
+      } else {
+        resultadoDiv.innerHTML = `<div class="alert alert-warning py-2 px-3 mb-0">${data.error || 'Error al cotizar'}</div>`;
+      }
+    } catch(e) {
+      resultadoDiv.innerHTML = '<div class="alert alert-danger py-2 px-3 mb-0">Error de conexión</div>';
+    } finally {
+      btnCotizar.disabled = false;
+      btnCotizar.textContent = 'Cotizar';
+    }
+  });
+
+  [inputCp, inputCiudad].forEach(el => {
+    el && el.addEventListener('keydown', e => { if (e.key === 'Enter') btnCotizar.click(); });
+  });
+}
+</script>
+
+{% endblock %}

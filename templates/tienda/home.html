@@ -1,0 +1,708 @@
+{% extends "tienda/base.html" %}
+
+{% block titulo %}Colchones Cannon — Distribuidores oficiales en Buenos Aires | Mercadomuebles{% endblock %}
+
+{% block contenido %}
+<meta name="description" content="Comprá colchones y sommiers Cannon en Mercadomuebles. Distribuidores oficiales en Buenos Aires. Línea Espuma, Resortes y Colchón en Caja. Hasta 12 cuotas. Envíos a todo el país.">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://www.mercadomuebles.com.ar/tienda/">
+<meta property="og:title" content="Colchones Cannon — Mercadomuebles">
+<meta property="og:description" content="Distribuidores oficiales Cannon en Buenos Aires. Espuma, Resortes y Colchón en Caja. Hasta 12 cuotas.">
+<meta property="og:url" content="https://www.mercadomuebles.com.ar/tienda/">
+<meta property="og:type" content="website">
+
+<style>
+/* ── TICKER ── */
+.ticker-wrap { display:none; } /* El ticker está en base.html */
+
+/* ── SECCIONES HOME ── */
+.home-section { max-width:1400px; margin:0 auto; padding:44px 24px 8px; }
+.home-section-hdr { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:6px; }
+.home-section-title { font-size:1.35rem; font-weight:800; color:#1a1a2e; margin:0; letter-spacing:-0.5px; }
+.home-section-link { font-size:0.82rem; color:#1a7fe8; text-decoration:none; font-weight:600; }
+.home-section-link:hover { text-decoration:underline; }
+.home-section-sub { font-size:0.85rem; color:#999; margin:0 0 22px; }
+
+/* ── CARRUSEL ── */
+.carousel-wrap { position:relative; margin:0 -4px; }
+.carousel-track-outer { overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding:4px 4px 12px; scroll-snap-type:x mandatory; }
+.carousel-track-outer::-webkit-scrollbar { display:none; }
+.carousel-track { display:flex; gap:16px; width:max-content; }
+.carousel-track .product-card { flex:0 0 300px; min-width:300px; scroll-snap-align:start; }
+@media(max-width:900px){ .carousel-track .product-card { flex:0 0 260px; min-width:260px; } }
+@media(max-width:520px){ .carousel-track .product-card { flex:0 0 82vw; min-width:82vw; } }
+.carousel-btn { position:absolute; top:50%; transform:translateY(-50%);
+  width:38px; height:38px; border-radius:50%; border:1px solid #ddd;
+  background:#fff; cursor:pointer; font-size:1.2rem; display:flex;
+  align-items:center; justify-content:center; z-index:2;
+  box-shadow:0 2px 8px rgba(0,0,0,0.1); transition:all 0.2s; }
+.carousel-btn:hover { background:#1a1a2e; color:#fff; border-color:#1a1a2e; }
+.carousel-btn.prev { left:-18px; }
+.carousel-btn.next { right:-18px; }
+.carousel-btn:disabled { opacity:0.3; cursor:default; }
+@media(max-width:600px){ .carousel-btn { display:none; } }
+
+/* ── FILTROS MOBILE — drawer contenido ── */
+@media(max-width:768px) {
+  #sidebar-filtros { overflow:hidden; max-height:52px; transition:max-height 0.3s ease; border-radius:10px; }
+  #sidebar-filtros.open { max-height:70vh; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  /* El form dentro debe ser scrolleable, no el body */
+  #sidebar-filtros.open > form { padding-bottom:20px; }
+}
+
+/* ── FIX DOUBLE-TAP en links de productos ── */
+.product-name, .btn-add, .product-img-link { touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+
+/* ── BADGE OFERTA ── */
+.offer-badge { position:absolute; top:10px; right:10px; background:#e74c3c; color:#fff;
+  font-size:0.7rem; font-weight:800; padding:4px 9px; border-radius:20px; z-index:2;
+  letter-spacing:0.6px; box-shadow:0 2px 6px rgba(231,76,60,0.4); }
+.price-row { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+.price-original { text-decoration:line-through; color:#bbb; font-size:0.8rem; font-weight:400; }
+.price-oferta { color:#e74c3c; font-weight:800; font-size:1.05rem; }
+
+/* ── OFERTAS BG ── */
+.ofertas-wrap { background:linear-gradient(180deg,#fff5f5 0%,#fff 100%); }
+
+/* ── CATEGORY CARDS ── */
+.cat-section { max-width:1400px; margin:0 auto; padding:8px 24px 44px; }
+.cat-cards { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+@media(max-width:700px){ .cat-cards{grid-template-columns:1fr 1fr} }
+@media(max-width:420px){ .cat-cards{grid-template-columns:1fr} }
+.cat-card { position:relative; border-radius:14px; overflow:hidden; height:210px;
+  cursor:pointer; text-decoration:none; display:block; }
+.cat-card-bg { position:absolute; inset:0; background-size:cover; background-position:center;
+  transition:transform 0.4s ease; }
+.cat-card:hover .cat-card-bg { transform:scale(1.05); }
+.cat-card-overlay { position:absolute; inset:0;
+  background:linear-gradient(to top, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.15) 60%, transparent 100%); }
+.cat-card-text { position:absolute; bottom:0; left:0; right:0; padding:18px 20px; color:#fff; }
+.cat-card-label { font-size:0.68rem; font-weight:700; letter-spacing:2.5px;
+  text-transform:uppercase; opacity:0.75; margin:0 0 3px; }
+.cat-card-title { font-size:1.45rem; font-weight:800; margin:0 0 6px; line-height:1.1; }
+.cat-card-cta { font-size:0.78rem; opacity:0.85; display:flex; align-items:center; gap:5px; }
+
+/* ── TRUST BANNER ── */
+.trust-banner-v2 { background:#f5f7fb; border-top:1px solid #e4e8f0; border-bottom:1px solid #e4e8f0; }
+.trust-banner-inner { max-width:1100px; margin:0 auto; padding:36px 24px;
+  display:grid; grid-template-columns:repeat(5,1fr); gap:20px; text-align:center; }
+@media(max-width:860px){ .trust-banner-inner{grid-template-columns:repeat(3,1fr)} }
+@media(max-width:480px){ .trust-banner-inner{grid-template-columns:1fr 1fr} }
+.trust-item-v2 { display:flex; flex-direction:column; align-items:center; gap:10px; }
+.trust-icon-v2 { width:42px; height:42px; color:#1a1a2e; }
+.trust-title-v2 { font-size:0.75rem; font-weight:800; color:#1a1a2e;
+  text-transform:uppercase; letter-spacing:0.6px; margin:0; line-height:1.3; }
+.trust-desc-v2 { font-size:0.72rem; color:#777; margin:0; }
+
+/* ── SEPARADOR CATÁLOGO ── */
+.catalogo-header { max-width:1400px; margin:0 auto; padding:32px 24px 0;
+  display:flex; align-items:center; gap:16px; }
+.catalogo-header h2 { font-size:1.2rem; font-weight:800; color:#1a1a2e; margin:0; }
+.catalogo-header-line { flex:1; height:1px; background:#e8e8e8; }
+</style>
+
+<!-- ── LIGHTBOX ── -->
+<div id="home-lightbox" onclick="homeLbCerrar()" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:9999; align-items:center; justify-content:center;">
+  <img id="home-lb-img" src="" style="max-width:88vw; max-height:90vh; object-fit:contain; border-radius:8px;">
+  <button onclick="event.stopPropagation(); homeLbCerrar()" style="position:fixed; top:20px; right:28px; background:none; border:none; color:#fff; font-size:40px; cursor:pointer; line-height:1;">&#215;</button>
+  <button id="home-lb-prev" onclick="event.stopPropagation(); homeLbNav(-1)" style="position:fixed; left:20px; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.15); border:none; color:#fff; font-size:40px; cursor:pointer; border-radius:50%; width:52px; height:52px; display:flex; align-items:center; justify-content:center;">&#8249;</button>
+  <button id="home-lb-next" onclick="event.stopPropagation(); homeLbNav(1)" style="position:fixed; right:20px; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.15); border:none; color:#fff; font-size:40px; cursor:pointer; border-radius:50%; width:52px; height:52px; display:flex; align-items:center; justify-content:center;">&#8250;</button>
+  <div id="home-lb-counter" style="position:fixed; bottom:20px; left:50%; transform:translateX(-50%); color:rgba(255,255,255,0.7); font-size:13px;"></div>
+</div>
+
+<!-- ── SLIDER ── -->
+<style>
+.slider { max-height: none; }
+.slider-track, .slide { height: auto; max-height: none; }
+.slide img { width: 100%; height: auto; display: block; }
+</style>
+<section class="slider">
+  <div class="slider-track">
+    <div class="slide active">
+      <img src="/static/img/banners/banner3.png" alt="Colchones Cannon">
+    </div>
+  </div>
+  <div class="slider-dots">
+    <button class="dot active" onclick="goToSlide(0)"></button>
+  </div>
+</section>
+
+<!-- ── OFERTAS ── -->
+{% if productos_oferta %}
+<div class="ofertas-wrap">
+  <div class="home-section">
+    <div class="home-section-hdr">
+      <h2 class="home-section-title">🔥 Ofertas especiales</h2>
+      <a href="/tienda/#catalogo" class="home-section-link">Ver todo el catálogo →</a>
+    </div>
+    <p class="home-section-sub">Precios exclusivos por tiempo limitado · 8% de descuento</p>
+    <div class="carousel-wrap" style="margin-bottom:36px;">
+      <button class="carousel-btn prev" onclick="carouselMove('ofertas',-1)" id="btn-ofertas-prev" disabled>&#8249;</button>
+      <div class="carousel-track-outer">
+        <div class="carousel-track" id="track-ofertas">
+          {% for p in productos_oferta %}
+          <div class="product-card {% if p.stock == 0 and not (demora_dias and p.demora_aplica) %}sin-stock{% endif %}" style="position:relative;">
+            <span class="offer-badge">-{{ p.descuento_pct }}%</span>
+            {% if p.tipo == 'conjunto' %}<span class="badge badge-conjunto">Con Sommier</span>{% endif %}
+            <div class="product-img" data-sku="{{ p.sku_url }}" data-fotos='{{ p.fotos | tojson }}' data-idx="0">
+              <a href="/tienda/producto/{{ p.slug or p.sku_url }}" class="product-img-link">
+                <img src="{{ p.foto }}" alt="{{ p.nombre }} - Comprar en Mercadomuebles" loading="lazy" class="card-img-main">
+              </a>
+              <button class="card-arrow prev" onclick="event.stopPropagation(); cardFoto(this, -1)">&#8249;</button>
+              <button class="card-arrow next" onclick="event.stopPropagation(); cardFoto(this, 1)">&#8250;</button>
+            </div>
+            <div class="product-body">
+              <div class="product-tags">
+                <span class="product-tag tag-{{ p.linea }}">{{ linea_display.get(p.linea, p.linea) if p.linea != 'almohadas' else 'Almohada' }}</span>
+                {% if p.medida %}<span class="product-tag">{{ p.medida }}cm</span>{% endif %}
+              </div>
+              <a href="/tienda/producto/{{ p.slug or p.sku_url }}" class="product-name">{{ p.nombre }}</a>
+              <div class="product-medida">{{ p.plaza }}{% if p.tipo_label %} · {{ p.tipo_label }}{% endif %}</div>
+              <div class="product-footer">
+                <div>
+                  <div class="price-row">
+                    <span class="price-original">{{ p.precio_original_fmt }}</span>
+                    <span class="price-oferta">{{ p.precio_oferta_fmt }}</span>
+                  </div>
+                  <div class="stock-indicator">
+                    <span class="stock-dot {% if p.stock > 3 %}ok{% elif p.stock > 0 %}low{% elif demora_dias and p.demora_aplica %}low{% else %}out{% endif %}"></span>
+                    {% if p.stock > 0 %}{{ p.stock }} en stock{% elif demora_dias and p.demora_aplica %}Disponible en {{ demora_dias }} días{% else %}Sin stock{% endif %}
+                  </div>
+                </div>
+                {% if p.stock > 0 %}
+                  {% set en_carrito = carrito_dict.get(p.sku_url, 0) %}
+                  {% if en_carrito > 0 %}
+                  <button class="btn-add btn-en-carrito" disabled>✓ En carrito</button>
+                  {% else %}
+                  <button class="btn-add" id="btn-{{ p.sku_url | replace('_','-') }}"
+                    onclick="agregarCarrito('{{ p.sku_url }}', '{{ p.nombre | replace("'", "\\'") }}', {{ p.precio_oferta | int }}, 1)">+ Agregar</button>
+                  {% endif %}
+                {% else %}
+                {% if demora_dias and p.demora_aplica %}
+                <button class="btn-add" id="btn-{{ p.sku_url | replace('_','-') }}"
+                  onclick="agregarCarrito('{{ p.sku_url }}', '{{ p.nombre | replace("'", "\\'") }}', {{ p.precio }}, 1)">+ Agregar</button>
+                {% else %}
+                <button class="btn-add btn-sin-stock" disabled>Sin stock</button>
+                {% endif %}
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      <button class="carousel-btn next" onclick="carouselMove('ofertas',1)" id="btn-ofertas-next">&#8250;</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── MÁS VENDIDOS ── -->
+{% if mas_vendidos %}
+<div style="background:#fff;">
+  <div class="home-section" style="padding-bottom:32px;">
+    <div class="home-section-hdr">
+      <h2 class="home-section-title">⭐ Más vendidos</h2>
+      <a href="/tienda/#catalogo" class="home-section-link">Ver todo el catálogo →</a>
+    </div>
+    <p class="home-section-sub">Los favoritos de nuestros clientes esta semana</p>
+    <div class="carousel-wrap" style="margin-bottom:36px;">
+      <button class="carousel-btn prev" onclick="carouselMove('masvendidos',-1)" id="btn-masvendidos-prev" disabled>&#8249;</button>
+      <div class="carousel-track-outer">
+        <div class="carousel-track" id="track-masvendidos">
+          {% for p in mas_vendidos %}
+          <div class="product-card {% if p.stock == 0 and not (demora_dias and p.demora_aplica) %}sin-stock{% endif %}">
+            {% if p.descuento_catalogo %}<span class="offer-badge">-{{ p.descuento_catalogo | int }}%</span>{% endif %}
+            {% if p.tipo == 'conjunto' %}<span class="badge badge-conjunto">Con Sommier</span>{% endif %}
+            <div class="product-img" data-sku="{{ p.sku_url }}" data-fotos='{{ p.fotos | tojson }}' data-idx="0">
+              <a href="/tienda/producto/{{ p.slug or p.sku_url }}" class="product-img-link">
+                <img src="{{ p.foto }}" alt="{{ p.nombre }} - Comprar en Mercadomuebles" loading="lazy" class="card-img-main">
+              </a>
+              <button class="card-arrow prev" onclick="event.stopPropagation(); cardFoto(this, -1)">&#8249;</button>
+              <button class="card-arrow next" onclick="event.stopPropagation(); cardFoto(this, 1)">&#8250;</button>
+            </div>
+            <div class="product-body">
+              <div class="product-tags">
+                <span class="product-tag tag-{{ p.linea }}">{{ linea_display.get(p.linea, p.linea) if p.linea != 'almohadas' else 'Almohada' }}</span>
+                {% if p.medida %}<span class="product-tag">{{ p.medida }}cm</span>{% endif %}
+              </div>
+              <a href="/tienda/producto/{{ p.slug or p.sku_url }}" class="product-name">{{ p.nombre }}</a>
+              <div class="product-medida">{{ p.plaza }}{% if p.tipo_label %} · {{ p.tipo_label }}{% endif %}</div>
+              <div class="product-footer">
+                <div>
+                  {% if p.precio_original_fmt %}
+                  <div class="price-row">
+                    <span class="price-original">{{ p.precio_original_fmt }}</span>
+                    <span class="price-oferta">{{ p.precio_fmt }}</span>
+                  </div>
+                  {% else %}
+                  <div class="product-price">{{ p.precio_fmt }}</div>
+                  {% endif %}
+                  <div class="stock-indicator">
+                    <span class="stock-dot {% if p.stock > 3 %}ok{% elif p.stock > 0 %}low{% elif demora_dias and p.demora_aplica %}low{% else %}out{% endif %}"></span>
+                    {% if p.stock > 0 %}{{ p.stock }} en stock{% elif demora_dias and p.demora_aplica %}Disponible en {{ demora_dias }} días{% else %}Sin stock{% endif %}
+                  </div>
+                </div>
+                {% if p.stock > 0 %}
+                  {% set en_carrito = carrito_dict.get(p.sku_url, 0) %}
+                  {% if en_carrito > 0 %}
+                  <button class="btn-add btn-en-carrito" disabled>✓ En carrito</button>
+                  {% else %}
+                  <button class="btn-add" id="btn-{{ p.sku_url | replace('_','-') }}"
+                    onclick="agregarCarrito('{{ p.sku_url }}', '{{ p.nombre | replace("'", "\\'") }}', {{ p.precio }}, 1)">+ Agregar</button>
+                  {% endif %}
+                {% else %}
+                {% if demora_dias and p.demora_aplica %}
+                <button class="btn-add" id="btn-{{ p.sku_url | replace('_','-') }}"
+                  onclick="agregarCarrito('{{ p.sku_url }}', '{{ p.nombre | replace("'", "\\'") }}', {{ p.precio }}, 1)">+ Agregar</button>
+                {% else %}
+                <button class="btn-add btn-sin-stock" disabled>Sin stock</button>
+                {% endif %}
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      <button class="carousel-btn next" onclick="carouselMove('masvendidos',1)" id="btn-masvendidos-next">&#8250;</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if not hay_filtros %}
+<!-- ── CATEGORY CARDS ── -->
+<div class="cat-section" style="padding-top:48px;">
+  <div class="cat-cards">
+
+    <a href="/tienda/?tipo=conjunto" class="cat-card">
+      <div class="cat-card-bg" style="background-image:url('/static/img/card_sommier.png'); background-size:cover; background-position:center;"></div>
+      <div class="cat-card-overlay"></div>
+      <div class="cat-card-text">
+        <p class="cat-card-label">Colección</p>
+        <h3 class="cat-card-title">Sommier</h3>
+        <span class="cat-card-cta">Ver modelos →</span>
+      </div>
+    </a>
+
+    <a href="/tienda/?tipo=colchon" class="cat-card">
+      <div class="cat-card-bg" style="background-image:url('/static/img/card_colchon.png'); background-size:cover; background-position:center;"></div>
+      <div class="cat-card-overlay"></div>
+      <div class="cat-card-text">
+        <p class="cat-card-label">Colección</p>
+        <h3 class="cat-card-title">Colchones</h3>
+        <span class="cat-card-cta">Ver modelos →</span>
+      </div>
+    </a>
+
+    <a href="/tienda/?tipo=almohada" class="cat-card">
+      <div class="cat-card-bg" style="background-image:url('/static/img/card_almohadas.png'); background-size:cover; background-position:center;"></div>
+      <div class="cat-card-overlay"></div>
+      <div class="cat-card-text">
+        <p class="cat-card-label">Colección</p>
+        <h3 class="cat-card-title">Almohadas</h3>
+        <span class="cat-card-cta">Ver modelos →</span>
+      </div>
+    </a>
+
+  </div>
+</div>
+{% endif %}
+
+<!-- ── TRUST BANNER (se repite arriba y abajo según hay_filtros) ── -->
+
+<!-- ── CATÁLOGO COMPLETO ── -->
+<div class="catalogo-header">
+  <h2>Todos los productos</h2>
+  <div class="catalogo-header-line"></div>
+</div>
+
+<div class="main-layout" id="catalogo">
+
+  <!-- SIDEBAR FILTROS -->
+  <aside class="sidebar" id="sidebar-filtros">
+    <!-- Botón toggle solo en mobile -->
+    <button class="filtros-toggle" id="filtros-toggle" onclick="toggleFiltros()">
+      <span>🔽 Filtros</span>
+      <span class="filtros-toggle-arrow">▼</span>
+    </button>
+    <form method="GET" action="/tienda/#catalogo" id="filtros-form">
+
+      {% if busqueda %}
+        <input type="hidden" name="q" value="{{ busqueda }}">
+      {% endif %}
+
+      <h3>Filtros</h3>
+
+      <div class="filter-section">
+        <h4>Tipo de producto</h4>
+        <div class="filter-options">
+          {% for val, label in [('colchon','Solo Colchón'),('conjunto','Con Sommier'),('almohada','Almohadas'),('base','Bases')] %}
+          <label class="filter-chip {% if val in tipos_sel %}active{% endif %}">
+            <input type="checkbox" name="tipo" value="{{ val }}" {% if val in tipos_sel %}checked{% endif %} onchange="this.form.submit()"> {{ label }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="filter-divider"></div>
+
+      <div class="filter-section">
+        <h4>Línea</h4>
+        <div class="filter-options">
+          <label class="filter-chip {% if linea == '' %}active{% endif %}">
+            <input type="radio" name="linea" value="" {% if linea == '' %}checked{% endif %} onchange="this.form.submit()"> Todas
+          </label>
+          {% for l in lineas_disponibles %}
+          <label class="filter-chip {% if linea == l %}active{% endif %}">
+            <input type="radio" name="linea" value="{{ l }}" {% if linea == l %}checked{% endif %} onchange="this.form.submit()"> {{ linea_display.get(l, l) | title }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="filter-divider"></div>
+
+      <div class="filter-section">
+        <h4>Plaza</h4>
+        <div class="filter-options">
+          {% set plazas = [
+            ('1-plaza', '1 Plaza (80cm)'),
+            ('1-plaza-y-media', '1½ Plaza (90/100cm)'),
+            ('2-plazas', '2 Plazas (140/150cm)'),
+            ('queen', 'Queen Size (160cm)'),
+            ('king', 'King Size (180/200cm)'),
+          ] %}
+          {% for val, label in plazas %}
+          <label class="filter-chip {% if val in plazas_sel %}active{% endif %}">
+            <input type="checkbox" name="plaza" value="{{ val }}" {% if val in plazas_sel %}checked{% endif %} onchange="this.form.submit()"> {{ label }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="filter-divider"></div>
+
+      {% if modelos_disponibles %}
+      <div class="filter-section">
+        <h4>Modelo</h4>
+        <div class="filter-options">
+          {% for m in modelos_disponibles %}
+          <label class="filter-chip {% if m in modelos_sel %}active{% endif %}">
+            <input type="checkbox" name="modelo" value="{{ m }}" {% if m in modelos_sel %}checked{% endif %} onchange="this.form.submit()"> {{ m }}
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="filter-divider"></div>
+      <button type="button" class="clear-filters" onclick="window.location='/tienda/'">Limpiar filtros</button>
+
+    </form>
+  </aside>
+
+  <!-- PRODUCTOS -->
+  <div class="products-area">
+
+    {% if active_tags %}
+    <div class="active-filters">
+      {% for tag in active_tags %}
+        <span class="active-filter-tag">{{ tag.label }} <a href="{{ tag.url }}">×</a></span>
+      {% endfor %}
+      <a href="/tienda/" class="active-filter-clear">Limpiar todo</a>
+    </div>
+    {% endif %}
+
+    <div class="products-header">
+      <h2>Productos <span>{{ total }} resultados</span></h2>
+      <select class="sort-select" onchange="window.location='/tienda/?orden='+this.value+'{% if filter_qs %}&{{ filter_qs }}{% endif %}'">
+        <option value="precio_asc" {% if orden == 'precio_asc' %}selected{% endif %}>Menor precio</option>
+        <option value="precio_desc" {% if orden == 'precio_desc' %}selected{% endif %}>Mayor precio</option>
+        <option value="nombre_asc" {% if orden == 'nombre_asc' %}selected{% endif %}>A–Z</option>
+      </select>
+    </div>
+
+    {% if productos %}
+    <div class="products-grid">
+      {% for p in productos %}
+      <div class="product-card {% if p.stock == 0 and not (demora_dias and p.demora_aplica) %}sin-stock{% endif %}">
+        {% if p.descuento_catalogo %}<span class="offer-badge">-{{ p.descuento_catalogo | int }}%</span>{% endif %}
+        {% if p.tipo == 'conjunto' %}
+          <span class="badge badge-conjunto">Con Sommier</span>
+        {% endif %}
+        <div class="product-img" data-sku="{{ p.sku_url }}" data-fotos='{{ p.fotos | tojson }}' data-idx="0">
+          <a href="/tienda/producto/{{ p.slug or p.sku_url }}" class="product-img-link">
+            <img src="{{ p.foto }}" alt="{{ p.nombre }} - Comprar en Mercadomuebles" loading="lazy" class="card-img-main">
+          </a>
+          <button class="card-arrow prev" onclick="event.stopPropagation(); cardFoto(this, -1)">&#8249;</button>
+          <button class="card-arrow next" onclick="event.stopPropagation(); cardFoto(this, 1)">&#8250;</button>
+        </div>
+        <div class="product-body">
+          <div class="product-tags">
+            <span class="product-tag tag-{{ p.linea }}">{{ linea_display.get(p.linea, p.linea) if p.linea != 'almohadas' else 'Almohada' }}</span>
+            {% if p.medida %}<span class="product-tag">{{ p.medida }}cm</span>{% endif %}
+          </div>
+          <a href="/tienda/producto/{{ p.slug or p.sku_url }}" class="product-name">{{ p.nombre }}</a>
+          <div class="product-medida">{{ p.plaza }}{% if p.tipo_label %} · {{ p.tipo_label }}{% endif %}</div>
+          <div class="product-footer">
+            <div>
+              {% if p.precio_original_fmt %}
+              <div class="price-row">
+                <span class="price-original">{{ p.precio_original_fmt }}</span>
+                <span class="price-oferta">{{ p.precio_fmt }}</span>
+              </div>
+              {% else %}
+              <div class="product-price">{{ p.precio_fmt }}</div>
+              {% endif %}
+              <div class="stock-indicator">
+                <span class="stock-dot {% if p.stock > 3 %}ok{% elif p.stock > 0 %}low{% elif demora_dias and p.demora_aplica %}low{% else %}out{% endif %}"></span>
+                {% if p.stock > 0 %}{{ p.stock }} en stock{% elif demora_dias and p.demora_aplica %}Disponible en {{ demora_dias }} días{% else %}Sin stock{% endif %}
+              </div>
+            </div>
+            {% if p.stock > 0 %}
+              {% set en_carrito = carrito_dict.get(p.sku_url, 0) %}
+              {% if p.tipo == 'almohada' %}
+                {% if en_carrito > 0 %}
+                <div class="qty-control" id="qty-{{ p.sku_url | replace('_','-') }}"
+                  data-nombre="{{ p.nombre | replace("'", "\'") }}" data-precio="{{ p.precio }}">
+                  <button class="qty-btn" onclick="cambiarCantidad('{{ p.sku_url }}', -1, '{{ p.nombre | replace("'", "\'") }}', {{ p.precio }})">−</button>
+                  <span class="qty-num" id="qnum-{{ p.sku_url | replace('_','-') }}">{{ en_carrito }}</span>
+                  <button class="qty-btn" onclick="cambiarCantidad('{{ p.sku_url }}', +1, '{{ p.nombre | replace("'", "\'") }}', {{ p.precio }})">+</button>
+                </div>
+                {% else %}
+                <button class="btn-add" id="btn-{{ p.sku_url | replace('_','-') }}"
+                  onclick="agregarCarrito('{{ p.sku_url }}', '{{ p.nombre | replace("'", "\\'") }}', {{ p.precio }}, 1)"
+                >+ Agregar</button>
+                {% endif %}
+              {% else %}
+                {% if en_carrito > 0 %}
+                <button class="btn-add btn-en-carrito" disabled>✓ En carrito</button>
+                {% else %}
+                <button class="btn-add" id="btn-{{ p.sku_url | replace('_','-') }}"
+                  onclick="agregarCarrito('{{ p.sku_url }}', '{{ p.nombre | replace("'", "\\'") }}', {{ p.precio }}, 1)"
+                >+ Agregar</button>
+                {% endif %}
+              {% endif %}
+            {% else %}
+            {% if demora_dias and p.demora_aplica %}
+                <button class="btn-add" id="btn-{{ p.sku_url | replace('_','-') }}"
+                  onclick="agregarCarrito('{{ p.sku_url }}', '{{ p.nombre | replace("'", "\\'") }}', {{ p.precio }}, 1)">+ Agregar</button>
+                {% else %}
+                <button class="btn-add btn-sin-stock" disabled>Sin stock</button>
+                {% endif %}
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if total_paginas > 1 %}
+    <div class="pagination">
+      {% if pagina > 1 %}
+        <a href="/tienda/?pagina={{ pagina - 1 }}&orden={{ orden }}{% if filter_qs %}&{{ filter_qs }}{% endif %}" class="page-btn">‹</a>
+      {% endif %}
+      {% for p in range(1, total_paginas + 1) %}
+        <a href="/tienda/?pagina={{ p }}&orden={{ orden }}{% if filter_qs %}&{{ filter_qs }}{% endif %}" class="page-btn {% if p == pagina %}active{% endif %}">{{ p }}</a>
+      {% endfor %}
+      {% if pagina < total_paginas %}
+        <a href="/tienda/?pagina={{ pagina + 1 }}&orden={{ orden }}{% if filter_qs %}&{{ filter_qs }}{% endif %}" class="page-btn">›</a>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="no-resultados">
+      <p>No hay productos con los filtros seleccionados.</p>
+      <a href="/tienda/" class="btn-primary">Ver todos</a>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+<!-- ── TRUST BANNER ── -->
+<div class="trust-banner-v2">
+  <div class="trust-banner-inner">
+
+    <div class="trust-item-v2">
+      <svg class="trust-icon-v2" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="24" cy="24" r="20"/>
+        <path d="M24 14l2.5 7.5H34l-6.5 4.7 2.5 7.5L24 29l-6 4.2 2.5-7.5L14 21.5h7.5z"/>
+      </svg>
+      <p class="trust-title-v2">Distribuidores<br>oficiales Cannon</p>
+      <p class="trust-desc-v2">Productos 100% originales</p>
+    </div>
+
+    <div class="trust-item-v2">
+      <svg class="trust-icon-v2" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="6" y="12" width="36" height="26" rx="4"/>
+        <path d="M6 20h36"/>
+        <path d="M14 30h6M28 30h6"/>
+      </svg>
+      <p class="trust-title-v2">Hasta 12 cuotas</p>
+      <p class="trust-desc-v2">Con todas las tarjetas</p>
+    </div>
+
+    <div class="trust-item-v2">
+      <svg class="trust-icon-v2" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M24 6l-16 7v12c0 9 7 16 16 17 9-1 16-8 16-17V13z"/>
+        <polyline points="17,24 22,29 31,20"/>
+      </svg>
+      <p class="trust-title-v2">Garantía<br>5 años</p>
+      <p class="trust-desc-v2">Respaldo de fábrica Cannon</p>
+    </div>
+
+    <div class="trust-item-v2">
+      <svg class="trust-icon-v2" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 34h4l4-16 6 12 4-8 3 8h11"/>
+        <circle cx="38" cy="36" r="3"/>
+        <circle cx="14" cy="36" r="3"/>
+        <path d="M34 24l4 10"/>
+      </svg>
+      <p class="trust-title-v2">Envíos en el día<br>en CABA</p>
+      <p class="trust-desc-v2">Rápido y seguro</p>
+    </div>
+
+    <div class="trust-item-v2">
+      <svg class="trust-icon-v2" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="6" y="18" width="28" height="20" rx="2"/>
+        <path d="M34 22l8 4v12h-8"/>
+        <circle cx="14" cy="42" r="3"/>
+        <circle cx="36" cy="42" r="3"/>
+        <path d="M6 28h28"/>
+      </svg>
+      <p class="trust-title-v2">Envíos a todo<br>el país</p>
+      <p class="trust-desc-v2">Interior y zona metropolitana</p>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── Flechitas cards ──
+function cardFoto(btn, dir) {
+  const box = btn.closest('.product-img');
+  const fotos = JSON.parse(box.dataset.fotos);
+  if (fotos.length <= 1) return;
+  let idx = (parseInt(box.dataset.idx || 0) + dir + fotos.length) % fotos.length;
+  box.dataset.idx = idx;
+  box.querySelector('.card-img-main').src = fotos[idx];
+  actualizarFlechasCard(box, idx, fotos.length);
+}
+
+function actualizarFlechasCard(box, idx, total) {
+  const prev = box.querySelector('.card-arrow.prev');
+  const next = box.querySelector('.card-arrow.next');
+  if (prev) prev.style.visibility = idx === 0 ? 'hidden' : 'visible';
+  if (next) next.style.visibility = idx === total - 1 ? 'hidden' : 'visible';
+}
+
+// ── Filtros toggle mobile ──
+function toggleFiltros() {
+  const sidebar = document.getElementById('sidebar-filtros');
+  const btn = document.getElementById('filtros-toggle');
+  sidebar.classList.toggle('open');
+  btn.classList.toggle('open');
+}
+
+// ── Carruseles ──
+const carousels = {};
+
+function carouselInit(id) {
+  const track = document.getElementById('track-' + id);
+  if (!track) return;
+  const outer = track.parentElement;
+  const cards = track.querySelectorAll('.product-card');
+  const isMobile = window.innerWidth <= 600;
+  if (isMobile) {
+    // En mobile usamos scroll nativo
+    carousels[id] = { mobile: true };
+    return;
+  }
+  const visible = window.innerWidth <= 900 ? 2 : 3;
+  carousels[id] = { idx: 0, total: cards.length, visible };
+  carouselUpdate(id);
+}
+
+function carouselMove(id, dir) {
+  const c = carousels[id];
+  if (!c || c.mobile) return;
+  c.idx = Math.max(0, Math.min(c.total - c.visible, c.idx + dir));
+  carouselUpdate(id);
+}
+
+function carouselUpdate(id) {
+  const c = carousels[id];
+  if (!c || c.mobile) return;
+  const track = document.getElementById('track-' + id);
+  const card = track.querySelector('.product-card');
+  if (!card) return;
+  const gap = 16;
+  const cardW = card.offsetWidth;
+  track.style.transform = `translateX(-${c.idx * (cardW + gap)}px)`;
+  const btnPrev = document.getElementById('btn-' + id + '-prev');
+  const btnNext = document.getElementById('btn-' + id + '-next');
+  if (btnPrev) btnPrev.disabled = c.idx === 0;
+  if (btnNext) btnNext.disabled = c.idx >= c.total - c.visible;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  carouselInit('ofertas');
+  carouselInit('masvendidos');
+  document.querySelectorAll('.product-img').forEach(box => {
+    const fotos = JSON.parse(box.dataset.fotos || '[]');
+    actualizarFlechasCard(box, 0, fotos.length);
+    const img = box.querySelector('.card-img-main');
+    if (img) img.style.cursor = 'pointer';
+  });
+  // Si hay filtros activos o anchor #catalogo, hacer scroll al catálogo
+  {% if hay_filtros %}
+  const cat = document.getElementById('catalogo');
+  if (cat) {
+    const y = cat.getBoundingClientRect().top + window.scrollY - 80;
+    window.scrollTo({top: y, behavior: 'auto'});
+  }
+  {% endif %}
+  if (window.location.hash === '#catalogo') {
+    const cat = document.getElementById('catalogo');
+    if (cat) {
+      const y = cat.getBoundingClientRect().top + window.scrollY - 80;
+      window.scrollTo({top: y, behavior: 'auto'});
+    }
+  }
+});
+
+window.addEventListener('resize', () => {
+  carouselInit('ofertas');
+  carouselInit('masvendidos');
+});
+
+// ── Lightbox ──
+let homeLbFotos = [];
+let homeLbIdx   = 0;
+
+function homeLbAbrir(fotos, idx) {
+  homeLbFotos = fotos; homeLbIdx = idx;
+  homeLbMostrar();
+  document.getElementById('home-lightbox').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+function homeLbMostrar() {
+  document.getElementById('home-lb-img').src = homeLbFotos[homeLbIdx];
+  document.getElementById('home-lb-prev').style.visibility = homeLbIdx === 0 ? 'hidden' : 'visible';
+  document.getElementById('home-lb-next').style.visibility = homeLbIdx === homeLbFotos.length - 1 ? 'hidden' : 'visible';
+  document.getElementById('home-lb-counter').textContent = homeLbFotos.length > 1 ? (homeLbIdx + 1) + ' / ' + homeLbFotos.length : '';
+}
+function homeLbNav(dir) {
+  homeLbIdx = Math.max(0, Math.min(homeLbFotos.length - 1, homeLbIdx + dir));
+  homeLbMostrar();
+}
+function homeLbCerrar() {
+  document.getElementById('home-lightbox').style.display = 'none';
+  document.body.style.overflow = '';
+}
+</script>
+{% endblock %}

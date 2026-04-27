@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block titulo %}Mercadomuebles{% endblock %}</title>
+  <meta name="description" content="Distribuidores oficiales Colchones Cannon. Espuma, resortes y sommiers en todas las medidas.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/tienda.css">
+  <link rel="icon" href="/static/img/favicon.ico" type="image/x-icon">
+  <!-- Google Analytics GA4 + Google Ads -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-L445MK2QMW"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-L445MK2QMW');
+    gtag('config', 'G-PTGLH6MWVN');
+  </script>
+  <!-- Meta Pixel Code -->
+  <script>
+  !function(f,b,e,v,n,t,s)
+  {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+  n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+  if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+  n.queue=[];t=b.createElement(e);t.async=!0;
+  t.src=v;s=b.getElementsByTagName(e)[0];
+  s.parentNode.insertBefore(t,s)}(window, document,'script',
+  'https://connect.facebook.net/en_US/fbevents.js');
+  fbq('init', '5994867780529728');
+  fbq('track', 'PageView');
+  </script>
+  <noscript><img height="1" width="1" style="display:none"
+  src="https://www.facebook.com/tr?id=5994867780529728&ev=PageView&noscript=1"
+  /></noscript>
+  <!-- End Meta Pixel Code -->
+</head>
+<body>
+
+<!-- TICKER -->
+<div style="background:#1a1a2e; overflow:hidden; padding:6px 0; position:relative; z-index:200;">
+  <style>
+    .tk-inner { display:flex; width:max-content; animation:tk-move 38s linear infinite; }
+    .tk-inner:hover { animation-play-state:paused; }
+    .tk-item { white-space:nowrap; padding:0 36px; color:rgba(255,255,255,0.88); font-size:0.72rem; font-weight:600; display:inline-flex; align-items:center; gap:8px; letter-spacing:0.5px; font-family:'DM Sans',sans-serif; }
+    .tk-sep { color:rgba(255,255,255,0.2); }
+    @keyframes tk-move { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+  </style>
+  <div class="tk-inner">
+    {% set tk_items = [
+      ('🏅', 'Distribuidores oficiales Cannon'),
+      ('💳', 'Hasta 12 cuotas'),
+      ('🛡️', 'Garantía de 5 años'),
+      ('🚀', 'Envíos en el día en CABA'),
+      ('📦', 'Envíos a todo el país'),
+    ] %}
+    {% for icon, text in tk_items * 5 %}
+    <span class="tk-item">{{ icon }} {{ text }}</span>
+    <span class="tk-item tk-sep">·</span>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- HEADER -->
+<header class="site-header">
+  <div class="header-inner">
+    <button class="hamburger" id="hamburger" onclick="toggleMobileNav()" aria-label="Menú">
+      <span></span><span></span><span></span>
+    </button>
+    <a href="/tienda/" class="site-logo">
+      <img src="/static/img/logo_mercadomuebles.png" alt="Mercadomuebles" height="44">
+    </a>
+    <nav class="site-nav">
+      <a href="/tienda/">Inicio</a>
+      <a href="/tienda/?linea=espuma">Espuma</a>
+      <a href="/tienda/?linea=resortes">Resortes</a>
+      <a href="/tienda/?linea=box">En Caja</a>
+      <a href="/tienda/?tipo=almohada">Almohadas</a>
+    </nav>
+    <div class="header-actions">
+      <form class="header-search" action="/tienda/" method="GET">
+        <input type="text" name="q" placeholder="Buscar..." value="{{ request.args.get('q', '') }}">
+        <button type="submit">🔍</button>
+      </form>
+      <a href="/tienda/carrito" class="cart-btn">
+        🛒 <span class="cart-count" id="cart-count">{{ carrito_count }}</span>
+      </a>
+    </div>
+  </div>
+  <!-- Buscador mobile -->
+  <div class="mobile-search">
+    <form action="/tienda/" method="GET">
+      <input type="text" name="q" placeholder="Buscar productos..." value="{{ request.args.get('q', '') }}">
+      <button type="submit">🔍</button>
+    </form>
+  </div>
+</header>
+
+<!-- Mobile nav drawer -->
+<div class="mobile-nav" id="mobile-nav">
+  <div class="mobile-nav-backdrop" onclick="closeMobileNav()"></div>
+  <div class="mobile-nav-drawer">
+    <button class="mobile-nav-close" onclick="closeMobileNav()">✕</button>
+    <a href="/tienda/">🏠 Inicio</a>
+    <a href="/tienda/?linea=espuma">🛏️ Línea Espuma</a>
+    <a href="/tienda/?linea=resortes">🌀 Línea Resortes</a>
+    <a href="/tienda/?linea=box">📦 Colchón en Caja</a>
+    <a href="/tienda/?tipo=almohada">💤 Almohadas</a>
+    <a href="/tienda/carrito">🛒 Mi carrito</a>
+    <a href="/tienda/seguimiento">🔍 Seguimiento</a>
+    <a href="https://wa.me/5491131890519" target="_blank">💬 WhatsApp</a>
+  </div>
+</div>
+
+<!-- CONTENIDO -->
+<main>
+  {% block contenido %}{% endblock %}
+</main>
+
+<!-- FOOTER -->
+<footer class="site-footer">
+  <div class="footer-inner">
+
+    <!-- Col 1: Marca -->
+    <div class="footer-col footer-col-brand">
+      <img src="/static/img/logo_mercadomuebles_white.png" alt="Mercadomuebles" height="38"
+           style="opacity:0.9; margin-bottom:14px;"
+           onerror="this.style.display='none'; this.nextElementSibling.style.display='block'">
+      <span style="display:none; color:#fff; font-size:1.2rem; font-weight:800; letter-spacing:-0.5px; margin-bottom:14px;">MERCADOMUEBLES</span>
+      <p style="color:rgba(255,255,255,0.55); font-size:0.82rem; line-height:1.6; margin:0 0 16px;">
+        Distribuidores oficiales de Colchones Cannon en Buenos Aires.
+      </p>
+      <a href="https://wa.me/5491131890519?text=Hola%2C%20quiero%20consultar%20sobre%20un%20producto"
+         class="footer-wa" target="_blank" rel="noopener">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="white" style="flex-shrink:0"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884"/></svg>
+        Consultanos por WhatsApp
+      </a>
+      <a href="mailto:sales@mercadomuebles.com.ar" style="color:rgba(255,255,255,0.5); font-size:0.78rem; text-decoration:none; margin-top:8px; display:flex; align-items:center; gap:6px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 7 10-7"/></svg>
+        sales@mercadomuebles.com.ar
+      </a>
+      <!-- Métodos de pago -->
+      <div style="margin-top:20px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <span style="color:rgba(255,255,255,0.3); font-size:0.68rem; text-transform:uppercase; letter-spacing:1px;">Aceptamos</span>
+        <span style="background:rgba(255,255,255,0.12); color:rgba(255,255,255,0.7); font-size:0.7rem; font-weight:700; padding:3px 8px; border-radius:4px;">VISA</span>
+        <span style="background:rgba(255,255,255,0.12); color:rgba(255,255,255,0.7); font-size:0.7rem; font-weight:700; padding:3px 8px; border-radius:4px;">MASTERCARD</span>
+        <span style="background:rgba(255,255,255,0.12); color:rgba(255,255,255,0.7); font-size:0.7rem; font-weight:700; padding:3px 8px; border-radius:4px;">MERCADO PAGO</span>
+      </div>
+    </div>
+
+    <!-- Col 2: Productos -->
+    <div class="footer-col">
+      <h4>Productos</h4>
+      <a href="/tienda/?linea=espuma">Línea Espuma</a>
+      <a href="/tienda/?linea=resortes">Línea Resortes</a>
+      <a href="/tienda/?linea=box">Colchón en Caja</a>
+      <a href="/tienda/?tipo=almohada">Almohadas</a>
+      <a href="/tienda/?tipo=conjunto">Con Sommier</a>
+    </div>
+
+    <!-- Col 3: Información -->
+    <div class="footer-col">
+      <h4>Información</h4>
+      <a href="/tienda/seguimiento">Seguimiento de pedido</a>
+      <a href="https://wa.me/5491131890519?text=Hola%2C%20quiero%20consultar%20sobre%20env%C3%ADos" target="_blank" rel="noopener">Envíos y entregas</a>
+      <a href="/tienda/devoluciones">Devoluciones y Garantía</a>
+      <a href="https://wa.me/5491131890519?text=Hola%2C%20quiero%20consultar%20formas%20de%20pago" target="_blank" rel="noopener">Formas de pago</a>
+      <a href="/tienda/privacidad">Política de Privacidad</a>
+      <a href="/tienda/carrito">Mi carrito</a>
+    </div>
+
+    <!-- Col 4: Local -->
+    <div class="footer-col">
+      <h4>Nuestro local</h4>
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <div style="display:flex; gap:10px; align-items:flex-start;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" style="flex-shrink:0;margin-top:2px"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          <span style="color:rgba(255,255,255,0.6); font-size:0.82rem; line-height:1.6;">
+            Bahía Blanca 1777<br>Floresta, Capital Federal
+          </span>
+        </div>
+        <div style="display:flex; gap:10px; align-items:flex-start;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" style="flex-shrink:0;margin-top:2px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span style="color:rgba(255,255,255,0.6); font-size:0.82rem; line-height:1.6;">
+            Lunes a Viernes<br>8:00–12:00 · 14:00–16:30hs
+          </span>
+        </div>
+        <a href="https://maps.google.com/?q=Bahia+Blanca+1777+Buenos+Aires"
+           target="_blank" rel="noopener"
+           style="display:inline-flex; align-items:center; gap:6px; color:rgba(255,255,255,0.45); font-size:0.78rem; text-decoration:none; transition:color 0.2s;"
+           onmouseover="this.style.color='rgba(255,255,255,0.8)'" onmouseout="this.style.color='rgba(255,255,255,0.45)'">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Ver en Google Maps
+        </a>
+      </div>
+    </div>
+
+  </div>
+  <div class="footer-bottom">
+    <p>© 2026 Mercadomuebles — CIMATER S.R.L. · Todos los derechos reservados.</p>
+    <p style="margin-top:6px; font-size:0.78rem;">
+      <a href="/tienda/privacidad" style="color:rgba(255,255,255,0.4); text-decoration:none; margin-right:16px;">Política de Privacidad</a>
+      <a href="/tienda/devoluciones" style="color:rgba(255,255,255,0.4); text-decoration:none;">Devoluciones y Garantía</a>
+    </p>
+  </div>
+</footer>
+
+<!-- TOAST CARRITO -->
+<div class="toast" id="toast" style="display:none;">
+  <span id="toast-msg">Producto agregado al carrito</span>
+</div>
+
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+async function agregarCarrito(sku, nombre, precio, cantidad) {
+  const res = await fetch('/tienda/carrito/agregar', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({sku, nombre, precio, cantidad})
+  });
+  const data = await res.json();
+  if (data.ok) {
+    document.getElementById('cart-count').textContent = data.total_items;
+    showToast(`✓ "${nombre}" agregado al carrito`);
+    const id = sku.replace(/_/g, '-');
+    const btn = document.getElementById('btn-' + id);
+    if (btn) {
+      // almohadas y zipnova (colchones/sommiers) muestran qty-control
+      if (data.sku_tipo === 'almohada' || data.sku_tipo === 'zipnova') {
+        const div = document.createElement('div');
+        div.className = 'qty-control';
+        div.id = 'qty-' + id;
+        div.dataset.nombre = nombre;
+        div.dataset.precio = precio;
+        div.innerHTML = `<button class="qty-btn" onclick="cambiarCantidad('${sku}', -1, '${nombre.replace(/'/g,"\\'")}', ${precio})">−</button>` +
+          `<span class="qty-num" id="qnum-${id}">${data.cantidad_sku}</span>` +
+          `<button class="qty-btn" onclick="cambiarCantidad('${sku}', +1, '${nombre.replace(/'/g,"\\'")}', ${precio})">+</button>`;
+        btn.replaceWith(div);
+      } else {
+        btn.textContent = '✓ En carrito';
+        btn.classList.add('btn-en-carrito');
+        btn.disabled = true;
+        btn.onclick = null;
+      }
+    }
+  } else if (data.msg) {
+    showToast('⚠️ ' + data.msg, true);
+  }
+}
+
+async function cambiarCantidad(sku, delta, nombre='', precio=0) {
+  const res = await fetch('/tienda/carrito/actualizar', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({sku, delta})
+  });
+  const data = await res.json();
+  if (!data.ok) { showToast('⚠️ ' + data.msg, true); return; }
+  document.getElementById('cart-count').textContent = data.total_items;
+  const id = sku.replace(/_/g, '-');
+  if (data.cantidad_sku <= 0) {
+    const ctrl = document.getElementById('qty-' + id);
+    if (ctrl) {
+      const btn = document.createElement('button');
+      btn.className = 'btn-add';
+      btn.id = 'btn-' + id;
+      btn.textContent = '+ Agregar';
+      btn.onclick = () => agregarCarrito(sku, nombre, parseFloat(precio), 1);
+      ctrl.replaceWith(btn);
+    }
+  } else {
+    const span = document.getElementById('qnum-' + id);
+    if (span) span.textContent = data.cantidad_sku;
+  }
+}
+
+function showToast(msg, esError=false) {
+  const t = document.getElementById('toast');
+  document.getElementById('toast-msg').textContent = msg;
+  t.style.display = 'flex';
+  t.style.background = esError ? '#c0392b' : '';
+  t.classList.add('show');
+  setTimeout(() => { t.classList.remove('show'); setTimeout(() => { t.style.display='none'; t.style.background=''; }, 300); }, 3000);
+}
+
+let currentSlide = 0;
+const slides = document.querySelectorAll('.slide');
+const dots   = document.querySelectorAll('.slider-dots .dot');
+let autoplay;
+
+function goToSlide(n) {
+  if (!slides.length) return;
+  slides[currentSlide]?.classList.remove('active');
+  dots[currentSlide]?.classList.remove('active');
+  currentSlide = (n + slides.length) % slides.length;
+  slides[currentSlide]?.classList.add('active');
+  dots[currentSlide]?.classList.add('active');
+}
+
+function changeSlide(dir) {
+  clearInterval(autoplay);
+  goToSlide(currentSlide + dir);
+  autoplay = setInterval(() => goToSlide(currentSlide + 1), 5000);
+}
+
+if (slides.length > 1) {
+  autoplay = setInterval(() => goToSlide(currentSlide + 1), 5000);
+}
+
+document.querySelectorAll('a[href="#catalogo"]').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    document.getElementById('catalogo')?.scrollIntoView({behavior: 'smooth'});
+  });
+});
+</script>
+
+<!-- ── POPUP NEWSLETTER ───────────────────────────────────────────────────── -->
+<div id="newsletter-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9998;"></div>
+<div id="newsletter-popup" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+     z-index:9999;width:min(480px,92vw);background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+
+  <!-- Header -->
+  <div style="background:linear-gradient(135deg,#1a2744 0%,#2d4a8a 100%);padding:32px 28px 24px;text-align:center;position:relative;">
+    <button onclick="cerrarNewsletter()" style="position:absolute;top:12px;right:14px;background:none;border:none;
+            color:rgba(255,255,255,0.7);font-size:22px;cursor:pointer;line-height:1;">✕</button>
+    <div style="font-size:2.4rem;margin-bottom:8px;">🎁</div>
+    <h2 style="color:#fff;margin:0 0 6px;font-size:1.4rem;font-weight:800;">¡Descuento de bienvenida!</h2>
+    <p style="color:rgba(255,255,255,0.85);margin:0;font-size:0.95rem;">Suscribite y recibí un <strong>{{ nl_popup_desc | default('descuento exclusivo') }}</strong> en tu primera compra</p>
+  </div>
+
+  <!-- Body -->
+  <div style="padding:28px;">
+    <!-- Estado inicial: formulario -->
+    <div id="nl-form">
+      <p style="color:#555;font-size:0.9rem;margin:0 0 16px;text-align:center;">
+        Ingresá tu email y te enviamos el cupón al instante
+      </p>
+      <input id="nl-email" type="email" placeholder="tu@email.com"
+             style="width:100%;padding:12px 14px;border:2px solid #e0e0e0;border-radius:8px;
+                    font-size:1rem;box-sizing:border-box;outline:none;transition:border .2s;"
+             onfocus="this.style.borderColor='#1a2744'"
+             onblur="this.style.borderColor='#e0e0e0'"
+             onkeydown="if(event.key==='Enter') enviarNewsletter()">
+      <div id="nl-error" style="color:#e53e3e;font-size:0.83rem;margin-top:6px;display:none;"></div>
+      <button onclick="enviarNewsletter()"
+              style="width:100%;margin-top:12px;padding:13px;background:#1a2744;color:#fff;
+                     border:none;border-radius:8px;font-size:1rem;font-weight:700;cursor:pointer;">
+        Quiero mi descuento →
+      </button>
+      <p style="color:#aaa;font-size:0.75rem;text-align:center;margin:12px 0 0;">
+        Sin spam. Podés darte de baja cuando quieras.
+      </p>
+    </div>
+
+    <!-- Estado éxito -->
+    <div id="nl-exito" style="display:none;text-align:center;padding:8px 0;">
+      <div style="font-size:3rem;margin-bottom:12px;">✅</div>
+      <h3 style="color:#1a2744;margin:0 0 8px;">¡Listo! Revisá tu email</h3>
+      <p style="color:#555;font-size:0.9rem;margin:0 0 16px;">
+        Te enviamos tu cupón exclusivo. Usalo en tu próxima compra.
+      </p>
+      <div id="nl-codigo" style="background:#f0f4ff;border:2px dashed #1a2744;border-radius:8px;
+                                  padding:14px;font-size:1.5rem;font-weight:900;
+                                  color:#1a2744;letter-spacing:3px;"></div>
+      <button onclick="cerrarNewsletter()" style="margin-top:16px;padding:10px 28px;
+              background:#1a2744;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600;">
+        ¡Ir a comprar!
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Newsletter popup ──────────────────────────────────────────────────────────
+(function() {
+  // No mostrar si ya se suscribió o cerró recientemente
+  const yaVisto = localStorage.getItem('nl_cerrado');
+  const yaSuscripto = localStorage.getItem('nl_suscripto');
+  if (yaSuscripto) return;
+
+  // Mostrar después de 8 segundos si no lo cerró en las últimas 3 días
+  const ahora = Date.now();
+  if (yaVisto && (ahora - parseInt(yaVisto)) < 3 * 24 * 60 * 60 * 1000) return;
+
+  setTimeout(function() {
+    document.getElementById('newsletter-overlay').style.display = 'block';
+    document.getElementById('newsletter-popup').style.display = 'block';
+  }, 8000);
+
+  // Cerrar al clickear el overlay
+  document.getElementById('newsletter-overlay').addEventListener('click', cerrarNewsletter);
+})();
+
+function cerrarNewsletter() {
+  document.getElementById('newsletter-overlay').style.display = 'none';
+  document.getElementById('newsletter-popup').style.display = 'none';
+  localStorage.setItem('nl_cerrado', Date.now().toString());
+}
+
+function enviarNewsletter() {
+  const email = document.getElementById('nl-email').value.trim();
+  const err   = document.getElementById('nl-error');
+  err.style.display = 'none';
+
+  if (!email || !email.includes('@')) {
+    err.textContent = 'Ingresá un email válido';
+    err.style.display = 'block';
+    return;
+  }
+
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Enviando...';
+
+  fetch('/tienda/suscribirse', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({email})
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.ok) {
+      localStorage.setItem('nl_suscripto', '1');
+      document.getElementById('nl-form').style.display = 'none';
+      document.getElementById('nl-exito').style.display = 'block';
+      document.getElementById('nl-codigo').textContent = data.codigo;
+    } else {
+      if (data.error && data.error.includes('ya está suscripto')) {
+        localStorage.setItem('nl_suscripto', '1');
+        cerrarNewsletter();
+      } else {
+        err.textContent = data.error || 'Error, intentá de nuevo';
+        err.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Quiero mi descuento →';
+      }
+    }
+  })
+  .catch(() => {
+    err.textContent = 'Error de conexión, intentá de nuevo';
+    err.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Quiero mi descuento →';
+  });
+}
+</script>
+
+<!-- WhatsApp flotante -->
+<a class="wa-float"
+   href="https://wa.me/5491131890519?text=Hola%2C%20estoy%20en%20la%20web%20y%20quiero%20averiguar%20por%20"
+   target="_blank" rel="noopener" title="Consultanos por WhatsApp">
+  <svg viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884"/>
+  </svg>
+</a>
+
+<script>
+function toggleMobileNav() {
+  const nav = document.getElementById('mobile-nav');
+  const btn = document.getElementById('hamburger');
+  nav.classList.toggle('open');
+  btn.classList.toggle('open');
+  document.body.style.overflow = nav.classList.contains('open') ? 'hidden' : '';
+}
+function closeMobileNav() {
+  const nav = document.getElementById('mobile-nav');
+  const btn = document.getElementById('hamburger');
+  nav.classList.remove('open');
+  btn.classList.remove('open');
+  document.body.style.overflow = '';
+}
+// Cerrar con Escape
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMobileNav(); });
+</script>
+</html>

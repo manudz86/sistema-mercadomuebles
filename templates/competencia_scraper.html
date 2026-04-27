@@ -10,33 +10,42 @@
 .badge-tienda-tms    { background:#0d6efd; color:#fff; }
 .badge-tienda-ivana  { background:#6f42c1; color:#fff; }
 .badge-tienda-lanus  { background:#d63384; color:#fff; }
+.badge-tienda-electrohornos { background:#20c997; color:#fff; font-size:0.65rem; }
 .badge-tipo-colchon  { background:#198754; color:#fff; }
 .badge-tipo-sommier  { background:#fd7e14; color:#fff; }
+.badge-tipo-almohada { background:#0dcaf0; color:#fff; }
 .sku-badge { background:#e9ecef; color:#495057; font-family:monospace; font-size:.72rem; border-radius:4px; padding:1px 5px; }
 .precio-principal { font-weight:700; color:#212529; }
-.cuotas-si { font-size:.72rem; color:#0d6efd; }
+.cuotas-si        { font-size:.72rem; color:#0d6efd; }
+.cuotas-pasaje    { font-size:.65rem; color:#6c757d; cursor:help; }
+.medida-asterisco { color:#dc3545; font-weight:700; }
 .variante-extra { font-size:.72rem; color:#6c757d; border-top:1px dashed #dee2e6; padding-top:3px; margin-top:3px; }
-.alm-badge { background:#fff3cd; color:#856404; border-radius:4px; padding:1px 5px; font-size:.7rem; }
+.alm-badge  { background:#fff3cd; color:#856404; border-radius:4px; padding:1px 5px; font-size:.7rem; }
+.pack-badge { background:#dc3545; color:#fff;     border-radius:4px; padding:1px 6px; font-size:.7rem; font-weight:700; }
+.cuota-simple-badge { background:#0dcaf0; color:#055160; border-radius:4px; padding:1px 6px; font-size:.7rem; font-weight:600; }
+.precio-unit { font-size:.7rem; color:#6c757d; font-weight:400; }
 .titulo-link { color:#212529; text-decoration:none; }
 .titulo-link:hover { text-decoration:underline; color:#0d6efd; }
 .row-sin-match { opacity:.65; }
 #contador { font-weight:600; }
+.info-banner    { background:#fff3cd; border-left:3px solid #ffc107; padding:6px 12px; font-size:.75rem; color:#664d03; }
+.info-banner code { background:#fff; padding:1px 4px; border-radius:3px; font-size:.7rem; }
+.info-banner.no-detectado { background:#f8d7da; border-left-color:#dc3545; color:#842029; }
 </style>
 
 <div class="filtros-bar">
   <div class="d-flex gap-2 flex-wrap align-items-center">
     <select id="f-tienda" class="form-select form-select-sm" style="width:110px" onchange="filtrar()">
       <option value="">Tienda</option>
-      <option>TMS</option>
-      <option>Ivana</option>
-      <option>Lanus</option>
+      <option>TMS</option><option>Ivana</option><option>Lanus</option><option>Electrohornos</option>
     </select>
     <select id="f-tipo" class="form-select form-select-sm" style="width:120px" onchange="filtrar()">
       <option value="">Tipo</option>
       <option value="colchon">Colchón</option>
       <option value="sommier">Sommier</option>
+      <option value="almohada">Almohada</option>
     </select>
-    <select id="f-modelo" class="form-select form-select-sm" style="width:160px" onchange="filtrar()">
+    <select id="f-modelo" class="form-select form-select-sm" style="width:200px" onchange="filtrar()">
       <option value="">Modelo</option>
       {% for m in modelos %}<option>{{ m }}</option>{% endfor %}
     </select>
@@ -44,15 +53,24 @@
       <option value="">Medida</option>
       {% for m in medidas %}<option>{{ m }}</option>{% endfor %}
     </select>
-    <select id="f-cuotas" class="form-select form-select-sm" style="width:155px" onchange="filtrar()">
-      <option value="">Cuotas s/interés</option>
-      <option value="si">Con cuotas s/interés</option>
-      <option value="no">Sin cuotas s/interés</option>
+    <select id="f-cuotas" class="form-select form-select-sm" style="width:170px" onchange="filtrar()">
+      <option value="">Financiación</option>
+      <option value="0">Sin cuotas s/i</option>
+      <option value="simple">Cuota Simple</option>
+      <option value="3">3 cuotas s/i</option>
+      <option value="6">6 cuotas s/i</option>
+      <option value="9">9 cuotas s/i</option>
+      <option value="12">12 cuotas s/i</option>
     </select>
     <select id="f-match" class="form-select form-select-sm" style="width:130px" onchange="filtrar()">
       <option value="">SKU match</option>
       <option value="si">Con match</option>
       <option value="no">Sin match</option>
+    </select>
+    <select id="f-pack" class="form-select form-select-sm" style="width:110px" onchange="filtrar()">
+      <option value="">Pack</option>
+      <option value="si">Solo packs</option>
+      <option value="no">Sin packs</option>
     </select>
     <input type="text" id="f-buscar" class="form-control form-control-sm" style="width:180px" placeholder="Buscar título..." oninput="filtrar()">
     <button class="btn btn-sm btn-outline-secondary" onclick="limpiarFiltros()">✕ Limpiar</button>
@@ -60,18 +78,24 @@
   </div>
 </div>
 
+<div class="info-banner {% if not detectado_en %}no-detectado{% endif %}">
+  {% if detectado_en %}
+    <strong>📌 Pasajes detectados</strong> ({{ detectado_en }}):
+  {% else %}
+    <strong>⚠️ Sin detección automática aún — usando valores por defecto.</strong> Los pasajes reales se actualizarán al subir un barrido con sondas.
+  {% endif %}
+  Colchones {% for d, h in pasajes.colchon %}{{ d }}→{{ h }}{% if not loop.last %}, {% endif %}{% else %}sin pasajes{% endfor %}.
+  Sommiers {% for d, h in pasajes.sommier %}{{ d }}→{{ h }}{% if not loop.last %}, {% endif %}{% else %}sin pasajes{% endfor %}.
+  Cuotas mostradas son las <strong>reales</strong> (descontando pasaje); hover sobre <code>↗</code> para ver el valor mostrado en ML.
+  El <span class="medida-asterisco">*</span> en medidas indica que se infirió de "King/Queen/plaza".
+</div>
+
 <div class="px-3 pt-2">
   <table class="table table-sm table-hover tabla-comp">
     <thead>
       <tr>
-        <th>Tienda</th>
-        <th>Tipo</th>
-        <th>Modelo</th>
-        <th>Medida</th>
-        <th>Precio / Cuotas</th>
-        <th>Alm.</th>
-        <th>SKU</th>
-        <th>Título</th>
+        <th>Tienda</th><th>Tipo</th><th>Modelo</th><th>Medida</th>
+        <th>Precio / Cuotas</th><th>Alm.</th><th>Pack</th><th>SKU</th><th>Título</th>
       </tr>
     </thead>
     <tbody id="tbody">
@@ -79,36 +103,45 @@
     <tr class="fila {{ 'row-sin-match' if not p.sku_match else '' }}"
         data-tienda="{{ p.tienda|lower }}"
         data-tipo="{{ p.tipo }}"
-        data-modelo="{{ p.modelo|lower }}"
+        data-modelo="{{ p.modelo }}"
         data-medida="{{ p.medida }}"
         data-match="{{ 'si' if p.sku_match else 'no' }}"
-        data-cuotas="{{ 'si' if p.opciones|selectattr('cuotas_si')|list else 'no' }}"
+        data-cuotas="{% if p.opciones and p.opciones[0].cuotas_si %}{{ p.opciones[0].cuotas_si }}{% else %}0{% endif %}"
+        data-simple="{% if p.opciones|selectattr('cuotas_simple')|list %}si{% else %}no{% endif %}"
+        data-pack="{{ 'si' if p.pack|int > 1 else 'no' }}"
         data-titulo="{{ p.titulo|lower }}">
       <td><span class="badge badge-tienda-{{ p.tienda|lower }}">{{ p.tienda }}</span></td>
-      <td><span class="badge badge-tipo-{{ p.tipo }}">{{ 'Colchón' if p.tipo == 'colchon' else 'Sommier' }}</span></td>
+      <td><span class="badge badge-tipo-{{ p.tipo }}">{% if p.tipo == 'colchon' %}Colchón{% elif p.tipo == 'sommier' %}Sommier{% else %}Almohada{% endif %}</span></td>
       <td><small>{{ p.modelo }}</small></td>
-      <td><code style="font-size:.75rem">{{ p.medida }}</code></td>
+      <td>
+        <code style="font-size:.75rem">{{ p.medida }}{% if p.medida_origen == 'inferida' %}<span class="medida-asterisco" title="Medida inferida de King/Queen/plaza, no explícita en el título">*</span>{% endif %}</code>
+      </td>
       <td>
         {% for op in p.opciones %}
           <div class="{{ 'variante-extra' if not loop.first else '' }}">
             <span class="precio-principal">${{ "{:,.0f}".format(op.precio|int).replace(",",".") }}</span>
+            {% if p.pack|int > 1 %}
+              <span class="precio-unit">(${{ "{:,.0f}".format((op.precio|int) // (p.pack|int)).replace(",",".") }} c/u)</span>
+            {% endif %}
             {% if op.cuotas_si %}
               <span class="cuotas-si ms-1">{{ op.cuotas_si }}c s/int</span>
+              {% if op.pasaje %}
+                <span class="cuotas-pasaje" title="ML muestra {{ op.cuotas_si_mostrada }}c s/int por pasaje activo">↗{{ op.cuotas_si_mostrada }}</span>
+              {% endif %}
+            {% elif op.cuotas_simple %}
+              <span class="cuota-simple-badge ms-1" title="Cuotas con interés bajo subvencionadas por el vendedor">Cuota Simple</span>
             {% endif %}
           </div>
         {% endfor %}
       </td>
       <td>
-        {% if p.almohadas|int > 0 %}
-          <span class="alm-badge">+{{ p.almohadas }} alm</span>
-        {% else %}-{% endif %}
+        {% if p.almohadas|int > 0 %}<span class="alm-badge">+{{ p.almohadas }} alm</span>{% else %}-{% endif %}
       </td>
       <td>
-        {% if p.sku_match %}
-          <span class="sku-badge">{{ p.sku_match }}</span>
-        {% else %}
-          <span class="text-muted">—</span>
-        {% endif %}
+        {% if p.pack|int > 1 %}<span class="pack-badge">x{{ p.pack }}</span>{% else %}-{% endif %}
+      </td>
+      <td>
+        {% if p.sku_match %}<span class="sku-badge">{{ p.sku_match }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
       </td>
       <td style="max-width:320px">
         <a href="{{ p.url }}" target="_blank" class="titulo-link">{{ p.titulo[:80] }}{% if p.titulo|length > 80 %}…{% endif %}</a>
@@ -123,31 +156,30 @@
 function filtrar() {
   const tienda  = document.getElementById('f-tienda').value.toLowerCase();
   const tipo    = document.getElementById('f-tipo').value;
-  const modelo  = document.getElementById('f-modelo').value.toLowerCase();
+  const modelo  = document.getElementById('f-modelo').value;
   const medida  = document.getElementById('f-medida').value;
   const cuotas  = document.getElementById('f-cuotas').value;
   const match   = document.getElementById('f-match').value;
+  const pack    = document.getElementById('f-pack').value;
   const buscar  = document.getElementById('f-buscar').value.toLowerCase();
-
   let visible = 0;
   document.querySelectorAll('.fila').forEach(row => {
     const ok =
       (!tienda  || row.dataset.tienda  === tienda) &&
       (!tipo    || row.dataset.tipo    === tipo) &&
-      (!modelo  || row.dataset.modelo.includes(modelo)) &&
+      (!modelo  || row.dataset.modelo  === modelo) &&
       (!medida  || row.dataset.medida  === medida) &&
-      (!cuotas  || row.dataset.cuotas  === cuotas) &&
+      (!cuotas  || (cuotas === 'simple' ? row.dataset.simple === 'si' : row.dataset.cuotas === cuotas)) &&
       (!match   || row.dataset.match   === match) &&
+      (!pack    || row.dataset.pack    === pack) &&
       (!buscar  || row.dataset.titulo.includes(buscar));
-
     row.style.display = ok ? '' : 'none';
     if (ok) visible++;
   });
   document.getElementById('contador').textContent = visible;
 }
-
 function limpiarFiltros() {
-  ['f-tienda','f-tipo','f-modelo','f-medida','f-cuotas','f-match'].forEach(id => {
+  ['f-tienda','f-tipo','f-modelo','f-medida','f-cuotas','f-match','f-pack'].forEach(id => {
     document.getElementById(id).value = '';
   });
   document.getElementById('f-buscar').value = '';
