@@ -9628,18 +9628,6 @@ def exportar_reposicion():
 
     productos = sorted(totales.values(), key=lambda x: x['cantidad_vendida'], reverse=True)
 
-    # Dimensiones para calcular m³
-    dim_rows = query_db("SELECT sku, alto_cm, ancho_cm, largo_cm FROM productos_base WHERE alto_cm > 0 AND ancho_cm > 0 AND largo_cm > 0")
-    dim_map = {r['sku']: r for r in dim_rows}
-    for p in productos:
-        d = dim_map.get(p['sku'])
-        if d:
-            m3_unit = round(float(d['alto_cm']) * float(d['ancho_cm']) * float(d['largo_cm']) / 1_000_000, 4)
-        else:
-            m3_unit = 0
-        p['m3_unitario'] = m3_unit
-        p['m3_total'] = round(m3_unit * p['cantidad_vendida'], 4)
-
     # CREAR EXCEL
     wb = Workbook()
     ws = wb.active
@@ -9655,7 +9643,7 @@ def exportar_reposicion():
     )
 
     # Título
-    ws.merge_cells('A1:F1')
+    ws.merge_cells('A1:D1')
     titulo = ws['A1']
     titulo.value = f"Reposición de Stock — {fecha_desde} al {fecha_hasta}"
     titulo.font = Font(bold=True, color='FFFFFF', name='Arial', size=12)
@@ -9664,7 +9652,7 @@ def exportar_reposicion():
     ws.row_dimensions[1].height = 25
 
     # Headers
-    headers = ['SKU', 'Descripción', 'Unidades Vendidas', 'Stock Disponible', 'm³ Unitario', 'm³ Total']
+    headers = ['SKU', 'Descripción', 'Unidades Vendidas', 'Stock Disponible']
     for col, h in enumerate(headers, 1):
         cell = ws.cell(row=2, column=col, value=h)
         cell.font = Font(bold=True, color='FFFFFF', name='Arial', size=10)
@@ -9677,21 +9665,19 @@ def exportar_reposicion():
     for i, p in enumerate(productos):
         row = i + 3
         fill = alt_fill if i % 2 == 0 else PatternFill(fill_type=None)
-        valores = [p['sku'], p['nombre'], int(p['cantidad_vendida']), int(p['stock_disponible']), p['m3_unitario'], p['m3_total']]
+        valores = [p['sku'], p['nombre'], int(p['cantidad_vendida']), int(p['stock_disponible'])]
         for col, val in enumerate(valores, 1):
             cell = ws.cell(row=row, column=col, value=val)
             cell.font = Font(name='Arial', size=10)
             cell.fill = fill
             cell.border = border
-            if col in (3, 4, 5, 6):
+            if col in (3, 4):
                 cell.alignment = Alignment(horizontal='center')
 
     ws.column_dimensions['A'].width = 22
     ws.column_dimensions['B'].width = 45
     ws.column_dimensions['C'].width = 20
     ws.column_dimensions['D'].width = 16
-    ws.column_dimensions['E'].width = 14
-    ws.column_dimensions['F'].width = 14
     ws.freeze_panes = 'A3'
 
     excel_file = BytesIO()
