@@ -4,3 +4,4 @@ __pycache__/
 venv/
 .venv/
 config/.env
+config/ga4_service_account.json 
