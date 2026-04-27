@@ -5,3 +5,4 @@ venv/
 .venv/
 config/.env
 config/ga4_service_account.json 
+config/ga4_service_account.json
