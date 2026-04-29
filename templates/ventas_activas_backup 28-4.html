@@ -3,14 +3,11 @@
 {% macro obs_me2(venta) %}
 {% if venta.canal == 'tienda_web' and venta.notas %}
     {% set lineas = venta.notas.replace('\\n', '\n').split('\n') %}
-    {% set ns = namespace(mpid='', veid='', shid='', trid='', znid='', zn_url='', demora='', pwid='', op_payway='', gnpid='', gn_auth='', gn_brand='') %}
+    {% set ns = namespace(mpid='', veid='', shid='', trid='', znid='', zn_url='', demora='', pwid='', op_payway='') %}
     {% for l in lineas %}
         {% if l.startswith('MPID:') %}{% set ns.mpid = l[5:].strip() %}{% endif %}
         {% if l.startswith('PWID:') %}{% set ns.pwid = l[5:].strip() %}{% endif %}
         {% if l.startswith('OP_PAYWAY:') %}{% set ns.op_payway = l[10:].strip() %}{% endif %}
-        {% if l.startswith('GN_PID:') %}{% set ns.gnpid = l[7:].strip() %}{% endif %}
-        {% if l.startswith('AUTH:') %}{% set ns.gn_auth = l[5:].strip() %}{% endif %}
-        {% if l.startswith('Tarjeta:') %}{% set ns.gn_brand = l[8:].strip() %}{% endif %}
         {% if l.startswith('VEID:') %}{% set ns.veid = l[5:].strip() %}{% endif %}
         {% if l.startswith('SHID:') %}{% set ns.shid = l[5:].strip() %}{% endif %}
         {% if l.startswith('TRID:') %}{% set ns.trid = l[5:].strip() %}{% endif %}
@@ -25,9 +22,6 @@
         {% if ns.mpid %}<div><span class="text-muted">MPID:</span> {{ ns.mpid }}</div>{% endif %}
         {% if ns.pwid %}<div><span class="text-muted">PWID:</span> {{ ns.pwid }}</div>{% endif %}
         {% if ns.op_payway %}<div><span class="text-muted">OP Payway:</span> {{ ns.op_payway }}</div>{% endif %}
-        {% if ns.gnpid %}<div><span class="text-muted">GN PID:</span> {{ ns.gnpid }}</div>{% endif %}
-        {% if ns.gn_auth %}<div><span class="text-muted">Cód autorización:</span> {{ ns.gn_auth }}</div>{% endif %}
-        {% if ns.gn_brand %}<div><span class="text-muted">Tarjeta:</span> {{ ns.gn_brand }}</div>{% endif %}
         {% if ns.veid %}<div><span class="text-muted">VEID:</span> {{ ns.veid }}</div>{% endif %}
         {% if ns.shid %}<div><span class="text-muted">SHID:</span> {{ ns.shid }}</div>{% endif %}
         {% if ns.trid %}
@@ -478,8 +472,6 @@
                         <br><small class="text-muted">MP: ${{ "{:,.0f}".format(venta.pago_mercadopago) }}</small>
                     {% elif venta.metodo_pago == 'Payway' and venta.importe_abonado > 0 %}
                         <br><small class="text-muted">PW: ${{ "{:,.0f}".format(venta.importe_abonado) }}</small>
-                    {% elif venta.metodo_pago == 'GetNet' and venta.importe_abonado > 0 %}
-                        <br><small class="text-muted">GN: ${{ "{:,.0f}".format(venta.importe_abonado) }}</small>
                     {% endif %}
                     {% if venta.pago_efectivo > 0 %}
                         <br><small class="text-muted">Efec: ${{ "{:,.0f}".format(venta.pago_efectivo) }}</small>
@@ -501,8 +493,8 @@
                         <br><span class="badge bg-secondary">{{ venta.metodo_envio }}</span>
                         {% if venta.metodo_envio in ['Flete Propio', 'Zippin'] and venta.costo_flete and venta.costo_flete > 0 %}
                             <br>
-                            {% if venta.metodo_pago in ['Payway', 'GetNet'] %}
-                                {# Para Payway/GetNet el importe_total ya incluye el flete #}
+                            {% if venta.metodo_pago == 'Payway' %}
+                                {# Para Payway el importe_total ya incluye el flete #}
                                 {% if venta.importe_abonado + 5 >= venta.importe_total %}
                                     <small class="text-success fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</small>
                                 {% else %}
@@ -722,19 +714,11 @@
                 <div>
                     <span class="text-muted">{{ venta.metodo_pago }}</span>
                     {% if venta.metodo_envio in ['Flete Propio', 'Zippin'] and venta.costo_flete and venta.costo_flete > 0 %}
-                        {% if venta.metodo_pago in ['Payway', 'GetNet'] %}
-                            {# Para Payway/GetNet el importe_total ya incluye el flete #}
-                            <span class="ms-1
-                                {% if venta.importe_abonado + 5 >= venta.importe_total %}text-success
-                                {% else %}text-danger{% endif %}
-                                fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</span>
-                        {% else %}
-                            <span class="ms-1
-                                {% if venta.importe_abonado + 5 >= venta.importe_total + venta.costo_flete %}text-success
-                                {% elif venta.importe_abonado > venta.importe_total %}text-warning
-                                {% else %}text-danger{% endif %}
-                                fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</span>
-                        {% endif %}
+                        <span class="ms-1
+                            {% if venta.importe_abonado + 5 >= venta.importe_total + venta.costo_flete %}text-success
+                            {% elif venta.importe_abonado > venta.importe_total %}text-warning
+                            {% else %}text-danger{% endif %}
+                            fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</span>
                     {% endif %}
                 </div>
             </div>
