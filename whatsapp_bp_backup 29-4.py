@@ -18,8 +18,7 @@ WA_VERIFY_TOKEN = os.getenv('WA_VERIFY_TOKEN', 'mercadomuebles2025')
 NUMEROS_DERIVAR = ['+5491126275185', '+5491136696113']
 # Nombre del template aprobado en WhatsApp Manager (Utility, Spanish ARG)
 WA_TEMPLATE_DERIVACION = 'derivacion_cliente'
-# Códigos de idioma a probar en orden (Meta usa distintos según la plantilla)
-WA_TEMPLATE_LANGS = ['es_AR', 'es', 'es_LA', 'es_MX', 'es_ES']
+WA_TEMPLATE_LANG = 'es_AR'
 ANTHROPIC_KEY  = os.getenv('ANTHROPIC_API_KEY')
 
 anthropic = Anthropic(api_key=ANTHROPIC_KEY)
@@ -571,65 +570,44 @@ def wa_send_template_derivacion(to, tel_cliente, resumen, ultimo_msg):
     Envía el template 'derivacion_cliente' (Utility, aprobado en Meta).
     Funciona FUERA de la ventana de 24hs y a cualquier número.
     Reemplaza al envío freeform que solo funcionaba con testers.
-    Prueba múltiples códigos de idioma hasta encontrar el que matchea.
     """
     if not WA_TOKEN or not WA_PHONE_ID:
         print(f"[WA] Sin credenciales para template a {to}")
         return False
-
-    # Si ya descubrimos qué idioma funciona, usarlo primero
-    cached_lang = getattr(wa_send_template_derivacion, '_cached_lang', None)
-    langs_orden = ([cached_lang] + [l for l in WA_TEMPLATE_LANGS if l != cached_lang]) if cached_lang else WA_TEMPLATE_LANGS
-
-    parametros = [
-        {'type': 'text', 'text': _sanitizar_param_template(tel_cliente, 60)},
-        {'type': 'text', 'text': _sanitizar_param_template(resumen, 700)},
-        {'type': 'text', 'text': _sanitizar_param_template(ultimo_msg, 200)},
-    ]
-
-    ultimo_error = None
-    for lang in langs_orden:
-        payload = {
-            'messaging_product': 'whatsapp',
-            'to': to,
-            'type': 'template',
-            'template': {
-                'name': WA_TEMPLATE_DERIVACION,
-                'language': {'code': lang},
-                'components': [{'type': 'body', 'parameters': parametros}]
-            }
+    payload = {
+        'messaging_product': 'whatsapp',
+        'to': to,
+        'type': 'template',
+        'template': {
+            'name': WA_TEMPLATE_DERIVACION,
+            'language': {'code': WA_TEMPLATE_LANG},
+            'components': [{
+                'type': 'body',
+                'parameters': [
+                    {'type': 'text', 'text': _sanitizar_param_template(tel_cliente, 60)},
+                    {'type': 'text', 'text': _sanitizar_param_template(resumen, 700)},
+                    {'type': 'text', 'text': _sanitizar_param_template(ultimo_msg, 200)},
+                ]
+            }]
         }
-        try:
-            r = requests.post(
-                f"https://graph.facebook.com/v19.0/{WA_PHONE_ID}/messages",
-                headers={
-                    'Authorization': f'Bearer {WA_TOKEN}',
-                    'Content-Type': 'application/json'
-                },
-                json=payload,
-                timeout=10
-            )
-            if r.status_code == 200:
-                # Cachear el idioma que funcionó para los próximos envíos
-                wa_send_template_derivacion._cached_lang = lang
-                if lang != cached_lang:
-                    print(f"[WA] Template OK con idioma '{lang}' (cacheado para próximos envíos)")
-                return True
-            # Si el error NO es 132001, no tiene sentido reintentar con otro idioma
-            try:
-                err_code = r.json().get('error', {}).get('code')
-            except Exception:
-                err_code = None
-            ultimo_error = f"{r.status_code} {r.text[:200]}"
-            if err_code != 132001:
-                print(f"[WA] Error template derivacion a {to} (lang={lang}): {ultimo_error}")
-                return False
-        except Exception as e:
-            ultimo_error = str(e)
-            print(f"[WA] Excepción template derivacion a {to} (lang={lang}): {e}")
-
-    print(f"[WA] Template derivacion FALLÓ con todos los idiomas para {to}: {ultimo_error}")
-    return False
+    }
+    try:
+        r = requests.post(
+            f"https://graph.facebook.com/v19.0/{WA_PHONE_ID}/messages",
+            headers={
+                'Authorization': f'Bearer {WA_TOKEN}',
+                'Content-Type': 'application/json'
+            },
+            json=payload,
+            timeout=10
+        )
+        if r.status_code != 200:
+            print(f"[WA] Error template derivacion a {to}: {r.status_code} {r.text[:200]}")
+            return False
+        return True
+    except Exception as e:
+        print(f"[WA] Excepción template derivacion a {to}: {e}")
+        return False
 
 def wa_mark_read(phone, msg_id):
     """Marca mensaje como leído."""
