@@ -283,6 +283,38 @@ async function api(data) {
   });
   return res.json();
 }
+
+// Recordar qué día está abierto antes de recargar
+function recordarAbierto() {
+  const abierto = document.querySelector('.accordion-collapse.show');
+  if (abierto) sessionStorage.setItem('fletes_dia_abierto', abierto.id);
+  else sessionStorage.removeItem('fletes_dia_abierto');
+}
+
+// Al cargar la página, restaurar el día abierto
+document.addEventListener('DOMContentLoaded', () => {
+  const guardado = sessionStorage.getItem('fletes_dia_abierto');
+  if (!guardado) return;
+  // Cerrar el primero que abre por default
+  document.querySelectorAll('.accordion-collapse.show').forEach(el => {
+    if (el.id !== guardado) {
+      el.classList.remove('show');
+      const btn = document.querySelector(`[data-bs-target="#${el.id}"]`);
+      if (btn) btn.classList.add('collapsed');
+    }
+  });
+  // Abrir el guardado
+  const target = document.getElementById(guardado);
+  if (target && !target.classList.contains('show')) {
+    target.classList.add('show');
+    const btn = document.querySelector(`[data-bs-target="#${guardado}"]`);
+    if (btn) btn.classList.remove('collapsed');
+  }
+});
+
+// Guardar acordeón abierto cuando cambia
+document.addEventListener('shown.bs.collapse', recordarAbierto);
+document.addEventListener('hidden.bs.collapse', recordarAbierto);
 function toast(msg, tipo='success') {
   const c = document.getElementById('toast-container');
   const t = document.createElement('div');
