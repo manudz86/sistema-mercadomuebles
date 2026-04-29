@@ -14,11 +14,7 @@ whatsapp_bp = Blueprint('whatsapp', __name__)
 WA_TOKEN      = os.getenv('WA_ACCESS_TOKEN')
 WA_PHONE_ID   = os.getenv('WA_PHONE_NUMBER_ID')
 WA_VERIFY_TOKEN = os.getenv('WA_VERIFY_TOKEN', 'mercadomuebles2025')
-# Lista de números a los que se deriva (todos reciben la notificación)
-NUMEROS_DERIVAR = ['+5491126275185', '+5491136696113']
-# Nombre del template aprobado en WhatsApp Manager (Utility, Spanish ARG)
-WA_TEMPLATE_DERIVACION = 'derivacion_cliente'
-WA_TEMPLATE_LANG = 'es_AR'
+NUMERO_DERIVAR = '+5491126275185'
 ANTHROPIC_KEY  = os.getenv('ANTHROPIC_API_KEY')
 
 anthropic = Anthropic(api_key=ANTHROPIC_KEY)
@@ -325,8 +321,8 @@ def get_productos_context():
         cuota_3 = round(total_3 / 3)
         cuota_6 = round(total_6 / 6)
         lines.append(
-            f"  3 cuotas fijas de ${cuota_3:,} (total ${total_3:,}) | "
-            f"6 cuotas fijas de ${cuota_6:,} (total ${total_6:,})"
+            f"  Payway 3 cuotas: ${cuota_3:,} x3 (total ${total_3:,}) | "
+            f"Payway 6 cuotas: ${cuota_6:,} x6 (total ${total_6:,})"
         )
 
     lines.append("\n--- SOMMIERS / CONJUNTOS (colchón + base) ---")
@@ -345,8 +341,8 @@ def get_productos_context():
         cuota_3 = round(total_3 / 3)
         cuota_6 = round(total_6 / 6)
         lines.append(
-            f"  3 cuotas fijas de ${cuota_3:,} (total ${total_3:,}) | "
-            f"6 cuotas fijas de ${cuota_6:,} (total ${total_6:,})"
+            f"  Payway 3 cuotas: ${cuota_3:,} x3 (total ${total_3:,}) | "
+            f"Payway 6 cuotas: ${cuota_6:,} x6 (total ${total_6:,})"
         )
 
     # Bases sueltas
@@ -427,7 +423,7 @@ ENVÍOS Y RETIRO:
 
 MEDIOS DE PAGO:
 - MercadoPago: todas las formas (débito, crédito, transferencia, depósito, PagoFácil/RapiPago, dinero en cuenta MP).
-- Tarjeta de crédito Visa o Mastercard bancarizadas: 3 o 6 cuotas fijas.
+- Payway: Visa o Mastercard bancarizadas. 3 o 6 cuotas fijas (con interés embebido).
 
 GARANTÍA: 5 años de garantía de fábrica.
 """
@@ -465,8 +461,8 @@ COTIZACIONES:
 - "Con base" o "con box" = sommier (colchón + base). Cotizá el sommier correspondiente.
 - Cuando el cliente da 2 o más requisitos (medida + tipo + preferencia), mostrá TODOS los modelos que encajan, no solo los 2 más económicos. Si hay más de 3 que encajan, cotizá los 3 principales y mencioná los demás por nombre ofreciendo cotizarlos si el cliente quiere.
   Ejemplo: "También hay Sublime Euro Pillow y Exclusive Pillow Top que podrían interesarte, ¿querés que te los cotice?"
-- Cuando cotices cuotas, usá este formato exacto: "3 cuotas fijas de $XX.XXX (total $XXX.XXX)" o "6 cuotas fijas de $XX.XXX (total $XXX.XXX)". NO menciones la marca del procesador de pagos (no digas Payway, GetNet, ni ningún nombre similar).
-- Si el cliente pregunta por cuotas sin interés: explicá que las cuotas son fijas (el importe no varía cuota a cuota). No menciones ni confirmes ni niegues si tienen interés embebido.
+- Cuando cotices con Payway: "3 cuotas fijas de $XX.XXX (total $XXX.XXX)"
+- Si el cliente pregunta por cuotas sin interés: explicá que las cuotas de Payway son fijas (el importe no varía cuota a cuota). No menciones ni confirmes ni niegues si tienen interés embebido.
 
 ENVÍOS:
 - Podés calcular el costo de envío exacto si el cliente te da su código postal
@@ -484,7 +480,7 @@ FOTOS:
 
 MEDIOS DE PAGO:
 - MercadoPago: precio de lista, todas las formas (débito, crédito, transferencia, PagoFácil/RapiPago)
-- Tarjeta de crédito Visa o Mastercard bancarizadas: 3 o 6 cuotas fijas (sin mencionar la marca del procesador de pagos).
+- Payway: Visa o Mastercard bancarizadas. Cuotas fijas de 3 o 6 meses.
 
 HORARIO: {horario_txt}
 
@@ -546,69 +542,6 @@ def wa_send(to, text):
         print(f"[WA] Excepción enviando a {to}: {e}")
         return False
 
-def _sanitizar_param_template(texto, max_chars=900):
-    """
-    Sanitiza un string para usarlo como parámetro de template WhatsApp.
-    Meta rechaza: 4+ saltos de línea, 4+ tabs, 4+ espacios consecutivos.
-    """
-    if not texto:
-        return '-'
-    # Reemplazar saltos de línea por separador visual
-    t = str(texto).replace('\r\n', '\n').replace('\r', '\n')
-    # Compactar saltos múltiples (max 1) y reemplazar por " · "
-    import re as _re
-    t = _re.sub(r'\n+', ' · ', t)
-    # Compactar espacios múltiples
-    t = _re.sub(r'[ \t]+', ' ', t).strip()
-    # Truncar a max_chars
-    if len(t) > max_chars:
-        t = t[:max_chars - 3] + '...'
-    return t or '-'
-
-def wa_send_template_derivacion(to, tel_cliente, resumen, ultimo_msg):
-    """
-    Envía el template 'derivacion_cliente' (Utility, aprobado en Meta).
-    Funciona FUERA de la ventana de 24hs y a cualquier número.
-    Reemplaza al envío freeform que solo funcionaba con testers.
-    """
-    if not WA_TOKEN or not WA_PHONE_ID:
-        print(f"[WA] Sin credenciales para template a {to}")
-        return False
-    payload = {
-        'messaging_product': 'whatsapp',
-        'to': to,
-        'type': 'template',
-        'template': {
-            'name': WA_TEMPLATE_DERIVACION,
-            'language': {'code': WA_TEMPLATE_LANG},
-            'components': [{
-                'type': 'body',
-                'parameters': [
-                    {'type': 'text', 'text': _sanitizar_param_template(tel_cliente, 60)},
-                    {'type': 'text', 'text': _sanitizar_param_template(resumen, 700)},
-                    {'type': 'text', 'text': _sanitizar_param_template(ultimo_msg, 200)},
-                ]
-            }]
-        }
-    }
-    try:
-        r = requests.post(
-            f"https://graph.facebook.com/v19.0/{WA_PHONE_ID}/messages",
-            headers={
-                'Authorization': f'Bearer {WA_TOKEN}',
-                'Content-Type': 'application/json'
-            },
-            json=payload,
-            timeout=10
-        )
-        if r.status_code != 200:
-            print(f"[WA] Error template derivacion a {to}: {r.status_code} {r.text[:200]}")
-            return False
-        return True
-    except Exception as e:
-        print(f"[WA] Excepción template derivacion a {to}: {e}")
-        return False
-
 def wa_mark_read(phone, msg_id):
     """Marca mensaje como leído."""
     try:
@@ -651,35 +584,20 @@ Solo el resumen, sin introducción."""
 
     # Último mensaje del CLIENTE, no del bot
     msgs_cliente = [m for m in historial if m['role'] == 'user']
-    ultima_cliente = msgs_cliente[-1]['content'][:200] if msgs_cliente else '-'
+    ultima_cliente = msgs_cliente[-1]['content'][:150] if msgs_cliente else '-'
 
-    tel_cliente_fmt = f"+{phone_cliente}"
+    msg = (
+        f"Derivacion WA\n"
+        f"Cliente: +{phone_cliente}\n"
+        f"Resumen: {resumen}\n"
+        f"Ultimo mensaje del cliente: {ultima_cliente}"
+    )
 
-    # Enviar template a TODOS los números configurados
-    resultados = []
-    for numero in NUMEROS_DERIVAR:
-        destino = numero.lstrip('+')
-        ok = wa_send_template_derivacion(
-            to=destino,
-            tel_cliente=tel_cliente_fmt,
-            resumen=resumen,
-            ultimo_msg=ultima_cliente
-        )
-        resultados.append((numero, ok))
-        print(f"[WA] Derivacion {'OK' if ok else 'FALLO'} para {phone_cliente} → {numero}")
-
-    # Si TODOS los templates fallaron, intentar fallback freeform al primer número
-    # (puede funcionar si ese número escribió al bot en las últimas 24hs)
-    if not any(ok for _, ok in resultados):
-        print(f"[WA] Todos los templates fallaron, intentando fallback freeform")
-        msg_fallback = (
-            f"Derivacion WA\n"
-            f"Cliente: {tel_cliente_fmt}\n"
-            f"Resumen: {resumen}\n"
-            f"Ultimo mensaje del cliente: {ultima_cliente}"
-        )
-        primer_num = NUMEROS_DERIVAR[0].lstrip('+')
-        wa_send(primer_num, msg_fallback)
+    ok = wa_send(NUMERO_DERIVAR.replace('+', ''), msg)
+    print(f"[WA] Derivacion {'OK' if ok else 'FALLO'} para {phone_cliente} → {NUMERO_DERIVAR}")
+    if not ok:
+        num = NUMERO_DERIVAR.lstrip('+')
+        wa_send(num, msg)
 
 # ── Claude ────────────────────────────────────────────────────────
 def _extraer_contexto(historial):
