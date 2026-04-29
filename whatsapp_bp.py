@@ -307,48 +307,80 @@ def get_productos_context():
         desc = max(float(desc_cat or 0), float(oferta or 0))
         return round(float(precio_base) * (1 - desc / 100))
 
-    lines = ["=== PRODUCTOS Y PRECIOS WEB (actualizados) ===\n"]
+    lines = ["=== PRODUCTOS Y PRECIOS (actualizados) ===",
+             "Cada producto tiene precio Web (con descuento online) y precio Local (de lista, para compra presencial).",
+             "Si NO hay descuento, ambos precios son iguales y se muestra solo uno.\n"]
 
     lines.append("--- COLCHONES ---")
     for p in colchones:
         if not p['precio_base']:
             continue
+        precio_lista = round(float(p['precio_base']))
         pf = precio_final(p['precio_base'], p['descuento_catalogo'], p['oferta_pct'])
         desc = max(float(p['descuento_catalogo'] or 0), float(p['oferta_pct'] or 0))
         stock = "Con stock" if p['stock_actual'] and p['stock_actual'] > 0 else "Sin stock"
         link = f"https://www.mercadomuebles.com.ar/tienda/producto/{p['sku']}"
+        if desc > 0:
+            precio_str = f"Web: ${pf:,} (-{int(desc)}%) | Local: ${precio_lista:,}"
+        else:
+            precio_str = f"Precio: ${pf:,}"
         lines.append(
-            f"• {p['nombre']} (SKU:{p['sku']}) | Precio: ${pf:,} "
-            f"{'(-'+str(int(desc))+'%)' if desc > 0 else ''} | {stock} | {link}"
+            f"• {p['nombre']} (SKU:{p['sku']}) | {precio_str} | {stock} | {link}"
         )
+        # Cuotas sobre precio web
         total_3 = round(pf * coef_3)
         total_6 = round(pf * coef_6)
         cuota_3 = round(total_3 / 3)
         cuota_6 = round(total_6 / 6)
         lines.append(
-            f"  3 cuotas fijas de ${cuota_3:,} (total ${total_3:,}) | "
-            f"6 cuotas fijas de ${cuota_6:,} (total ${total_6:,})"
+            f"  Cuotas Web: 3 fijas de ${cuota_3:,} (total ${total_3:,}) | "
+            f"6 fijas de ${cuota_6:,} (total ${total_6:,})"
         )
+        # Cuotas sobre precio de lista (solo si hay diferencia)
+        if desc > 0:
+            total_3l = round(precio_lista * coef_3)
+            total_6l = round(precio_lista * coef_6)
+            cuota_3l = round(total_3l / 3)
+            cuota_6l = round(total_6l / 6)
+            lines.append(
+                f"  Cuotas Local: 3 fijas de ${cuota_3l:,} (total ${total_3l:,}) | "
+                f"6 fijas de ${cuota_6l:,} (total ${total_6l:,})"
+            )
 
     lines.append("\n--- SOMMIERS / CONJUNTOS (colchón + base) ---")
     for p in sommiers:
         if not p['precio_base']:
             continue
+        precio_lista = round(float(p['precio_base']))
         pf = precio_final(p['precio_base'], p['descuento_catalogo'], p['oferta_pct'])
         desc = max(float(p['descuento_catalogo'] or 0), float(p['oferta_pct'] or 0))
         link = f"https://www.mercadomuebles.com.ar/tienda/producto/{p['sku']}"
+        if desc > 0:
+            precio_str = f"Web: ${pf:,} (-{int(desc)}%) | Local: ${precio_lista:,}"
+        else:
+            precio_str = f"Precio: ${pf:,}"
         lines.append(
-            f"• {p['nombre']} (SKU:{p['sku']}) | Precio: ${pf:,} "
-            f"{'(-'+str(int(desc))+'%)' if desc > 0 else ''} | {link}"
+            f"• {p['nombre']} (SKU:{p['sku']}) | {precio_str} | {link}"
         )
+        # Cuotas sobre precio web
         total_3 = round(pf * coef_3)
         total_6 = round(pf * coef_6)
         cuota_3 = round(total_3 / 3)
         cuota_6 = round(total_6 / 6)
         lines.append(
-            f"  3 cuotas fijas de ${cuota_3:,} (total ${total_3:,}) | "
-            f"6 cuotas fijas de ${cuota_6:,} (total ${total_6:,})"
+            f"  Cuotas Web: 3 fijas de ${cuota_3:,} (total ${total_3:,}) | "
+            f"6 fijas de ${cuota_6:,} (total ${total_6:,})"
         )
+        # Cuotas sobre precio de lista (solo si hay diferencia)
+        if desc > 0:
+            total_3l = round(precio_lista * coef_3)
+            total_6l = round(precio_lista * coef_6)
+            cuota_3l = round(total_3l / 3)
+            cuota_6l = round(total_6l / 6)
+            lines.append(
+                f"  Cuotas Local: 3 fijas de ${cuota_3l:,} (total ${total_3l:,}) | "
+                f"6 fijas de ${cuota_6l:,} (total ${total_6l:,})"
+            )
 
     # Bases sueltas
     bases = _q("""
@@ -469,6 +501,16 @@ COTIZACIONES:
 - Cuando cotices cuotas, usá este formato exacto: "3 cuotas fijas de $XX.XXX (total $XXX.XXX)" o "6 cuotas fijas de $XX.XXX (total $XXX.XXX)". NO menciones la marca del procesador de pagos (no digas Payway, GetNet, ni ningún nombre similar).
 - Si el cliente pregunta por cuotas sin interés: explicá que las cuotas son fijas (el importe no varía cuota a cuota). No menciones ni confirmes ni niegues si tienen interés embebido.
 
+PRECIO WEB vs PRECIO LOCAL (REGLA CRÍTICA):
+- Cada producto tiene DOS precios cuando hay descuento: "Web" (online, con descuento) y "Local" (presencial, precio de lista sin descuento).
+- Los descuentos de catálogo y ofertas SOLO aplican a compras online a través de la tienda web. NO se aplican a compras presenciales en el local.
+- Las cuotas se calculan sobre el precio que corresponda: cuotas Web sobre precio Web, cuotas Local sobre precio Local.
+- POR DEFAULT cotizá precio Web y cuotas Web (la mayoría de las consultas son online).
+- Cotizá precio Local y cuotas Local SOLO si el cliente menciona explícitamente: "en el local", "presencial", "ir a comprar", "retirar y pagar ahí", "comprar en persona", "pagar en efectivo en el local".
+- Si el cliente pregunta directamente "¿cuánto sale en el local?" o similar, aclarale: "En el local el precio es $X (precio de lista, los descuentos online no aplican en compra presencial). Con tarjeta, 3 cuotas fijas de $Y... o 6 cuotas fijas de $Z..."
+- Si el cliente cotiza online y después dice que va a ir al local, aclarale el cambio de precio antes de que se confunda.
+- NUNCA digas que el precio web y el precio del local son iguales si el producto tiene descuento. NO son iguales.
+
 ENVÍOS:
 - Podés calcular el costo de envío exacto si el cliente te da su código postal
 - Cuando el cliente pida el costo de envío, pedile el código postal si no lo tenés
@@ -484,8 +526,10 @@ FOTOS:
 - Solo enviá foto cuando el cliente pregunta por un modelo específico
 
 MEDIOS DE PAGO:
-- MercadoPago: precio de lista, todas las formas (débito, crédito, transferencia, PagoFácil/RapiPago)
-- Tarjeta de crédito Visa o Mastercard bancarizadas: 3 o 6 cuotas fijas (sin mencionar la marca del procesador de pagos).
+- MercadoPago (online en la tienda web): todas las formas (débito, crédito, transferencia, PagoFácil/RapiPago).
+- Tarjeta de crédito Visa o Mastercard bancarizadas: 3 o 6 cuotas fijas (sin mencionar la marca del procesador de pagos). Disponible tanto online como en el local.
+- En el local también se acepta efectivo y transferencia.
+- Recordá: los descuentos online NO aplican en compras presenciales (solo el precio de lista).
 
 HORARIO: {horario_txt}
 
