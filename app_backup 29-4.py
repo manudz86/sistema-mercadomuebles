@@ -10053,15 +10053,6 @@ def _crear_tablas_fletes():
             FOREIGN KEY (fletero_id) REFERENCES fleteros(id)
         )
     """)
-    # Migración no-destructiva: sumar columnas si no existen
-    try:
-        execute_db("ALTER TABLE fletes_registros ADD COLUMN domicilios INT DEFAULT 0")
-    except Exception:
-        pass
-    try:
-        execute_db("ALTER TABLE fletes_registros ADD COLUMN fecha_pago DATE DEFAULT NULL")
-    except Exception:
-        pass
 
 # ============================================================================
 # MÓDULO PAGOS CANNON
@@ -10274,7 +10265,6 @@ def fletes():
 
     registros = query_db("""
         SELECT r.id, r.fletero_id, r.fecha, r.descripcion, r.monto, r.pagado,
-               r.domicilios, r.fecha_pago,
                f.nombre as fletero_nombre
         FROM fletes_registros r
         JOIN fleteros f ON f.id = r.fletero_id
@@ -10287,8 +10277,7 @@ def fletes():
         SELECT f.nombre, f.id,
                SUM(r.monto) as total,
                SUM(CASE WHEN r.pagado=1 THEN r.monto ELSE 0 END) as pagado,
-               SUM(CASE WHEN r.pagado=0 THEN r.monto ELSE 0 END) as pendiente,
-               SUM(COALESCE(r.domicilios,0)) as domicilios
+               SUM(CASE WHEN r.pagado=0 THEN r.monto ELSE 0 END) as pendiente
         FROM fletes_registros r
         JOIN fleteros f ON f.id = r.fletero_id
         WHERE YEAR(r.fecha) = %s AND MONTH(r.fecha) = %s
@@ -10325,30 +10314,21 @@ def fletes_guardar():
             execute_db("UPDATE fleteros SET activo = NOT activo WHERE id=%s", (data.get('id'),))
         elif accion == 'agregar_registro':
             execute_db("""
-                INSERT INTO fletes_registros (fletero_id, fecha, descripcion, monto, pagado, domicilios)
-                VALUES (%s, %s, %s, %s, 0, %s)
-            """, (data['fletero_id'], data['fecha'], data.get('descripcion',''), float(data['monto']), int(data.get('domicilios') or 0)))
+                INSERT INTO fletes_registros (fletero_id, fecha, descripcion, monto, pagado)
+                VALUES (%s, %s, %s, %s, 0)
+            """, (data['fletero_id'], data['fecha'], data.get('descripcion',''), float(data['monto'])))
         elif accion == 'eliminar_registro':
             execute_db("DELETE FROM fletes_registros WHERE id=%s", (data.get('id'),))
         elif accion == 'toggle_pagado_grupo':
             # Marcar/desmarcar todos los registros de un día+fletero
             nuevo = int(data.get('pagado', 0))
-            if nuevo == 1:
-                execute_db("""
-                    UPDATE fletes_registros SET pagado=1, fecha_pago=CURDATE()
-                    WHERE fletero_id=%s AND fecha=%s
-                """, (data['fletero_id'], data['fecha']))
-            else:
-                execute_db("""
-                    UPDATE fletes_registros SET pagado=0, fecha_pago=NULL
-                    WHERE fletero_id=%s AND fecha=%s
-                """, (data['fletero_id'], data['fecha']))
+            execute_db("""
+                UPDATE fletes_registros SET pagado=%s
+                WHERE fletero_id=%s AND fecha=%s
+            """, (nuevo, data['fletero_id'], data['fecha']))
         elif accion == 'editar_monto':
             execute_db("UPDATE fletes_registros SET monto=%s WHERE id=%s",
                        (float(data['monto']), data['id']))
-        elif accion == 'editar_domicilios':
-            execute_db("UPDATE fletes_registros SET domicilios=%s WHERE id=%s",
-                       (int(data['domicilios']), data['id']))
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
     return jsonify({'ok': True})

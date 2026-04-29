@@ -37,31 +37,18 @@
     <div class="card shadow-sm">
       <div class="card-header fw-bold"><i class="bi bi-calculator me-1"></i> Totales del mes</div>
       <div class="card-body p-2">
-        <table class="table table-sm table-borderless mb-1" style="font-size:0.78rem;">
-          <thead><tr class="text-muted">
-            <th>Fletero</th>
-            <th class="text-end">Total</th>
-            <th class="text-end">Pendiente</th>
-            <th class="text-end" title="Domicilios">Dom.</th>
-            <th class="text-end" title="Promedio por domicilio">Prom.</th>
-          </tr></thead>
+        <table class="table table-sm table-borderless mb-1" style="font-size:0.82rem;">
+          <thead><tr class="text-muted"><th>Fletero</th><th class="text-end">Total</th><th class="text-end">Pendiente</th></tr></thead>
           <tbody>
-            {% set ns = namespace(gran_total=0, gran_pendiente=0, gran_dom=0) %}
+            {% set ns = namespace(gran_total=0, gran_pendiente=0) %}
             {% for t in totales_fletero %}
             {% set ns.gran_total = ns.gran_total + t.total %}
             {% set ns.gran_pendiente = ns.gran_pendiente + t.pendiente %}
-            {% set ns.gran_dom = ns.gran_dom + (t.domicilios or 0) %}
             <tr>
               <td>{{ t.nombre }}</td>
               <td class="text-end fw-bold">${{ "{:,.0f}".format(t.total).replace(",",".") }}</td>
               <td class="text-end {{ 'text-danger' if t.pendiente > 0 else 'text-success' }}">
                 ${{ "{:,.0f}".format(t.pendiente).replace(",",".") }}
-              </td>
-              <td class="text-end">{{ t.domicilios or 0 }}</td>
-              <td class="text-end text-muted">
-                {% if t.domicilios and t.domicilios > 0 %}
-                  ${{ "{:,.0f}".format(t.total / t.domicilios).replace(",",".") }}
-                {% else %}—{% endif %}
               </td>
             </tr>
             {% endfor %}
@@ -71,12 +58,6 @@
               <td>TOTAL</td>
               <td class="text-end">${{ "{:,.0f}".format(ns.gran_total).replace(",",".") }}</td>
               <td class="text-end text-danger">${{ "{:,.0f}".format(ns.gran_pendiente).replace(",",".") }}</td>
-              <td class="text-end">{{ ns.gran_dom }}</td>
-              <td class="text-end">
-                {% if ns.gran_dom > 0 %}
-                  ${{ "{:,.0f}".format(ns.gran_total / ns.gran_dom).replace(",",".") }}
-                {% else %}—{% endif %}
-              </td>
             </tr>
           </tfoot>
         </table>
@@ -98,42 +79,30 @@
     </div>
 
     {% if registros %}
+    <!-- Agrupar por fecha en Jinja -->
+    {% set ns = namespace(fecha_actual='', subtotal_dia=0, grupos=[]) %}
+
     <div class="accordion" id="acc-fletes">
       {% set fechas = registros | map(attribute='fecha') | unique | list %}
       {% for fecha in fechas %}
         {% set regs_dia = registros | selectattr('fecha', 'equalto', fecha) | list %}
         {% set total_dia = regs_dia | sum(attribute='monto') %}
-        {% set ns_dia = namespace(pagado_dia=0, pendiente_dia=0, dom_dia=0) %}
-        {% for r in regs_dia %}
-          {% if r.pagado %}{% set ns_dia.pagado_dia = ns_dia.pagado_dia + r.monto %}
-          {% else %}{% set ns_dia.pendiente_dia = ns_dia.pendiente_dia + r.monto %}{% endif %}
-          {% set ns_dia.dom_dia = ns_dia.dom_dia + (r.domicilios or 0) %}
-        {% endfor %}
-        {% set todos_pagados = ns_dia.pendiente_dia == 0 %}
-        {% set nada_pagado = ns_dia.pagado_dia == 0 %}
+        {% set pagados_dia = regs_dia | selectattr('pagado', 'equalto', 1) | list | length %}
+        {% set todos_pagados = pagados_dia == regs_dia | length %}
 
         <div class="accordion-item mb-2 border rounded">
           <h2 class="accordion-header">
             <button class="accordion-button py-2 {{ '' if loop.first else 'collapsed' }}" type="button"
               data-bs-toggle="collapse" data-bs-target="#dia-{{ fecha | string | replace('-','') }}">
-              <div class="d-flex w-100 justify-content-between align-items-center pe-3 flex-wrap gap-2">
+              <div class="d-flex w-100 justify-content-between align-items-center pe-3">
                 <span class="fw-bold">{{ fecha.strftime('%d/%m/%Y') if fecha is not string else fecha }}</span>
-                <div class="d-flex gap-2 align-items-center flex-wrap">
+                <div class="d-flex gap-3 align-items-center">
                   <span class="badge bg-secondary">{{ regs_dia | length }} recorrido{{ 's' if regs_dia | length > 1 }}</span>
-                  <span class="badge bg-info text-dark">{{ ns_dia.dom_dia }} dom.</span>
-                  {% if ns_dia.dom_dia > 0 %}
-                  <span class="badge bg-light text-dark border" title="Promedio por domicilio">
-                    ⌀ ${{ "{:,.0f}".format(total_dia / ns_dia.dom_dia).replace(",",".") }}
-                  </span>
-                  {% endif %}
                   <span class="fw-bold text-dark">${{ "{:,.0f}".format(total_dia).replace(",",".") }}</span>
                   {% if todos_pagados %}
                     <span class="badge bg-success">✓ Pagado</span>
-                  {% elif nada_pagado %}
-                    <span class="badge bg-danger">Pendiente</span>
                   {% else %}
-                    <span class="badge bg-success">${{ "{:,.0f}".format(ns_dia.pagado_dia).replace(",",".") }} pag.</span>
-                    <span class="badge bg-danger">${{ "{:,.0f}".format(ns_dia.pendiente_dia).replace(",",".") }} pend.</span>
+                    <span class="badge bg-danger">Pendiente</span>
                   {% endif %}
                 </div>
               </div>
@@ -147,29 +116,15 @@
               {% for fletero_nombre in fleteros_dia %}
                 {% set regs_flet = regs_dia | selectattr('fletero_nombre', 'equalto', fletero_nombre) | list %}
                 {% set total_flet = regs_flet | sum(attribute='monto') %}
-                {% set ns_flet = namespace(dom=0) %}
-                {% for r in regs_flet %}{% set ns_flet.dom = ns_flet.dom + (r.domicilios or 0) %}{% endfor %}
                 {% set flet_pagado = regs_flet[0].pagado %}
                 {% set fletero_id = regs_flet[0].fletero_id %}
-                {% set fecha_pago_flet = regs_flet[0].fecha_pago %}
                 {% set fecha_str = fecha | string %}
 
                 <div class="card mb-2">
-                  <div class="card-header py-1 d-flex justify-content-between align-items-center bg-light flex-wrap gap-2">
+                  <div class="card-header py-1 d-flex justify-content-between align-items-center bg-light">
                     <span class="fw-semibold">{{ fletero_nombre }}</span>
-                    <div class="d-flex align-items-center gap-2 flex-wrap">
-                      <span class="badge bg-info text-dark">{{ ns_flet.dom }} dom.</span>
-                      {% if ns_flet.dom > 0 %}
-                      <span class="badge bg-light text-dark border" title="Promedio por domicilio">
-                        ⌀ ${{ "{:,.0f}".format(total_flet / ns_flet.dom).replace(",",".") }}
-                      </span>
-                      {% endif %}
+                    <div class="d-flex align-items-center gap-2">
                       <span class="fw-bold">${{ "{:,.0f}".format(total_flet).replace(",",".") }}</span>
-                      {% if flet_pagado and fecha_pago_flet %}
-                      <small class="text-success" title="Fecha de pago">
-                        💵 {{ fecha_pago_flet.strftime('%d/%m') if fecha_pago_flet is not string else fecha_pago_flet }}
-                      </small>
-                      {% endif %}
                       <div class="form-check form-switch mb-0">
                         <input class="form-check-input" type="checkbox" role="switch"
                           {{ 'checked' if flet_pagado else '' }}
@@ -186,27 +141,16 @@
                       <tbody>
                         {% for r in regs_flet %}
                         <tr id="reg-{{ r.id }}">
-                          <td class="ps-3" style="width:160px;">
-                            <span class="dom-display" id="dom-{{ r.id }}">
-                              <i class="bi bi-house-door text-muted"></i>
-                              {{ r.domicilios or 0 }} domicilio{{ 's' if (r.domicilios or 0) != 1 }}
-                            </span>
-                            <input type="number" class="form-control form-control-sm d-none dom-input"
-                              id="input-dom-{{ r.id }}" value="{{ r.domicilios or 0 }}" min="0" style="width:80px;"
-                              onblur="guardarDomicilios({{ r.id }})" onkeydown="if(event.key==='Enter') guardarDomicilios({{ r.id }})">
-                          </td>
-                          <td class="text-muted" style="font-size:0.8rem;">{{ r.descripcion or '' }}</td>
+                          <td class="ps-3">{{ r.descripcion or '—' }}</td>
                           <td class="text-end fw-bold" style="width:110px;">
                             <span class="monto-display" id="monto-{{ r.id }}">${{ "{:,.0f}".format(r.monto).replace(",",".") }}</span>
                             <input type="number" class="form-control form-control-sm d-none monto-input"
                               id="input-monto-{{ r.id }}" value="{{ r.monto | int }}" style="width:90px;"
                               onblur="guardarMonto({{ r.id }})" onkeydown="if(event.key==='Enter') guardarMonto({{ r.id }})">
                           </td>
-                          <td style="width:100px;" class="text-end pe-2">
-                            <button class="btn btn-xs btn-outline-info py-0 px-1 btn-sm"
-                              onclick="editarDomicilios({{ r.id }})" title="Editar domicilios"><i class="bi bi-house-door"></i></button>
+                          <td style="width:70px;" class="text-end pe-2">
                             <button class="btn btn-xs btn-outline-secondary py-0 px-1 btn-sm"
-                              onclick="editarMonto({{ r.id }})" title="Editar monto"><i class="bi bi-pencil"></i></button>
+                              onclick="editarMonto({{ r.id }})" title="Editar"><i class="bi bi-pencil"></i></button>
                             <button class="btn btn-xs btn-outline-danger py-0 px-1 btn-sm"
                               onclick="eliminarRegistro({{ r.id }})" title="Eliminar"><i class="bi bi-trash"></i></button>
                           </td>
@@ -254,11 +198,11 @@
           <input type="date" class="form-control" id="modal-fecha" value="{{ mes }}-01">
         </div>
         <div class="mb-3">
-          <label class="form-label">Cantidad de domicilios</label>
-          <input type="number" class="form-control" id="modal-domicilios" min="0" step="1" placeholder="Ej: 5">
+          <label class="form-label">Descripción <small class="text-muted">(opcional)</small></label>
+          <input type="text" class="form-control" id="modal-desc" placeholder="Ej: Zona norte, 3 entregas...">
         </div>
         <div class="mb-3">
-          <label class="form-label">Monto ($) <small class="text-muted">(opcional, podés cargarlo después)</small></label>
+          <label class="form-label">Monto ($)</label>
           <input type="number" class="form-control" id="modal-monto" min="0" step="100" placeholder="Ej: 15000">
         </div>
       </div>
@@ -309,10 +253,10 @@ async function toggleFletero(id) {
 async function guardarRecorrido() {
   const fletero_id  = document.getElementById('modal-fletero').value;
   const fecha       = document.getElementById('modal-fecha').value;
-  const domicilios  = document.getElementById('modal-domicilios').value;
-  const monto       = document.getElementById('modal-monto').value || 0;
-  if (!fletero_id || !fecha || !domicilios) { toast('Completá fletero, fecha y domicilios', 'warning'); return; }
-  const data = await api({accion:'agregar_registro', fletero_id, fecha, descripcion:'', monto, domicilios});
+  const descripcion = document.getElementById('modal-desc').value.trim();
+  const monto       = document.getElementById('modal-monto').value;
+  if (!fletero_id || !fecha || !monto) { toast('Completá todos los campos', 'warning'); return; }
+  const data = await api({accion:'agregar_registro', fletero_id, fecha, descripcion, monto});
   if (data.ok) {
     toast('Recorrido guardado');
     bootstrap.Modal.getInstance(document.getElementById('modalAgregar')).hide();
@@ -343,35 +287,10 @@ function editarMonto(id) {
 async function guardarMonto(id) {
   const inp = document.getElementById('input-monto-' + id);
   const monto = parseFloat(inp.value);
-  if (!monto || monto <= 0) {
-    inp.classList.add('d-none');
-    document.getElementById('monto-' + id).classList.remove('d-none');
-    return;
-  }
+  if (!monto || monto <= 0) return;
   const data = await api({accion:'editar_monto', id, monto});
   if (data.ok) {
     toast('Monto actualizado');
-    setTimeout(() => location.reload(), 400);
-  } else toast('Error: ' + data.error, 'danger');
-}
-
-function editarDomicilios(id) {
-  document.getElementById('dom-' + id).classList.add('d-none');
-  const inp = document.getElementById('input-dom-' + id);
-  inp.classList.remove('d-none');
-  inp.focus(); inp.select();
-}
-async function guardarDomicilios(id) {
-  const inp = document.getElementById('input-dom-' + id);
-  const domicilios = parseInt(inp.value);
-  if (isNaN(domicilios) || domicilios < 0) {
-    inp.classList.add('d-none');
-    document.getElementById('dom-' + id).classList.remove('d-none');
-    return;
-  }
-  const data = await api({accion:'editar_domicilios', id, domicilios});
-  if (data.ok) {
-    toast('Domicilios actualizados');
     setTimeout(() => location.reload(), 400);
   } else toast('Error: ' + data.error, 'danger');
 }
@@ -380,8 +299,6 @@ async function guardarDomicilios(id) {
 document.getElementById('modalAgregar').addEventListener('show.bs.modal', function() {
   const hoy = new Date().toISOString().split('T')[0];
   document.getElementById('modal-fecha').value = hoy;
-  document.getElementById('modal-domicilios').value = '';
-  document.getElementById('modal-monto').value = '';
 });
 </script>
 {% endblock %}
