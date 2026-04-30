@@ -7,7 +7,7 @@ import os
 import json
 import requests  # pip install requests
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, Response
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
@@ -12986,6 +12986,331 @@ def costos_index():
         porcentajes_ml=porcentajes_ml,
         COSTOS_MODELOS_CLAVES=COSTOS_MODELOS_CLAVES,
     )
+
+
+# ============================================================================
+# LISTAS PDF — Mostrador y Costos
+# ============================================================================
+
+def _build_precio_compra_map():
+    """Idéntico a _build_precio_costos_map pero usando _calcular_precio_compra (sin multiplicador)."""
+    try:
+        cfg = _get_config_costos()
+        prontopago_pct   = cfg.get('prontopago', 5.0)
+        desc_cliente_pct = cfg.get('cliente', 0.0)
+        descuentos = {r['clave']: {'valor': float(r['valor']), 'desc_adicional': float(r['desc_adicional'] or 0)}
+                      for r in query_db("SELECT clave, valor, desc_adicional FROM cannon_descuentos WHERE tipo = 'descuento_linea'")}
+        ctr80_row = query_one("SELECT valor FROM configuracion WHERE clave = 'ctr80_precio_cannon'")
+        ctr80_override = float(ctr80_row['valor']) if ctr80_row and ctr80_row.get('valor') else 0
+
+        rows = query_db("""
+            SELECT cp.sku, clp.precio_lista, cp.descripcion,
+                   cd_adi.valor as desc_adicional
+            FROM cannon_productos cp
+            JOIN cannon_lista_precios clp ON clp.codigo_material = cp.codigo_material
+            LEFT JOIN cannon_descuentos cd_adi ON cd_adi.clave = CONCAT('adicional_', cp.sku)
+            WHERE cp.sku IS NOT NULL
+        """)
+        mapa = {}
+        for r in rows:
+            sku = r['sku']
+            sku_up = sku.upper()
+            desc = (r['descripcion'] or '').upper()
+            clave = None
+            if sku_up == 'CTR80':                clave = 'ctr80'
+            elif sku_up.startswith('BASE_') or desc.startswith('SOM') or desc.startswith('BASE'): clave = 'bases'
+            elif sku_up in ('CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE') or desc.startswith('ALM'): clave = 'almohadas'
+            elif 'EUROPILLOW' in desc: clave = 'sublime_europillow' if 'SUBLIME' in desc else 'renovation_europillow'
+            elif 'PILLOW' in desc or 'PIL' in desc: clave = 'exclusive_pillow' if 'EXCLUSIVE' in desc else 'doral_pillow'
+            elif 'PRINCESS' in desc: clave = 'princess_23' if '23' in desc else 'princess_20'
+            elif 'ESPECIAL DE LUJO' in desc: clave = 'especial_de_lujo'
+            elif 'EXCLUSIVE' in desc: clave = 'exclusive'
+            elif 'RENOVATION' in desc: clave = 'renovation'
+            elif 'TROPICAL' in desc: clave = 'tropical'
+            elif 'SONAR' in desc or 'SOÑAR' in desc: clave = 'sonar'
+            elif 'PLATINO' in desc: clave = 'platino'
+            elif 'DORAL' in desc: clave = 'doral'
+            elif 'SUBLIME' in desc: clave = 'sublime'
+
+            desc_entry = descuentos.get(clave, {'valor': 0, 'desc_adicional': 0}) if clave else {'valor': 0, 'desc_adicional': 0}
+            desc_adi = desc_entry['desc_adicional'] + float(r['desc_adicional'] or 0)
+            sin_descuentos = (clave in ('almohadas', 'ctr80'))
+            desc_linea_aplicar   = 0 if sin_descuentos else desc_entry['valor']
+            desc_cliente_aplicar = 0 if sin_descuentos else desc_cliente_pct
+            desc_adi_aplicar     = 0 if sin_descuentos else desc_adi
+
+            precio_cannon = float(r['precio_lista'])
+            if sku_up == 'CTR80' and ctr80_override > 0:
+                precio_cannon = ctr80_override
+
+            mapa[sku] = _calcular_precio_compra(
+                precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct
+            )
+        # Sommiers = colchón + base × cantidad (a costo)
+        conjuntos = query_db("SELECT colchon_sku, base_sku_default, cantidad_bases FROM conjunto_configuracion WHERE activo=1")
+        for c in conjuntos:
+            sku_col = c['colchon_sku']
+            base_sku = c['base_sku_default']
+            cant = int(c['cantidad_bases'] or 1)
+            precio_col = mapa.get(sku_col, 0)
+            precio_base = mapa.get(base_sku, 0)
+            if precio_col and precio_base:
+                sku_conj = 'S' + sku_col[1:] if sku_col.startswith('C') else 'S' + sku_col
+                mapa[sku_conj] = precio_col + precio_base * cant
+        return mapa
+    except Exception as e:
+        print(f"[_build_precio_compra_map] Error: {e}")
+        return {}
+
+
+# Estructura de la lista (igual al PDF Cannon)
+LISTA_ESPUMA_COLS = [
+    # (titulo, sku_colchon_template, sku_conjunto_template_o_None)
+    ('Tropical Mat. 14cm',  'CTR{}14',  None),       # CTR8014 (solo 80x190)
+    ('Tropical 18cm',       'CTR{}',    None),       # CTR80, CTR90, CTR100, CTR130, CTR140
+    ('Princess 20cm',       'CPR{}20',  'SPR{}20'),  # CPR8020 / SPR8020
+    ('Princess 23cm',       'CPR{}23',  'SPR{}23'),
+    ('Especial Lujo',       'CLU{}',    None),       # CLU80, CLU90...
+    ('Exclusive 25cm',      'CEX{}',    'SEX{}'),
+    ('Exclusive Pillow',    'CEXP{}',   'SEXP{}'),
+    ('Renovation',          'CRE{}',    'SRE{}'),
+    ('Renovation EP',       'CREP{}',   'SREP{}'),
+    ('Compac',              'CCO{}',    None),       # CCO80, CCO140, CCO160, CCO100
+]
+LISTA_RESORTES_COLS = [
+    ('Soñar',               'CSO{}',    'SSO{}'),
+    ('Platino',             'CPL{}',    'SPL{}'),
+    ('Doral',               'CDO{}',    'SDO{}'),
+    ('Doral Pillow',        'CDOP{}',   'SDOP{}'),   # solo 140, 150, 160, 180, 200
+    ('Sublime Europillow',  'CSUP{}',   'SSUP{}'),
+]
+LISTA_BASES_COLS = [
+    ('Chocolate', 'BASE_CHOC{}'),
+    ('Sábana',    'BASE_SAB{}'),
+    ('Gris',      'BASE_GRIS{}'),
+    ('Sublime',   'BASE_SUBL{}'),
+]
+LISTA_MEDIDAS = ['80', '90', '100', '130', '140', '150', '160', '180', '200']
+LISTA_MEDIDAS_200 = ['80200', '90200', '100200', '140200', '160', '180', '200']  # 80x200, 90x200...
+
+# Almohadas: SKU → nombre legible
+LISTA_ALMOHADAS = [
+    ('CERVICAL',   'Visco Cervical'),
+    ('CLASICA',    'Visco Clásica'),
+    ('DUAL',       'Dual Refreshing'),
+    ('EXCLUSIVE',  'Exclusive 70x40'),
+    ('PLATINO',    'Platino 70x40'),
+    ('RENOVATION', 'Visco Renovation'),
+    ('SUBLIME',    'Visco Sublime'),
+    ('DORAL',      'Doral 70x50'),
+]
+
+
+def _generar_pdf_lista(precio_map, titulo, mostrar_pie_envios=False):
+    """Genera el PDF de lista (costos o precios) en A4 horizontal, una sola hoja."""
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors as rl_colors
+    import io
+    from datetime import date
+
+    buf = io.BytesIO()
+    PAGE_W, PAGE_H = landscape(A4)
+    c = rl_canvas.Canvas(buf, pagesize=landscape(A4))
+
+    # ── Encabezado ───────────────────────────────────────────────────────────
+    c.setFillColor(rl_colors.HexColor('#1a2744'))
+    c.rect(0, PAGE_H - 12*mm, PAGE_W, 12*mm, fill=1, stroke=0)
+    c.setFillColor(rl_colors.white)
+    c.setFont('Helvetica-Bold', 14)
+    c.drawString(8*mm, PAGE_H - 8*mm, titulo)
+    c.setFont('Helvetica', 9)
+    c.drawRightString(PAGE_W - 8*mm, PAGE_H - 8*mm, f"Vigencia: {date.today().strftime('%d/%m/%Y')}")
+
+    # ── Tabla ESPUMA ─────────────────────────────────────────────────────────
+    def fmt_precio(v):
+        if not v: return '—'
+        return f"${int(v):,}".replace(',', '.')
+
+    def dibujar_tabla(x0, y0, titulo_seccion, columnas, mapa_skus, fila_height=4.4*mm, header_h=8*mm, col_w=14*mm, label_w=20*mm):
+        """Dibuja una sección. Retorna y final."""
+        # Calcular ancho total (cada columna con sub Col/Conj cuenta doble)
+        total_subcols = 0
+        for (_, _, sk_conj) in columnas:
+            total_subcols += 2 if sk_conj else 1
+        sub_w = col_w * 1.0  # ancho subcolumna
+        total_w = label_w + total_subcols * sub_w
+
+        # Título sección
+        c.setFillColor(rl_colors.HexColor('#1a2744'))
+        c.setFont('Helvetica-Bold', 9)
+        c.drawString(x0, y0, titulo_seccion)
+        y = y0 - 2*mm
+
+        # Header de modelos
+        c.setFillColor(rl_colors.HexColor('#3a4a5c'))
+        c.rect(x0, y - header_h, total_w, header_h, fill=1, stroke=0)
+        c.setFillColor(rl_colors.white)
+        c.setFont('Helvetica-Bold', 7)
+        c.drawCentredString(x0 + label_w/2, y - header_h/2 - 1.2*mm, 'MEDIDA')
+        cur_x = x0 + label_w
+        for (titulo_col, _, sk_conj) in columnas:
+            n_sub = 2 if sk_conj else 1
+            ancho_col = sub_w * n_sub
+            c.drawCentredString(cur_x + ancho_col/2, y - 2.5*mm, titulo_col)
+            # Sub-headers
+            if sk_conj:
+                c.setFont('Helvetica', 6)
+                c.drawCentredString(cur_x + sub_w/2, y - 6.5*mm, 'COL')
+                c.drawCentredString(cur_x + sub_w*1.5, y - 6.5*mm, 'CONJ')
+                c.setFont('Helvetica-Bold', 7)
+            else:
+                c.setFont('Helvetica', 6)
+                c.drawCentredString(cur_x + sub_w/2, y - 6.5*mm, '—')
+                c.setFont('Helvetica-Bold', 7)
+            # Líneas verticales de separación
+            cur_x += ancho_col
+        y -= header_h
+
+        # Filas
+        c.setFillColor(rl_colors.black)
+        c.setFont('Helvetica', 7)
+        for i, medida in enumerate(LISTA_MEDIDAS):
+            # Fondo alterno
+            if i % 2 == 0:
+                c.setFillColor(rl_colors.HexColor('#f0f4f8'))
+                c.rect(x0, y - fila_height, total_w, fila_height, fill=1, stroke=0)
+            c.setFillColor(rl_colors.black)
+            c.setFont('Helvetica-Bold', 7)
+            c.drawString(x0 + 2*mm, y - fila_height + 1.5*mm, f'{medida}x190')
+            c.setFont('Helvetica', 6.5)
+            cur_x = x0 + label_w
+            for (_, sku_col_t, sk_conj_t) in columnas:
+                sku_col = sku_col_t.format(medida)
+                precio_col = mapa_skus.get(sku_col, 0)
+                c.drawCentredString(cur_x + sub_w/2, y - fila_height + 1.5*mm, fmt_precio(precio_col))
+                if sk_conj_t:
+                    sku_conj = sk_conj_t.format(medida)
+                    precio_conj = mapa_skus.get(sku_conj, 0)
+                    c.drawCentredString(cur_x + sub_w*1.5, y - fila_height + 1.5*mm, fmt_precio(precio_conj))
+                    cur_x += sub_w*2
+                else:
+                    cur_x += sub_w
+            y -= fila_height
+        # Bordes
+        c.setStrokeColor(rl_colors.HexColor('#bbbbbb'))
+        c.setLineWidth(0.3)
+        c.rect(x0, y, total_w, y0 - y - 2*mm)
+        return y, total_w
+
+    # Posicionamiento
+    y_cur = PAGE_H - 16*mm
+
+    # ESPUMA
+    y_cur, w_esp = dibujar_tabla(7*mm, y_cur, '🛏 ESPUMA', LISTA_ESPUMA_COLS, precio_map)
+    y_cur -= 4*mm
+
+    # RESORTES
+    y_cur, w_res = dibujar_tabla(7*mm, y_cur, '🛏 RESORTES', LISTA_RESORTES_COLS, precio_map)
+    y_cur -= 4*mm
+
+    # BASES + ALMOHADAS lado a lado
+    # Bases (izquierda)
+    y_bases_top = y_cur
+    c.setFillColor(rl_colors.HexColor('#1a2744'))
+    c.setFont('Helvetica-Bold', 9)
+    c.drawString(7*mm, y_bases_top, '📦 BASES')
+    y_b = y_bases_top - 2*mm
+    base_label_w = 18*mm
+    base_col_w = 16*mm
+    base_total_w = base_label_w + len(LISTA_BASES_COLS) * base_col_w
+    c.setFillColor(rl_colors.HexColor('#3a4a5c'))
+    c.rect(7*mm, y_b - 5*mm, base_total_w, 5*mm, fill=1, stroke=0)
+    c.setFillColor(rl_colors.white)
+    c.setFont('Helvetica-Bold', 7)
+    c.drawCentredString(7*mm + base_label_w/2, y_b - 3.5*mm, 'MEDIDA')
+    for i, (nombre, _) in enumerate(LISTA_BASES_COLS):
+        c.drawCentredString(7*mm + base_label_w + i*base_col_w + base_col_w/2, y_b - 3.5*mm, nombre)
+    y_b -= 5*mm
+
+    medidas_bases = ['80', '90', '100', '130', '140', '150', '80200', '90200', '100200', '140200']
+    medidas_label = {'80':'80x190','90':'90x190','100':'100x190','130':'130x190','140':'140x190','150':'150x190',
+                     '80200':'80x200','90200':'90x200','100200':'100x200','140200':'140x200'}
+    c.setFillColor(rl_colors.black)
+    for i, m in enumerate(medidas_bases):
+        if i % 2 == 0:
+            c.setFillColor(rl_colors.HexColor('#f0f4f8'))
+            c.rect(7*mm, y_b - 4*mm, base_total_w, 4*mm, fill=1, stroke=0)
+        c.setFillColor(rl_colors.black)
+        c.setFont('Helvetica-Bold', 6.5)
+        c.drawString(7*mm + 1*mm, y_b - 3*mm, medidas_label[m])
+        c.setFont('Helvetica', 6.5)
+        for j, (_, sku_t) in enumerate(LISTA_BASES_COLS):
+            sku = sku_t.format(m)
+            precio = precio_map.get(sku, 0)
+            c.drawCentredString(7*mm + base_label_w + j*base_col_w + base_col_w/2, y_b - 3*mm, fmt_precio(precio))
+        y_b -= 4*mm
+    c.setStrokeColor(rl_colors.HexColor('#bbbbbb'))
+    c.rect(7*mm, y_b, base_total_w, y_bases_top - y_b - 2*mm)
+
+    # Almohadas (derecha)
+    x_alm = 7*mm + base_total_w + 6*mm
+    c.setFillColor(rl_colors.HexColor('#1a2744'))
+    c.setFont('Helvetica-Bold', 9)
+    c.drawString(x_alm, y_bases_top, '😴 ALMOHADAS')
+    y_a = y_bases_top - 2*mm
+    alm_w = 70*mm
+    c.setFillColor(rl_colors.HexColor('#3a4a5c'))
+    c.rect(x_alm, y_a - 5*mm, alm_w, 5*mm, fill=1, stroke=0)
+    c.setFillColor(rl_colors.white)
+    c.setFont('Helvetica-Bold', 7)
+    c.drawString(x_alm + 2*mm, y_a - 3.5*mm, 'MODELO')
+    c.drawRightString(x_alm + alm_w - 2*mm, y_a - 3.5*mm, 'PRECIO')
+    y_a -= 5*mm
+    for i, (sku, nombre) in enumerate(LISTA_ALMOHADAS):
+        if i % 2 == 0:
+            c.setFillColor(rl_colors.HexColor('#f0f4f8'))
+            c.rect(x_alm, y_a - 4*mm, alm_w, 4*mm, fill=1, stroke=0)
+        c.setFillColor(rl_colors.black)
+        c.setFont('Helvetica', 7)
+        c.drawString(x_alm + 2*mm, y_a - 3*mm, nombre)
+        c.setFont('Helvetica-Bold', 7)
+        c.drawRightString(x_alm + alm_w - 2*mm, y_a - 3*mm, fmt_precio(precio_map.get(sku, 0)))
+        y_a -= 4*mm
+    c.setStrokeColor(rl_colors.HexColor('#bbbbbb'))
+    c.rect(x_alm, y_a, alm_w, y_bases_top - y_a - 2*mm)
+
+    # Pie
+    if mostrar_pie_envios:
+        c.setFillColor(rl_colors.HexColor('#1a2744'))
+        c.setFont('Helvetica-Bold', 9)
+        c.drawCentredString(PAGE_W/2, 6*mm, '🚚 Envíos colchones CABA: $20.000  ·  Distribuidores Oficiales Cannon')
+
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    return buf
+
+
+@app.route('/costos/lista-precios.pdf')
+@login_required
+def costos_lista_precios_pdf():
+    """Lista de PRECIOS de venta para mostrador."""
+    mapa = _build_precio_costos_map()
+    pdf = _generar_pdf_lista(mapa, 'LISTA CANNON / CONTADO', mostrar_pie_envios=True)
+    return Response(pdf.read(), mimetype='application/pdf',
+                    headers={'Content-Disposition': 'inline; filename=lista_precios_cannon.pdf'})
+
+
+@app.route('/costos/lista-costos.pdf')
+@admin_required
+def costos_lista_costos_pdf():
+    """Lista de COSTOS interna."""
+    mapa = _build_precio_compra_map()
+    pdf = _generar_pdf_lista(mapa, 'LISTA DE COSTOS — INTERNA', mostrar_pie_envios=False)
+    return Response(pdf.read(), mimetype='application/pdf',
+                    headers={'Content-Disposition': 'inline; filename=lista_costos_cannon.pdf'})
 
 
 @app.route('/costos/descuentos', methods=['GET', 'POST'])
