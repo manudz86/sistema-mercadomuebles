@@ -7,32 +7,6 @@
     <h5 class="mb-0 fw-bold">🏷️ Descuentos y configuración</h5>
   </div>
 
-  <!-- ── Precio especial CTR80 ── -->
-  <div class="card border-0 shadow-sm mb-3" style="border-left:4px solid #f39c12 !important;">
-    <div class="card-header fw-semibold bg-light">
-      📌 Precio especial CTR80 (Tropical Matelaseado 80x190)
-    </div>
-    <div class="card-body">
-      <div class="row g-2 align-items-center">
-        <div class="col-md-4">
-          <label class="form-label small text-muted mb-1">Precio Cannon CTR80 ($)</label>
-          <input type="number" class="form-control" id="ctr80-precio"
-                 value="{{ ctr80_precio | float | int if ctr80_precio else '' }}"
-                 placeholder="Ej: 250000" min="0" step="100">
-        </div>
-        <div class="col-md-6">
-          <small class="text-muted">
-            Override manual. Si está cargado, se usa este precio en vez del de la lista Excel.
-            El CTR80 solo aplica <strong>prontopago</strong>, sin otros descuentos.
-          </small>
-        </div>
-        <div class="col-md-2">
-          <button class="btn btn-success w-100" onclick="guardarCtr80()">💾 Guardar</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <div class="card border-0 shadow-sm">
     <div class="card-body p-0">
       <table class="table table-sm table-hover mb-0 align-middle">
@@ -140,17 +114,6 @@ async function guardar() {
     toast('❌ Error: ' + data.error, 'danger');
     btn.disabled = false;
   }
-}
-
-async function guardarCtr80() {
-  const valor = document.getElementById('ctr80-precio').value;
-  const res = await fetch('/costos/descuentos', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ctr80_precio: valor})
-  });
-  const data = await res.json();
-  toast(data.ok ? '✅ Precio CTR80 guardado' : '❌ ' + data.error, data.ok ? 'success' : 'danger');
 }
 
 function toast(msg, tipo) {
