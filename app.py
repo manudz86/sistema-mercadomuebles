@@ -12928,7 +12928,7 @@ def _build_precio_costos_map():
                 precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct, multiplicador
             ) / 1000) * 1000
             mapa[sku] = precio
-        # Agregar sommiers
+        # Agregar sommiers — primero los de conjunto_configuracion
         conjuntos = query_db("SELECT colchon_sku, base_sku_default, cantidad_bases FROM conjunto_configuracion WHERE activo=1")
         for c in conjuntos:
             sku_col = c['colchon_sku']
@@ -12939,6 +12939,33 @@ def _build_precio_costos_map():
             if precio_col and precio_base:
                 sku_conj = 'S' + sku_col[1:] if sku_col.startswith('C') else 'S' + sku_col
                 mapa[sku_conj] = round((precio_col + precio_base * cant) / 1000) * 1000
+        # Sommiers calculados para TODAS las medidas/modelos de la lista PDF
+        for medida in ['80', '90', '100', '130', '140', '150', '160', '180', '200']:
+            cant_default = 2 if medida in ('160', '180', '200') else 1
+            sommiers_map = [
+                ('CPR{}20',  'SPR{}20',  'BASE_SAB{}'),
+                ('CPR{}23',  'SPR{}23',  'BASE_GRIS{}'),
+                ('CEX{}',    'SEX{}',    'BASE_CHOC{}'),
+                ('CEXP{}',   'SEXP{}',   'BASE_CHOC{}'),
+                ('CRE{}',    'SRE{}',    'BASE_GRIS{}'),
+                ('CREP{}',   'SREP{}',   'BASE_GRIS{}'),
+                ('CSO{}',    'SSO{}',    'BASE_SAB{}'),
+                ('CPL{}',    'SPL{}',    'BASE_GRIS{}'),
+                ('CDO{}',    'SDO{}',    'BASE_GRIS{}'),
+                ('CDOP{}',   'SDOP{}',   'BASE_GRIS{}'),
+                ('CSUP{}',   'SSUP{}',   'BASE_SUBL{}'),
+            ]
+            for col_t, conj_t, base_t in sommiers_map:
+                sku_col  = col_t.format(medida)
+                sku_conj = conj_t.format(medida)
+                if sku_conj in mapa:
+                    continue
+                precio_col = mapa.get(sku_col, 0)
+                if not precio_col:
+                    continue
+                precio_base = mapa.get(base_t.format(medida), 0)
+                if precio_base:
+                    mapa[sku_conj] = round((precio_col + precio_base * cant_default) / 1000) * 1000
         return mapa
     except Exception as e:
         print(f"[_build_precio_costos_map] Error: {e}")
@@ -13046,17 +13073,34 @@ def _build_precio_compra_map():
             mapa[sku] = _calcular_precio_compra(
                 precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct
             )
-        # Sommiers = colchón + base × cantidad (a costo)
-        conjuntos = query_db("SELECT colchon_sku, base_sku_default, cantidad_bases FROM conjunto_configuracion WHERE activo=1")
-        for c in conjuntos:
-            sku_col = c['colchon_sku']
-            base_sku = c['base_sku_default']
-            cant = int(c['cantidad_bases'] or 1)
-            precio_col = mapa.get(sku_col, 0)
-            precio_base = mapa.get(base_sku, 0)
-            if precio_col and precio_base:
-                sku_conj = 'S' + sku_col[1:] if sku_col.startswith('C') else 'S' + sku_col
-                mapa[sku_conj] = precio_col + precio_base * cant
+        # Sommiers calculados para TODAS las medidas/modelos de la lista PDF
+        # (no depende de conjunto_configuracion para incluir todos los SKUs del PDF)
+        for medida in ['80', '90', '100', '130', '140', '150', '160', '180', '200']:
+            cant_default = 2 if medida in ('160', '180', '200') else 1
+            sommiers_map = [
+                ('CPR{}20',  'SPR{}20',  'BASE_SAB{}'),   # Princess 20 → Sábana
+                ('CPR{}23',  'SPR{}23',  'BASE_GRIS{}'),  # Princess 23 → Gris
+                ('CEX{}',    'SEX{}',    'BASE_CHOC{}'),  # Exclusive → Chocolate
+                ('CEXP{}',   'SEXP{}',   'BASE_CHOC{}'),  # Exclusive Pillow → Chocolate
+                ('CRE{}',    'SRE{}',    'BASE_GRIS{}'),  # Renovation → Gris
+                ('CREP{}',   'SREP{}',   'BASE_GRIS{}'),  # Renovation EP → Gris
+                ('CSO{}',    'SSO{}',    'BASE_SAB{}'),   # Soñar → Sábana
+                ('CPL{}',    'SPL{}',    'BASE_GRIS{}'),  # Platino → Gris
+                ('CDO{}',    'SDO{}',    'BASE_GRIS{}'),  # Doral → Gris
+                ('CDOP{}',   'SDOP{}',   'BASE_GRIS{}'),  # Doral Pillow → Gris
+                ('CSUP{}',   'SSUP{}',   'BASE_SUBL{}'),  # Sublime EP → Sublime
+            ]
+            for col_t, conj_t, base_t in sommiers_map:
+                sku_col  = col_t.format(medida)
+                sku_conj = conj_t.format(medida)
+                if sku_conj in mapa:
+                    continue  # ya viene de conjunto_configuracion
+                precio_col = mapa.get(sku_col, 0)
+                if not precio_col:
+                    continue
+                precio_base = mapa.get(base_t.format(medida), 0)
+                if precio_base:
+                    mapa[sku_conj] = precio_col + precio_base * cant_default
         return mapa
     except Exception as e:
         print(f"[_build_precio_compra_map] Error: {e}")
