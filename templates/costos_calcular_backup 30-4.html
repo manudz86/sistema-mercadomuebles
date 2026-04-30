@@ -44,7 +44,6 @@
               <th>Descripción</th>
               <th>Modelo</th>
               <th class="text-end">P. Cannon</th>
-              <th class="text-end" style="background:#3a4a5c">P. Compra</th>
               <th class="text-end">Descuentos</th>
               <th class="text-end">Costo envío</th>
               <th class="text-end text-success">P. Lista / Web</th>
@@ -99,10 +98,6 @@
               <td class="text-end small">
                 {% if p.precio_cannon %}${{ "{:,.0f}".format(p.precio_cannon).replace(",",".") }}
                 {% else %}<span class="text-muted">calc.</span>{% endif %}
-              </td>
-              <td class="text-end small fw-bold" style="color:#0d6efd">
-                {% if p.precio_compra %}${{ "{:,.0f}".format(p.precio_compra).replace(",",".") }}
-                {% else %}<span class="text-muted">—</span>{% endif %}
               </td>
               <td class="text-end small text-danger">
                 {% if p.desc_linea is not none %}

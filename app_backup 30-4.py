@@ -12844,21 +12844,6 @@ def _calcular_precio_lista(precio_cannon, desc_linea_pct, desc_cliente_pct, desc
     return round(costo * multiplicador)
 
 
-def _calcular_precio_compra(precio_cannon, desc_linea_pct, desc_cliente_pct, desc_adicional_pct, prontopago_pct):
-    """
-    Precio de compra (costo neto) = precio_cannon con todos los descuentos aplicados,
-    SIN multiplicador.
-    """
-    costo = precio_cannon
-    costo *= (1 - desc_linea_pct / 100)
-    if desc_cliente_pct:
-        costo *= (1 - desc_cliente_pct / 100)
-    if desc_adicional_pct:
-        costo *= (1 - desc_adicional_pct / 100)
-    costo *= 1 / (1 + prontopago_pct / 100)
-    return round(costo)
-
-
 def _build_precio_costos_map():
     """Construye un mapa sku → precio_lista_costos para mostrar en tienda_precios."""
     try:
@@ -13256,7 +13241,6 @@ def costos_calcular():
 
     # Mapa colchon_sku → precio_lista calculado (para sommiers)
     colchones_precio_lista = {}
-    colchones_precio_compra = {}
 
     productos = []
     for p in productos_raw:
@@ -13277,7 +13261,6 @@ def costos_calcular():
         # Guardar precio colchon para calcular sommiers después
         if clave != 'bases' and clave != 'almohadas':
             colchones_precio_lista[sku] = precio_lista
-            colchones_precio_compra[sku] = precio_compra
 
         es_z = sku.endswith('Z')
         sku_base = sku[:-1] if es_z else sku
@@ -13297,16 +13280,11 @@ def costos_calcular():
 
         precio_ml_sin_cuotas = _mil(precio_lista + costo_envio_ml) if not es_z else precio_lista
 
-        precio_compra = _calcular_precio_compra(
-            precio_cannon, desc_linea, desc_cliente_pct, desc_adi, prontopago_pct
-        )
-
         productos.append({
             'id':              p['id'],
             'sku':             sku,
             'descripcion':     p['descripcion'],
             'precio_cannon':   precio_cannon,
-            'precio_compra':   precio_compra,
             'clave_descuento': clave,
             'desc_linea':      desc_linea,
             'desc_cliente':    desc_cliente_pct,
@@ -13335,7 +13313,6 @@ def costos_calcular():
                 'sku':             sku_z,
                 'descripcion':     p['descripcion'] + ' (ME1/Flex propio)',
                 'precio_cannon':   precio_cannon,
-                'precio_compra':   precio_compra,
                 'clave_descuento': clave,
                 'desc_linea':      desc_linea,
                 'desc_cliente':    desc_cliente_pct,
@@ -13374,15 +13351,6 @@ def costos_calcular():
 
         precio_conjunto = _mil(precio_col + precio_base_calc * cant)
 
-        # Costo de compra del conjunto: precio_compra del colchón + bases × cantidad
-        precio_compra_col = colchones_precio_compra.get(sku_col, 0)
-        precio_compra_base = _calcular_precio_compra(
-            precio_cannon_base,
-            descuentos.get('bases', {'valor': 40})['valor'],
-            desc_cliente_pct, 0, prontopago_pct
-        ) if precio_cannon_base else 0
-        precio_compra_conj = precio_compra_col + precio_compra_base * cant
-
         sku_conj   = 'S' + sku_col[1:] if sku_col.startswith('C') else 'S' + sku_col
         sku_conj_z = sku_conj + 'Z'
 
@@ -13406,7 +13374,6 @@ def costos_calcular():
             'sku':             sku_conj,
             'descripcion':     f'SOMMIER + {sku_col} ({base_sku} ×{cant})',
             'precio_cannon':   None,
-            'precio_compra':   precio_compra_conj,
             'clave_descuento': 'conjunto',
             'desc_linea':      None,
             'desc_cliente':    None,
@@ -13432,7 +13399,6 @@ def costos_calcular():
             'sku':             sku_conj_z,
             'descripcion':     f'SOMMIER Z + {sku_col} ({base_sku} ×{cant})',
             'precio_cannon':   None,
-            'precio_compra':   precio_compra_conj,
             'clave_descuento': 'conjunto_z',
             'desc_linea':      None,
             'desc_cliente':    None,
