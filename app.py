@@ -13110,23 +13110,23 @@ def _build_precio_compra_map():
 # Estructura de la lista (igual al PDF Cannon)
 LISTA_ESPUMA_COLS = [
     # (titulo, sku_colchon_template, sku_conjunto_template_o_None)
-    ('Tropical Mat. 14cm',  'CTR{}14',  None),       # CTR8014 (solo 80x190)
-    ('Tropical 18cm',       'CTR{}',    None),       # CTR80, CTR90, CTR100, CTR130, CTR140
-    ('Princess 20cm',       'CPR{}20',  'SPR{}20'),  # CPR8020 / SPR8020
-    ('Princess 23cm',       'CPR{}23',  'SPR{}23'),
-    ('Especial Lujo',       'CLU{}',    None),       # CLU80, CLU90...
-    ('Exclusive 25cm',      'CEX{}',    'SEX{}'),
-    ('Exclusive Pillow',    'CEXP{}',   'SEXP{}'),
-    ('Renovation',          'CRE{}',    'SRE{}'),
-    ('Renovation EP',       'CREP{}',   'SREP{}'),
-    ('Compac',              'CCO{}',    None),       # CCO80, CCO140, CCO160, CCO100
+    ('Trop. 14',      'CTR{}14',  None),
+    ('Trop. 18',      'CTR{}',    None),
+    ('Princess 20',   'CPR{}20',  'SPR{}20'),
+    ('Princess 23',   'CPR{}23',  'SPR{}23'),
+    ('Esp. Lujo',     'CLU{}',    None),
+    ('Exclusive 25',  'CEX{}',    'SEX{}'),
+    ('Excl. Pillow',  'CEXP{}',   'SEXP{}'),
+    ('Renovation',    'CRE{}',    'SRE{}'),
+    ('Renov. EP',     'CREP{}',   'SREP{}'),
+    ('Compac',        'CCO{}',    None),
 ]
 LISTA_RESORTES_COLS = [
-    ('Soñar',               'CSO{}',    'SSO{}'),
-    ('Platino',             'CPL{}',    'SPL{}'),
-    ('Doral',               'CDO{}',    'SDO{}'),
-    ('Doral Pillow',        'CDOP{}',   'SDOP{}'),   # solo 140, 150, 160, 180, 200
-    ('Sublime Europillow',  'CSUP{}',   'SSUP{}'),
+    ('Sonar',          'CSO{}',    'SSO{}'),
+    ('Platino',        'CPL{}',    'SPL{}'),
+    ('Doral',          'CDO{}',    'SDO{}'),
+    ('Doral Pillow',   'CDOP{}',   'SDOP{}'),
+    ('Sublime EP',     'CSUP{}',   'SSUP{}'),
 ]
 LISTA_BASES_COLS = [
     ('Chocolate', 'BASE_CHOC{}'),
