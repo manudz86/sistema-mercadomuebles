@@ -41,6 +41,38 @@
 
 {% block title %}Ventas Históricas - Mercadomuebles{% endblock %}
 
+{% macro nav_paginas(pagina, total_paginas, total_ventas_filtradas, ventas) %}
+{% if total_paginas > 1 %}
+<nav class="d-flex align-items-center justify-content-between my-2 flex-wrap gap-2">
+  <small class="text-muted">
+    Mostrando {{ ventas|length }} de {{ total_ventas_filtradas }} ventas
+    &nbsp;·&nbsp; Página {{ pagina }} de {{ total_paginas }}
+  </small>
+  <ul class="pagination pagination-sm mb-0">
+    <li class="page-item {{ 'disabled' if pagina == 1 }}">
+      <a class="page-link" href="{{ request.url | replace('pagina=' ~ pagina, 'pagina=1') if 'pagina=' in request.url else request.url ~ ('&' if '?' in request.url else '?') ~ 'pagina=1' }}">«</a>
+    </li>
+    <li class="page-item {{ 'disabled' if pagina == 1 }}">
+      <a class="page-link" href="{{ request.url | replace('pagina=' ~ pagina, 'pagina=' ~ (pagina - 1)) if 'pagina=' in request.url else request.url ~ ('&' if '?' in request.url else '?') ~ 'pagina=' ~ (pagina - 1) }}">‹</a>
+    </li>
+    {% for p in range([1, pagina-2]|max, [total_paginas+1, pagina+3]|min) %}
+    <li class="page-item {{ 'active' if p == pagina }}">
+      <a class="page-link" href="{{ request.url | replace('pagina=' ~ pagina, 'pagina=' ~ p) if 'pagina=' in request.url else request.url ~ ('&' if '?' in request.url else '?') ~ 'pagina=' ~ p }}">{{ p }}</a>
+    </li>
+    {% endfor %}
+    <li class="page-item {{ 'disabled' if pagina == total_paginas }}">
+      <a class="page-link" href="{{ request.url | replace('pagina=' ~ pagina, 'pagina=' ~ (pagina + 1)) if 'pagina=' in request.url else request.url ~ ('&' if '?' in request.url else '?') ~ 'pagina=' ~ (pagina + 1) }}">›</a>
+    </li>
+    <li class="page-item {{ 'disabled' if pagina == total_paginas }}">
+      <a class="page-link" href="{{ request.url | replace('pagina=' ~ pagina, 'pagina=' ~ total_paginas) if 'pagina=' in request.url else request.url ~ ('&' if '?' in request.url else '?') ~ 'pagina=' ~ total_paginas }}">»</a>
+    </li>
+  </ul>
+</nav>
+{% else %}
+<small class="text-muted d-block my-2">{{ total_ventas_filtradas }} ventas encontradas</small>
+{% endif %}
+{% endmacro %}
+
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
@@ -162,38 +194,6 @@
         </div>
     </div>
 </div>
-
-{% macro nav_paginas(pagina, total_paginas, total_ventas_filtradas, ventas) %}
-{% if total_paginas > 1 %}
-<nav class="d-flex align-items-center justify-content-between my-2 flex-wrap gap-2">
-  <small class="text-muted">
-    Mostrando {{ ventas|length }} de {{ total_ventas_filtradas }} ventas
-    &nbsp;·&nbsp; Página {{ pagina }} de {{ total_paginas }}
-  </small>
-  <ul class="pagination pagination-sm mb-0">
-    <li class="page-item {{ 'disabled' if pagina == 1 }}">
-      <a class="page-link" href="{{ request.url | replace('pagina=' ~ pagina, 'pagina=1') if 'pagina=' in request.url else request.url ~ ('&' if '?' in request.url else '?') ~ 'pagina=1' }}">«</a>
-    </li>
-    <li class="page-item {{ 'disabled' if pagina == 1 }}">
-      <a class="page-link" href="{{ request.url | replace('pagina=' ~ pagina, 'pagina=' ~ (pagina - 1)) if 'pagina=' in request.url else request.url ~ ('&' if '?' in request.url else '?') ~ 'pagina=' ~ (pagina - 1) }}">‹</a>
-    </li>
-    {% for p in range([1, pagina-2]|max, [total_paginas+1, pagina+3]|min) %}
-    <li class="page-item {{ 'active' if p == pagina }}">
-      <a class="page-link" href="{{ request.url | replace('pagina=' ~ pagina, 'pagina=' ~ p) if 'pagina=' in request.url else request.url ~ ('&' if '?' in request.url else '?') ~ 'pagina=' ~ p }}">{{ p }}</a>
-    </li>
-    {% endfor %}
-    <li class="page-item {{ 'disabled' if pagina == total_paginas }}">
-      <a class="page-link" href="{{ request.url | replace('pagina=' ~ pagina, 'pagina=' ~ (pagina + 1)) if 'pagina=' in request.url else request.url ~ ('&' if '?' in request.url else '?') ~ 'pagina=' ~ (pagina + 1) }}">›</a>
-    </li>
-    <li class="page-item {{ 'disabled' if pagina == total_paginas }}">
-      <a class="page-link" href="{{ request.url | replace('pagina=' ~ pagina, 'pagina=' ~ total_paginas) if 'pagina=' in request.url else request.url ~ ('&' if '?' in request.url else '?') ~ 'pagina=' ~ total_paginas }}">»</a>
-    </li>
-  </ul>
-</nav>
-{% else %}
-<small class="text-muted d-block my-2">{{ total_ventas_filtradas }} ventas encontradas</small>
-{% endif %}
-{% endmacro %}
 
 {{ nav_paginas(pagina, total_paginas, total_ventas_filtradas, ventas) }}
 
