@@ -13163,173 +13163,233 @@ def _generar_pdf_lista(precio_map, titulo, mostrar_pie_envios=False):
     PAGE_W, PAGE_H = landscape(A4)
     c = rl_canvas.Canvas(buf, pagesize=landscape(A4))
 
-    # ── Encabezado ───────────────────────────────────────────────────────────
-    c.setFillColor(rl_colors.HexColor('#1a2744'))
-    c.rect(0, PAGE_H - 12*mm, PAGE_W, 12*mm, fill=1, stroke=0)
-    c.setFillColor(rl_colors.white)
-    c.setFont('Helvetica-Bold', 14)
-    c.drawString(8*mm, PAGE_H - 8*mm, titulo)
-    c.setFont('Helvetica', 9)
-    c.drawRightString(PAGE_W - 8*mm, PAGE_H - 8*mm, f"Vigencia: {date.today().strftime('%d/%m/%Y')}")
+    # ── Paleta ───────────────────────────────────────────────────────────────
+    COL_HEADER  = rl_colors.HexColor('#1a2744')
+    COL_SUBHDR  = rl_colors.HexColor('#3a4a5c')
+    COL_ALTROW  = rl_colors.HexColor('#eef2f7')
+    COL_140     = rl_colors.HexColor('#fff3cd')   # fondo fila 140
+    COL_140BRD  = rl_colors.HexColor('#e6a817')   # borde fila 140
+    COL_GRAY    = rl_colors.HexColor('#bbbbbb')
 
-    # ── Tabla ESPUMA ─────────────────────────────────────────────────────────
+    # ── Encabezado ───────────────────────────────────────────────────────────
+    c.setFillColor(COL_HEADER)
+    c.rect(0, PAGE_H - 11*mm, PAGE_W, 11*mm, fill=1, stroke=0)
+    c.setFillColor(rl_colors.white)
+    c.setFont('Helvetica-Bold', 15)
+    c.drawString(7*mm, PAGE_H - 7.5*mm, titulo)
+    c.setFont('Helvetica', 9)
+    c.drawRightString(PAGE_W - 7*mm, PAGE_H - 7.5*mm, f"Vigencia: {date.today().strftime('%d/%m/%Y')}")
+
     def fmt_precio(v):
         if not v: return '—'
         return f"${int(v):,}".replace(',', '.')
 
-    def dibujar_tabla(x0, y0, titulo_seccion, columnas, mapa_skus, fila_height=4.4*mm, header_h=8*mm, col_w=14*mm, label_w=20*mm):
-        """Dibuja una sección. Retorna y final."""
-        # Calcular ancho total (cada columna con sub Col/Conj cuenta doble)
-        total_subcols = 0
-        for (_, _, sk_conj) in columnas:
-            total_subcols += 2 if sk_conj else 1
-        sub_w = col_w * 1.0  # ancho subcolumna
-        total_w = label_w + total_subcols * sub_w
+    # Parámetros de layout (ajustados para maximizar legibilidad en 1 hoja)
+    FILA_H   = 5.2*mm
+    HDR_H    = 9*mm
+    COL_W    = 13.8*mm   # ancho subcolumna
+    LABEL_W  = 19*mm
+    MARGIN   = 7*mm
+    FONT_TITLE   = 9
+    FONT_HDR     = 7.5
+    FONT_SUBHDR  = 6.5
+    FONT_LABEL   = 8
+    FONT_PRICE   = 7.5
+
+    def dibujar_tabla(x0, y0, titulo_seccion, columnas):
+        total_subcols = sum(2 if sk_conj else 1 for (_, _, sk_conj) in columnas)
+        total_w = LABEL_W + total_subcols * COL_W
 
         # Título sección
-        c.setFillColor(rl_colors.HexColor('#1a2744'))
-        c.setFont('Helvetica-Bold', 9)
+        c.setFillColor(COL_HEADER)
+        c.setFont('Helvetica-Bold', FONT_TITLE)
         c.drawString(x0, y0, titulo_seccion)
-        y = y0 - 2*mm
+        y = y0 - 2.5*mm
 
-        # Header de modelos
-        c.setFillColor(rl_colors.HexColor('#3a4a5c'))
-        c.rect(x0, y - header_h, total_w, header_h, fill=1, stroke=0)
+        # Header modelos
+        c.setFillColor(COL_SUBHDR)
+        c.rect(x0, y - HDR_H, total_w, HDR_H, fill=1, stroke=0)
         c.setFillColor(rl_colors.white)
-        c.setFont('Helvetica-Bold', 7)
-        c.drawCentredString(x0 + label_w/2, y - header_h/2 - 1.2*mm, 'MEDIDA')
-        cur_x = x0 + label_w
+        c.setFont('Helvetica-Bold', FONT_HDR)
+        c.drawCentredString(x0 + LABEL_W/2, y - HDR_H/2 - 1*mm, 'MEDIDA')
+        cur_x = x0 + LABEL_W
         for (titulo_col, _, sk_conj) in columnas:
             n_sub = 2 if sk_conj else 1
-            ancho_col = sub_w * n_sub
-            c.drawCentredString(cur_x + ancho_col/2, y - 2.5*mm, titulo_col)
-            # Sub-headers
+            ancho_col = COL_W * n_sub
+            c.setFont('Helvetica-Bold', FONT_HDR)
+            c.drawCentredString(cur_x + ancho_col/2, y - 3*mm, titulo_col)
             if sk_conj:
-                c.setFont('Helvetica', 6)
-                c.drawCentredString(cur_x + sub_w/2, y - 6.5*mm, 'COL')
-                c.drawCentredString(cur_x + sub_w*1.5, y - 6.5*mm, 'CONJ')
-                c.setFont('Helvetica-Bold', 7)
+                c.setFont('Helvetica', FONT_SUBHDR)
+                c.drawCentredString(cur_x + COL_W/2,   y - 7*mm, 'COL')
+                c.drawCentredString(cur_x + COL_W*1.5, y - 7*mm, 'CONJ')
             else:
-                c.setFont('Helvetica', 6)
-                c.drawCentredString(cur_x + sub_w/2, y - 6.5*mm, '—')
-                c.setFont('Helvetica-Bold', 7)
-            # Líneas verticales de separación
+                c.setFont('Helvetica', FONT_SUBHDR)
+                c.drawCentredString(cur_x + COL_W/2, y - 7*mm, '—')
             cur_x += ancho_col
-        y -= header_h
+        y -= HDR_H
 
-        # Filas
-        c.setFillColor(rl_colors.black)
-        c.setFont('Helvetica', 7)
+        # Filas de medidas
         for i, medida in enumerate(LISTA_MEDIDAS):
-            # Fondo alterno
-            if i % 2 == 0:
-                c.setFillColor(rl_colors.HexColor('#f0f4f8'))
-                c.rect(x0, y - fila_height, total_w, fila_height, fill=1, stroke=0)
+            es_140 = (medida == '140')
+            # Fondo de fila
+            if es_140:
+                c.setFillColor(COL_140)
+                c.rect(x0, y - FILA_H, total_w, FILA_H, fill=1, stroke=0)
+            elif i % 2 == 0:
+                c.setFillColor(COL_ALTROW)
+                c.rect(x0, y - FILA_H, total_w, FILA_H, fill=1, stroke=0)
+
+            # Label medida
             c.setFillColor(rl_colors.black)
-            c.setFont('Helvetica-Bold', 7)
-            c.drawString(x0 + 2*mm, y - fila_height + 1.5*mm, f'{medida}x190')
-            c.setFont('Helvetica', 6.5)
-            cur_x = x0 + label_w
+            c.setFont('Helvetica-Bold', FONT_LABEL)
+            medida_txt = f'{medida}x190' if int(medida) <= 200 and medida not in ('160','180','200') else f'{medida}x200'
+            # Corrección medidas que van en x200
+            if medida in ('160','180','200'):
+                medida_txt = f'{medida}x200'
+            else:
+                medida_txt = f'{medida}x190'
+            c.drawString(x0 + 2*mm, y - FILA_H + 1.8*mm, medida_txt)
+
+            # Precios
+            c.setFont('Helvetica', FONT_PRICE)
+            cur_x = x0 + LABEL_W
             for (_, sku_col_t, sk_conj_t) in columnas:
                 sku_col = sku_col_t.format(medida)
-                precio_col = mapa_skus.get(sku_col, 0)
-                c.drawCentredString(cur_x + sub_w/2, y - fila_height + 1.5*mm, fmt_precio(precio_col))
+                precio_col = precio_map.get(sku_col, 0)
+                c.drawCentredString(cur_x + COL_W/2, y - FILA_H + 1.8*mm, fmt_precio(precio_col))
                 if sk_conj_t:
                     sku_conj = sk_conj_t.format(medida)
-                    precio_conj = mapa_skus.get(sku_conj, 0)
-                    c.drawCentredString(cur_x + sub_w*1.5, y - fila_height + 1.5*mm, fmt_precio(precio_conj))
-                    cur_x += sub_w*2
+                    precio_conj = precio_map.get(sku_conj, 0)
+                    c.drawCentredString(cur_x + COL_W*1.5, y - FILA_H + 1.8*mm, fmt_precio(precio_conj))
+                    cur_x += COL_W*2
                 else:
-                    cur_x += sub_w
-            y -= fila_height
-        # Bordes
-        c.setStrokeColor(rl_colors.HexColor('#bbbbbb'))
+                    cur_x += COL_W
+
+            # Recuadro especial fila 140
+            if es_140:
+                c.setStrokeColor(COL_140BRD)
+                c.setLineWidth(1.2)
+                c.rect(x0, y - FILA_H, total_w, FILA_H, fill=0, stroke=1)
+                c.setLineWidth(0.3)
+                c.setStrokeColor(COL_GRAY)
+
+            y -= FILA_H
+
+        # Borde tabla
+        c.setStrokeColor(COL_GRAY)
         c.setLineWidth(0.3)
-        c.rect(x0, y, total_w, y0 - y - 2*mm)
+        c.rect(x0, y, total_w, y0 - y - 2.5*mm)
         return y, total_w
 
-    # Posicionamiento
-    y_cur = PAGE_H - 16*mm
+    # ── Layout principal ──────────────────────────────────────────────────────
+    y_cur = PAGE_H - 14*mm
 
     # ESPUMA
-    y_cur, w_esp = dibujar_tabla(7*mm, y_cur, '🛏 ESPUMA', LISTA_ESPUMA_COLS, precio_map)
-    y_cur -= 4*mm
+    y_cur, _ = dibujar_tabla(MARGIN, y_cur, 'ESPUMA', LISTA_ESPUMA_COLS)
+    y_cur -= 3.5*mm
 
     # RESORTES
-    y_cur, w_res = dibujar_tabla(7*mm, y_cur, '🛏 RESORTES', LISTA_RESORTES_COLS, precio_map)
-    y_cur -= 4*mm
+    y_cur, _ = dibujar_tabla(MARGIN, y_cur, 'RESORTES', LISTA_RESORTES_COLS)
+    y_cur -= 3.5*mm
 
-    # BASES + ALMOHADAS lado a lado
-    # Bases (izquierda)
+    # ── BASES (izquierda) ────────────────────────────────────────────────────
     y_bases_top = y_cur
-    c.setFillColor(rl_colors.HexColor('#1a2744'))
-    c.setFont('Helvetica-Bold', 9)
-    c.drawString(7*mm, y_bases_top, '📦 BASES')
-    y_b = y_bases_top - 2*mm
-    base_label_w = 18*mm
-    base_col_w = 16*mm
+    c.setFillColor(COL_HEADER)
+    c.setFont('Helvetica-Bold', FONT_TITLE)
+    c.drawString(MARGIN, y_bases_top, 'BASES')
+    y_b = y_bases_top - 2.5*mm
+
+    base_label_w = 17*mm
+    base_col_w   = 17*mm
     base_total_w = base_label_w + len(LISTA_BASES_COLS) * base_col_w
-    c.setFillColor(rl_colors.HexColor('#3a4a5c'))
-    c.rect(7*mm, y_b - 5*mm, base_total_w, 5*mm, fill=1, stroke=0)
+
+    c.setFillColor(COL_SUBHDR)
+    c.rect(MARGIN, y_b - 7*mm, base_total_w, 7*mm, fill=1, stroke=0)
     c.setFillColor(rl_colors.white)
-    c.setFont('Helvetica-Bold', 7)
-    c.drawCentredString(7*mm + base_label_w/2, y_b - 3.5*mm, 'MEDIDA')
+    c.setFont('Helvetica-Bold', FONT_HDR)
+    c.drawCentredString(MARGIN + base_label_w/2, y_b - 4.5*mm, 'MEDIDA')
     for i, (nombre, _) in enumerate(LISTA_BASES_COLS):
-        c.drawCentredString(7*mm + base_label_w + i*base_col_w + base_col_w/2, y_b - 3.5*mm, nombre)
-    y_b -= 5*mm
+        c.drawCentredString(MARGIN + base_label_w + i*base_col_w + base_col_w/2, y_b - 4.5*mm, nombre)
+    y_b -= 7*mm
 
     medidas_bases = ['80', '90', '100', '130', '140', '150', '80200', '90200', '100200', '140200']
-    medidas_label = {'80':'80x190','90':'90x190','100':'100x190','130':'130x190','140':'140x190','150':'150x190',
-                     '80200':'80x200','90200':'90x200','100200':'100x200','140200':'140x200'}
-    c.setFillColor(rl_colors.black)
+    medidas_label_b = {
+        '80':'80x190','90':'90x190','100':'100x190','130':'130x190','140':'140x190','150':'150x190',
+        '80200':'80x200','90200':'90x200','100200':'100x200','140200':'140x200'
+    }
     for i, m in enumerate(medidas_bases):
-        if i % 2 == 0:
-            c.setFillColor(rl_colors.HexColor('#f0f4f8'))
-            c.rect(7*mm, y_b - 4*mm, base_total_w, 4*mm, fill=1, stroke=0)
+        es_140b = (m == '140')
+        if es_140b:
+            c.setFillColor(COL_140)
+            c.rect(MARGIN, y_b - FILA_H, base_total_w, FILA_H, fill=1, stroke=0)
+        elif i % 2 == 0:
+            c.setFillColor(COL_ALTROW)
+            c.rect(MARGIN, y_b - FILA_H, base_total_w, FILA_H, fill=1, stroke=0)
         c.setFillColor(rl_colors.black)
-        c.setFont('Helvetica-Bold', 6.5)
-        c.drawString(7*mm + 1*mm, y_b - 3*mm, medidas_label[m])
-        c.setFont('Helvetica', 6.5)
+        c.setFont('Helvetica-Bold', FONT_LABEL)
+        c.drawString(MARGIN + 1*mm, y_b - FILA_H + 1.8*mm, medidas_label_b[m])
+        c.setFont('Helvetica', FONT_PRICE)
         for j, (_, sku_t) in enumerate(LISTA_BASES_COLS):
-            sku = sku_t.format(m)
-            precio = precio_map.get(sku, 0)
-            c.drawCentredString(7*mm + base_label_w + j*base_col_w + base_col_w/2, y_b - 3*mm, fmt_precio(precio))
-        y_b -= 4*mm
-    c.setStrokeColor(rl_colors.HexColor('#bbbbbb'))
-    c.rect(7*mm, y_b, base_total_w, y_bases_top - y_b - 2*mm)
+            precio = precio_map.get(sku_t.format(m), 0)
+            c.drawCentredString(MARGIN + base_label_w + j*base_col_w + base_col_w/2,
+                                y_b - FILA_H + 1.8*mm, fmt_precio(precio))
+        if es_140b:
+            c.setStrokeColor(COL_140BRD)
+            c.setLineWidth(1.2)
+            c.rect(MARGIN, y_b - FILA_H, base_total_w, FILA_H, fill=0, stroke=1)
+            c.setLineWidth(0.3)
+            c.setStrokeColor(COL_GRAY)
+        y_b -= FILA_H
 
-    # Almohadas (derecha)
-    x_alm = 7*mm + base_total_w + 6*mm
-    c.setFillColor(rl_colors.HexColor('#1a2744'))
-    c.setFont('Helvetica-Bold', 9)
-    c.drawString(x_alm, y_bases_top, '😴 ALMOHADAS')
-    y_a = y_bases_top - 2*mm
-    alm_w = 70*mm
-    c.setFillColor(rl_colors.HexColor('#3a4a5c'))
-    c.rect(x_alm, y_a - 5*mm, alm_w, 5*mm, fill=1, stroke=0)
+    c.setStrokeColor(COL_GRAY)
+    c.setLineWidth(0.3)
+    c.rect(MARGIN, y_b, base_total_w, y_bases_top - y_b - 2.5*mm)
+
+    # ── ALMOHADAS (derecha, ordenadas por precio) ────────────────────────────
+    x_alm = MARGIN + base_total_w + 6*mm
+    alm_w = PAGE_W - x_alm - MARGIN
+
+    # Ordenar almohadas por precio ascendente
+    alm_ordenadas = sorted(
+        LISTA_ALMOHADAS,
+        key=lambda t: precio_map.get(t[0], 0)
+    )
+
+    c.setFillColor(COL_HEADER)
+    c.setFont('Helvetica-Bold', FONT_TITLE)
+    c.drawString(x_alm, y_bases_top, 'ALMOHADAS')
+    y_a = y_bases_top - 2.5*mm
+
+    c.setFillColor(COL_SUBHDR)
+    c.rect(x_alm, y_a - 7*mm, alm_w, 7*mm, fill=1, stroke=0)
     c.setFillColor(rl_colors.white)
-    c.setFont('Helvetica-Bold', 7)
-    c.drawString(x_alm + 2*mm, y_a - 3.5*mm, 'MODELO')
-    c.drawRightString(x_alm + alm_w - 2*mm, y_a - 3.5*mm, 'PRECIO')
-    y_a -= 5*mm
-    for i, (sku, nombre) in enumerate(LISTA_ALMOHADAS):
-        if i % 2 == 0:
-            c.setFillColor(rl_colors.HexColor('#f0f4f8'))
-            c.rect(x_alm, y_a - 4*mm, alm_w, 4*mm, fill=1, stroke=0)
-        c.setFillColor(rl_colors.black)
-        c.setFont('Helvetica', 7)
-        c.drawString(x_alm + 2*mm, y_a - 3*mm, nombre)
-        c.setFont('Helvetica-Bold', 7)
-        c.drawRightString(x_alm + alm_w - 2*mm, y_a - 3*mm, fmt_precio(precio_map.get(sku, 0)))
-        y_a -= 4*mm
-    c.setStrokeColor(rl_colors.HexColor('#bbbbbb'))
-    c.rect(x_alm, y_a, alm_w, y_bases_top - y_a - 2*mm)
+    c.setFont('Helvetica-Bold', FONT_HDR)
+    c.drawString(x_alm + 3*mm, y_a - 4.5*mm, 'MODELO')
+    c.drawRightString(x_alm + alm_w - 3*mm, y_a - 4.5*mm, 'PRECIO')
+    y_a -= 7*mm
 
-    # Pie
+    for i, (sku, nombre) in enumerate(alm_ordenadas):
+        if i % 2 == 0:
+            c.setFillColor(COL_ALTROW)
+            c.rect(x_alm, y_a - FILA_H, alm_w, FILA_H, fill=1, stroke=0)
+        c.setFillColor(rl_colors.black)
+        c.setFont('Helvetica', FONT_PRICE)
+        c.drawString(x_alm + 3*mm, y_a - FILA_H + 1.8*mm, nombre)
+        c.setFont('Helvetica-Bold', FONT_PRICE)
+        c.drawRightString(x_alm + alm_w - 3*mm, y_a - FILA_H + 1.8*mm,
+                          fmt_precio(precio_map.get(sku, 0)))
+        y_a -= FILA_H
+
+    c.setStrokeColor(COL_GRAY)
+    c.setLineWidth(0.3)
+    c.rect(x_alm, y_a, alm_w, y_bases_top - y_a - 2.5*mm)
+
+    # ── Pie ───────────────────────────────────────────────────────────────────
     if mostrar_pie_envios:
-        c.setFillColor(rl_colors.HexColor('#1a2744'))
+        c.setFillColor(COL_HEADER)
         c.setFont('Helvetica-Bold', 9)
-        c.drawCentredString(PAGE_W/2, 6*mm, '🚚 Envíos colchones CABA: $20.000  ·  Distribuidores Oficiales Cannon')
+        c.drawCentredString(PAGE_W/2, 5*mm,
+            'Envios colchones CABA: $20.000  |  Distribuidores Oficiales Cannon')
 
     c.showPage()
     c.save()
