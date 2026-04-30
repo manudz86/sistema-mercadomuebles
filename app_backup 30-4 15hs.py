@@ -3425,100 +3425,94 @@ def ver_stock():
 @app.route('/ventas/historicas')
 @login_required
 def ventas_historicas():
-    """Lista de ventas históricas (entregadas y canceladas) con filtros y paginación"""
+    """Lista de ventas históricas (entregadas y canceladas) con filtros"""
     try:
-        POR_PAGINA = 500
         # ========================================
         # OBTENER FILTROS
         # ========================================
         filtro_buscar = request.args.get('buscar', '').strip()
-        filtro_estado = request.args.get('estado', '')
-        filtro_periodo = request.args.get('periodo', 'todo')
+        filtro_estado = request.args.get('estado', '')  # '' = Todos, 'entregada', 'cancelada'
+        filtro_periodo = request.args.get('periodo', 'todo')  # 'hoy', 'semana', 'mes', 'trimestre', 'todo'
         filtro_metodo_envio = request.args.get('metodo_envio', '')
         filtro_zona = request.args.get('zona', '')
         filtro_canal = request.args.get('canal', '')
-        pagina = max(1, int(request.args.get('pagina', 1)))
-
+        
         # ========================================
-        # CONSTRUIR WHERE CON FILTROS
+        # CONSTRUIR QUERY CON FILTROS
         # ========================================
-        where = "WHERE estado_entrega IN ('entregada', 'cancelada')"
-        params = []
-
-        if filtro_estado:
-            where += ' AND estado_entrega = %s'
-            params.append(filtro_estado)
-
-        if filtro_periodo == 'hoy':
-            where += ' AND DATE(COALESCE(fecha_entrega, fecha_modificacion)) = CURDATE()'
-        elif filtro_periodo == 'semana':
-            where += ' AND COALESCE(fecha_entrega, fecha_modificacion) >= DATE_SUB(NOW(), INTERVAL 7 DAY)'
-        elif filtro_periodo == 'mes':
-            where += ' AND COALESCE(fecha_entrega, fecha_modificacion) >= DATE_SUB(NOW(), INTERVAL 30 DAY)'
-        elif filtro_periodo == 'trimestre':
-            where += ' AND COALESCE(fecha_entrega, fecha_modificacion) >= DATE_SUB(NOW(), INTERVAL 90 DAY)'
-
-        if filtro_buscar:
-            where += '''
-                AND (
-                    mla_code LIKE %s
-                    OR nombre_cliente LIKE %s
-                    OR id IN (SELECT venta_id FROM items_venta WHERE sku LIKE %s)
-                )
-            '''
-            busqueda = f'%{filtro_buscar}%'
-            params.extend([busqueda, busqueda, busqueda])
-
-        if filtro_metodo_envio:
-            where += ' AND metodo_envio = %s'
-            params.append(filtro_metodo_envio)
-
-        if filtro_zona:
-            where += ' AND zona_envio = %s'
-            params.append(filtro_zona)
-
-        if filtro_canal:
-            where += ' AND canal = %s'
-            params.append(filtro_canal)
-
-        # ========================================
-        # TOTAL PARA PAGINACIÓN
-        # ========================================
-        total_row = query_one(f'SELECT COUNT(*) as total FROM ventas {where}', tuple(params) if params else None)
-        total_ventas_filtradas = total_row['total'] if total_row else 0
-        total_paginas = max(1, (total_ventas_filtradas + POR_PAGINA - 1) // POR_PAGINA)
-        pagina = min(pagina, total_paginas)
-        offset = (pagina - 1) * POR_PAGINA
-
-        # ========================================
-        # QUERY PAGINADA — ordenada por id DESC
-        # ========================================
-        query = f'''
-            SELECT
+        query = '''
+            SELECT 
                 id, numero_venta, fecha_venta, fecha_entrega, canal, mla_code,
                 nombre_cliente, telefono_cliente,
                 tipo_entrega, metodo_envio, ubicacion_despacho,
                 zona_envio, direccion_entrega, costo_flete,
-                metodo_pago, importe_total, importe_abonado,
+metodo_pago, importe_total, importe_abonado,
                 pago_mercadopago, pago_efectivo,
                 estado_entrega, estado_pago, notas,
-                factura_generada, factura_fecha_generacion
+    factura_generada, factura_fecha_generacion
             FROM ventas
-            {where}
-            ORDER BY id DESC
-            LIMIT %s OFFSET %s
+            WHERE estado_entrega IN ('entregada', 'cancelada')
         '''
-        params_page = list(params) + [POR_PAGINA, offset]
-        ventas = query_db(query, tuple(params_page))
-
+        params = []
+        
+        # Filtro: Estado (entregada, cancelada, o ambas)
+        if filtro_estado:
+            query += ' AND estado_entrega = %s'
+            params.append(filtro_estado)
+        
+        # Filtro: Período (por fecha de entrega)
+        if filtro_periodo == 'hoy':
+            query += ' AND DATE(COALESCE(fecha_entrega, fecha_modificacion)) = CURDATE()'
+        elif filtro_periodo == 'semana':
+            query += ' AND COALESCE(fecha_entrega, fecha_modificacion) >= DATE_SUB(NOW(), INTERVAL 7 DAY)'
+        elif filtro_periodo == 'mes':
+            query += ' AND COALESCE(fecha_entrega, fecha_modificacion) >= DATE_SUB(NOW(), INTERVAL 30 DAY)'
+        elif filtro_periodo == 'trimestre':
+            query += ' AND COALESCE(fecha_entrega, fecha_modificacion) >= DATE_SUB(NOW(), INTERVAL 90 DAY)'
+        
+        # Filtro: Búsqueda de texto
+        if filtro_buscar:
+            query += '''
+                AND (
+                    mla_code LIKE %s 
+                    OR nombre_cliente LIKE %s
+                    OR id IN (
+                        SELECT venta_id FROM items_venta WHERE sku LIKE %s
+                    )
+                )
+            '''
+            busqueda = f'%{filtro_buscar}%'
+            params.extend([busqueda, busqueda, busqueda])
+        
+        # Filtro: Método de envío
+        if filtro_metodo_envio:
+            query += ' AND metodo_envio = %s'
+            params.append(filtro_metodo_envio)
+        
+        # Filtro: Zona
+        if filtro_zona:
+            query += ' AND zona_envio = %s'
+            params.append(filtro_zona)
+        
+        # Filtro: Canal
+        if filtro_canal:
+            query += ' AND canal = %s'
+            params.append(filtro_canal)
+        
+        # Ordenar: Más recientes arriba (por fecha de entrega, o fecha_modificacion si no hay fecha_entrega)
+        query += " ORDER BY CASE WHEN metodo_envio = 'Turbo' THEN 0 ELSE 1 END, fecha_venta DESC, id DESC"
+        
+        # Ejecutar query
+        ventas = query_db(query, tuple(params) if params else None)
+        
         # ========================================
-        # ITEMS DE CADA VENTA
+        # OBTENER ITEMS DE CADA VENTA
         # ========================================
         for venta in ventas:
             items = query_db('''
-                SELECT
-                    iv.sku,
-                    iv.cantidad,
+                SELECT 
+                    iv.sku, 
+                    iv.cantidad, 
                     iv.precio_unitario,
                     COALESCE(pb.nombre, pc.nombre, iv.sku) as nombre_producto
                 FROM items_venta iv
@@ -3532,12 +3526,14 @@ def ventas_historicas():
                 venta['hora_venta_str'] = venta['fecha_venta'].strftime('%H:%M')
             else:
                 venta['hora_venta_str'] = ''
-
+        
         # ========================================
-        # STATS
+        # CONTAR ENTREGADAS Y CANCELADAS
         # ========================================
         stats_query = '''
-            SELECT estado_entrega, COUNT(*) as total
+            SELECT 
+                estado_entrega,
+                COUNT(*) as total
             FROM ventas
             WHERE estado_entrega IN ('entregada', 'cancelada')
         '''
@@ -3550,9 +3546,10 @@ def ventas_historicas():
                 stats_query += ' AND COALESCE(fecha_entrega, fecha_modificacion) >= DATE_SUB(NOW(), INTERVAL 30 DAY)'
             elif filtro_periodo == 'trimestre':
                 stats_query += ' AND COALESCE(fecha_entrega, fecha_modificacion) >= DATE_SUB(NOW(), INTERVAL 90 DAY)'
+        
         stats_query += ' GROUP BY estado_entrega'
         stats = query_db(stats_query)
-
+        
         entregadas = 0
         canceladas = 0
         for stat in stats:
@@ -3560,8 +3557,8 @@ def ventas_historicas():
                 entregadas = stat['total']
             elif stat['estado_entrega'] == 'cancelada':
                 canceladas = stat['total']
-
-        return render_template('ventas_historicas.html',
+        
+        return render_template('ventas_historicas.html', 
                              ventas=ventas,
                              entregadas=entregadas,
                              canceladas=canceladas,
@@ -3570,12 +3567,8 @@ def ventas_historicas():
                              filtro_periodo=filtro_periodo,
                              filtro_metodo_envio=filtro_metodo_envio,
                              filtro_zona=filtro_zona,
-                             filtro_canal=filtro_canal,
-                             pagina=pagina,
-                             total_paginas=total_paginas,
-                             total_ventas_filtradas=total_ventas_filtradas,
-                             por_pagina=POR_PAGINA)
-
+                             filtro_canal=filtro_canal)
+        
     except Exception as e:
         flash(f'Error al cargar ventas históricas: {str(e)}', 'error')
         import traceback
