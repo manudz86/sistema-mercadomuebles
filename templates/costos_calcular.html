@@ -107,7 +107,7 @@
               <td class="text-end small text-danger">
                 {% if p.desc_linea is not none %}
                   -{{ p.desc_linea | int }}% línea
-                  {% if desc_cliente_pct %}<br>-{{ desc_cliente_pct | int }}% cliente{% endif %}
+                  {% if p.desc_cliente %}<br>-{{ p.desc_cliente | int }}% cliente{% endif %}
                   {% if p.desc_adi %}<br>-{{ p.desc_adi | int }}% adic.{% endif %}
                 {% else %}
                   <span class="text-muted">sumatorio</span>

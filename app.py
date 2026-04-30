@@ -12871,6 +12871,10 @@ def _build_precio_costos_map():
         desc_cliente_pct = cfg.get('cliente', 0.0)
         descuentos = {r['clave']: {'valor': float(r['valor']), 'desc_adicional': float(r['desc_adicional'] or 0)}
                       for r in query_db("SELECT clave, valor, desc_adicional FROM cannon_descuentos WHERE tipo = 'descuento_linea'")}
+        # Override CTR80
+        ctr80_row = query_one("SELECT valor FROM configuracion WHERE clave = 'ctr80_precio_cannon'")
+        ctr80_override = float(ctr80_row['valor']) if ctr80_row and ctr80_row.get('valor') else 0
+
         rows = query_db("""
             SELECT cp.sku, clp.precio_lista, cp.descripcion,
                    cd_adi.valor as desc_adicional
@@ -12882,9 +12886,15 @@ def _build_precio_costos_map():
         mapa = {}
         for r in rows:
             sku = r['sku']
+            sku_up = sku.upper()
             desc = (r['descripcion'] or '').upper()
+            # Detección de clave (mismo orden que _detectar_clave en costos_calcular)
             clave = None
-            if sku in ('CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE') or desc.startswith('ALM'):
+            if sku_up == 'CTR80':
+                clave = 'ctr80'
+            elif sku_up.startswith('BASE_') or desc.startswith('SOM') or desc.startswith('BASE'):
+                clave = 'bases'
+            elif sku_up in ('CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE') or desc.startswith('ALM'):
                 clave = 'almohadas'
             elif 'EUROPILLOW' in desc:
                 clave = 'sublime_europillow' if 'SUBLIME' in desc else 'renovation_europillow'
@@ -12898,12 +12908,24 @@ def _build_precio_costos_map():
             elif 'SONAR' in desc or 'SOÑAR' in desc: clave = 'sonar'
             elif 'PLATINO' in desc: clave = 'platino'
             elif 'DORAL' in desc: clave = 'doral'
-            elif 'BASE' in desc or sku.startswith('BASE_') or desc.startswith('SOM '): clave = 'bases'
             elif 'SUBLIME' in desc: clave = 'sublime'
+
             desc_entry = descuentos.get(clave, {'valor': 0, 'desc_adicional': 0}) if clave else {'valor': 0, 'desc_adicional': 0}
             desc_adi = desc_entry['desc_adicional'] + float(r['desc_adicional'] or 0)
+
+            # Almohadas y CTR80 no llevan descuento cliente, línea ni adicional
+            sin_descuentos = (clave in ('almohadas', 'ctr80'))
+            desc_linea_aplicar   = 0 if sin_descuentos else desc_entry['valor']
+            desc_cliente_aplicar = 0 if sin_descuentos else desc_cliente_pct
+            desc_adi_aplicar     = 0 if sin_descuentos else desc_adi
+
+            # Precio Cannon (con override para CTR80)
+            precio_cannon = float(r['precio_lista'])
+            if sku_up == 'CTR80' and ctr80_override > 0:
+                precio_cannon = ctr80_override
+
             precio = round(_calcular_precio_lista(
-                float(r['precio_lista']), desc_entry['valor'], desc_cliente_pct, desc_adi, prontopago_pct, multiplicador
+                precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct, multiplicador
             ) / 1000) * 1000
             mapa[sku] = precio
         # Agregar sommiers
@@ -13341,9 +13363,9 @@ def costos_calcular():
             'precio_cannon':   precio_cannon,
             'precio_compra':   precio_compra,
             'clave_descuento': clave,
-            'desc_linea':      desc_linea,
-            'desc_cliente':    desc_cliente_pct,
-            'desc_adi':        desc_adi,
+            'desc_linea':      desc_linea_aplicar,
+            'desc_cliente':    desc_cliente_aplicar,
+            'desc_adi':        desc_adi_aplicar,
             'precio_lista':    precio_lista,
             'precio_actual':   float(p['precio_actual'] or 0),
             'costo_envio_ml':  costo_envio_ml,
@@ -13370,9 +13392,9 @@ def costos_calcular():
                 'precio_cannon':   precio_cannon,
                 'precio_compra':   precio_compra,
                 'clave_descuento': clave,
-                'desc_linea':      desc_linea,
-                'desc_cliente':    desc_cliente_pct,
-                'desc_adi':        desc_adi,
+                'desc_linea':      desc_linea_aplicar,
+                'desc_cliente':    desc_cliente_aplicar,
+                'desc_adi':        desc_adi_aplicar,
                 'precio_lista':    precio_lista,
                 'precio_actual':   precio_actual_z,
                 'costo_envio_ml':  0,
