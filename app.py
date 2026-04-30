@@ -13345,39 +13345,71 @@ def _generar_pdf_lista(precio_map, titulo, mostrar_pie_envios=False):
     c.setLineWidth(0.3)
     c.rect(MARGIN, y_b, base_total_w, y_bases_top - y_b - 2.5*mm)
 
-    # ── ALMOHADAS (derecha, ordenadas por precio) ────────────────────────────
+    # ── ALMOHADAS (derecha, 2 columnas paralelas, ordenadas por precio) ──────
     x_alm = MARGIN + base_total_w + 6*mm
     alm_w = PAGE_W - x_alm - MARGIN
 
-    # Ordenar almohadas por precio ascendente
-    alm_ordenadas = sorted(
-        LISTA_ALMOHADAS,
-        key=lambda t: precio_map.get(t[0], 0)
-    )
+    alm_ordenadas = sorted(LISTA_ALMOHADAS, key=lambda t: precio_map.get(t[0], 0))
+
+    # Dividir en 2 mitades
+    mitad = (len(alm_ordenadas) + 1) // 2
+    col_izq = alm_ordenadas[:mitad]
+    col_der = alm_ordenadas[mitad:]
+    sub_alm_w = (alm_w - 3*mm) / 2   # ancho de cada sub-tabla
+    precio_col_w = 22*mm              # ancho columna precio dentro de sub-tabla
+    nombre_col_w = sub_alm_w - precio_col_w
 
     c.setFillColor(COL_HEADER)
     c.setFont('Helvetica-Bold', FONT_TITLE)
     c.drawString(x_alm, y_bases_top, 'ALMOHADAS')
     y_a = y_bases_top - 2.5*mm
 
+    # Header compartido (ocupa todo el ancho)
     c.setFillColor(COL_SUBHDR)
     c.rect(x_alm, y_a - 7*mm, alm_w, 7*mm, fill=1, stroke=0)
     c.setFillColor(rl_colors.white)
     c.setFont('Helvetica-Bold', FONT_HDR)
+    # Izq
     c.drawString(x_alm + 3*mm, y_a - 4.5*mm, 'MODELO')
-    c.drawRightString(x_alm + alm_w - 3*mm, y_a - 4.5*mm, 'PRECIO')
+    c.drawRightString(x_alm + sub_alm_w - 2*mm, y_a - 4.5*mm, 'PRECIO')
+    # Der
+    x_der = x_alm + sub_alm_w + 3*mm
+    c.drawString(x_der + 3*mm, y_a - 4.5*mm, 'MODELO')
+    c.drawRightString(x_alm + alm_w - 2*mm, y_a - 4.5*mm, 'PRECIO')
+    # Divisor vertical central
+    c.setStrokeColor(rl_colors.white)
+    c.setLineWidth(0.5)
+    c.line(x_alm + sub_alm_w + 1.5*mm, y_a - 7*mm, x_alm + sub_alm_w + 1.5*mm, y_a)
     y_a -= 7*mm
 
-    for i, (sku, nombre) in enumerate(alm_ordenadas):
+    max_filas = max(len(col_izq), len(col_der))
+    for i in range(max_filas):
         if i % 2 == 0:
             c.setFillColor(COL_ALTROW)
             c.rect(x_alm, y_a - FILA_H, alm_w, FILA_H, fill=1, stroke=0)
+
         c.setFillColor(rl_colors.black)
-        c.setFont('Helvetica', FONT_PRICE)
-        c.drawString(x_alm + 3*mm, y_a - FILA_H + 1.8*mm, nombre)
-        c.setFont('Helvetica-Bold', FONT_PRICE)
-        c.drawRightString(x_alm + alm_w - 3*mm, y_a - FILA_H + 1.8*mm,
-                          fmt_precio(precio_map.get(sku, 0)))
+        # Columna izquierda
+        if i < len(col_izq):
+            sku, nombre = col_izq[i]
+            c.setFont('Helvetica', FONT_PRICE)
+            c.drawString(x_alm + 3*mm, y_a - FILA_H + 1.8*mm, nombre)
+            c.setFont('Helvetica-Bold', FONT_PRICE)
+            c.drawRightString(x_alm + sub_alm_w - 2*mm, y_a - FILA_H + 1.8*mm,
+                              fmt_precio(precio_map.get(sku, 0)))
+        # Columna derecha
+        if i < len(col_der):
+            sku, nombre = col_der[i]
+            c.setFont('Helvetica', FONT_PRICE)
+            c.drawString(x_der + 3*mm, y_a - FILA_H + 1.8*mm, nombre)
+            c.setFont('Helvetica-Bold', FONT_PRICE)
+            c.drawRightString(x_alm + alm_w - 2*mm, y_a - FILA_H + 1.8*mm,
+                              fmt_precio(precio_map.get(sku, 0)))
+        # Divisor vertical central
+        c.setStrokeColor(COL_GRAY)
+        c.setLineWidth(0.3)
+        c.line(x_alm + sub_alm_w + 1.5*mm, y_a - FILA_H, x_alm + sub_alm_w + 1.5*mm, y_a)
+
         y_a -= FILA_H
 
     c.setStrokeColor(COL_GRAY)
