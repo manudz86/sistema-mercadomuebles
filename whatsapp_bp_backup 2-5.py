@@ -1,5 +1,5 @@
 import os, json, time, re, threading
-from datetime import datetime, date, timedelta
+from datetime import datetime
 import requests
 import mysql.connector
 from flask import Blueprint, request, jsonify
@@ -28,19 +28,6 @@ anthropic = Anthropic(api_key=ANTHROPIC_KEY)
 conversaciones = {}
 # Lock por número para evitar respuestas duplicadas
 processing = {}
-
-# ── Lógica de demora (replica tienda_bp.py) ───────────────────────
-# Líneas/modelos que NUNCA muestran demora — siempre "sin stock"
-_LINEAS_SIN_DEMORA  = {'compac', 'almohadas', 'box'}
-_MODELOS_SIN_DEMORA = {'compac'}
-
-def _aplica_demora(linea, tipo, modelo=None):
-    """Replica aplica_demora() de tienda_bp.py."""
-    if not linea and tipo == 'almohada':
-        return False
-    if (modelo or '').lower() in _MODELOS_SIN_DEMORA:
-        return False
-    return (linea or '').lower() not in _LINEAS_SIN_DEMORA
 
 # ── DB ────────────────────────────────────────────────────────────
 def _db():
@@ -257,7 +244,7 @@ def get_productos_context():
 
     # Colchones
     colchones = _q("""
-        SELECT p.sku, p.nombre, p.modelo, p.medida, p.linea, p.tipo, p.tipo_base,
+        SELECT p.sku, p.nombre, p.modelo, p.medida, p.linea, p.tipo_base,
                p.precio_base, p.descuento_catalogo, p.stock_actual,
                p.alto_cm, p.ancho_cm, p.largo_cm,
                COALESCE(o.descuento_pct, 0) as oferta_pct
@@ -282,8 +269,7 @@ def get_productos_context():
     sommiers = []
     for pc in sommiers_base:
         componentes = _q("""
-            SELECT pb.precio_base, pb.descuento_catalogo as comp_desc, c.cantidad_necesaria,
-                   pb.stock_actual, pb.linea, pb.tipo, pb.modelo
+            SELECT pb.precio_base, pb.descuento_catalogo as comp_desc, c.cantidad_necesaria
             FROM componentes c
             JOIN productos_base pb ON pb.id = c.producto_base_id
             WHERE c.producto_compuesto_id = (
@@ -309,32 +295,13 @@ def get_productos_context():
             'precio_base':       precio_sum,
             'descuento_catalogo': pc['descuento_catalogo'],
             'oferta_pct':        pc['oferta_pct'],
-            # Stock: el sommier tiene stock si TODOS sus componentes tienen stock
-            'stock_actual':      min(int(c['stock_actual'] or 0) for c in componentes),
-            # Para aplica_demora usamos el componente colchón (tipo != 'base')
-            '_comp_linea':       next((c['linea']  for c in componentes if (c.get('tipo') or '') != 'base'), None),
-            '_comp_tipo':        next((c['tipo']   for c in componentes if (c.get('tipo') or '') != 'base'), 'conjunto'),
-            '_comp_modelo':      next((c['modelo'] for c in componentes if (c.get('tipo') or '') != 'base'), None),
         })
 
-    # Recargos cuotas
+    # Recargos Payway
     coefs = _q("SELECT clave, valor FROM configuracion WHERE clave LIKE 'cuotas_%_coef'")
     payway = {r['clave']: float(r['valor']) for r in coefs}
     coef_3 = payway.get('cuotas_3_coef', 1.2)
     coef_6 = payway.get('cuotas_6_coef', 1.4)
-
-    # Demora sin stock
-    dem_row = _q("SELECT valor FROM configuracion WHERE clave = 'demora_sin_stock'")
-    demora_dias = int(dem_row[0]['valor']) if dem_row and dem_row[0]['valor'] else 0
-    fecha_demora = (date.today() + timedelta(days=demora_dias)).strftime('%d/%m/%Y') if demora_dias else None
-
-    def estado_stock(stock, linea, tipo, modelo):
-        """Devuelve la etiqueta de disponibilidad para el contexto del bot."""
-        if stock and int(stock) > 0:
-            return '✅ Con stock'
-        if demora_dias and _aplica_demora(linea, tipo, modelo):
-            return f'⏳ Sin stock — demora {demora_dias} días hábiles (disponible aprox. {fecha_demora})'
-        return '❌ Sin stock'
 
     def precio_final(precio_base, desc_cat, oferta):
         desc = max(float(desc_cat or 0), float(oferta or 0))
@@ -351,14 +318,14 @@ def get_productos_context():
         precio_lista = round(float(p['precio_base']))
         pf = precio_final(p['precio_base'], p['descuento_catalogo'], p['oferta_pct'])
         desc = max(float(p['descuento_catalogo'] or 0), float(p['oferta_pct'] or 0))
-        stock_txt = estado_stock(p['stock_actual'], p.get('linea'), p.get('tipo'), p.get('modelo'))
+        stock = "Con stock" if p['stock_actual'] and p['stock_actual'] > 0 else "Sin stock"
         link = f"https://www.mercadomuebles.com.ar/tienda/producto/{p['sku']}"
         if desc > 0:
             precio_str = f"Web: ${pf:,} (-{int(desc)}%) | Local: ${precio_lista:,}"
         else:
             precio_str = f"Precio: ${pf:,}"
         lines.append(
-            f"• {p['nombre']} (SKU:{p['sku']}) | {precio_str} | {stock_txt} | {link}"
+            f"• {p['nombre']} (SKU:{p['sku']}) | {precio_str} | {stock} | {link}"
         )
         # Cuotas sobre precio web
         total_3 = round(pf * coef_3)
@@ -387,14 +354,13 @@ def get_productos_context():
         precio_lista = round(float(p['precio_base']))
         pf = precio_final(p['precio_base'], p['descuento_catalogo'], p['oferta_pct'])
         desc = max(float(p['descuento_catalogo'] or 0), float(p['oferta_pct'] or 0))
-        stock_txt = estado_stock(p['stock_actual'], p.get('_comp_linea'), p.get('_comp_tipo'), p.get('_comp_modelo'))
         link = f"https://www.mercadomuebles.com.ar/tienda/producto/{p['sku']}"
         if desc > 0:
             precio_str = f"Web: ${pf:,} (-{int(desc)}%) | Local: ${precio_lista:,}"
         else:
             precio_str = f"Precio: ${pf:,}"
         lines.append(
-            f"• {p['nombre']} (SKU:{p['sku']}) | {precio_str} | {stock_txt} | {link}"
+            f"• {p['nombre']} (SKU:{p['sku']}) | {precio_str} | {link}"
         )
         # Cuotas sobre precio web
         total_3 = round(pf * coef_3)
@@ -552,19 +518,6 @@ ENVÍOS:
   El sistema genera el mensaje completo automáticamente. NO escribas nada antes del comando.
 - Si el cliente pregunta el envío de DOS modelos, hacé DOS comandos separados
 - Si no sabés la ciudad, usá "N/A" como ciudad
-
-STOCK Y DEMORA (REGLA CRÍTICA):
-En el contexto de productos cada artículo tiene uno de estos tres estados:
-  ✅ Con stock — disponible para entrega inmediata. El tiempo de entrega es solo el del envío.
-  ⏳ Sin stock — demora X días hábiles (disponible aprox. DD/MM) — el producto no está en depósito, hay una demora antes de poder despacharse. La entrega total es demora + tiempo de tránsito del envío.
-  ❌ Sin stock — sin fecha de reposición, no disponible.
-
-Reglas cuando cotices o respondas sobre disponibilidad:
-- NUNCA digas "está con stock" si el contexto dice ⏳ o ❌.
-- Para productos ⏳: aclarále al cliente que el artículo tiene una demora de X días hábiles antes de despacharse, y que a eso se suma el tiempo de envío. Ejemplo: "El Exclusive Pillow 140x190 está disponible con una demora de 10 días hábiles (disponible aprox. 15/05). A eso se suma el tiempo de envío una vez despachado."
-- Para productos ❌: informá que no hay stock disponible y ofrecé alternativas si hay.
-- Si el cliente pregunta la fecha de entrega de un producto ⏳: sumá la demora del producto + los días de tránsito del envío. Por ejemplo: "Demora 10 días hábiles + 3-4 días de tránsito = aproximadamente 13-14 días hábiles desde hoy."
-- El retiro en local de un producto ⏳ también tiene la misma demora — no se puede retirar antes de la fecha disponible.
 
 FOTOS:
 - Cuando recomendés o cotices un producto específico, podés enviar la foto usando [FOTO:SKU]
