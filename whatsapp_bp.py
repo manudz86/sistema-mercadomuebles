@@ -70,6 +70,43 @@ def _exec(sql, params=None):
     finally:
         cur.close(); db.close()
 
+def _get_stock_disponible_bulk(skus):
+    """
+    Calcula stock disponible real para una lista de SKUs.
+    Replica get_stock_disponible_sku() de tienda_bp.py pero en bulk (2 queries totales).
+    Fórmula: (stock_actual + stock_full) - comprometido_en_ventas_pendientes
+    El comprometido incluye ventas directas del SKU Y ventas de productos_compuestos que lo usan.
+    """
+    if not skus:
+        return {}
+    ph = ','.join(['%s'] * len(skus))
+    skus_t = tuple(skus)
+
+    # Stock físico (stock_actual + stock_full)
+    fisico_rows = _q(f"""
+        SELECT sku,
+               COALESCE(stock_actual, 0) + COALESCE(stock_full, 0) AS stock_fisico
+        FROM productos_base WHERE sku IN ({ph})
+    """, skus_t)
+    stock_fisico = {r['sku']: int(r['stock_fisico']) for r in fisico_rows}
+
+    # Comprometido en ventas pendientes (replica lógica de tienda_bp.py)
+    comp_rows = _q(f"""
+        SELECT COALESCE(pb_comp.sku, iv.sku) AS sku,
+               SUM(iv.cantidad * COALESCE(c.cantidad_necesaria, 1)) AS vendido
+        FROM items_venta iv
+        JOIN ventas v ON iv.venta_id = v.id
+        LEFT JOIN productos_compuestos pc ON iv.sku = pc.sku
+        LEFT JOIN componentes c ON pc.id = c.producto_compuesto_id
+        LEFT JOIN productos_base pb_comp ON c.producto_base_id = pb_comp.id
+        WHERE v.estado_entrega = 'pendiente'
+          AND COALESCE(pb_comp.sku, iv.sku) IN ({ph})
+        GROUP BY COALESCE(pb_comp.sku, iv.sku)
+    """, skus_t)
+    comprometido = {r['sku']: int(r['vendido'] or 0) for r in comp_rows}
+
+    return {sku: max(0, stock_fisico.get(sku, 0) - comprometido.get(sku, 0)) for sku in skus}
+
 def _crear_tablas():
     db = _db(); cur = db.cursor()
     cur.execute("""
@@ -293,7 +330,7 @@ def get_productos_context():
     sommiers = []
     for pc in sommiers_base:
         componentes = _q("""
-            SELECT pb.precio_base, pb.descuento_catalogo as comp_desc, c.cantidad_necesaria,
+            SELECT pb.sku, pb.precio_base, pb.descuento_catalogo as comp_desc, c.cantidad_necesaria,
                    pb.stock_actual, pb.linea, pb.tipo, pb.modelo
             FROM componentes c
             JOIN productos_base pb ON pb.id = c.producto_base_id
@@ -320,13 +357,36 @@ def get_productos_context():
             'precio_base':       precio_sum,
             'descuento_catalogo': pc['descuento_catalogo'],
             'oferta_pct':        pc['oferta_pct'],
-            # Stock: el sommier tiene stock si TODOS sus componentes tienen stock
+            # Stock provisional con stock_actual crudo — se reemplaza abajo con bulk real
             'stock_actual':      min(int(c['stock_actual'] or 0) for c in componentes),
+            # SKUs de componentes para calcular stock disponible real
+            '_comp_skus':        [c['sku'] for c in componentes if c.get('sku')],
             # Para aplica_demora usamos el componente colchón (tipo != 'base')
             '_comp_linea':       next((c['linea']  for c in componentes if (c.get('tipo') or '') != 'base'), None),
             '_comp_tipo':        next((c['tipo']   for c in componentes if (c.get('tipo') or '') != 'base'), 'conjunto'),
             '_comp_modelo':      next((c['modelo'] for c in componentes if (c.get('tipo') or '') != 'base'), None),
         })
+
+    # ── Stock disponible real (bulk, 2 queries) ───────────────────
+    # Colchones: SKUs directos
+    skus_colchones = [p['sku'] for p in colchones]
+    # Almohadas: SKUs directos
+    skus_almohadas_list = [a['sku'] for a in almohadas]
+    # Sommiers: todos los SKUs de componentes (bases + colchones)
+    skus_comp_sommiers = list({sku for s in sommiers for sku in s.get('_comp_skus', [])})
+
+    todos_los_skus = list(set(skus_colchones + skus_almohadas_list + skus_comp_sommiers))
+    stock_real = _get_stock_disponible_bulk(todos_los_skus) if todos_los_skus else {}
+
+    # Reemplazar stock_actual por stock disponible real en colchones y almohadas
+    for p in colchones:
+        p['stock_actual'] = stock_real.get(p['sku'], 0)
+    for a in almohadas:
+        a['stock_actual'] = stock_real.get(a['sku'], 0)
+    # Para sommiers: MIN del stock disponible real de sus componentes
+    for s in sommiers:
+        comp_stocks = [stock_real.get(sku, 0) for sku in s.get('_comp_skus', [])]
+        s['stock_actual'] = min(comp_stocks) if comp_stocks else 0
 
     # Recargos cuotas
     coefs = _q("SELECT clave, valor FROM configuracion WHERE clave LIKE 'cuotas_%_coef'")
