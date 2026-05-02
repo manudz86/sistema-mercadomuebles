@@ -263,8 +263,19 @@ def get_productos_context():
                COALESCE(o.descuento_pct, 0) as oferta_pct
         FROM productos_base p
         LEFT JOIN ofertas_home o ON o.sku = p.sku AND o.activo = 1
-        WHERE p.activo = 1
+        WHERE p.activo = 1 AND p.tipo = 'colchon'
         ORDER BY p.modelo, p.medida
+    """)
+
+    # Almohadas
+    almohadas = _q("""
+        SELECT p.sku, p.nombre, p.linea, p.tipo, p.modelo,
+               p.precio_base, p.descuento_catalogo, p.stock_actual,
+               COALESCE(o.descuento_pct, 0) as oferta_pct
+        FROM productos_base p
+        LEFT JOIN ofertas_home o ON o.sku = p.sku AND o.activo = 1
+        WHERE p.activo = 1 AND p.tipo = 'almohada'
+        ORDER BY p.nombre
     """)
 
     # Sommiers — precio calculado sumando componentes (igual que la tienda web)
@@ -416,10 +427,22 @@ def get_productos_context():
                 f"6 fijas de ${cuota_6l:,} (total ${total_6l:,})"
             )
 
+    # Almohadas — sección separada, sin cuotas (productos accesorios)
+    if almohadas:
+        lines.append("\n--- ALMOHADAS ---")
+        for a in almohadas:
+            if not a['precio_base']:
+                continue
+            pf = precio_final(a['precio_base'], a['descuento_catalogo'], a['oferta_pct'])
+            desc = max(float(a['descuento_catalogo'] or 0), float(a['oferta_pct'] or 0))
+            stock_txt = estado_stock(a['stock_actual'], a.get('linea'), a.get('tipo'), a.get('modelo'))
+            precio_str = f"Web: ${pf:,} (-{int(desc)}%)" if desc > 0 else f"${pf:,}"
+            lines.append(f"• {a['nombre']} (SKU:{a['sku']}) | {precio_str} | {stock_txt}")
+
     # Bases sueltas
     bases = _q("""
         SELECT sku, nombre, precio_base FROM productos_base
-        WHERE sku LIKE 'BASE%' AND activo=1 ORDER BY nombre
+        WHERE tipo = 'base' AND activo=1 ORDER BY nombre
     """)
     if bases:
         lines.append("\n--- BASES SUELTAS (precio por unidad, color fijo por modelo) ---")
