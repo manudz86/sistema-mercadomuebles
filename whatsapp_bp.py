@@ -442,7 +442,8 @@ def get_productos_context():
     # Bases sueltas
     bases = _q("""
         SELECT sku, nombre, precio_base FROM productos_base
-        WHERE tipo = 'base' AND activo=1 ORDER BY nombre
+        WHERE activo=1 AND (tipo = 'base' OR sku LIKE 'BASE%')
+        ORDER BY nombre
     """)
     if bases:
         lines.append("\n--- BASES SUELTAS (precio por unidad, color fijo por modelo) ---")
