@@ -390,7 +390,6 @@
         </thead>
         <tbody>
             {% for venta in ventas %}
-            {% set es_getnet = venta.metodo_pago == 'GetNet' or venta.numero_venta.startswith('GN-') %}
             <tr data-venta-id="{{ venta.id }}" {% if venta.metodo_envio == 'Turbo' %}class="table-danger"{% elif venta.cancelada_en_ml %}class="table-warning"{% endif %}>
                 <!-- ✅ NUEVO: Checkbox por fila -->
                 <td class="text-center">
@@ -467,8 +466,6 @@
                     {% elif venta.importe_abonado > 0 %}
                         <span class="badge bg-warning text-dark">Parcial</span>
                         <br><small>${{ "{:,.0f}".format(venta.importe_abonado) }}</small>
-                    {% elif es_getnet %}
-                        <span class="badge bg-success">Pagado</span>
                     {% else %}
                         <span class="badge bg-danger">Impago</span>
                     {% endif %}
@@ -476,12 +473,12 @@
                 
                 <!-- PAGO -->
                 <td>
-                    <strong>{% if es_getnet %}GetNet{% else %}{{ venta.metodo_pago }}{% endif %}</strong>
+                    <strong>{{ venta.metodo_pago }}</strong>
                     {% if venta.pago_mercadopago > 0 %}
                         <br><small class="text-muted">MP: ${{ "{:,.0f}".format(venta.pago_mercadopago) }}</small>
                     {% elif venta.metodo_pago == 'Payway' and venta.importe_abonado > 0 %}
                         <br><small class="text-muted">PW: ${{ "{:,.0f}".format(venta.importe_abonado) }}</small>
-                    {% elif es_getnet and venta.importe_abonado > 0 %}
+                    {% elif venta.metodo_pago == 'GetNet' and venta.importe_abonado > 0 %}
                         <br><small class="text-muted">GN: ${{ "{:,.0f}".format(venta.importe_abonado) }}</small>
                     {% endif %}
                     {% if venta.pago_efectivo > 0 %}
@@ -504,7 +501,7 @@
                         <br><span class="badge bg-secondary">{{ venta.metodo_envio }}</span>
                         {% if venta.metodo_envio in ['Flete Propio', 'Zippin'] and venta.costo_flete and venta.costo_flete > 0 %}
                             <br>
-                            {% if venta.metodo_pago in ['Payway', 'GetNet'] or es_getnet %}
+                            {% if venta.metodo_pago in ['Payway', 'GetNet'] %}
                                 {# Para Payway/GetNet el importe_total ya incluye el flete #}
                                 {% if venta.importe_abonado + 5 >= venta.importe_total %}
                                     <small class="text-success fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</small>
@@ -649,7 +646,6 @@
 <!-- ═══════════════════════════════════════ -->
 <div class="d-md-none">
     {% for venta in ventas %}
-    {% set es_getnet = venta.metodo_pago == 'GetNet' or venta.numero_venta.startswith('GN-') %}
     <div class="card mb-2 shadow-sm venta-card {% if venta.metodo_envio == 'Turbo' %}border-danger border-2{% elif venta.cancelada_en_ml %}border-warning border-2{% endif %}" data-venta-id="{{ venta.id }}">
         <!-- HEADER CARD -->
         <div class="card-header d-flex justify-content-between align-items-center py-2"
@@ -676,8 +672,6 @@
                     <span class="badge bg-success">Pagado</span>
                 {% elif venta.importe_abonado > 0 %}
                     <span class="badge bg-warning text-dark">Parcial</span>
-                {% elif es_getnet %}
-                    <span class="badge bg-success">Pagado</span>
                 {% else %}
                     <span class="badge bg-danger">Impago</span>
                 {% endif %}
@@ -726,9 +720,9 @@
                     {% endif %}
                 </div>
                 <div>
-                    <span class="text-muted">{% if es_getnet %}GetNet{% else %}{{ venta.metodo_pago }}{% endif %}</span>
+                    <span class="text-muted">{{ venta.metodo_pago }}</span>
                     {% if venta.metodo_envio in ['Flete Propio', 'Zippin'] and venta.costo_flete and venta.costo_flete > 0 %}
-                        {% if venta.metodo_pago in ['Payway', 'GetNet'] or es_getnet %}
+                        {% if venta.metodo_pago in ['Payway', 'GetNet'] %}
                             {# Para Payway/GetNet el importe_total ya incluye el flete #}
                             <span class="ms-1
                                 {% if venta.importe_abonado + 5 >= venta.importe_total %}text-success
