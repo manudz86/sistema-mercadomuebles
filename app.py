@@ -288,9 +288,12 @@ def logout():
 @login_required
 def index():
     """Dashboard principal — métricas operativas del día"""
-    from datetime import date, datetime, timedelta
+    from datetime import date, datetime, timedelta, timezone
     
-    hoy = date.today()
+    # ── Forzar timezone Argentina (GMT-3) ─────────────────────────
+    # El VPS corre en UTC; sin esto, después de las 21:00 AR ya muestra info del día siguiente.
+    tz_ar = timezone(timedelta(hours=-3))
+    hoy = datetime.now(tz_ar).date()
     hoy_str_ddmm = hoy.strftime('%d/%m')
     hoy_str_iso = hoy.strftime('%Y-%m-%d')
     
@@ -310,9 +313,12 @@ def index():
         try:
             _crear_tablas_pagos_cannon()
             row_pago = query_one("""
-                SELECT cf.fecha_pago, SUM(cf.importe_pp) as monto, MIN(cf.fecha_comprobante) as desde, MAX(cf.fecha_comprobante) as hasta
+                SELECT cf.fecha_pago, SUM(cf.importe_pp) as monto
                 FROM cannon_facturas cf
-                LEFT JOIN cannon_pagos cp ON cp.fecha_pago = cf.fecha_pago AND cp.monto_abonado IS NOT NULL
+                LEFT JOIN cannon_pagos cp 
+                    ON cp.fecha_pago = cf.fecha_pago 
+                    AND cp.monto_abonado IS NOT NULL 
+                    AND cp.monto_abonado > 0
                 WHERE cp.id IS NULL
                   AND cf.fecha_pago >= %s
                 GROUP BY cf.fecha_pago
