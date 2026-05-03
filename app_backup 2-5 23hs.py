@@ -9642,18 +9642,6 @@ def exportar_reposicion():
     """, tuple(base_params))
 
     # Consolidar sumando directos + combos
-    SKUS_ALMOHADA = {'CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE'}
-    
-    def _tipo_producto(sku):
-        s = sku.upper()
-        if s in SKUS_ALMOHADA:
-            return 'Almohada'
-        if s.startswith('BASE_'):
-            return 'Base'
-        if s.startswith('C'):
-            return 'Colchón'
-        return 'Otro'
-
     totales = {}
     for row in list(base_directos) + list(combos):
         sku = row['sku']
@@ -9664,8 +9652,7 @@ def exportar_reposicion():
                 'sku': sku,
                 'nombre': row['nombre'],
                 'cantidad_vendida': int(row['cantidad_vendida']),
-                'stock_disponible': stock_disponible_map.get(sku, 0),
-                'tipo': _tipo_producto(sku)
+                'stock_disponible': stock_disponible_map.get(sku, 0)
             }
 
     productos = sorted(totales.values(), key=lambda x: x['cantidad_vendida'], reverse=True)
@@ -9697,18 +9684,16 @@ def exportar_reposicion():
     )
 
     # Título
-    fecha_desde_fmt = datetime.strptime(fecha_desde, '%Y-%m-%d').strftime('%d/%m/%Y')
-    fecha_hasta_fmt = datetime.strptime(fecha_hasta, '%Y-%m-%d').strftime('%d/%m/%Y')
-    ws.merge_cells('A1:G1')
+    ws.merge_cells('A1:F1')
     titulo = ws['A1']
-    titulo.value = f"Reposición de Stock — {fecha_desde_fmt} al {fecha_hasta_fmt}"
+    titulo.value = f"Reposición de Stock — {fecha_desde} al {fecha_hasta}"
     titulo.font = Font(bold=True, color='FFFFFF', name='Arial', size=12)
     titulo.fill = header_fill
     titulo.alignment = Alignment(horizontal='center', vertical='center')
     ws.row_dimensions[1].height = 25
 
     # Headers
-    headers = ['SKU', 'Descripción', 'Tipo', 'Unidades Vendidas', 'Stock Disponible', 'm³ Unitario', 'm³ Total']
+    headers = ['SKU', 'Descripción', 'Unidades Vendidas', 'Stock Disponible', 'm³ Unitario', 'm³ Total']
     for col, h in enumerate(headers, 1):
         cell = ws.cell(row=2, column=col, value=h)
         cell.font = Font(bold=True, color='FFFFFF', name='Arial', size=10)
@@ -9721,22 +9706,21 @@ def exportar_reposicion():
     for i, p in enumerate(productos):
         row = i + 3
         fill = alt_fill if i % 2 == 0 else PatternFill(fill_type=None)
-        valores = [p['sku'], p['nombre'], p['tipo'], int(p['cantidad_vendida']), int(p['stock_disponible']), p['m3_unitario'], p['m3_total']]
+        valores = [p['sku'], p['nombre'], int(p['cantidad_vendida']), int(p['stock_disponible']), p['m3_unitario'], p['m3_total']]
         for col, val in enumerate(valores, 1):
             cell = ws.cell(row=row, column=col, value=val)
             cell.font = Font(name='Arial', size=10)
             cell.fill = fill
             cell.border = border
-            if col in (4, 5, 6, 7):
+            if col in (3, 4, 5, 6):
                 cell.alignment = Alignment(horizontal='center')
 
     ws.column_dimensions['A'].width = 22
     ws.column_dimensions['B'].width = 45
-    ws.column_dimensions['C'].width = 12
-    ws.column_dimensions['D'].width = 20
-    ws.column_dimensions['E'].width = 16
+    ws.column_dimensions['C'].width = 20
+    ws.column_dimensions['D'].width = 16
+    ws.column_dimensions['E'].width = 14
     ws.column_dimensions['F'].width = 14
-    ws.column_dimensions['G'].width = 14
     ws.freeze_panes = 'A3'
 
     excel_file = BytesIO()
