@@ -214,32 +214,21 @@
                         <option value="MercadoPago">MercadoPago</option>
                         <option value="Efectivo">Efectivo</option>
                         <option value="Transferencia">Transferencia</option>
-                        <option value="Tarjeta">Tarjeta</option>
                         <option value="Mixto">Mixto</option>
                     </select>
                 </div>
                 
-                <div class="col-md-3">
+                <div class="col-md-4">
                     <label class="form-label fw-bold">Pago MercadoPago</label>
                     <input type="number" class="form-control" name="pago_mercadopago" id="pagoMP" value="0" step="0.01" onchange="calcularSaldo()">
                 </div>
                 
-                <div class="col-md-3">
-                    <label class="form-label fw-bold">Pago Efectivo</label>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Pago Efectivo/Transferencia</label>
                     <input type="number" class="form-control" name="pago_efectivo" id="pagoEfectivo" value="0" step="0.01" onchange="calcularSaldo()">
                 </div>
-
-                <div class="col-md-3">
-                    <label class="form-label fw-bold">Pago Transferencia</label>
-                    <input type="number" class="form-control" name="pago_transferencia" id="pagoTransferencia" value="0" step="0.01" onchange="calcularSaldo()">
-                </div>
-
-                <div class="col-md-3">
-                    <label class="form-label fw-bold">Pago Tarjeta</label>
-                    <input type="number" class="form-control" name="pago_tarjeta" id="pagoTarjeta" value="0" step="0.01" onchange="calcularSaldo()">
-                </div>
                 
-                <div class="col-md-3">
+                <div class="col-md-4">
                     <label class="form-label fw-bold">Saldo Pendiente</label>
                     <input type="text" class="form-control" id="saldoPendiente" readonly value="$0" style="font-weight: bold; color: red;">
                     <input type="hidden" name="importe_abonado" id="importeAbonado" value="0">
@@ -465,11 +454,9 @@ function calcularTotales() {
 
 function calcularSaldo() {
     const total = parseFloat(document.getElementById('importeTotal').value) || 0;
-    const pagoMP           = parseFloat(document.getElementById('pagoMP').value) || 0;
-    const pagoEfectivo     = parseFloat(document.getElementById('pagoEfectivo').value) || 0;
-    const pagoTransferencia = parseFloat(document.getElementById('pagoTransferencia').value) || 0;
-    const pagoTarjeta      = parseFloat(document.getElementById('pagoTarjeta').value) || 0;
-    const pagado = pagoMP + pagoEfectivo + pagoTransferencia + pagoTarjeta;
+    const pagoMP = parseFloat(document.getElementById('pagoMP').value) || 0;
+    const pagoEfectivo = parseFloat(document.getElementById('pagoEfectivo').value) || 0;
+    const pagado = pagoMP + pagoEfectivo;
     const saldo = total - pagado;
     
     document.getElementById('saldoPendiente').value = '$' + formatearNumero(saldo);

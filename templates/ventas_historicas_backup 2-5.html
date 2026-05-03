@@ -39,17 +39,20 @@
 {% endmacro %}
 
 
-{% block title %}Proceso de Envío - Mercadomuebles{% endblock %}
+{% block title %}Ventas Históricas - Mercadomuebles{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h2><i class="bi bi-box-seam"></i> Proceso de Envío</h2>
-        <p class="text-muted mb-0">Ventas que ya descontaron stock y están preparándose para envío</p>
+        <h2><i class="bi bi-archive"></i> Ventas Históricas</h2>
+        <p class="text-muted mb-0">Ventas entregadas y canceladas</p>
     </div>
     <div>
-        <span class="badge bg-warning text-dark" style="font-size: 1.1em; padding: 0.6em 1em;">
-            {{ ventas|length }} en proceso
+        <span class="badge bg-success" style="font-size: 1em; padding: 0.5em 0.8em; margin-right: 0.5em;">
+            {{ entregadas }} entregadas
+        </span>
+        <span class="badge bg-secondary" style="font-size: 1em; padding: 0.5em 0.8em;">
+            {{ canceladas }} canceladas
         </span>
     </div>
 </div>
@@ -57,7 +60,7 @@
 <!-- FILTROS -->
 <div class="card mb-3">
     <div class="card-body">
-        <form method="GET" action="/ventas/proceso" class="row g-3">
+        <form method="GET" action="/ventas/historicas" class="row g-3" id="filtrosForm">
             <div class="col-md-3">
                 <label class="form-label"><i class="bi bi-search"></i> Buscar</label>
                 <input type="text" 
@@ -68,11 +71,22 @@
             </div>
             
             <div class="col-md-2">
-                <label class="form-label"><i class="bi bi-truck"></i> Tipo Entrega</label>
-                <select class="form-select" name="tipo_entrega">
+                <label class="form-label"><i class="bi bi-check-circle"></i> Estado</label>
+                <select class="form-select" name="estado">
                     <option value="">Todos</option>
-                    <option value="retiro" {% if filtro_tipo_entrega == 'retiro' %}selected{% endif %}>Retiro</option>
-                    <option value="envio" {% if filtro_tipo_entrega == 'envio' %}selected{% endif %}>Envío</option>
+                    <option value="entregada" {% if filtro_estado == 'entregada' %}selected{% endif %}>Entregadas</option>
+                    <option value="cancelada" {% if filtro_estado == 'cancelada' %}selected{% endif %}>Canceladas</option>
+                </select>
+            </div>
+            
+            <div class="col-md-2">
+                <label class="form-label"><i class="bi bi-calendario"></i> Período</label>
+                <select class="form-select" name="periodo">
+                    <option value="todo" {% if filtro_periodo == 'todo' %}selected{% endif %}>Todo</option>
+                    <option value="hoy" {% if filtro_periodo == 'hoy' %}selected{% endif %}>Hoy</option>
+                    <option value="semana" {% if filtro_periodo == 'semana' %}selected{% endif %}>Última Semana</option>
+                    <option value="mes" {% if filtro_periodo == 'mes' %}selected{% endif %}>Último Mes</option>
+                    <option value="trimestre" {% if filtro_periodo == 'trimestre' %}selected{% endif %}>Último Trimestre</option>
                 </select>
             </div>
             
@@ -113,21 +127,11 @@
                 </select>
             </div>
             
-            <div class="col-md-2">
-                <label class="form-label"><i class="bi bi-cash-coin"></i> Estado Pago</label>
-                <select class="form-select" name="estado_pago">
-                    <option value="">Todos</option>
-                    <option value="pagado" {% if filtro_estado_pago == 'pagado' %}selected{% endif %}>Pagado</option>
-                    <option value="pendiente" {% if filtro_estado_pago == 'pendiente' %}selected{% endif %}>Pendiente</option>
-                    <option value="parcial" {% if filtro_estado_pago == 'parcial' %}selected{% endif %}>Parcial</option>
-                </select>
-            </div>
-            
             <div class="col-12 d-flex gap-2">
                 <button type="submit" class="btn btn-primary">
                     <i class="bi bi-funnel"></i> Filtrar
                 </button>
-                <a href="/ventas/proceso" class="btn btn-secondary">
+                <a href="/ventas/historicas" class="btn btn-secondary">
                     <i class="bi bi-x-circle"></i> Limpiar
                 </a>
             </div>
@@ -137,7 +141,7 @@
 
 {% if ventas %}
 
-<!-- ✅ NUEVO: BARRA DE ACCIONES MÚLTIPLES -->
+<!-- BARRA DE ACCIONES MÚLTIPLES -->
 <div class="card mb-3" id="accionesMultiples" style="display: none;">
     <div class="card-body">
         <div class="d-flex justify-content-between align-items-center">
@@ -148,54 +152,83 @@
                 <button type="button" class="btn btn-warning" onclick="volverActivasMultiple()">
                     <i class="bi bi-arrow-counterclockwise"></i> Volver a Activas
                 </button>
-                <button type="button" class="btn btn-success" onclick="marcarEntregadasMultiple()">
-                    <i class="bi bi-check-circle"></i> Marcar Entregadas
-                </button>
-                <button type="button" class="btn btn-danger" onclick="cancelarMultiple()">
-                    <i class="bi bi-x-circle"></i> Cancelar
+                <button type="button" class="btn btn-success" onclick="facturarMultiple()">
+                    <i class="bi bi-file-earmark-text"></i> Facturar Seleccionadas
                 </button>
                 <button type="button" class="btn btn-secondary" onclick="limpiarSeleccion()">
-                    <i class="bi bi-x"></i> Limpiar
+                    <i class="bi bi-x-circle"></i> Limpiar
                 </button>
             </div>
         </div>
     </div>
 </div>
 
+{% if total_paginas > 1 %}
+<nav class="d-flex align-items-center justify-content-between my-2 flex-wrap gap-2">
+  <small class="text-muted">
+    Mostrando {{ ventas|length }} de {{ total_ventas_filtradas }} ventas
+    &nbsp;·&nbsp; Página {{ pagina }} de {{ total_paginas }}
+  </small>
+  <ul class="pagination pagination-sm mb-0">
+    <li class="page-item {{ 'disabled' if pagina == 1 }}">
+      <a class="page-link" href="?{% for k,v in request.args.items() if k != 'pagina' %}{{ k }}={{ v }}&{% endfor %}pagina=1">«</a>
+    </li>
+    <li class="page-item {{ 'disabled' if pagina == 1 }}">
+      <a class="page-link" href="?{% for k,v in request.args.items() if k != 'pagina' %}{{ k }}={{ v }}&{% endfor %}pagina={{ pagina - 1 }}">‹</a>
+    </li>
+    {% for p in range([1, pagina-2]|max, [total_paginas+1, pagina+3]|min) %}
+    <li class="page-item {{ 'active' if p == pagina }}">
+      <a class="page-link" href="?{% for k,v in request.args.items() if k != 'pagina' %}{{ k }}={{ v }}&{% endfor %}pagina={{ p }}">{{ p }}</a>
+    </li>
+    {% endfor %}
+    <li class="page-item {{ 'disabled' if pagina == total_paginas }}">
+      <a class="page-link" href="?{% for k,v in request.args.items() if k != 'pagina' %}{{ k }}={{ v }}&{% endfor %}pagina={{ pagina + 1 }}">›</a>
+    </li>
+    <li class="page-item {{ 'disabled' if pagina == total_paginas }}">
+      <a class="page-link" href="?{% for k,v in request.args.items() if k != 'pagina' %}{{ k }}={{ v }}&{% endfor %}pagina={{ total_paginas }}">»</a>
+    </li>
+  </ul>
+</nav>
+{% else %}
+<small class="text-muted d-block my-2">{{ total_ventas_filtradas }} ventas encontradas</small>
+{% endif %}
+
 <div class="table-responsive d-none d-md-block">
     <table class="table table-bordered table-hover" style="font-size: 0.95em;">
         <thead class="table-light">
             <tr>
-                <!-- ✅ NUEVO: Checkbox seleccionar todas -->
                 <th width="3%">
                     <input type="checkbox" 
                            id="selectAll" autocomplete="off" 
                            class="form-check-input"
                            onchange="toggleSelectAll(this)">
                 </th>
-                <th width="7%">Fecha</th>
+                <th width="8%">Fecha Venta<br><small class="text-muted">Fecha Entrega</small></th>
                 <th width="10%">Cliente</th>
                 <th width="18%">Productos</th>
-                <th width="8%">Total<br><small class="text-muted">Abonado</small></th>
-                <th width="9%">Pago</th>
-                <th width="14%">Entrega</th>
+                <th width="7%">Total</th>
+                <th width="6%">Canal</th>
+                <th width="12%">Entrega</th>
                 <th width="6%">Zona</th>
-                <th width="10%">Observaciones</th>
-                <th width="15%">Acciones</th>
+                <th width="7%">Estado</th>
+                <th width="12%">Observaciones</th>
+                <th width="11%">Acciones</th>
             </tr>
         </thead>
         <tbody>
             {% for venta in ventas %}
-            <tr data-venta-id="{{ venta.id }}" {% if venta.metodo_envio == 'Turbo' %}class="table-danger"{% endif %}>
-                <!-- ✅ NUEVO: Checkbox por fila -->
+            <tr class="{% if venta.estado_entrega == 'cancelada' %}table-secondary{% endif %}" 
+                data-venta-id="{{ venta.id }}">
+                
                 <td class="text-center">
                     <input type="checkbox" 
                            class="form-check-input venta-checkbox" autocomplete="off" 
                            value="{{ venta.id }}"
+                           data-estado="{{ venta.estado_entrega }}"
                            onchange="actualizarContador()">
                 </td>
                 
-                <!-- FECHA -->
+                <!-- FECHAS -->
                 <td class="text-center">
                     {% if venta.hora_venta_str %}<small class="text-muted d-block" style="font-size:0.75em;">{{ venta.hora_venta_str }} hs</small>{% endif %}
                     <strong>{{ venta.fecha_venta.strftime('%d/%m/%Y') }}</strong>
@@ -207,6 +240,15 @@
                         <span class="badge bg-primary ms-1" style="font-size:0.65rem;">WEB</span>
                     {% else %}
                         <span class="badge bg-secondary ms-1" style="font-size:0.65rem;">EXT</span>
+                    {% endif %}
+                    {% if venta.fecha_entrega %}
+                        <br>
+                        <span class="badge bg-success" style="font-size: 0.85em;">
+                            <i class="bi bi-check-circle"></i> {{ venta.fecha_entrega.strftime('%d/%m/%Y') }}
+                        </span>
+                    {% else %}
+                        <br>
+                        <small class="text-muted"><i class="bi bi-dash"></i></small>
                     {% endif %}
                 </td>
                 
@@ -221,7 +263,7 @@
                     {% endif %}
                 </td>
                 
-                <!-- PRODUCTOS -->
+                <!-- PRODUCTOS: con precio por item, igual que activas -->
                 <td>
                     {% if venta['items'] %}
                         {% for item in venta['items'] %}
@@ -238,31 +280,21 @@
                 <!-- TOTAL -->
                 <td class="text-center">
                     <strong style="font-size: 1.1em;">${{ "{:,.0f}".format(venta.importe_total) }}</strong>
-                    <br>
                     {% if venta.importe_abonado >= venta.importe_total %}
-                        <span class="badge bg-success">Pagado</span>
+                        <br><span class="badge bg-success">Pagado</span>
                     {% elif venta.importe_abonado > 0 %}
-                        <span class="badge bg-warning text-dark">Parcial</span>
-                        <br><small>${{ "{:,.0f}".format(venta.importe_abonado) }}</small>
+                        <br><span class="badge bg-warning text-dark">Parcial</span>
                     {% else %}
-                        <span class="badge bg-danger">Impago</span>
+                        <br><span class="badge bg-danger">Impago</span>
                     {% endif %}
                 </td>
                 
-                <!-- PAGO -->
-                <td>
-                    <strong>{{ venta.metodo_pago }}</strong>
-                    {% if venta.pago_mercadopago > 0 %}
-                        <br><small class="text-muted">MP: ${{ "{:,.0f}".format(venta.pago_mercadopago) }}</small>
-                    {% endif %}
-                    {% if venta.pago_efectivo > 0 %}
-                        <br><small class="text-muted">Efec: ${{ "{:,.0f}".format(venta.pago_efectivo) }}</small>
-                    {% endif %}
-                    {% if venta.pago_transferencia and venta.pago_transferencia > 0 %}
-                        <br><small class="text-muted">Trans: ${{ "{:,.0f}".format(venta.pago_transferencia) }}</small>
-                    {% endif %}
-                    {% if venta.pago_tarjeta and venta.pago_tarjeta > 0 %}
-                        <br><small class="text-muted">Tarj: ${{ "{:,.0f}".format(venta.pago_tarjeta) }}</small>
+                <!-- CANAL -->
+                <td class="text-center">
+                    {% if venta.canal == 'Mercado Libre' %}
+                        <span class="badge bg-primary">ML</span>
+                    {% else %}
+                        <span class="badge bg-info">{{ venta.canal }}</span>
                     {% endif %}
                 </td>
                 
@@ -289,13 +321,10 @@
                         {% if venta.ubicacion_despacho %}
                             <br>
                             {% if venta.ubicacion_despacho == 'FULL' %}
-                                <small class="text-warning">🔶 FULL ML</small>
+                                <small class="text-warning">🔶 FULL</small>
                             {% else %}
-                                <small class="text-info">🔷 Depósito</small>
+                                <small class="text-info">🔷 DEP</small>
                             {% endif %}
-                        {% endif %}
-                        {% if venta.direccion_entrega %}
-                            <br><small class="text-muted">{{ venta.direccion_entrega[:25] }}{% if venta.direccion_entrega|length > 25 %}...{% endif %}</small>
                         {% endif %}
                     {% endif %}
                 </td>
@@ -309,33 +338,68 @@
                     {% endif %}
                 </td>
                 
+                <!-- ESTADO -->
+                <td class="text-center">
+                    {% if venta.estado_entrega == 'entregada' %}
+                        <span class="badge bg-success">
+                            <i class="bi bi-check-circle"></i> Entregada
+                        </span>
+                    {% elif venta.estado_entrega == 'cancelada' %}
+                        <span class="badge bg-secondary">
+                            <i class="bi bi-x-circle"></i> Cancelada
+                        </span>
+                    {% endif %}
+                </td>
+                
                 <!-- OBSERVACIONES -->
                 <td>{{ obs_me2(venta) }}</td>
                 
                 <!-- ACCIONES INDIVIDUALES -->
-                <td>
-                    <div class="btn-group-vertical d-grid gap-1" style="font-size: 0.80em;">
-                        <!-- Volver a Activas -->
-                        <button type="button" 
-                                class="btn btn-sm btn-info"
-                                onclick="confirmarAccion('{{ venta.id }}', 'volver_activas', '{{ venta.numero_venta }}')">
-                            <i class="bi bi-arrow-left-circle"></i> Volver Activas
-                        </button>
+                <td class="text-center">
+                    {% if venta.estado_entrega == 'entregada' %}
+                        {% if venta.factura_generada %}
+                            <button type="button"
+                                    class="btn btn-sm btn-secondary mb-1"
+                                    onclick="facturarIndividual('{{ venta.id }}', '{{ venta.metodo_envio }}')"
+                                    title="Factura ya generada. Click para descargar nuevamente.">
+                                <i class="bi bi-check-circle-fill"></i> Re-facturar
+                            </button>
+                            <br>
+                            <small class="text-muted" style="font-size: 0.75em;">
+                                {{ venta.factura_fecha_generacion.strftime('%d/%m %H:%M') }}
+                            </small>
+                        {% else %}
+                            <button type="button"
+                                    class="btn btn-sm btn-success mb-1"
+                                    onclick="facturarIndividual('{{ venta.id }}', '{{ venta.metodo_envio }}')"
+                                    title="Generar archivo de facturación">
+                                <i class="bi bi-file-earmark-text"></i> Facturar
+                            </button>
+                        {% endif %}
                         
-                        <!-- Marcar Entregada -->
-                        <button type="button" 
-                                class="btn btn-sm btn-success"
-                                onclick="confirmarAccion('{{ venta.id }}', 'entregada', '{{ venta.numero_venta }}')">
-                            <i class="bi bi-check-circle"></i> Entregada
+                        {# Checkbox incluir flete: solo para Flete Propio y Zippin #}
+                        {% if venta.metodo_envio in ['Flete Propio', 'Zippin'] and venta.costo_flete and venta.costo_flete > 0 %}
+                            <br>
+                            <div class="form-check form-check-inline mt-1" style="font-size: 0.8em;">
+                                <input class="form-check-input flete-checkbox" 
+                                       type="checkbox" 
+                                       id="flete_{{ venta.id }}"
+                                       style="cursor: pointer;">
+                                <label class="form-check-label text-muted" for="flete_{{ venta.id }}">
+                                    + Flete
+                                </label>
+                            </div>
+                        {% endif %}
+                        <br>
+                    {% endif %}
+                    
+                    <form method="POST" action="{{ url_for('historicas_volver_activas', venta_id=venta.id) }}" style="display: inline;">
+                        <button type="submit" 
+                                class="btn btn-sm {% if venta.estado_entrega == 'entregada' %}btn-warning{% else %}btn-secondary{% endif %}" 
+                                onclick="return confirm('¿Volver esta venta a Activas?')">
+                            <i class="bi bi-arrow-counterclockwise"></i> Activa
                         </button>
-                        
-                        <!-- Cancelar y Devolver Stock -->
-                        <button type="button" 
-                                class="btn btn-sm btn-danger"
-                                onclick="confirmarAccion('{{ venta.id }}', 'cancelar', '{{ venta.numero_venta }}')">
-                            <i class="bi bi-x-circle"></i> Cancelar
-                        </button>
-                    </div>
+                    </form>
                 </td>
             </tr>
             {% endfor %}
@@ -343,32 +407,94 @@
     </table>
 </div>
 
-<!-- ═══════════════════════════════════════ -->
-<!-- CARDS MOBILE (solo visible en mobile) -->
-<!-- ═══════════════════════════════════════ -->
+{% if total_paginas > 1 %}
+<nav class="d-flex align-items-center justify-content-between my-2 flex-wrap gap-2">
+  <small class="text-muted">
+    Mostrando {{ ventas|length }} de {{ total_ventas_filtradas }} ventas
+    &nbsp;·&nbsp; Página {{ pagina }} de {{ total_paginas }}
+  </small>
+  <ul class="pagination pagination-sm mb-0">
+    <li class="page-item {{ 'disabled' if pagina == 1 }}">
+      <a class="page-link" href="?{% for k,v in request.args.items() if k != 'pagina' %}{{ k }}={{ v }}&{% endfor %}pagina=1">«</a>
+    </li>
+    <li class="page-item {{ 'disabled' if pagina == 1 }}">
+      <a class="page-link" href="?{% for k,v in request.args.items() if k != 'pagina' %}{{ k }}={{ v }}&{% endfor %}pagina={{ pagina - 1 }}">‹</a>
+    </li>
+    {% for p in range([1, pagina-2]|max, [total_paginas+1, pagina+3]|min) %}
+    <li class="page-item {{ 'active' if p == pagina }}">
+      <a class="page-link" href="?{% for k,v in request.args.items() if k != 'pagina' %}{{ k }}={{ v }}&{% endfor %}pagina={{ p }}">{{ p }}</a>
+    </li>
+    {% endfor %}
+    <li class="page-item {{ 'disabled' if pagina == total_paginas }}">
+      <a class="page-link" href="?{% for k,v in request.args.items() if k != 'pagina' %}{{ k }}={{ v }}&{% endfor %}pagina={{ pagina + 1 }}">›</a>
+    </li>
+    <li class="page-item {{ 'disabled' if pagina == total_paginas }}">
+      <a class="page-link" href="?{% for k,v in request.args.items() if k != 'pagina' %}{{ k }}={{ v }}&{% endfor %}pagina={{ total_paginas }}">»</a>
+    </li>
+  </ul>
+</nav>
+{% else %}
+<small class="text-muted d-block my-2">{{ total_ventas_filtradas }} ventas encontradas</small>
+{% endif %}
+
+<!-- CARDS MOBILE -->
 <div class="d-md-none">
     {% for venta in ventas %}
-    <div class="card mb-2 shadow-sm" data-venta-id="{{ venta.id }}">
-        <!-- HEADER -->
+    <div class="card mb-2 shadow-sm {% if venta.estado_entrega == 'cancelada' %}border-secondary opacity-75{% endif %}">
         <div class="card-header d-flex justify-content-between align-items-center py-2"
-             style="background: #e8f4f8;">
+             style="background: {% if venta.estado_entrega == 'cancelada' %}#e9ecef{% else %}#f8f9fa{% endif %};">
             <div class="d-flex align-items-center gap-2">
                 <input type="checkbox" class="form-check-input venta-checkbox" autocomplete="off"
-                       value="{{ venta.id }}" onchange="actualizarContador()">
+                       value="{{ venta.id }}" data-estado="{{ venta.estado_entrega }}" onchange="actualizarContador()">
                 <div>
                     <strong style="font-size:0.85rem;">{{ venta.numero_venta }}</strong>
                     <span class="ms-1" style="font-size:0.65rem;">
                         {%- if venta.canal == 'Mercado Libre' %}<span class="badge" style="background:#FFE600;color:#333;">ML</span>
                         {%- elif venta.canal == 'tienda_web' %}<span class="badge bg-primary">WEB</span>
                         {%- else %}<span class="badge bg-secondary">EXT</span>{%- endif %}
-                        {%- if venta.metodo_envio == 'Turbo' %}<span class="badge bg-danger ms-1">🚀 TURBO</span>{%- endif %}
                     </span>
-                    {% if venta.hora_venta_str %}<div class="text-muted" style="font-size:0.7rem;">{{ venta.hora_venta_str }} hs</div>{% endif %}
-                    <div class="text-muted" style="font-size:0.75rem;">{{ venta.fecha_venta.strftime('%d/%m/%Y') }}</div>
+                    <div class="text-muted" style="font-size:0.75rem;">{{ venta.fecha_venta.strftime('%d/%m/%Y') }}
+                        {% if venta.fecha_entrega %} → <span class="text-success">{{ venta.fecha_entrega.strftime('%d/%m/%Y') }}</span>{% endif %}
+                    </div>
                 </div>
             </div>
             <div class="text-end">
                 <div style="font-size:1.05rem; font-weight:700;">${{ "{:,.0f}".format(venta.importe_total) }}</div>
+                <div class="d-flex gap-1 justify-content-end">
+                    {% if venta.canal == 'Mercado Libre' %}
+                        <span class="badge bg-primary" style="font-size:0.65rem;">ML</span>
+                    {% else %}
+                        <span class="badge bg-info" style="font-size:0.65rem;">{{ venta.canal }}</span>
+                    {% endif %}
+                    {% if venta.estado_entrega == 'entregada' %}
+                        <span class="badge bg-success" style="font-size:0.65rem;">Entregada</span>
+                    {% else %}
+                        <span class="badge bg-secondary" style="font-size:0.65rem;">Cancelada</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="card-body py-2 px-3">
+            <!-- CLIENTE -->
+            <div class="mb-1">
+                {% if venta.mla_code %}<span class="badge bg-primary me-1">{{ venta.mla_code }}</span>{% endif %}
+                <strong style="font-size:0.9rem;">{{ venta.nombre_cliente }}</strong>
+            </div>
+            <!-- PRODUCTOS -->
+            <div class="mb-2" style="font-size:0.82rem; color:#444;">
+                {% for item in venta['items'] %}
+                    <div>{{ item.cantidad }}× {{ item.sku }} — {{ item.nombre_producto }}</div>
+                {% endfor %}
+            </div>
+            <!-- ENTREGA -->
+            <div class="d-flex flex-wrap gap-2 mb-2" style="font-size:0.8rem;">
+                {% if venta.tipo_entrega == 'Retiro' %}
+                    <span class="badge bg-info text-dark">🔷 Retiro</span>
+                {% else %}
+                    <span class="badge bg-secondary">{{ venta.metodo_envio }}</span>
+                    {% if venta.zona_envio %}<span class="badge bg-light text-dark border">{{ venta.zona_envio }}</span>{% endif %}
+                    {% if venta.ubicacion_despacho == 'FULL' %}<span class="badge bg-warning text-dark">🔶 FULL</span>{% endif %}
+                {% endif %}
                 {% if venta.importe_abonado >= venta.importe_total %}
                     <span class="badge bg-success">Pagado</span>
                 {% elif venta.importe_abonado > 0 %}
@@ -377,220 +503,89 @@
                     <span class="badge bg-danger">Impago</span>
                 {% endif %}
             </div>
-        </div>
-
-        <div class="card-body py-2 px-3">
-            <!-- CLIENTE -->
-            <div class="mb-1">
-                {% if venta.mla_code %}<span class="badge bg-primary me-1">{{ venta.mla_code }}</span>{% endif %}
-                <strong style="font-size:0.9rem;">{{ venta.nombre_cliente }}</strong>
-                {% if venta.telefono_cliente %}
-                    <span class="text-muted ms-2" style="font-size:0.8rem;"><i class="bi bi-telephone"></i> {{ venta.telefono_cliente }}</span>
-                {% endif %}
-            </div>
-
-            <!-- PRODUCTOS -->
-            <div class="mb-2" style="font-size:0.82rem; color:#444;">
-                {% for item in venta['items'] %}
-                    <div>{{ item.cantidad }}× {{ item.sku }} — {{ item.nombre_producto }}</div>
-                {% endfor %}
-            </div>
-
-            <!-- ENTREGA + ZONA -->
-            <div class="d-flex flex-wrap gap-2 mb-2" style="font-size:0.8rem;">
-                {% if venta.tipo_entrega in ['retiro', 'Retiro'] or not venta.metodo_envio %}
-                    <span class="badge bg-info text-dark">🔷 Retiro depósito</span>
-                {% else %}
-                    <span class="badge bg-secondary">{{ venta.metodo_envio }}</span>
-                    {% if venta.zona_envio %}<span class="badge bg-light text-dark border ms-1">{{ venta.zona_envio }}</span>{% endif %}
-                    {% if venta.ubicacion_despacho == 'FULL' %}
-                        <span class="badge bg-warning text-dark ms-1">🔶 FULL</span>
-                    {% endif %}
-                    {% if venta.metodo_envio in ['Flete Propio', 'Zippin'] and venta.costo_flete and venta.costo_flete > 0 %}
-                        <span class="ms-1
-                            {% if venta.importe_abonado >= venta.importe_total + venta.costo_flete %}text-success
-                            {% elif venta.importe_abonado > venta.importe_total %}text-warning
-                            {% else %}text-danger{% endif %} fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</span>
-                    {% endif %}
-                {% endif %}
-                <span class="text-muted">{{ venta.metodo_pago }}</span>
-                {% if venta.pago_mercadopago > 0 %}<small class="text-muted ms-1">MP: ${{ "{:,.0f}".format(venta.pago_mercadopago) }}</small>{% endif %}
-                {% if venta.pago_efectivo > 0 %}<small class="text-muted ms-1">Efec: ${{ "{:,.0f}".format(venta.pago_efectivo) }}</small>{% endif %}
-                {% if venta.pago_transferencia and venta.pago_transferencia > 0 %}<small class="text-muted ms-1">Trans: ${{ "{:,.0f}".format(venta.pago_transferencia) }}</small>{% endif %}
-                {% if venta.pago_tarjeta and venta.pago_tarjeta > 0 %}<small class="text-muted ms-1">Tarj: ${{ "{:,.0f}".format(venta.pago_tarjeta) }}</small>{% endif %}
-            </div>
-
-            <!-- DIRECCIÓN -->
-            {% if venta.direccion_entrega %}
-            <div class="text-muted mb-2" style="font-size:0.78rem;">📍 {{ venta.direccion_entrega[:60] }}{% if venta.direccion_entrega|length > 60 %}...{% endif %}</div>
-            {% endif %}
-
-            <!-- NOTAS -->
             <div class="mb-2">{{ obs_me2(venta) }}</div>
-
             <!-- ACCIONES -->
-            <div class="d-flex gap-1 flex-wrap">
-                <button class="btn btn-sm btn-info"
-                        onclick="confirmarAccion('{{ venta.id }}', 'volver_activas', '{{ venta.numero_venta }}')">
-                    <i class="bi bi-arrow-left-circle"></i> Activas</button>
-                <button class="btn btn-sm btn-success"
-                        onclick="confirmarAccion('{{ venta.id }}', 'entregada', '{{ venta.numero_venta }}')">
-                    <i class="bi bi-check-circle"></i> Entregada</button>
-                <button class="btn btn-sm btn-danger"
-                        onclick="confirmarAccion('{{ venta.id }}', 'cancelar', '{{ venta.numero_venta }}')">
-                    <i class="bi bi-x-circle"></i> Cancelar</button>
+            <div class="d-flex gap-1 flex-wrap align-items-center">
+                {% if venta.estado_entrega == 'entregada' %}
+                    <button type="button" class="btn btn-sm {% if venta.factura_generada %}btn-secondary{% else %}btn-success{% endif %}"
+                            onclick="facturarIndividual('{{ venta.id }}', '{{ venta.metodo_envio }}')">
+                        <i class="bi bi-file-earmark-text"></i> {% if venta.factura_generada %}Re-facturar{% else %}Facturar{% endif %}
+                    </button>
+                    {% if venta.metodo_envio in ['Flete Propio', 'Zippin'] and venta.costo_flete and venta.costo_flete > 0 %}
+                    <div class="form-check form-check-inline mb-0" style="font-size:0.8rem;">
+                        <input class="form-check-input flete-checkbox" type="checkbox" id="flete_{{ venta.id }}">
+                        <label class="form-check-label text-muted" for="flete_{{ venta.id }}">+ Flete</label>
+                    </div>
+                    {% endif %}
+                {% endif %}
+                <form method="POST" action="{{ url_for('historicas_volver_activas', venta_id=venta.id) }}" style="display:inline;">
+                    <button type="submit" class="btn btn-sm {% if venta.estado_entrega == 'entregada' %}btn-warning{% else %}btn-secondary{% endif %}"
+                            onclick="return confirm('¿Volver esta venta a Activas?')">
+                        <i class="bi bi-arrow-counterclockwise"></i> Activa
+                    </button>
+                </form>
             </div>
         </div>
     </div>
     {% endfor %}
 </div>
+{% if total_paginas > 1 %}
+<nav class="d-flex align-items-center justify-content-between my-2 flex-wrap gap-2">
+  <small class="text-muted">
+    Mostrando {{ ventas|length }} de {{ total_ventas_filtradas }} ventas
+    &nbsp;·&nbsp; Página {{ pagina }} de {{ total_paginas }}
+  </small>
+  <ul class="pagination pagination-sm mb-0">
+    <li class="page-item {{ 'disabled' if pagina == 1 }}">
+      <a class="page-link" href="?{% for k,v in request.args.items() if k != 'pagina' %}{{ k }}={{ v }}&{% endfor %}pagina=1">«</a>
+    </li>
+    <li class="page-item {{ 'disabled' if pagina == 1 }}">
+      <a class="page-link" href="?{% for k,v in request.args.items() if k != 'pagina' %}{{ k }}={{ v }}&{% endfor %}pagina={{ pagina - 1 }}">‹</a>
+    </li>
+    {% for p in range([1, pagina-2]|max, [total_paginas+1, pagina+3]|min) %}
+    <li class="page-item {{ 'active' if p == pagina }}">
+      <a class="page-link" href="?{% for k,v in request.args.items() if k != 'pagina' %}{{ k }}={{ v }}&{% endfor %}pagina={{ p }}">{{ p }}</a>
+    </li>
+    {% endfor %}
+    <li class="page-item {{ 'disabled' if pagina == total_paginas }}">
+      <a class="page-link" href="?{% for k,v in request.args.items() if k != 'pagina' %}{{ k }}={{ v }}&{% endfor %}pagina={{ pagina + 1 }}">›</a>
+    </li>
+    <li class="page-item {{ 'disabled' if pagina == total_paginas }}">
+      <a class="page-link" href="?{% for k,v in request.args.items() if k != 'pagina' %}{{ k }}={{ v }}&{% endfor %}pagina={{ total_paginas }}">»</a>
+    </li>
+  </ul>
+</nav>
+{% else %}
+<small class="text-muted d-block my-2">{{ total_ventas_filtradas }} ventas encontradas</small>
+{% endif %}
 
 {% else %}
 <div class="alert alert-info">
-    <i class="bi bi-info-circle"></i> No hay ventas en proceso de envío que coincidan con los filtros.
+    <i class="bi bi-info-circle"></i> No hay ventas históricas que coincidan con los filtros.
 </div>
 {% endif %}
-
-<!-- Modal de Confirmación -->
-<div class="modal fade" id="modalConfirmacion" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="modalTitulo"></h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div id="modalMensaje"></div>
-                
-                <!-- Campo de motivo (solo para cancelar) -->
-                <div id="campoMotivo" style="display: none;">
-                    <label class="form-label mt-3"><strong>Motivo de la cancelación:</strong> <small class="text-muted">(opcional)</small></label>
-                    <textarea class="form-control" id="motivoCancelacion" rows="2" placeholder="Ej: Cliente no recibió, dirección incorrecta, etc."></textarea>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                <button type="button" class="btn btn-primary" id="btnConfirmar">Confirmar</button>
-            </div>
-        </div>
-    </div>
-</div>
 
 <style>
 .table td {
     vertical-align: middle;
 }
-
-.btn-group-vertical .btn {
-    white-space: nowrap;
+.table-secondary {
+    opacity: 0.85;
 }
 </style>
 
 <script>
-// ============================================
-// ACCIONES INDIVIDUALES (modal)
-// ============================================
-let ventaIdActual = null;
-let accionActual = null;
-
-function confirmarAccion(ventaId, accion, numeroVenta) {
-    ventaIdActual = ventaId;
-    accionActual = accion;
-    
-    const modal = new bootstrap.Modal(document.getElementById('modalConfirmacion'));
-    const titulo = document.getElementById('modalTitulo');
-    const mensaje = document.getElementById('modalMensaje');
-    const btnConfirmar = document.getElementById('btnConfirmar');
-    const campoMotivo = document.getElementById('campoMotivo');
-    
-    // Ocultar campo de motivo por defecto
-    campoMotivo.style.display = 'none';
-    document.getElementById('motivoCancelacion').value = '';
-    
-    // Configurar modal según acción
-    if (accion === 'volver_activas') {
-        titulo.textContent = 'Volver a Ventas Activas';
-        mensaje.innerHTML = `
-            <p>¿Confirmar volver la venta <strong>${numeroVenta}</strong> a Ventas Activas?</p>
-            <div class="alert alert-info">
-                <i class="bi bi-info-circle"></i> 
-                <strong>El stock será devuelto</strong> y la venta volverá a estar pendiente.
-            </div>
-            <small class="text-muted">Usa esto si el flete retornó sin entregar o necesitas revertir el proceso.</small>
-        `;
-        btnConfirmar.className = 'btn btn-info';
-        btnConfirmar.innerHTML = '<i class="bi bi-arrow-left-circle"></i> Volver a Activas';
-        
-    } else if (accion === 'entregada') {
-        titulo.textContent = 'Marcar como Entregada';
-        mensaje.innerHTML = `
-            <p>¿Confirmar que la venta <strong>${numeroVenta}</strong> fue entregada?</p>
-            <div class="alert alert-success">
-                <i class="bi bi-check-circle"></i> 
-                El stock ya fue descontado cuando pasaste la venta a Proceso.
-            </div>
-        `;
-        btnConfirmar.className = 'btn btn-success';
-        btnConfirmar.innerHTML = '<i class="bi bi-check-circle"></i> Marcar Entregada';
-        
-    } else if (accion === 'cancelar') {
-        titulo.textContent = 'Cancelar Venta';
-        mensaje.innerHTML = `
-            <p>¿Confirmar cancelación de la venta <strong>${numeroVenta}</strong>?</p>
-            <div class="alert alert-warning">
-                <i class="bi bi-exclamation-triangle"></i> 
-                <strong>Esto DEVOLVERÁ el stock</strong> descontado previamente.
-            </div>
-        `;
-        campoMotivo.style.display = 'block';
-        btnConfirmar.className = 'btn btn-danger';
-        btnConfirmar.innerHTML = '<i class="bi bi-x-circle"></i> Cancelar Venta';
-    }
-    
-    modal.show();
-}
-
-document.getElementById('btnConfirmar').addEventListener('click', function() {
-    if (!ventaIdActual || !accionActual) return;
-    
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = `/ventas/proceso/${ventaIdActual}/${accionActual}`;
-    
-    if (accionActual === 'cancelar') {
-        const motivo = document.getElementById('motivoCancelacion').value.trim();
-        if (motivo) {
-            const inputMotivo = document.createElement('input');
-            inputMotivo.type = 'hidden';
-            inputMotivo.name = 'motivo_cancelacion';
-            inputMotivo.value = motivo;
-            form.appendChild(inputMotivo);
-        }
-    }
-    
-    document.body.appendChild(form);
-    form.submit();
-});
-
-// ============================================
-// SELECCIÓN MÚLTIPLE
-// ============================================
-
 function toggleSelectAll(checkbox) {
     const checkboxes = document.querySelectorAll('.venta-checkbox');
-    checkboxes.forEach(cb => {
-        cb.checked = checkbox.checked;
-    });
+    checkboxes.forEach(cb => { cb.checked = checkbox.checked; });
     actualizarContador();
 }
 
 function actualizarContador() {
     const checkboxes = document.querySelectorAll('.venta-checkbox:checked');
     const count = checkboxes.length;
-    
     document.getElementById('contadorSeleccionadas').textContent = count;
     document.getElementById('accionesMultiples').style.display = count > 0 ? 'block' : 'none';
-    
     const allCheckboxes = document.querySelectorAll('.venta-checkbox');
     document.getElementById('selectAll').checked = count === allCheckboxes.length && count > 0;
 }
@@ -603,20 +598,12 @@ function limpiarSeleccion() {
 
 function volverActivasMultiple() {
     const ids = Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value);
-    
-    if (ids.length === 0) {
-        alert('Seleccioná al menos una venta');
-        return;
-    }
-    
-    if (!confirm(`¿Volver ${ids.length} venta(s) a Ventas Activas?\n\nSe devolverá el stock descontado.`)) {
-        return;
-    }
+    if (ids.length === 0) { alert('Seleccioná al menos una venta'); return; }
+    if (!confirm(`¿Volver ${ids.length} venta(s) a Ventas Activas?\n\nSe devolverá el stock de las ventas entregadas.`)) return;
     
     const form = document.createElement('form');
     form.method = 'POST';
-    form.action = '/ventas/proceso/volver-activas-multiple';
-    
+    form.action = '/ventas/historicas/volver-activas-multiple';
     ids.forEach(id => {
         const input = document.createElement('input');
         input.type = 'hidden';
@@ -624,78 +611,54 @@ function volverActivasMultiple() {
         input.value = id;
         form.appendChild(input);
     });
-    
     agregarFiltrosAlForm(form);
     document.body.appendChild(form);
     form.submit();
 }
 
-function marcarEntregadasMultiple() {
-    const ids = Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value);
+// Facturar individual: pasa incluir_flete según el checkbox
+function facturarIndividual(ventaId, metodoEnvio) {
+    const metodosConFlete = ['Flete Propio', 'Zippin'];
+    let incluirFlete = false;
     
-    if (ids.length === 0) {
-        alert('Seleccioná al menos una venta');
-        return;
+    if (metodosConFlete.includes(metodoEnvio)) {
+        const checkbox = document.getElementById('flete_' + ventaId);
+        if (checkbox) {
+            incluirFlete = checkbox.checked;
+        }
     }
     
-    if (!confirm(`¿Marcar ${ids.length} venta(s) como Entregadas?`)) {
-        return;
-    }
+    const url = `/ventas/historicas/${ventaId}/generar-factura-excel?incluir_flete=${incluirFlete}`;
     
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/ventas/proceso/marcar-entregadas-multiple';
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = url;
+    document.body.appendChild(iframe);
     
-    ids.forEach(id => {
-        const input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = 'venta_ids';
-        input.value = id;
-        form.appendChild(input);
-    });
-    
-    agregarFiltrosAlForm(form);
-    document.body.appendChild(form);
-    form.submit();
+    setTimeout(() => { window.location.reload(); }, 2000);
 }
 
-function cancelarMultiple() {
+// Facturar múltiple: usa los checkboxes individuales de cada venta
+function facturarMultiple() {
     const ids = Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value);
+    if (ids.length === 0) { alert('Seleccioná al menos una venta'); return; }
     
-    if (ids.length === 0) {
-        alert('Seleccioná al menos una venta');
-        return;
-    }
-    
-    const motivo = prompt(`¿Cancelar ${ids.length} venta(s) y devolver stock?\n\nMotivo de cancelación (opcional):`);
-    
-    if (motivo === null) {
-        return;
-    }
-    
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/ventas/proceso/cancelar-multiple';
-    
-    ids.forEach(id => {
-        const input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = 'venta_ids';
-        input.value = id;
-        form.appendChild(input);
+    // Recopilar qué ventas tienen el flete marcado
+    const idsConFlete = ids.filter(id => {
+        const cb = document.getElementById('flete_' + id);
+        return cb && cb.checked;
     });
     
-    if (motivo.trim()) {
-        const inputMotivo = document.createElement('input');
-        inputMotivo.type = 'hidden';
-        inputMotivo.name = 'motivo_cancelacion';
-        inputMotivo.value = motivo.trim();
-        form.appendChild(inputMotivo);
-    }
+    const idsStr = ids.join(',');
+    const idsConFleteStr = idsConFlete.join(',');
+    const url = `/ventas/historicas/facturar-multiple-excel?ids=${idsStr}&ids_con_flete=${idsConFleteStr}`;
     
-    agregarFiltrosAlForm(form);
-    document.body.appendChild(form);
-    form.submit();
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = url;
+    document.body.appendChild(iframe);
+    
+    setTimeout(() => { window.location.reload(); }, 2000);
 }
 
 function agregarFiltrosAlForm(form) {

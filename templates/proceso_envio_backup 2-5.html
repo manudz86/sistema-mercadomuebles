@@ -258,12 +258,6 @@
                     {% if venta.pago_efectivo > 0 %}
                         <br><small class="text-muted">Efec: ${{ "{:,.0f}".format(venta.pago_efectivo) }}</small>
                     {% endif %}
-                    {% if venta.pago_transferencia and venta.pago_transferencia > 0 %}
-                        <br><small class="text-muted">Trans: ${{ "{:,.0f}".format(venta.pago_transferencia) }}</small>
-                    {% endif %}
-                    {% if venta.pago_tarjeta and venta.pago_tarjeta > 0 %}
-                        <br><small class="text-muted">Tarj: ${{ "{:,.0f}".format(venta.pago_tarjeta) }}</small>
-                    {% endif %}
                 </td>
                 
                 <!-- ENTREGA -->
@@ -414,10 +408,6 @@
                     {% endif %}
                 {% endif %}
                 <span class="text-muted">{{ venta.metodo_pago }}</span>
-                {% if venta.pago_mercadopago > 0 %}<small class="text-muted ms-1">MP: ${{ "{:,.0f}".format(venta.pago_mercadopago) }}</small>{% endif %}
-                {% if venta.pago_efectivo > 0 %}<small class="text-muted ms-1">Efec: ${{ "{:,.0f}".format(venta.pago_efectivo) }}</small>{% endif %}
-                {% if venta.pago_transferencia and venta.pago_transferencia > 0 %}<small class="text-muted ms-1">Trans: ${{ "{:,.0f}".format(venta.pago_transferencia) }}</small>{% endif %}
-                {% if venta.pago_tarjeta and venta.pago_tarjeta > 0 %}<small class="text-muted ms-1">Tarj: ${{ "{:,.0f}".format(venta.pago_tarjeta) }}</small>{% endif %}
             </div>
 
             <!-- DIRECCIÓN -->

@@ -287,6 +287,21 @@
                     {% else %}
                         <br><span class="badge bg-danger">Impago</span>
                     {% endif %}
+                    {% if venta.metodo_pago %}
+                        <br><small class="text-muted">{{ venta.metodo_pago }}</small>
+                    {% endif %}
+                    {% if venta.pago_mercadopago > 0 %}
+                        <br><small class="text-muted">MP: ${{ "{:,.0f}".format(venta.pago_mercadopago) }}</small>
+                    {% endif %}
+                    {% if venta.pago_efectivo > 0 %}
+                        <br><small class="text-muted">Efec: ${{ "{:,.0f}".format(venta.pago_efectivo) }}</small>
+                    {% endif %}
+                    {% if venta.pago_transferencia and venta.pago_transferencia > 0 %}
+                        <br><small class="text-muted">Trans: ${{ "{:,.0f}".format(venta.pago_transferencia) }}</small>
+                    {% endif %}
+                    {% if venta.pago_tarjeta and venta.pago_tarjeta > 0 %}
+                        <br><small class="text-muted">Tarj: ${{ "{:,.0f}".format(venta.pago_tarjeta) }}</small>
+                    {% endif %}
                 </td>
                 
                 <!-- CANAL -->

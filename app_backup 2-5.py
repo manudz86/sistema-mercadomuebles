@@ -2559,10 +2559,6 @@ def editar_venta(venta_id):
         cursor.execute('SELECT sku, cantidad FROM items_venta WHERE venta_id = %s', (venta_id,))
         items_anteriores = {item['sku']: item['cantidad'] for item in cursor.fetchall()}
         
-        # Leer valores actuales de pago para preservarlos si el form no los toca
-        cursor.execute('SELECT metodo_pago, importe_abonado, estado_pago FROM ventas WHERE id = %s', (venta_id,))
-        venta_actual = cursor.fetchone()
-        
         # ========================================
         # 1. ACTUALIZAR DATOS GENERALES
         # ========================================
@@ -2631,22 +2627,10 @@ def editar_venta(venta_id):
         # 3. PAGO (INDEPENDIENTE DEL TOTAL)
         # ========================================
         metodo_pago = request.form.get('metodo_pago')
-        pago_mercadopago   = float(request.form.get('pago_mercadopago', 0))
-        pago_efectivo      = float(request.form.get('pago_efectivo', 0))
-        pago_transferencia = float(request.form.get('pago_transferencia', 0))
-        pago_tarjeta       = float(request.form.get('pago_tarjeta', 0))
-        
-        # Para GetNet y Payway el importe cobrado no está en pago_mp ni pago_efectivo.
-        # El form envía un campo 'importe_abonado' pre-relleno con el valor actual.
-        # Si por alguna razón no viene, preservamos el valor de DB.
-        if metodo_pago in ('GetNet', 'Payway'):
-            importe_abonado_form = request.form.get('importe_abonado')
-            if importe_abonado_form is not None and importe_abonado_form.strip() != '':
-                importe_abonado = float(importe_abonado_form)
-            else:
-                importe_abonado = float(venta_actual['importe_abonado'] or 0)
-        else:
-            importe_abonado = pago_mercadopago + pago_efectivo + pago_transferencia + pago_tarjeta
+        # CORREGIDO: Los pagos son independientes del total calculado
+        pago_mercadopago = float(request.form.get('pago_mercadopago', 0))
+        pago_efectivo = float(request.form.get('pago_efectivo', 0))
+        importe_abonado = pago_mercadopago + pago_efectivo
         
         # Estado pago
         if importe_abonado >= importe_total:
@@ -2682,8 +2666,6 @@ def editar_venta(venta_id):
                 importe_abonado = %s,
                 pago_mercadopago = %s,
                 pago_efectivo = %s,
-                pago_transferencia = %s,
-                pago_tarjeta = %s,
                 estado_pago = %s,
                 notas = %s
             WHERE id = %s
@@ -2693,7 +2675,7 @@ def editar_venta(venta_id):
             tipo_entrega, metodo_envio, ubicacion_despacho,
             zona_envio, direccion_entrega, responsable_entrega,
             costo_flete, metodo_pago, importe_total, importe_abonado,
-            pago_mercadopago, pago_efectivo, pago_transferencia, pago_tarjeta,
+            pago_mercadopago, pago_efectivo,
             estado_pago, notas,
             venta_id
         ))
@@ -2746,7 +2728,7 @@ def editar_venta(venta_id):
             print(f"[AUTO-ML] Error iniciando thread ML tras editar venta: {e_ml_init}")
 
         flash(f'✅ Venta {numero_venta} actualizada correctamente. Total: ${importe_total:,.0f}', 'success')
-        return redirect(request.form.get('return_url') or url_for('ventas_activas'))
+        return redirect(url_for('ventas_activas'))
         
     except Exception as e:
         conn.rollback()
@@ -2755,7 +2737,7 @@ def editar_venta(venta_id):
         import traceback
         traceback.print_exc()
         flash(f'❌ Error al actualizar venta: {str(e)}', 'error')
-        return redirect(request.form.get('return_url') or url_for('ventas_activas'))
+        return redirect(url_for('ventas_activas'))
 
 
 
@@ -5255,22 +5237,18 @@ def guardar_venta():
         # 4. PAGO
         # ========================================
         metodo_pago = request.form.get('metodo_pago')
-        pago_mercadopago  = float(request.form.get('pago_mercadopago', 0))
-        pago_efectivo     = float(request.form.get('pago_efectivo', 0))
-        pago_transferencia = float(request.form.get('pago_transferencia', 0))
-        pago_tarjeta      = float(request.form.get('pago_tarjeta', 0))
+        pago_mercadopago = float(request.form.get('pago_mercadopago', 0))
+        pago_efectivo = float(request.form.get('pago_efectivo', 0))
         
         # Para Flete Propio y Zippin de ML, el cliente paga productos + flete por MP
         if canal == 'Mercado Libre' and metodo_envio in ['Flete Propio', 'Zippin'] and costo_flete > 0:
             pago_mercadopago += costo_flete
             print(f"✅ Sumando flete a pago_mercadopago: +${costo_flete} → total ${pago_mercadopago}")
         
-        importe_abonado = pago_mercadopago + pago_efectivo + pago_transferencia + pago_tarjeta
+        importe_abonado = pago_mercadopago + pago_efectivo
         
         print(f"✅ pago_mercadopago: ${pago_mercadopago}")
         print(f"✅ pago_efectivo: ${pago_efectivo}")
-        print(f"✅ pago_transferencia: ${pago_transferencia}")
-        print(f"✅ pago_tarjeta: ${pago_tarjeta}")
         print(f"✅ importe_abonado: ${importe_abonado}")
         
         # ========================================
@@ -5308,13 +5286,13 @@ def guardar_venta():
                 tipo_entrega, metodo_envio, ubicacion_despacho,
                 zona_envio, direccion_entrega, responsable_entrega,
                 costo_flete, metodo_pago, importe_total, importe_abonado,
-                pago_mercadopago, pago_efectivo, pago_transferencia, pago_tarjeta,
+                pago_mercadopago, pago_efectivo,
                 estado_entrega, estado_pago, notas,
                 factura_business_name, factura_doc_type, factura_doc_number,
                 factura_taxpayer_type, factura_city, factura_street,
                 factura_state, factura_zip_code
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s, %s
             )
         ''', (
@@ -5323,7 +5301,7 @@ def guardar_venta():
             tipo_entrega, metodo_envio, ubicacion_despacho,
             zona_envio, direccion_entrega, responsable_entrega,
             costo_flete, metodo_pago, importe_total, importe_abonado,
-            pago_mercadopago, pago_efectivo, pago_transferencia, pago_tarjeta,
+            pago_mercadopago, pago_efectivo,
             estado_entrega, estado_pago, notas,
             billing_info['business_name'],
             billing_info['doc_type'],

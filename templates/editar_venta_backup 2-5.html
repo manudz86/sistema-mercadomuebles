@@ -3,10 +3,9 @@
 {% block title %}Editar Venta - Mercadomuebles{% endblock %}
 
 {% block content %}
-{% set return_url = request.args.get('return_url') or url_for('ventas_activas') %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-pencil-square"></i> Editar Venta {{ venta.numero_venta }}</h2>
-    <a href="{{ return_url }}" class="btn btn-secondary">
+    <a href="{{ url_for('ventas_activas') }}" class="btn btn-secondary">
         <i class="bi bi-arrow-left"></i> Volver
     </a>
 </div>
@@ -198,14 +197,11 @@
             <div class="row">
                 <div class="col-md-3">
                     <label class="form-label">Método de Pago *</label>
-                    <select class="form-select" name="metodo_pago" id="metodo_pago_select" required>
+                    <select class="form-select" name="metodo_pago" required>
                         <option value="MercadoPago" {% if venta.metodo_pago == 'MercadoPago' %}selected{% endif %}>MercadoPago</option>
                         <option value="Efectivo" {% if venta.metodo_pago == 'Efectivo' %}selected{% endif %}>Efectivo</option>
                         <option value="Transferencia" {% if venta.metodo_pago == 'Transferencia' %}selected{% endif %}>Transferencia</option>
                         <option value="Mixto" {% if venta.metodo_pago == 'Mixto' %}selected{% endif %}>Mixto</option>
-                        <option value="Tarjeta" {% if venta.metodo_pago == 'Tarjeta' %}selected{% endif %}>Tarjeta</option>
-                        <option value="Payway" {% if venta.metodo_pago == 'Payway' %}selected{% endif %}>Payway</option>
-                        <option value="GetNet" {% if venta.metodo_pago == 'GetNet' %}selected{% endif %}>GetNet</option>
                     </select>
                 </div>
                 <div class="col-md-3">
@@ -218,37 +214,15 @@
                     </div>
                     <small class="text-muted">Se calcula de los productos</small>
                 </div>
-                <!-- Campos MP / Efectivo (se ocultan para GetNet/Payway) -->
-                <div class="col-md-3" id="campo-pago-mp">
+                <div class="col-md-3">
                     <label class="form-label">Pago MercadoPago</label>
                     <input type="number" class="form-control pago-input" name="pago_mercadopago" 
                            value="{{ venta.pago_mercadopago or 0 }}" min="0" step="0.01">
                 </div>
-                <div class="col-md-3" id="campo-pago-ef">
+                <div class="col-md-3">
                     <label class="form-label">Pago Efectivo</label>
                     <input type="number" class="form-control pago-input" name="pago_efectivo" 
                            value="{{ venta.pago_efectivo or 0 }}" min="0" step="0.01">
-                </div>
-                <div class="col-md-3" id="campo-pago-trans">
-                    <label class="form-label">Pago Transferencia</label>
-                    <input type="number" class="form-control pago-input" name="pago_transferencia"
-                           value="{{ venta.pago_transferencia or 0 }}" min="0" step="0.01">
-                </div>
-                <div class="col-md-3" id="campo-pago-tarj">
-                    <label class="form-label">Pago Tarjeta</label>
-                    <input type="number" class="form-control pago-input" name="pago_tarjeta"
-                           value="{{ venta.pago_tarjeta or 0 }}" min="0" step="0.01">
-                </div>
-                <!-- Campo importe abonado para GetNet/Payway (se muestra solo para esos métodos) -->
-                <div class="col-md-3" id="campo-importe-externo" style="display:none;">
-                    <label class="form-label">Importe Abonado</label>
-                    <div class="input-group">
-                        <span class="input-group-text">$</span>
-                        <input type="number" class="form-control" name="importe_abonado"
-                               id="importe_abonado_input"
-                               value="{{ venta.importe_abonado or 0 }}" min="0" step="0.01">
-                    </div>
-                    <small class="text-muted">Cobrado por el procesador externo</small>
                 </div>
             </div>
             <div class="row mt-3">
@@ -275,7 +249,7 @@
 <!-- BOTONES -->
     <div class="d-flex justify-content-between align-items-center">
         <div class="d-flex gap-2">
-            <a href="{{ return_url }}" class="btn btn-secondary btn-lg">
+            <a href="{{ url_for('ventas_activas') }}" class="btn btn-secondary btn-lg">
                 <i class="bi bi-x-circle"></i> Cancelar
             </a>
             <button type="button" class="btn btn-danger btn-lg" data-bs-toggle="modal" data-bs-target="#modalEliminarVenta">
@@ -286,7 +260,6 @@
             <i class="bi bi-check-circle"></i> Guardar Cambios
         </button>
     </div>
-    <input type="hidden" name="return_url" value="{{ return_url }}">
 </form>
 
 <!-- MODAL DE CONFIRMACIÓN - ELIMINAR VENTA -->
@@ -344,33 +317,12 @@ function calcularTotal() {
     document.getElementById('total-display').value = total.toLocaleString('es-AR', {minimumFractionDigits: 0, maximumFractionDigits: 0});
 }
 
-// Toggle campos de pago según método seleccionado
-function toggleCamposPago() {
-    const metodo = document.getElementById('metodo_pago_select').value;
-    const esExterno = (metodo === 'GetNet' || metodo === 'Payway');
-    document.getElementById('campo-pago-mp').style.display    = esExterno ? 'none' : '';
-    document.getElementById('campo-pago-ef').style.display    = esExterno ? 'none' : '';
-    document.getElementById('campo-pago-trans').style.display = esExterno ? 'none' : '';
-    document.getElementById('campo-pago-tarj').style.display  = esExterno ? 'none' : '';
-    document.getElementById('campo-importe-externo').style.display = esExterno ? '' : 'none';
-    calcularAbonado();
-}
-
-document.getElementById('metodo_pago_select').addEventListener('change', toggleCamposPago);
-
 // Función para calcular abonado
 function calcularAbonado() {
-    const metodo = document.getElementById('metodo_pago_select').value;
-    let abonado;
-    if (metodo === 'GetNet' || metodo === 'Payway') {
-        abonado = parseFloat(document.getElementById('importe_abonado_input')?.value || 0);
-    } else {
-        const mp    = parseFloat(document.querySelector('input[name="pago_mercadopago"]')?.value || 0);
-        const ef    = parseFloat(document.querySelector('input[name="pago_efectivo"]')?.value || 0);
-        const trans = parseFloat(document.querySelector('input[name="pago_transferencia"]')?.value || 0);
-        const tarj  = parseFloat(document.querySelector('input[name="pago_tarjeta"]')?.value || 0);
-        abonado = mp + ef + trans + tarj;
-    }
+    const mp = parseFloat(document.querySelector('input[name="pago_mercadopago"]')?.value || 0);
+    const ef = parseFloat(document.querySelector('input[name="pago_efectivo"]')?.value || 0);
+    const abonado = mp + ef;
+    
     document.getElementById('abonado-display').textContent = abonado.toLocaleString('es-AR', {minimumFractionDigits: 0, maximumFractionDigits: 0});
 }
 
@@ -446,7 +398,6 @@ document.getElementById('formEditarVenta').addEventListener('submit', function(e
 // Calcular total inicial
 calcularTotal();
 calcularAbonado();
-toggleCamposPago();
 </script>
 
 {% endblock %}

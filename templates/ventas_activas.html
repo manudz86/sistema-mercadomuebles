@@ -487,6 +487,12 @@
                     {% if venta.pago_efectivo > 0 %}
                         <br><small class="text-muted">Efec: ${{ "{:,.0f}".format(venta.pago_efectivo) }}</small>
                     {% endif %}
+                    {% if venta.pago_transferencia and venta.pago_transferencia > 0 %}
+                        <br><small class="text-muted">Trans: ${{ "{:,.0f}".format(venta.pago_transferencia) }}</small>
+                    {% endif %}
+                    {% if venta.pago_tarjeta and venta.pago_tarjeta > 0 %}
+                        <br><small class="text-muted">Tarj: ${{ "{:,.0f}".format(venta.pago_tarjeta) }}</small>
+                    {% endif %}
                 </td>
                 
                 <!-- ENTREGA -->
@@ -610,7 +616,7 @@
                 <td>
                     <div class="btn-group-vertical d-grid gap-1" style="font-size: 0.85em;">
                         <!-- Botón Editar -->
-                        <a href="{{ url_for('editar_venta', venta_id=venta.id) }}" 
+                        <a href="{{ url_for('editar_venta', venta_id=venta.id, return_url=request.url) }}" 
                            class="btn btn-sm btn-warning"
                            title="Editar venta">
                             <i class="bi bi-pencil"></i> Editar
@@ -742,6 +748,10 @@
                                 fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</span>
                         {% endif %}
                     {% endif %}
+                    {% if venta.pago_mercadopago > 0 %}<br><small class="text-muted">MP: ${{ "{:,.0f}".format(venta.pago_mercadopago) }}</small>{% endif %}
+                    {% if venta.pago_efectivo > 0 %}<br><small class="text-muted">Efec: ${{ "{:,.0f}".format(venta.pago_efectivo) }}</small>{% endif %}
+                    {% if venta.pago_transferencia and venta.pago_transferencia > 0 %}<br><small class="text-muted">Trans: ${{ "{:,.0f}".format(venta.pago_transferencia) }}</small>{% endif %}
+                    {% if venta.pago_tarjeta and venta.pago_tarjeta > 0 %}<br><small class="text-muted">Tarj: ${{ "{:,.0f}".format(venta.pago_tarjeta) }}</small>{% endif %}
                 </div>
             </div>
 
@@ -768,7 +778,7 @@
 
             <!-- ACCIONES -->
             <div class="d-flex gap-1 flex-wrap">
-                <a href="{{ url_for('editar_venta', venta_id=venta.id) }}" class="btn btn-sm btn-warning">
+                <a href="{{ url_for('editar_venta', venta_id=venta.id, return_url=request.url) }}" class="btn btn-sm btn-warning">
                     <i class="bi bi-pencil"></i> Editar</a>
                 <button class="btn btn-sm btn-primary"
                         onclick="confirmarAccion('{{ venta.id }}', 'proceso', '{{ venta.numero_venta }}')">
