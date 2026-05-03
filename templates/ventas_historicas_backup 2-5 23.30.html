@@ -57,8 +57,8 @@
     </div>
 </div>
 
-<!-- FILTROS DESKTOP -->
-<div class="card mb-3 d-none d-md-block">
+<!-- FILTROS -->
+<div class="card mb-3">
     <div class="card-body">
         <form method="GET" action="/ventas/historicas" class="row g-3" id="filtrosForm">
             <div class="col-md-3">
@@ -74,8 +74,8 @@
                 <label class="form-label"><i class="bi bi-check-circle"></i> Estado</label>
                 <select class="form-select" name="estado">
                     <option value="">Todos</option>
-                    <option value="entregada" {% if 'entregada' in filtro_estado %}selected{% endif %}>Entregadas</option>
-                    <option value="cancelada" {% if 'cancelada' in filtro_estado %}selected{% endif %}>Canceladas</option>
+                    <option value="entregada" {% if filtro_estado == 'entregada' %}selected{% endif %}>Entregadas</option>
+                    <option value="cancelada" {% if filtro_estado == 'cancelada' %}selected{% endif %}>Canceladas</option>
                 </select>
             </div>
             
@@ -94,15 +94,15 @@
                 <label class="form-label"><i class="bi bi-box"></i> Método Envío</label>
                 <select class="form-select" name="metodo_envio">
                     <option value="">Todos</option>
-                    <option value="Colecta" {% if 'Colecta' in filtro_metodo_envio %}selected{% endif %}>Colecta</option>
-                    <option value="Flex" {% if 'Flex' in filtro_metodo_envio %}selected{% endif %}>Flex</option>
-                    <option value="Full" {% if 'Full' in filtro_metodo_envio %}selected{% endif %}>Full</option>
-                    <option value="Flete Propio" {% if 'Flete Propio' in filtro_metodo_envio %}selected{% endif %}>Flete Propio</option>
-                    <option value="Delega" {% if 'Delega' in filtro_metodo_envio %}selected{% endif %}>Delega</option>
-                    <option value="Zippin" {% if 'Zippin' in filtro_metodo_envio %}selected{% endif %}>Zippin</option>
-                    <option value="ME2" {% if 'ME2' in filtro_metodo_envio %}selected{% endif %}>ME2 (Tienda)</option>
-                    <option value="ME1" {% if 'ME1' in filtro_metodo_envio %}selected{% endif %}>ME1 (Tienda)</option>
-                    <option value="Turbo" {% if 'Turbo' in filtro_metodo_envio %}selected{% endif %}>🚀 Turbo</option>
+                    <option value="Colecta" {% if filtro_metodo_envio == 'Colecta' %}selected{% endif %}>Colecta</option>
+                    <option value="Flex" {% if filtro_metodo_envio == 'Flex' %}selected{% endif %}>Flex</option>
+                    <option value="Full" {% if filtro_metodo_envio == 'Full' %}selected{% endif %}>Full</option>
+                    <option value="Flete Propio" {% if filtro_metodo_envio == 'Flete Propio' %}selected{% endif %}>Flete Propio</option>
+                    <option value="Delega" {% if filtro_metodo_envio == 'Delega' %}selected{% endif %}>Delega</option>
+                    <option value="Zippin" {% if filtro_metodo_envio == 'Zippin' %}selected{% endif %}>Zippin</option>
+                    <option value="ME2" {% if filtro_metodo_envio == 'ME2' %}selected{% endif %}>ME2 (Tienda)</option>
+                    <option value="ME1" {% if filtro_metodo_envio == 'ME1' %}selected{% endif %}>ME1 (Tienda)</option>
+                    <option value="Turbo" {% if filtro_metodo_envio == 'Turbo' %}selected{% endif %}>🚀 Turbo</option>
                 </select>
             </div>
             
@@ -110,10 +110,10 @@
                 <label class="form-label"><i class="bi bi-geo-alt"></i> Zona</label>
                 <select class="form-select" name="zona">
                     <option value="">Todas</option>
-                    <option value="Capital" {% if 'Capital' in filtro_zona %}selected{% endif %}>Capital</option>
-                    <option value="Sur" {% if 'Sur' in filtro_zona %}selected{% endif %}>Sur</option>
-                    <option value="Norte-Noroeste" {% if 'Norte-Noroeste' in filtro_zona %}selected{% endif %}>Norte-Noroeste</option>
-                    <option value="Oeste" {% if 'Oeste' in filtro_zona %}selected{% endif %}>Oeste</option>
+                    <option value="Capital" {% if filtro_zona == 'Capital' %}selected{% endif %}>Capital</option>
+                    <option value="Sur" {% if filtro_zona == 'Sur' %}selected{% endif %}>Sur</option>
+                    <option value="Norte-Noroeste" {% if filtro_zona == 'Norte-Noroeste' %}selected{% endif %}>Norte-Noroeste</option>
+                    <option value="Oeste" {% if filtro_zona == 'Oeste' %}selected{% endif %}>Oeste</option>
                 </select>
             </div>
             
@@ -121,9 +121,9 @@
                 <label class="form-label"><i class="bi bi-tag"></i> Canal</label>
                 <select class="form-select" name="canal">
                     <option value="">Todos</option>
-                    <option value="Mercado Libre" {% if 'Mercado Libre' in filtro_canal %}selected{% endif %}>ML</option>
-                    <option value="Fuera de ML" {% if 'Fuera de ML' in filtro_canal %}selected{% endif %}>Fuera ML</option>
-                    <option value="tienda_web" {% if 'tienda_web' in filtro_canal %}selected{% endif %}>Tienda Web</option>
+                    <option value="Mercado Libre" {% if filtro_canal == 'Mercado Libre' %}selected{% endif %}>ML</option>
+                    <option value="Fuera de ML" {% if filtro_canal == 'Fuera de ML' %}selected{% endif %}>Fuera ML</option>
+                    <option value="tienda_web" {% if filtro_canal == 'tienda_web' %}selected{% endif %}>Tienda Web</option>
                 </select>
             </div>
             
@@ -137,137 +137,6 @@
             </div>
         </form>
     </div>
-</div>
-
-<!-- FILTROS MOBILE (chips multi-select) -->
-<div class="d-md-none mb-3">
-  <style>
-    .filtros-mobile-panel { background:#fff; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.08); overflow:hidden; }
-    .filtros-mobile-toggle { width:100%; background:#1a1a2e; color:#fff; border:none; padding:10px 16px; font-size:.95rem; font-weight:600; display:flex; justify-content:space-between; align-items:center; cursor:pointer; }
-    .filtros-mobile-toggle .arrow { transition:transform .25s; }
-    .filtros-mobile-toggle.open .arrow { transform:rotate(180deg); }
-    .filtros-mobile-body { display:none; padding:12px 14px 16px; }
-    .filtros-mobile-body.open { display:block; }
-    .fm-section-label { font-size:.75rem; font-weight:700; text-transform:uppercase; color:#666; letter-spacing:.05em; margin-bottom:6px; margin-top:10px; }
-    .fm-section-label:first-child { margin-top:0; }
-    .fm-chips { display:flex; flex-wrap:wrap; gap:6px; }
-    .fm-chip { display:inline-flex; align-items:center; padding:5px 12px; border-radius:20px; font-size:.82rem; font-weight:500; background:#f0f0f0; color:#333; border:1.5px solid #ddd; cursor:pointer; transition:all .15s; white-space:nowrap; }
-    .fm-chip.active { background:#1a1a2e; color:#fff; border-color:#1a1a2e; }
-    .fm-buscar { width:100%; border:1.5px solid #ddd; border-radius:8px; padding:8px 12px; font-size:.9rem; margin-bottom:4px; }
-    .fm-buscar:focus { outline:none; border-color:#1a1a2e; }
-    .fm-actions { display:flex; gap:8px; margin-top:14px; }
-    .fm-btn { flex:1; padding:9px; border-radius:8px; border:none; font-size:.88rem; font-weight:600; cursor:pointer; }
-    .fm-btn-primary { background:#1a1a2e; color:#fff; }
-    .fm-btn-clear { background:#f0f0f0; color:#555; }
-    {% set hay_filtro_mob = filtro_buscar or filtro_estado or filtro_metodo_envio or filtro_zona or filtro_canal or (filtro_periodo and filtro_periodo != 'todo') %}
-    .filtros-activos-badges { display:flex; flex-wrap:wrap; gap:5px; padding:8px 14px; border-top:1px solid #eee; }
-    .filtro-activo-tag { background:#e8eaf6; color:#1a1a2e; border-radius:12px; padding:3px 10px; font-size:.78rem; font-weight:600; }
-  </style>
-
-  <form method="GET" action="/ventas/historicas" id="filtros-mobile-form-h">
-    <input type="hidden" name="buscar" id="mobh-buscar-hidden" value="{{ filtro_buscar }}">
-    <input type="hidden" name="estado" id="mobh-estado-hidden" value="{{ filtro_estado|join(',') }}">
-    <input type="hidden" name="periodo" id="mobh-periodo-hidden" value="{{ filtro_periodo }}">
-    <input type="hidden" name="metodo_envio" id="mobh-metodo-hidden" value="{{ filtro_metodo_envio|join(',') }}">
-    <input type="hidden" name="zona" id="mobh-zona-hidden" value="{{ filtro_zona|join(',') }}">
-    <input type="hidden" name="canal" id="mobh-canal-hidden" value="{{ filtro_canal|join(',') }}">
-
-    <div class="filtros-mobile-panel">
-      <button type="button" class="filtros-mobile-toggle {% if hay_filtro_mob %}open{% endif %}" id="mobh-toggle" onclick="toggleMobFiltrosH()">
-        <span>🔍 Filtros{% if hay_filtro_mob %} <span style="background:#e74c3c;border-radius:10px;padding:1px 7px;font-size:.75rem;">activos</span>{% endif %}</span>
-        <span class="arrow">▼</span>
-      </button>
-
-      <div class="filtros-mobile-body {% if hay_filtro_mob %}open{% endif %}" id="mobh-body">
-        <div class="fm-section-label">Buscar</div>
-        <input type="text" class="fm-buscar" id="mobh-buscar-input" placeholder="Nombre, SKU..."
-               value="{{ filtro_buscar }}" oninput="document.getElementById('mobh-buscar-hidden').value=this.value">
-
-        <div class="fm-section-label">Estado (multi)</div>
-        <div class="fm-chips">
-          {% for val, label in [('entregada','Entregadas'),('cancelada','Canceladas')] %}
-          <span class="fm-chip {% if val in filtro_estado %}active{% endif %}"
-                onclick="toggleChipH('mobh-estado-hidden','{{ val }}',this)">{{ label }}</span>
-          {% endfor %}
-        </div>
-
-        <div class="fm-section-label">Período</div>
-        <div class="fm-chips">
-          {% for val, label in [('todo','Todo'),('hoy','Hoy'),('semana','Semana'),('mes','Mes'),('trimestre','Trimestre')] %}
-          <span class="fm-chip {% if filtro_periodo == val %}active{% endif %}"
-                onclick="setChipSingleH('mobh-periodo-hidden','{{ val }}',this)">{{ label }}</span>
-          {% endfor %}
-        </div>
-
-        <div class="fm-section-label">Método envío</div>
-        <div class="fm-chips">
-          {% for val, label in [('Colecta','Colecta'),('Flex','Flex'),('Full','Full'),('Flete Propio','Flete Propio'),('Delega','Delega'),('Zippin','Zippin'),('ME2','ME2'),('ME1','ME1'),('Turbo','🚀 Turbo')] %}
-          <span class="fm-chip {% if val in filtro_metodo_envio %}active{% endif %}"
-                onclick="toggleChipH('mobh-metodo-hidden','{{ val }}',this)">{{ label }}</span>
-          {% endfor %}
-        </div>
-
-        <div class="fm-section-label">Zona</div>
-        <div class="fm-chips">
-          {% for val, label in [('Capital','Capital'),('Sur','Sur'),('Norte-Noroeste','Norte'),('Oeste','Oeste')] %}
-          <span class="fm-chip {% if val in filtro_zona %}active{% endif %}"
-                onclick="toggleChipH('mobh-zona-hidden','{{ val }}',this)">{{ label }}</span>
-          {% endfor %}
-        </div>
-
-        <div class="fm-section-label">Canal</div>
-        <div class="fm-chips">
-          {% for val, label in [('Mercado Libre','ML'),('Fuera de ML','Fuera ML'),('tienda_web','Tienda Web')] %}
-          <span class="fm-chip {% if val in filtro_canal %}active{% endif %}"
-                onclick="toggleChipH('mobh-canal-hidden','{{ val }}',this)">{{ label }}</span>
-          {% endfor %}
-        </div>
-
-        <div class="fm-actions">
-          <button type="submit" class="fm-btn fm-btn-primary">Aplicar filtros</button>
-          <button type="button" class="fm-btn fm-btn-clear" onclick="window.location='/ventas/historicas'">Limpiar</button>
-        </div>
-      </div>
-
-      {% if hay_filtro_mob %}
-      <div class="filtros-activos-badges">
-        {% for v in filtro_estado %}<span class="filtro-activo-tag">{{ v }}</span>{% endfor %}
-        {% if filtro_periodo and filtro_periodo != 'todo' %}<span class="filtro-activo-tag">{{ filtro_periodo }}</span>{% endif %}
-        {% for v in filtro_metodo_envio %}<span class="filtro-activo-tag">{{ v }}</span>{% endfor %}
-        {% for v in filtro_zona %}<span class="filtro-activo-tag">{{ v }}</span>{% endfor %}
-        {% for v in filtro_canal %}<span class="filtro-activo-tag">{{ v }}</span>{% endfor %}
-        {% if filtro_buscar %}<span class="filtro-activo-tag">"{{ filtro_buscar }}"</span>{% endif %}
-      </div>
-      {% endif %}
-    </div>
-  </form>
-
-  <script>
-  function toggleMobFiltrosH() {
-    const btn = document.getElementById('mobh-toggle');
-    const body = document.getElementById('mobh-body');
-    btn.classList.toggle('open');
-    body.classList.toggle('open');
-  }
-  function toggleChipH(hiddenId, val, el) {
-    const hidden = document.getElementById(hiddenId);
-    const valores = hidden.value ? hidden.value.split(',').filter(Boolean) : [];
-    const idx = valores.indexOf(val);
-    if (idx >= 0) {
-        valores.splice(idx, 1);
-        el.classList.remove('active');
-    } else {
-        valores.push(val);
-        el.classList.add('active');
-    }
-    hidden.value = valores.join(',');
-  }
-  function setChipSingleH(hiddenId, val, el) {
-    document.getElementById(hiddenId).value = val;
-    el.closest('.fm-chips').querySelectorAll('.fm-chip').forEach(c => c.classList.remove('active'));
-    el.classList.add('active');
-  }
-  </script>
 </div>
 
 {% if ventas %}

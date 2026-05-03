@@ -166,33 +166,6 @@ def execute_db(query, params=None):
     finally:
         conn.close()
 
-def parsear_filtro_multi(valor_request):
-    """
-    Convierte un valor de filtro recibido por GET en una lista limpia de valores.
-    Acepta tanto 'Flex,Delega' (separado por comas) como una lista request.args.getlist().
-    Devuelve [] si no hay nada.
-    """
-    if not valor_request:
-        return []
-    if isinstance(valor_request, list):
-        items = valor_request
-    else:
-        items = str(valor_request).split(',')
-    return [x.strip() for x in items if x and x.strip()]
-
-def construir_in_clause(valores, columna):
-    """
-    Recibe lista de valores y nombre de columna SQL.
-    Devuelve (fragmento_sql, lista_params).
-    Ejemplo: construir_in_clause(['Flex','Delega'], 'metodo_envio')
-             → (' AND metodo_envio IN (%s, %s)', ['Flex','Delega'])
-    Si la lista está vacía → ('', []).
-    """
-    if not valores:
-        return '', []
-    placeholders = ','.join(['%s'] * len(valores))
-    return f' AND {columna} IN ({placeholders})', list(valores)
-
 # ============================================================================
 # WHATSAPP CLOUD API
 # ============================================================================
@@ -287,127 +260,30 @@ def logout():
 @app.route('/')
 @login_required
 def index():
-    """Dashboard principal — métricas operativas del día"""
-    from datetime import date, datetime, timedelta
-    
-    hoy = date.today()
-    hoy_str_ddmm = hoy.strftime('%d/%m')
-    hoy_str_iso = hoy.strftime('%Y-%m-%d')
-    
-    data = {
-        'pago_cannon_proximo': None,
-        'pago_cannon_es_hoy': False,
-        'ventas_activas_total': 0,
-        'ventas_activas_por_metodo': {},
-        'ventas_proceso_total': 0,
-        'despachos_hoy': {'Flex': 0, 'Delega': 0, 'Colecta': 0},
-        'facturacion_hoy': {'total': 0, 'cantidad': 0},
-        'top_productos_hoy': [],
-    }
+    """Dashboard principal"""
+    stats = {'ventas_activas': 0, 'ventas_en_proceso': 0, 'alertas_pendientes': 0}
+    stock_critico = []
     
     try:
-        # ── 1. PRÓXIMO PAGO A CANNON ───────────────────────────────
-        try:
-            _crear_tablas_pagos_cannon()
-            row_pago = query_one("""
-                SELECT cf.fecha_pago, SUM(cf.importe_pp) as monto, MIN(cf.fecha_comprobante) as desde, MAX(cf.fecha_comprobante) as hasta
-                FROM cannon_facturas cf
-                LEFT JOIN cannon_pagos cp ON cp.fecha_pago = cf.fecha_pago AND cp.monto_abonado IS NOT NULL
-                WHERE cp.id IS NULL
-                  AND cf.fecha_pago >= %s
-                GROUP BY cf.fecha_pago
-                ORDER BY cf.fecha_pago ASC
-                LIMIT 1
-            """, (hoy_str_iso,))
-            if row_pago and row_pago['fecha_pago']:
-                data['pago_cannon_proximo'] = {
-                    'fecha': row_pago['fecha_pago'],
-                    'monto': float(row_pago['monto'] or 0)
-                }
-                data['pago_cannon_es_hoy'] = (row_pago['fecha_pago'] == hoy)
-        except Exception as e:
-            print(f"[DASH] Error pago cannon: {e}")
+        # Contar ventas activas
+        result = query_one("SELECT COUNT(*) as total FROM ventas WHERE estado_entrega = 'pendiente'")
+        stats['ventas_activas'] = result['total'] if result else 0
         
-        # ── 2. VENTAS ACTIVAS — total + por método de envío ──────────
-        rows_act = query_db("""
-            SELECT 
-                CASE 
-                    WHEN tipo_entrega IN ('retiro','Retiro') OR metodo_envio IS NULL OR metodo_envio = '' THEN 'Retiro'
-                    ELSE metodo_envio
-                END AS grupo,
-                COUNT(*) AS cnt
-            FROM ventas
-            WHERE estado = 'ACTIVA' AND estado_entrega = 'pendiente'
-            GROUP BY grupo
-        """)
-        total_act = 0
-        for r in rows_act or []:
-            data['ventas_activas_por_metodo'][r['grupo']] = int(r['cnt'])
-            total_act += int(r['cnt'])
-        data['ventas_activas_total'] = total_act
+        # Contar ventas en proceso
+        result = query_one("SELECT COUNT(*) as total FROM ventas WHERE estado_entrega = 'en_proceso'")
+        stats['ventas_en_proceso'] = result['total'] if result else 0
         
-        # ── 3. VENTAS EN PROCESO (solo conteo) ────────────────────────
-        row_proc = query_one("""
-            SELECT COUNT(*) AS cnt FROM ventas
-            WHERE estado = 'ACTIVA' AND estado_entrega = 'en_proceso'
-        """)
-        data['ventas_proceso_total'] = int(row_proc['cnt']) if row_proc else 0
+        # Contar alertas
+        result = query_one("SELECT COUNT(*) as total FROM alertas_stock WHERE estado = 'pendiente'")
+        stats['alertas_pendientes'] = result['total'] if result else 0
         
-        # ── 4. DESPACHOS DEL DÍA — parsear fecha en notas (DD/MM) ─────
-        # En notas se guarda la fecha de despacho ML como "DD/MM" para Flex/Delega/Colecta.
-        # Puede haber otra info en notas; buscamos la coincidencia exacta del DD/MM de hoy.
-        rows_desp = query_db("""
-            SELECT metodo_envio, notas
-            FROM ventas
-            WHERE estado = 'ACTIVA' 
-              AND estado_entrega IN ('pendiente','en_proceso')
-              AND metodo_envio IN ('Flex','Delega','Colecta')
-              AND notas IS NOT NULL AND notas != ''
-        """)
-        import re as _re_dash
-        for r in rows_desp or []:
-            notas = r['notas'] or ''
-            metodo = r['metodo_envio']
-            # Buscar cualquier ocurrencia DD/MM en notas que matche hoy_str_ddmm
-            matches = _re_dash.findall(r'\b(\d{2}/\d{2})\b', notas)
-            if hoy_str_ddmm in matches:
-                if metodo in data['despachos_hoy']:
-                    data['despachos_hoy'][metodo] += 1
-        
-        # ── 5. FACTURACIÓN DEL DÍA (por fecha_venta) ──────────────────
-        row_fact = query_one("""
-            SELECT SUM(importe_total) AS total, COUNT(*) AS cnt
-            FROM ventas
-            WHERE DATE(fecha_venta) = %s
-              AND estado_entrega != 'cancelada'
-        """, (hoy_str_iso,))
-        if row_fact:
-            data['facturacion_hoy']['total'] = float(row_fact['total'] or 0)
-            data['facturacion_hoy']['cantidad'] = int(row_fact['cnt'] or 0)
-        
-        # ── 6. TOP PRODUCTOS DEL DÍA ──────────────────────────────────
-        data['top_productos_hoy'] = query_db("""
-            SELECT 
-                iv.sku,
-                COALESCE(pb.nombre, pc.nombre, iv.sku) AS nombre,
-                SUM(iv.cantidad) AS cantidad
-            FROM items_venta iv
-            JOIN ventas v ON iv.venta_id = v.id
-            LEFT JOIN productos_base pb ON iv.sku = pb.sku
-            LEFT JOIN productos_compuestos pc ON iv.sku = pc.sku
-            WHERE DATE(v.fecha_venta) = %s
-              AND v.estado_entrega != 'cancelada'
-            GROUP BY iv.sku, nombre
-            ORDER BY cantidad DESC
-            LIMIT 10
-        """, (hoy_str_iso,)) or []
+        # Stock crítico
+        stock_critico = query_db("SELECT * FROM stock_disponible_ml WHERE estado_stock = 'SIN_STOCK' LIMIT 10")
         
     except Exception as e:
         flash(f'Error al cargar dashboard: {str(e)}', 'error')
-        import traceback
-        traceback.print_exc()
     
-    return render_template('dashboard.html', data=data, now=datetime.now)
+    return render_template('dashboard.html', stats=stats, stock_critico=stock_critico, now=datetime.now)
 
 
 
@@ -814,11 +690,11 @@ def exportar_ventas_activas_excel():
     from openpyxl.styles import Font, Alignment, PatternFill
     from io import BytesIO
     filtro_buscar       = request.args.get('buscar', '').strip()
-    filtro_tipo_entrega = parsear_filtro_multi(request.args.getlist('tipo_entrega') or request.args.get('tipo_entrega', ''))
-    filtro_metodo_envio = parsear_filtro_multi(request.args.getlist('metodo_envio') or request.args.get('metodo_envio', ''))
-    filtro_zona         = parsear_filtro_multi(request.args.getlist('zona')         or request.args.get('zona', ''))
-    filtro_canal        = parsear_filtro_multi(request.args.getlist('canal')        or request.args.get('canal', ''))
-    filtro_estado_pago  = parsear_filtro_multi(request.args.getlist('estado_pago')  or request.args.get('estado_pago', ''))
+    filtro_tipo_entrega = request.args.get('tipo_entrega', '')
+    filtro_metodo_envio = request.args.get('metodo_envio', '')
+    filtro_zona         = request.args.get('zona', '')
+    filtro_canal        = request.args.get('canal', '')
+    filtro_estado_pago  = request.args.get('estado_pago', '')
     query = '''SELECT v.id, v.numero_venta, v.fecha_venta, v.canal, v.mla_code,
         v.nombre_cliente, v.telefono_cliente, v.tipo_entrega, v.metodo_envio, v.zona_envio,
         v.direccion_entrega, v.costo_flete, v.metodo_pago, v.importe_total, v.importe_abonado,
@@ -827,22 +703,14 @@ def exportar_ventas_activas_excel():
     if filtro_buscar:
         query += ' AND (v.mla_code LIKE %s OR v.nombre_cliente LIKE %s OR v.id IN (SELECT venta_id FROM items_venta WHERE sku LIKE %s))'
         b = f'%{filtro_buscar}%'; params.extend([b, b, b])
-    for col, valores in [
-        ('v.tipo_entrega', filtro_tipo_entrega),
-        ('v.metodo_envio', filtro_metodo_envio),
-        ('v.zona_envio',   filtro_zona),
-        ('v.canal',        filtro_canal),
-    ]:
-        frag, p = construir_in_clause(valores, col)
-        query += frag
-        params.extend(p)
+    if filtro_tipo_entrega: query += ' AND v.tipo_entrega = %s'; params.append(filtro_tipo_entrega)
+    if filtro_metodo_envio: query += ' AND v.metodo_envio = %s'; params.append(filtro_metodo_envio)
+    if filtro_zona: query += ' AND v.zona_envio = %s'; params.append(filtro_zona)
+    if filtro_canal: query += ' AND v.canal = %s'; params.append(filtro_canal)
     if filtro_estado_pago:
-        cond = []
-        if 'pagado' in filtro_estado_pago: cond.append('v.importe_abonado >= v.importe_total')
-        if 'pendiente' in filtro_estado_pago: cond.append('v.importe_abonado = 0')
-        if 'parcial' in filtro_estado_pago: cond.append('(v.importe_abonado > 0 AND v.importe_abonado < v.importe_total)')
-        if cond:
-            query += ' AND (' + ' OR '.join(cond) + ')'
+        if filtro_estado_pago == 'pagado': query += ' AND v.importe_abonado >= v.importe_total'
+        elif filtro_estado_pago == 'pendiente': query += ' AND v.importe_abonado = 0'
+        elif filtro_estado_pago == 'parcial': query += ' AND v.importe_abonado > 0 AND v.importe_abonado < v.importe_total'
     query += " ORDER BY CASE WHEN v.metodo_envio = 'Turbo' THEN 0 ELSE 1 END, v.fecha_venta DESC, v.id DESC"
     ventas = query_db(query, tuple(params) if params else None)
     for venta in ventas:
@@ -888,14 +756,14 @@ def ventas_activas():
     """Lista de ventas activas con filtros de búsqueda"""
     try:
         # ========================================
-        # OBTENER FILTROS (multi-valor: separado por comas o lista)
+        # OBTENER FILTROS
         # ========================================
         filtro_buscar = request.args.get('buscar', '').strip()
-        filtro_tipo_entrega = parsear_filtro_multi(request.args.getlist('tipo_entrega') or request.args.get('tipo_entrega', ''))
-        filtro_metodo_envio = parsear_filtro_multi(request.args.getlist('metodo_envio') or request.args.get('metodo_envio', ''))
-        filtro_zona         = parsear_filtro_multi(request.args.getlist('zona')         or request.args.get('zona', ''))
-        filtro_canal        = parsear_filtro_multi(request.args.getlist('canal')        or request.args.get('canal', ''))
-        filtro_estado_pago  = parsear_filtro_multi(request.args.getlist('estado_pago')  or request.args.get('estado_pago', ''))
+        filtro_tipo_entrega = request.args.get('tipo_entrega', '')
+        filtro_metodo_envio = request.args.get('metodo_envio', '')
+        filtro_zona = request.args.get('zona', '')
+        filtro_canal = request.args.get('canal', '')
+        filtro_estado_pago = request.args.get('estado_pago', '')
         
         # ========================================
         # CONSTRUIR QUERY CON FILTROS
@@ -907,7 +775,7 @@ def ventas_activas():
                 tipo_entrega, metodo_envio, ubicacion_despacho,
                 zona_envio, direccion_entrega, costo_flete,
 metodo_pago, importe_total, importe_abonado,
-                pago_mercadopago, pago_efectivo, pago_transferencia, pago_tarjeta,
+                pago_mercadopago, pago_efectivo,
                 estado_entrega, estado_pago, notas, cancelada_en_ml,
                 fecha_entrega_estimada
             FROM ventas
@@ -929,28 +797,34 @@ metodo_pago, importe_total, importe_abonado,
             busqueda = f'%{filtro_buscar}%'
             params.extend([busqueda, busqueda, busqueda])
         
-        # Filtros multi-valor
-        for col, valores in [
-            ('tipo_entrega', filtro_tipo_entrega),
-            ('metodo_envio', filtro_metodo_envio),
-            ('zona_envio',   filtro_zona),
-            ('canal',        filtro_canal),
-        ]:
-            frag, p = construir_in_clause(valores, col)
-            query += frag
-            params.extend(p)
+        # Filtro: Tipo de entrega
+        if filtro_tipo_entrega:
+            query += ' AND tipo_entrega = %s'
+            params.append(filtro_tipo_entrega)
         
-        # Filtro: Estado de pago (multi - cada uno tiene su lógica)
+        # Filtro: Método de envío
+        if filtro_metodo_envio:
+            query += ' AND metodo_envio = %s'
+            params.append(filtro_metodo_envio)
+        
+        # Filtro: Zona
+        if filtro_zona:
+            query += ' AND zona_envio = %s'
+            params.append(filtro_zona)
+        
+        # Filtro: Canal
+        if filtro_canal:
+            query += ' AND canal = %s'
+            params.append(filtro_canal)
+        
+        # Filtro: Estado de pago
         if filtro_estado_pago:
-            cond = []
-            if 'pagado' in filtro_estado_pago:
-                cond.append('importe_abonado >= importe_total')
-            if 'pendiente' in filtro_estado_pago:
-                cond.append('importe_abonado = 0')
-            if 'parcial' in filtro_estado_pago:
-                cond.append('(importe_abonado > 0 AND importe_abonado < importe_total)')
-            if cond:
-                query += ' AND (' + ' OR '.join(cond) + ')'
+            if filtro_estado_pago == 'pagado':
+                query += ' AND importe_abonado >= importe_total'
+            elif filtro_estado_pago == 'pendiente':
+                query += ' AND importe_abonado = 0'
+            elif filtro_estado_pago == 'parcial':
+                query += ' AND importe_abonado > 0 AND importe_abonado < importe_total'
         
         # Ordenar: más recientes arriba por fecha real de compra
         query += " ORDER BY CASE WHEN metodo_envio = 'Turbo' THEN 0 ELSE 1 END, fecha_venta DESC, id DESC"
@@ -2086,14 +1960,14 @@ def ventas_proceso():
     """Lista de ventas en proceso de envío con filtros"""
     try:
         # ========================================
-        # OBTENER FILTROS (multi-valor)
+        # OBTENER FILTROS
         # ========================================
         filtro_buscar = request.args.get('buscar', '').strip()
-        filtro_tipo_entrega = parsear_filtro_multi(request.args.getlist('tipo_entrega') or request.args.get('tipo_entrega', ''))
-        filtro_metodo_envio = parsear_filtro_multi(request.args.getlist('metodo_envio') or request.args.get('metodo_envio', ''))
-        filtro_zona         = parsear_filtro_multi(request.args.getlist('zona')         or request.args.get('zona', ''))
-        filtro_canal        = parsear_filtro_multi(request.args.getlist('canal')        or request.args.get('canal', ''))
-        filtro_estado_pago  = parsear_filtro_multi(request.args.getlist('estado_pago')  or request.args.get('estado_pago', ''))
+        filtro_tipo_entrega = request.args.get('tipo_entrega', '')
+        filtro_metodo_envio = request.args.get('metodo_envio', '')
+        filtro_zona = request.args.get('zona', '')
+        filtro_canal = request.args.get('canal', '')
+        filtro_estado_pago = request.args.get('estado_pago', '')
         
         # ========================================
         # CONSTRUIR QUERY CON FILTROS
@@ -2105,7 +1979,7 @@ def ventas_proceso():
                 tipo_entrega, metodo_envio, ubicacion_despacho,
                 zona_envio, direccion_entrega, costo_flete,
 metodo_pago, importe_total, importe_abonado,
-                pago_mercadopago, pago_efectivo, pago_transferencia, pago_tarjeta,
+                pago_mercadopago, pago_efectivo,
                 estado_entrega, estado_pago, notas
             FROM ventas
             WHERE estado_entrega = 'en_proceso'
@@ -2126,28 +2000,34 @@ metodo_pago, importe_total, importe_abonado,
             busqueda = f'%{filtro_buscar}%'
             params.extend([busqueda, busqueda, busqueda])
         
-        # Filtros multi-valor
-        for col, valores in [
-            ('tipo_entrega', filtro_tipo_entrega),
-            ('metodo_envio', filtro_metodo_envio),
-            ('zona_envio',   filtro_zona),
-            ('canal',        filtro_canal),
-        ]:
-            frag, p = construir_in_clause(valores, col)
-            query += frag
-            params.extend(p)
+        # Filtro: Tipo de entrega
+        if filtro_tipo_entrega:
+            query += ' AND tipo_entrega = %s'
+            params.append(filtro_tipo_entrega)
         
-        # Filtro: Estado de pago (multi)
+        # Filtro: Método de envío
+        if filtro_metodo_envio:
+            query += ' AND metodo_envio = %s'
+            params.append(filtro_metodo_envio)
+        
+        # Filtro: Zona
+        if filtro_zona:
+            query += ' AND zona_envio = %s'
+            params.append(filtro_zona)
+        
+        # Filtro: Canal
+        if filtro_canal:
+            query += ' AND canal = %s'
+            params.append(filtro_canal)
+        
+        # Filtro: Estado de pago
         if filtro_estado_pago:
-            cond = []
-            if 'pagado' in filtro_estado_pago:
-                cond.append('importe_abonado >= importe_total')
-            if 'pendiente' in filtro_estado_pago:
-                cond.append('importe_abonado = 0')
-            if 'parcial' in filtro_estado_pago:
-                cond.append('(importe_abonado > 0 AND importe_abonado < importe_total)')
-            if cond:
-                query += ' AND (' + ' OR '.join(cond) + ')'
+            if filtro_estado_pago == 'pagado':
+                query += ' AND importe_abonado >= importe_total'
+            elif filtro_estado_pago == 'pendiente':
+                query += ' AND importe_abonado = 0'
+            elif filtro_estado_pago == 'parcial':
+                query += ' AND importe_abonado > 0 AND importe_abonado < importe_total'
         
         # Ordenar: más recientes arriba por fecha real de compra
         query += " ORDER BY CASE WHEN metodo_envio = 'Turbo' THEN 0 ELSE 1 END, fecha_venta DESC, id DESC"
@@ -3567,14 +3447,14 @@ def ventas_historicas():
     try:
         POR_PAGINA = 500
         # ========================================
-        # OBTENER FILTROS (multi-valor)
+        # OBTENER FILTROS
         # ========================================
         filtro_buscar = request.args.get('buscar', '').strip()
-        filtro_estado = parsear_filtro_multi(request.args.getlist('estado') or request.args.get('estado', ''))
+        filtro_estado = request.args.get('estado', '')
         filtro_periodo = request.args.get('periodo', 'todo')
-        filtro_metodo_envio = parsear_filtro_multi(request.args.getlist('metodo_envio') or request.args.get('metodo_envio', ''))
-        filtro_zona         = parsear_filtro_multi(request.args.getlist('zona')         or request.args.get('zona', ''))
-        filtro_canal        = parsear_filtro_multi(request.args.getlist('canal')        or request.args.get('canal', ''))
+        filtro_metodo_envio = request.args.get('metodo_envio', '')
+        filtro_zona = request.args.get('zona', '')
+        filtro_canal = request.args.get('canal', '')
         pagina = max(1, int(request.args.get('pagina', 1)))
 
         # ========================================
@@ -3583,10 +3463,9 @@ def ventas_historicas():
         where = "WHERE estado_entrega IN ('entregada', 'cancelada')"
         params = []
 
-        # Estado (multi)
-        frag, p = construir_in_clause(filtro_estado, 'estado_entrega')
-        where += frag
-        params.extend(p)
+        if filtro_estado:
+            where += ' AND estado_entrega = %s'
+            params.append(filtro_estado)
 
         if filtro_periodo == 'hoy':
             where += ' AND DATE(COALESCE(fecha_entrega, fecha_modificacion)) = CURDATE()'
@@ -3608,15 +3487,17 @@ def ventas_historicas():
             busqueda = f'%{filtro_buscar}%'
             params.extend([busqueda, busqueda, busqueda])
 
-        # Filtros multi-valor
-        for col, valores in [
-            ('metodo_envio', filtro_metodo_envio),
-            ('zona_envio',   filtro_zona),
-            ('canal',        filtro_canal),
-        ]:
-            frag, p = construir_in_clause(valores, col)
-            where += frag
-            params.extend(p)
+        if filtro_metodo_envio:
+            where += ' AND metodo_envio = %s'
+            params.append(filtro_metodo_envio)
+
+        if filtro_zona:
+            where += ' AND zona_envio = %s'
+            params.append(filtro_zona)
+
+        if filtro_canal:
+            where += ' AND canal = %s'
+            params.append(filtro_canal)
 
         # ========================================
         # TOTAL PARA PAGINACIÓN
@@ -6880,12 +6761,6 @@ def ml_importar_ordenes():
     """
     Traer órdenes de ML - FILTRO ARREGLADO
     """
-    # Resetear contador de no-mapeadas (el usuario está atendiendo el mapeo)
-    try:
-        execute_db("UPDATE auto_import_log SET ventas_no_mapeadas = 0 WHERE id = 1")
-    except Exception:
-        pass
-    
     # Guardar hora de corte si viene en el request
     hora_corte = request.args.get('hora_corte', '').strip()
     if hora_corte:
@@ -11773,12 +11648,6 @@ def _init_auto_import_table():
             print("[AUTO-ML] Columna cancelada_en_ml agregada.")
         except Exception:
             pass  # Ya existe, ignorar
-        # Agregar columna ventas_no_mapeadas si no existe
-        try:
-            execute_db("ALTER TABLE auto_import_log ADD COLUMN ventas_no_mapeadas INT DEFAULT 0")
-            print("[AUTO-ML] Columna ventas_no_mapeadas agregada.")
-        except Exception:
-            pass  # Ya existe, ignorar
     except Exception as e:
         print(f"[AUTO-ML] Error init tabla: {e}")
 
@@ -12131,7 +12000,6 @@ def job_auto_importar_ml():
                 print(f"[AUTO-ML] Error cargando importadas: {e}")
 
             ventas_nuevas = 0
-            ventas_no_mapeadas = 0
             skus_base_afectados = set()
 
             for orden in result:
@@ -12147,20 +12015,17 @@ def job_auto_importar_ml():
                     skus_afectados = _extraer_skus_base_de_items(items_bd)
                     skus_base_afectados.update(skus_afectados)
                     time.sleep(1)
-                else:
-                    # Falló auto-import → requiere mapeo manual
-                    ventas_no_mapeadas += 1
 
             # Actualizar log
             try:
                 execute_db(
-                    "UPDATE auto_import_log SET ventas_nuevas = %s, ventas_no_mapeadas = %s, ultima_ejecucion = NOW() WHERE id = 1",
-                    (ventas_nuevas, ventas_no_mapeadas)
+                    "UPDATE auto_import_log SET ventas_nuevas = %s, ultima_ejecucion = NOW() WHERE id = 1",
+                    (ventas_nuevas,)
                 )
             except Exception as e:
                 print(f"[AUTO-ML] Error actualizando log: {e}")
 
-            print(f"[AUTO-ML] ✅ Import completo. Ventas nuevas: {ventas_nuevas} | No mapeadas: {ventas_no_mapeadas}")
+            print(f"[AUTO-ML] ✅ Import completo. Ventas nuevas: {ventas_nuevas}")
 
             # Actualizar publicaciones ML si hubo cambios
             if skus_base_afectados:
@@ -12513,18 +12378,6 @@ def ventas_nuevas_reset():
     except Exception:
         pass
     return ('', 204)
-
-
-# ── Endpoint: cuántas ventas ML no se pudieron auto-importar (necesitan mapeo) ──
-@app.route('/ventas/no-mapeadas-count')
-@login_required
-def ventas_no_mapeadas_count():
-    try:
-        row = query_db("SELECT ventas_no_mapeadas FROM auto_import_log WHERE id = 1 LIMIT 1")
-        count = row[0]['ventas_no_mapeadas'] if row else 0
-        return jsonify({'count': count or 0})
-    except Exception:
-        return jsonify({'count': 0})
 
 
 # ── Iniciar APScheduler ──────────────────────────────────────────────────────

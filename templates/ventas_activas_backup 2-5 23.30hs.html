@@ -92,18 +92,30 @@
         <p class="text-muted mb-0">Ventas registradas que aún no están en proceso de entrega</p>
     </div>
     <div class="d-flex flex-wrap gap-2 align-items-center">
-        <!-- BOTÓN ML PEQUEÑO con badge si hay órdenes pendientes de mapeo manual -->
-        <a href="{{ url_for('ml_importar_ordenes') }}"
-           class="btn btn-outline-primary btn-sm position-relative"
-           title="Importar/mapear órdenes ML que requieren mapeo manual">
-            <i class="bi bi-cloud-download"></i> ML
-            <span id="mlBadgeNoMapeadas"
-                  class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
-                  style="display:none; font-size:0.7rem;">
-                0
-            </span>
-        </a>
+        <!-- BOTÓN IMPORTAR DE ML -->
+        <form method="GET" action="{{ url_for('ml_importar_ordenes') }}" id="formImportar" class="d-flex flex-wrap align-items-center gap-2">
+            <div class="d-flex align-items-center gap-1" title="Hora de corte para colecta">
+                <i class="bi bi-scissors text-muted" style="font-size:0.85rem;"></i>
+                <input type="time" name="hora_corte" id="hora_corte_colecta" 
+                       class="form-control form-control-sm" 
+                       style="width:100px; font-size:0.82rem;"
+                       value="{{ hora_corte_colecta|default('14:00') }}">
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">
+                <i class="bi bi-download"></i> <span class="d-none d-sm-inline">Importar de ML</span><span class="d-sm-none">ML</span>
+            </button>
+        </form>
 
+        <!-- TOGGLE AUTO-IMPORT -->
+        <div class="form-check form-switch mb-0" title="Activar/desactivar importación automática cada 60 segundos">
+            <input class="form-check-input" type="checkbox" id="toggleAutoImport"
+                   {% if auto_import_activo %}checked{% endif %}
+                   onchange="toggleAutoImport(this)">
+            <label class="form-check-label small text-muted" for="toggleAutoImport">
+                Auto ML
+            </label>
+        </div>
+        
         <span class="badge bg-primary" style="font-size: 1.1em; padding: 0.6em 1em;">
             {{ ventas|length }} venta{% if ventas|length != 1 %}s{% endif %}
         </span>
@@ -127,8 +139,8 @@
                 <label class="form-label"><i class="bi bi-truck"></i> Tipo Entrega</label>
                 <select class="form-select" name="tipo_entrega">
                     <option value="">Todos</option>
-                    <option value="retiro" {% if 'retiro' in filtro_tipo_entrega %}selected{% endif %}>Retiro</option>
-                    <option value="envio" {% if 'envio' in filtro_tipo_entrega %}selected{% endif %}>Envío</option>
+                    <option value="retiro" {% if filtro_tipo_entrega == 'retiro' %}selected{% endif %}>Retiro</option>
+                    <option value="envio" {% if filtro_tipo_entrega == 'envio' %}selected{% endif %}>Envío</option>
                 </select>
             </div>
             
@@ -136,15 +148,15 @@
                 <label class="form-label"><i class="bi bi-box"></i> Método Envío</label>
                 <select class="form-select" name="metodo_envio">
                     <option value="">Todos</option>
-                    <option value="Colecta" {% if 'Colecta' in filtro_metodo_envio %}selected{% endif %}>Colecta</option>
-                    <option value="Flex" {% if 'Flex' in filtro_metodo_envio %}selected{% endif %}>Flex</option>
-                    <option value="Full" {% if 'Full' in filtro_metodo_envio %}selected{% endif %}>Full</option>
-                    <option value="Flete Propio" {% if 'Flete Propio' in filtro_metodo_envio %}selected{% endif %}>Flete Propio</option>
-                    <option value="Delega" {% if 'Delega' in filtro_metodo_envio %}selected{% endif %}>Delega</option>
-                    <option value="Zippin" {% if 'Zippin' in filtro_metodo_envio %}selected{% endif %}>Zippin</option>
-                    <option value="ME2" {% if 'ME2' in filtro_metodo_envio %}selected{% endif %}>ME2 (Tienda)</option>
-                    <option value="ME1" {% if 'ME1' in filtro_metodo_envio %}selected{% endif %}>ME1 (Tienda)</option>
-                    <option value="Turbo" {% if 'Turbo' in filtro_metodo_envio %}selected{% endif %}>🚀 Turbo</option>
+                    <option value="Colecta" {% if filtro_metodo_envio == 'Colecta' %}selected{% endif %}>Colecta</option>
+                    <option value="Flex" {% if filtro_metodo_envio == 'Flex' %}selected{% endif %}>Flex</option>
+                    <option value="Full" {% if filtro_metodo_envio == 'Full' %}selected{% endif %}>Full</option>
+                    <option value="Flete Propio" {% if filtro_metodo_envio == 'Flete Propio' %}selected{% endif %}>Flete Propio</option>
+                    <option value="Delega" {% if filtro_metodo_envio == 'Delega' %}selected{% endif %}>Delega</option>
+                    <option value="Zippin" {% if filtro_metodo_envio == 'Zippin' %}selected{% endif %}>Zippin</option>
+                    <option value="ME2" {% if filtro_metodo_envio == 'ME2' %}selected{% endif %}>ME2 (Tienda)</option>
+                    <option value="ME1" {% if filtro_metodo_envio == 'ME1' %}selected{% endif %}>ME1 (Tienda)</option>
+                    <option value="Turbo" {% if filtro_metodo_envio == 'Turbo' %}selected{% endif %}>🚀 Turbo</option>
                 </select>
             </div>
             
@@ -152,10 +164,10 @@
                 <label class="form-label"><i class="bi bi-geo-alt"></i> Zona</label>
                 <select class="form-select" name="zona">
                     <option value="">Todas</option>
-                    <option value="Capital" {% if 'Capital' in filtro_zona %}selected{% endif %}>Capital</option>
-                    <option value="Sur" {% if 'Sur' in filtro_zona %}selected{% endif %}>Sur</option>
-                    <option value="Norte-Noroeste" {% if 'Norte-Noroeste' in filtro_zona %}selected{% endif %}>Norte-Noroeste</option>
-                    <option value="Oeste" {% if 'Oeste' in filtro_zona %}selected{% endif %}>Oeste</option>
+                    <option value="Capital" {% if filtro_zona == 'Capital' %}selected{% endif %}>Capital</option>
+                    <option value="Sur" {% if filtro_zona == 'Sur' %}selected{% endif %}>Sur</option>
+                    <option value="Norte-Noroeste" {% if filtro_zona == 'Norte-Noroeste' %}selected{% endif %}>Norte-Noroeste</option>
+                    <option value="Oeste" {% if filtro_zona == 'Oeste' %}selected{% endif %}>Oeste</option>
                 </select>
             </div>
             
@@ -163,9 +175,9 @@
                 <label class="form-label"><i class="bi bi-tag"></i> Canal</label>
                 <select class="form-select" name="canal">
                     <option value="">Todos</option>
-                    <option value="Mercado Libre" {% if 'Mercado Libre' in filtro_canal %}selected{% endif %}>ML</option>
-                    <option value="Fuera de ML" {% if 'Fuera de ML' in filtro_canal %}selected{% endif %}>Fuera ML</option>
-                    <option value="tienda_web" {% if 'tienda_web' in filtro_canal %}selected{% endif %}>Tienda Web</option>
+                    <option value="Mercado Libre" {% if filtro_canal == 'Mercado Libre' %}selected{% endif %}>ML</option>
+                    <option value="Fuera de ML" {% if filtro_canal == 'Fuera de ML' %}selected{% endif %}>Fuera ML</option>
+                    <option value="tienda_web" {% if filtro_canal == 'tienda_web' %}selected{% endif %}>Tienda Web</option>
                 </select>
             </div>
             
@@ -173,9 +185,9 @@
                 <label class="form-label"><i class="bi bi-cash-coin"></i> Estado Pago</label>
                 <select class="form-select" name="estado_pago">
                     <option value="">Todos</option>
-                    <option value="pagado" {% if 'pagado' in filtro_estado_pago %}selected{% endif %}>Pagado</option>
-                    <option value="pendiente" {% if 'pendiente' in filtro_estado_pago %}selected{% endif %}>Pendiente</option>
-                    <option value="parcial" {% if 'parcial' in filtro_estado_pago %}selected{% endif %}>Parcial</option>
+                    <option value="pagado" {% if filtro_estado_pago == 'pagado' %}selected{% endif %}>Pagado</option>
+                    <option value="pendiente" {% if filtro_estado_pago == 'pendiente' %}selected{% endif %}>Pendiente</option>
+                    <option value="parcial" {% if filtro_estado_pago == 'parcial' %}selected{% endif %}>Parcial</option>
                 </select>
             </div>
             
@@ -187,7 +199,7 @@
                     <i class="bi bi-x-circle"></i> Limpiar
                 </a>
                 <a id="btn-exportar-excel"
-                   href="/ventas/activas/exportar-excel?buscar={{ filtro_buscar|urlencode }}&tipo_entrega={{ filtro_tipo_entrega|join(',')|urlencode }}&metodo_envio={{ filtro_metodo_envio|join(',')|urlencode }}&zona={{ filtro_zona|join(',')|urlencode }}&canal={{ filtro_canal|join(',')|urlencode }}&estado_pago={{ filtro_estado_pago|join(',')|urlencode }}"
+                   href="/ventas/activas/exportar-excel?buscar={{ filtro_buscar|urlencode }}&tipo_entrega={{ filtro_tipo_entrega|urlencode }}&metodo_envio={{ filtro_metodo_envio|urlencode }}&zona={{ filtro_zona|urlencode }}&canal={{ filtro_canal|urlencode }}&estado_pago={{ filtro_estado_pago|urlencode }}"
                    class="btn btn-success">
                     <i class="bi bi-file-earmark-excel"></i> Excel
                 </a>
@@ -196,7 +208,7 @@
     </div>
 </div>
 
-<!-- FILTROS MOBILE (chips multi-select) -->
+<!-- FILTROS MOBILE (chips) -->
 <div class="d-md-none mb-3">
   <style>
     .filtros-mobile-panel { background:#fff; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.08); overflow:hidden; }
@@ -223,11 +235,11 @@
 
   <form method="GET" action="/ventas/activas" id="filtros-mobile-form">
     <input type="hidden" name="buscar" id="mob-buscar-hidden" value="{{ filtro_buscar }}">
-    <input type="hidden" name="tipo_entrega" id="mob-tipo-hidden" value="{{ filtro_tipo_entrega|join(',') }}">
-    <input type="hidden" name="metodo_envio" id="mob-metodo-hidden" value="{{ filtro_metodo_envio|join(',') }}">
-    <input type="hidden" name="zona" id="mob-zona-hidden" value="{{ filtro_zona|join(',') }}">
-    <input type="hidden" name="canal" id="mob-canal-hidden" value="{{ filtro_canal|join(',') }}">
-    <input type="hidden" name="estado_pago" id="mob-estado-hidden" value="{{ filtro_estado_pago|join(',') }}">
+    <input type="hidden" name="tipo_entrega" id="mob-tipo-hidden" value="{{ filtro_tipo_entrega }}">
+    <input type="hidden" name="metodo_envio" id="mob-metodo-hidden" value="{{ filtro_metodo_envio }}">
+    <input type="hidden" name="zona" id="mob-zona-hidden" value="{{ filtro_zona }}">
+    <input type="hidden" name="canal" id="mob-canal-hidden" value="{{ filtro_canal }}">
+    <input type="hidden" name="estado_pago" id="mob-estado-hidden" value="{{ filtro_estado_pago }}">
 
     <div class="filtros-mobile-panel">
       <button type="button" class="filtros-mobile-toggle {% if hay_filtro_mob %}open{% endif %}" id="mob-toggle" onclick="toggleMobFiltros()">
@@ -245,45 +257,45 @@
         <!-- Tipo entrega -->
         <div class="fm-section-label">Tipo entrega</div>
         <div class="fm-chips">
-          {% for val, label in [('retiro','Retiro'),('envio','Envío')] %}
-          <span class="fm-chip {% if val in filtro_tipo_entrega %}active{% endif %}"
-                onclick="toggleChip('mob-tipo-hidden','{{ val }}',this)">{{ label }}</span>
+          {% for val, label in [('','Todos'),('retiro','Retiro'),('envio','Envío')] %}
+          <span class="fm-chip {% if filtro_tipo_entrega == val %}active{% endif %}"
+                onclick="setChip('mob-tipo-hidden','{{ val }}',this)">{{ label }}</span>
           {% endfor %}
         </div>
 
         <!-- Método envío -->
         <div class="fm-section-label">Método envío</div>
         <div class="fm-chips">
-          {% for val, label in [('Colecta','Colecta'),('Flex','Flex'),('Full','Full'),('Flete Propio','Flete Propio'),('Delega','Delega'),('Zippin','Zippin'),('ME2','ME2'),('ME1','ME1'),('Turbo','🚀 Turbo')] %}
-          <span class="fm-chip {% if val in filtro_metodo_envio %}active{% endif %}"
-                onclick="toggleChip('mob-metodo-hidden','{{ val }}',this)">{{ label }}</span>
+          {% for val, label in [('','Todos'),('Colecta','Colecta'),('Flex','Flex'),('Full','Full'),('Flete Propio','Flete Propio'),('Delega','Delega'),('Zippin','Zippin'),('ME2','ME2'),('ME1','ME1'),('Turbo','🚀 Turbo')] %}
+          <span class="fm-chip {% if filtro_metodo_envio == val %}active{% endif %}"
+                onclick="setChip('mob-metodo-hidden','{{ val }}',this)">{{ label }}</span>
           {% endfor %}
         </div>
 
         <!-- Zona -->
         <div class="fm-section-label">Zona</div>
         <div class="fm-chips">
-          {% for val, label in [('Capital','Capital'),('Sur','Sur'),('Norte-Noroeste','Norte'),('Oeste','Oeste')] %}
-          <span class="fm-chip {% if val in filtro_zona %}active{% endif %}"
-                onclick="toggleChip('mob-zona-hidden','{{ val }}',this)">{{ label }}</span>
+          {% for val, label in [('','Todas'),('Capital','Capital'),('Sur','Sur'),('Norte-Noroeste','Norte'),('Oeste','Oeste')] %}
+          <span class="fm-chip {% if filtro_zona == val %}active{% endif %}"
+                onclick="setChip('mob-zona-hidden','{{ val }}',this)">{{ label }}</span>
           {% endfor %}
         </div>
 
         <!-- Canal -->
         <div class="fm-section-label">Canal</div>
         <div class="fm-chips">
-          {% for val, label in [('Mercado Libre','ML'),('Fuera de ML','Fuera ML'),('tienda_web','Tienda Web')] %}
-          <span class="fm-chip {% if val in filtro_canal %}active{% endif %}"
-                onclick="toggleChip('mob-canal-hidden','{{ val }}',this)">{{ label }}</span>
+          {% for val, label in [('','Todos'),('Mercado Libre','ML'),('Fuera de ML','Fuera ML'),('tienda_web','Tienda Web')] %}
+          <span class="fm-chip {% if filtro_canal == val %}active{% endif %}"
+                onclick="setChip('mob-canal-hidden','{{ val }}',this)">{{ label }}</span>
           {% endfor %}
         </div>
 
         <!-- Estado pago -->
         <div class="fm-section-label">Estado pago</div>
         <div class="fm-chips">
-          {% for val, label in [('pagado','Pagado'),('pendiente','Pendiente'),('parcial','Parcial')] %}
-          <span class="fm-chip {% if val in filtro_estado_pago %}active{% endif %}"
-                onclick="toggleChip('mob-estado-hidden','{{ val }}',this)">{{ label }}</span>
+          {% for val, label in [('','Todos'),('pagado','Pagado'),('pendiente','Pendiente'),('parcial','Parcial')] %}
+          <span class="fm-chip {% if filtro_estado_pago == val %}active{% endif %}"
+                onclick="setChip('mob-estado-hidden','{{ val }}',this)">{{ label }}</span>
           {% endfor %}
         </div>
 
@@ -295,11 +307,11 @@
 
       {% if hay_filtro_mob %}
       <div class="filtros-activos-badges">
-        {% for v in filtro_tipo_entrega %}<span class="filtro-activo-tag">{{ v }}</span>{% endfor %}
-        {% for v in filtro_metodo_envio %}<span class="filtro-activo-tag">{{ v }}</span>{% endfor %}
-        {% for v in filtro_zona %}<span class="filtro-activo-tag">{{ v }}</span>{% endfor %}
-        {% for v in filtro_canal %}<span class="filtro-activo-tag">{{ v }}</span>{% endfor %}
-        {% for v in filtro_estado_pago %}<span class="filtro-activo-tag">{{ v }}</span>{% endfor %}
+        {% if filtro_tipo_entrega %}<span class="filtro-activo-tag">{{ filtro_tipo_entrega }}</span>{% endif %}
+        {% if filtro_metodo_envio %}<span class="filtro-activo-tag">{{ filtro_metodo_envio }}</span>{% endif %}
+        {% if filtro_zona %}<span class="filtro-activo-tag">{{ filtro_zona }}</span>{% endif %}
+        {% if filtro_canal %}<span class="filtro-activo-tag">{{ filtro_canal }}</span>{% endif %}
+        {% if filtro_estado_pago %}<span class="filtro-activo-tag">{{ filtro_estado_pago }}</span>{% endif %}
         {% if filtro_buscar %}<span class="filtro-activo-tag">"{{ filtro_buscar }}"</span>{% endif %}
       </div>
       {% endif %}
@@ -313,19 +325,11 @@
     btn.classList.toggle('open');
     body.classList.toggle('open');
   }
-  // Multi-select: cada chip se prende/apaga; el hidden guarda lista separada por coma
-  function toggleChip(hiddenId, val, el) {
-    const hidden = document.getElementById(hiddenId);
-    const valores = hidden.value ? hidden.value.split(',').filter(Boolean) : [];
-    const idx = valores.indexOf(val);
-    if (idx >= 0) {
-        valores.splice(idx, 1);
-        el.classList.remove('active');
-    } else {
-        valores.push(val);
-        el.classList.add('active');
-    }
-    hidden.value = valores.join(',');
+  function setChip(hiddenId, val, el) {
+    document.getElementById(hiddenId).value = val;
+    // Deactivate siblings, activate clicked
+    el.closest('.fm-chips').querySelectorAll('.fm-chip').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
   }
   </script>
 </div>
@@ -1229,24 +1233,17 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.venta-checkbox-desktop, .venta-checkbox-mobile, #selectAll').forEach(cb => cb.checked = false);
     actualizarContador();
 
-    // Polling: actualizar badge ML "no mapeadas" cada 30s
-    function actualizarBadgeMLNoMapeadas() {
-        fetch('/ventas/no-mapeadas-count')
-            .then(r => r.json())
-            .then(data => {
-                const badge = document.getElementById('mlBadgeNoMapeadas');
-                if (!badge) return;
-                if (data.count && data.count > 0) {
-                    badge.textContent = data.count;
-                    badge.style.display = '';
-                } else {
-                    badge.style.display = 'none';
-                }
-            })
-            .catch(() => {});
+    // Hora de corte: localStorage tiene prioridad sobre el valor del servidor
+    const savedCorte = localStorage.getItem('hora_corte_colecta');
+    const inputCorte = document.getElementById('hora_corte_colecta');
+    if (savedCorte && inputCorte) inputCorte.value = savedCorte;
+
+    // Guardar en localStorage cada vez que el usuario cambia el valor
+    if (inputCorte) {
+        inputCorte.addEventListener('change', function() {
+            localStorage.setItem('hora_corte_colecta', this.value);
+        });
     }
-    actualizarBadgeMLNoMapeadas();
-    setInterval(actualizarBadgeMLNoMapeadas, 30000);
 
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% for category, message in messages %}
@@ -1327,6 +1324,23 @@ function guardarTrid(ventaId) {
         }
     });
 })();
+
+// Toggle auto-import
+function toggleAutoImport(checkbox) {
+    fetch('/ventas/auto-import-toggle', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({activo: checkbox.checked})
+    })
+    .then(r => r.json())
+    .then(data => {
+        const label = checkbox.nextElementSibling;
+        label.textContent = data.activo ? 'Auto ML' : 'Auto ML';
+        label.classList.toggle('text-muted', data.activo);
+        label.classList.toggle('text-danger', !data.activo);
+    })
+    .catch(() => { checkbox.checked = !checkbox.checked; }); // revertir si falla
+}
 
 // ── AUTO-IMPORT POPUP ────────────────────────────────────────────────────────
 (function() {

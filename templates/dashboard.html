@@ -1,9 +1,21 @@
 {% extends "base.html" %}
 
 {% block title %}Dashboard - Mercadomuebles{% endblock %}
-<link rel="icon" type="image/png" href="{{ url_for('static', filename='loguito_fav.png') }}">
 
 {% block content %}
+
+<!-- ALERTA URGENTE: pago Cannon HOY -->
+{% if data.pago_cannon_es_hoy and data.pago_cannon_proximo %}
+<div class="alert alert-danger d-flex align-items-center mb-4 shadow-sm" style="border-left: 6px solid #c0392b; font-size:1.05rem;">
+    <i class="bi bi-exclamation-triangle-fill" style="font-size:2.2rem; margin-right:14px;"></i>
+    <div class="flex-grow-1">
+        <div style="font-size:1.4rem; font-weight:700;">⚠️ PAGO A CANNON HOY</div>
+        <div>Vence <strong>{{ data.pago_cannon_proximo.fecha.strftime('%d/%m/%Y') }}</strong> &middot; Importe: <strong>${{ "{:,.0f}".format(data.pago_cannon_proximo.monto).replace(",", ".") }}</strong></div>
+    </div>
+    <a href="{{ url_for('pagos_cannon') }}" class="btn btn-light btn-sm ms-2">Ver pagos</a>
+</div>
+{% endif %}
+
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-speedometer2"></i> Dashboard</h2>
     <div class="text-muted">
@@ -11,139 +23,134 @@
     </div>
 </div>
 
-<!-- Accesos Rápidos -->
-<div class="row mb-4">
-    <div class="col-12">
-        <div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
-            <div class="card-body">
-                <h5 class="mb-3"><i class="bi bi-grid-3x3-gap"></i> Accesos Rápidos</h5>
-                <div class="d-flex gap-3 flex-wrap">
-                    <a href="{{ url_for('dashboard_visual') }}" class="btn btn-light btn-lg">
-                        <i class="bi bi-grid-fill"></i> Dashboard Visual (Pizarra)
-                    </a>
-                    <a href="{{ url_for('ver_stock') }}" class="btn btn-outline-light">
-                        <i class="bi bi-boxes"></i> Ver Stock ML
-                    </a>
-                    <a href="{{ url_for('cargar_stock') }}" class="btn btn-outline-light">
-                        <i class="bi bi-plus-circle"></i> Cargar Stock
-                    </a>
-                    <a href="{{ url_for('bajar_stock') }}" class="btn btn-outline-light">
-                        <i class="bi bi-dash-circle"></i> Bajar Stock
-                    </a>
-                    <a href="{{ url_for('transferir_stock') }}" class="btn btn-outline-light">
-                        <i class="bi bi-arrow-left-right"></i> Transferir Stock
-                    </a>
-                    <a href="{{ url_for('historial_stock') }}" class="btn btn-outline-light">
-                        <i class="bi bi-clock-history"></i> Historial Stock
-                    </a>
-                    <a href="{{ url_for('nueva_venta') }}" class="btn btn-outline-light">
-                        <i class="bi bi-cart-plus"></i> Nueva Venta
-                    </a>
-                </div>
+<div class="row g-3 mb-4">
+    <!-- VENTAS ACTIVAS - total + breakdown -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100 shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <i class="bi bi-clock-history"></i> Ventas Activas
+                <span class="badge bg-light text-dark float-end">{{ data.ventas_activas_total }}</span>
             </div>
-        </div>
-    </div>
-</div>
-
-<!-- Tarjetas de estadísticas -->
-<div class="row mb-4">
-    <div class="col-md-6">
-        <div class="card stat-card">
             <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="text-muted mb-2">Ventas Activas</h6>
-                        <h2 class="mb-0">{{ stats.ventas_activas }}</h2>
-                        <small class="text-muted">Pendientes</small>
-                    </div>
-                    <div class="text-primary" style="font-size: 3em; opacity: 0.2;">
-                        <i class="bi bi-clock-history"></i>
-                    </div>
-                </div>
+                {% set orden_metodos = ['Flete Propio', 'Flex', 'Delega', 'Colecta', 'Retiro', 'Full', 'ME2', 'ME1', 'Zippin', 'Turbo'] %}
+                {% set mostrados = [] %}
+                {% for m in orden_metodos %}
+                    {% if data.ventas_activas_por_metodo[m] is defined %}
+                        <div class="d-flex justify-content-between align-items-center py-1 border-bottom">
+                            <span>{{ m }}</span>
+                            <strong>{{ data.ventas_activas_por_metodo[m] }}</strong>
+                        </div>
+                        {% set _ = mostrados.append(m) %}
+                    {% endif %}
+                {% endfor %}
+                {% for k, v in data.ventas_activas_por_metodo.items() %}
+                    {% if k not in mostrados %}
+                        <div class="d-flex justify-content-between align-items-center py-1 border-bottom">
+                            <span>{{ k }}</span>
+                            <strong>{{ v }}</strong>
+                        </div>
+                    {% endif %}
+                {% endfor %}
+                {% if not data.ventas_activas_por_metodo %}
+                    <div class="text-muted text-center py-3">Sin ventas activas</div>
+                {% endif %}
             </div>
             <div class="card-footer bg-light">
                 <a href="{{ url_for('ventas_activas') }}" class="text-decoration-none small">
-                    Ver todas <i class="bi bi-arrow-right"></i>
+                    Ver activas <i class="bi bi-arrow-right"></i>
                 </a>
+                <span class="text-muted small float-end">
+                    En proceso: <strong>{{ data.ventas_proceso_total }}</strong>
+                </span>
             </div>
         </div>
     </div>
-    
-    <div class="col-md-6">
-        <div class="card stat-card {% if stats.alertas_pendientes > 0 %}danger{% else %}success{% endif %}">
+
+    <!-- DESPACHOS DEL DÍA -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100 shadow-sm">
+            <div class="card-header bg-warning text-dark">
+                <i class="bi bi-truck"></i> Despachos de hoy
+            </div>
             <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="text-muted mb-2">Alertas ML</h6>
-                        <h2 class="mb-0">{{ stats.alertas_pendientes }}</h2>
-                        <small class="text-muted">
-                            {% if stats.alertas_pendientes > 0 %}
-                                Requieren atención
-                            {% else %}
-                                Todo OK
-                            {% endif %}
-                        </small>
-                    </div>
-                    <div class="{% if stats.alertas_pendientes > 0 %}text-danger{% else %}text-success{% endif %}" style="font-size: 3em; opacity: 0.2;">
-                        <i class="bi bi-exclamation-triangle"></i>
-                    </div>
+                <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                    <span><i class="bi bi-lightning-fill text-warning"></i> Flex</span>
+                    <strong style="font-size:1.3rem;">{{ data.despachos_hoy.Flex }}</strong>
+                </div>
+                <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                    <span><i class="bi bi-arrow-up-right-square text-info"></i> Delega</span>
+                    <strong style="font-size:1.3rem;">{{ data.despachos_hoy.Delega }}</strong>
+                </div>
+                <div class="d-flex justify-content-between align-items-center py-2">
+                    <span><i class="bi bi-box-seam text-success"></i> Colecta</span>
+                    <strong style="font-size:1.3rem;">{{ data.despachos_hoy.Colecta }}</strong>
                 </div>
             </div>
-            <div class="card-footer bg-light">
-                <a href="{{ url_for('alertas_ml') }}" class="text-decoration-none small">
-                    Ver alertas <i class="bi bi-arrow-right"></i>
-                </a>
+            <div class="card-footer bg-light text-muted small">
+                Total a despachar: <strong>{{ data.despachos_hoy.Flex + data.despachos_hoy.Delega + data.despachos_hoy.Colecta }}</strong>
             </div>
+        </div>
+    </div>
+
+    <!-- FACTURACIÓN DEL DÍA -->
+    <div class="col-md-6 col-lg-4">
+        <div class="card h-100 shadow-sm">
+            <div class="card-header bg-success text-white">
+                <i class="bi bi-cash-stack"></i> Facturación de hoy
+            </div>
+            <div class="card-body text-center">
+                <div style="font-size:2.2rem; font-weight:700; color:#2e7d32;">
+                    ${{ "{:,.0f}".format(data.facturacion_hoy.total).replace(",", ".") }}
+                </div>
+                <div class="text-muted">{{ data.facturacion_hoy.cantidad }} venta{% if data.facturacion_hoy.cantidad != 1 %}s{% endif %}</div>
+            </div>
+            {% if data.pago_cannon_proximo and not data.pago_cannon_es_hoy %}
+            <div class="card-footer bg-light small">
+                <i class="bi bi-calendar-event"></i> Próximo pago Cannon:
+                <strong>{{ data.pago_cannon_proximo.fecha.strftime('%d/%m') }}</strong>
+                <span class="float-end">${{ "{:,.0f}".format(data.pago_cannon_proximo.monto).replace(",", ".") }}</span>
+            </div>
+            {% endif %}
         </div>
     </div>
 </div>
 
-<!-- Stock Crítico -->
-{% if stock_critico %}
-<div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-exclamation-circle text-danger"></i> Stock Sin Disponibilidad para ML</span>
-        <a href="{{ url_for('ver_stock') }}" class="btn btn-sm btn-outline-primary">Ver todo el stock</a>
+<!-- TOP PRODUCTOS DEL DÍA -->
+<div class="card shadow-sm">
+    <div class="card-header bg-dark text-white">
+        <i class="bi bi-trophy"></i> Top productos vendidos hoy
     </div>
     <div class="card-body">
+        {% if data.top_productos_hoy %}
         <div class="table-responsive">
-            <table class="table table-hover">
+            <table class="table table-sm table-hover mb-0">
                 <thead>
                     <tr>
+                        <th style="width:60px;">#</th>
                         <th>SKU</th>
                         <th>Producto</th>
-                        <th>Stock Disponible</th>
-                        <th>Stock Mínimo Pausar</th>
-                        <th>Estado</th>
+                        <th class="text-end">Cantidad</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for prod in stock_critico %}
+                    {% for p in data.top_productos_hoy %}
                     <tr>
-                        <td><strong>{{ prod.sku }}</strong></td>
-                        <td>{{ prod.nombre }}</td>
-                        <td>
-                            <span class="badge bg-danger">{{ prod.stock_disponible }}</span>
-                        </td>
-                        <td>{{ prod.stock_minimo_pausar }}</td>
-                        <td>
-                            <span class="badge bg-danger">Sin Stock</span>
-                        </td>
+                        <td><strong>{{ loop.index }}</strong></td>
+                        <td><code>{{ p.sku }}</code></td>
+                        <td>{{ p.nombre }}</td>
+                        <td class="text-end"><strong>{{ p.cantidad }}</strong></td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+        {% else %}
+        <div class="text-center text-muted py-4">
+            <i class="bi bi-inbox" style="font-size:2rem;"></i>
+            <div>Sin ventas registradas hoy</div>
+        </div>
+        {% endif %}
     </div>
 </div>
-{% else %}
-<div class="card">
-    <div class="card-body text-center">
-        <i class="bi bi-check-circle text-success" style="font-size: 3em;"></i>
-        <h5 class="mt-3">Todo el stock está OK</h5>
-        <p class="text-muted">No hay productos con stock crítico en este momento</p>
-    </div>
-</div>
-{% endif %}
 
 {% endblock %}
