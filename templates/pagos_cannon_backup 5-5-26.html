@@ -34,7 +34,8 @@
     <div class="alert alert-secondary">No hay facturas cargadas. Agregá la primera con el botón de arriba.</div>
   {% else %}
     {% for g in grupos %}
-    {% set fcs = facturas_por_pago_id.get(g.pago_id, []) %}
+    {% set fecha_key = g.fecha_pago | string %}
+    {% set fcs = facturas_por_fecha.get(fecha_key, []) %}
     {% set pagado = g.monto_abonado is not none and g.monto_abonado %}
     {% set vencido = g.fecha_pago < hoy and not pagado %}
 
@@ -68,7 +69,7 @@
           <div class="d-flex gap-2">
             {% if not pagado %}
             <button class="btn btn-sm btn-{{ 'outline-light' if vencido else 'success' }}"
-                    onclick="abrirModalPago({{ g.pago_id }}, '{{ g.fecha_pago }}', {{ g.total_pp }})">
+                    onclick="abrirModalPago('{{ g.fecha_pago }}', {{ g.total_pp }})">
               <i class="bi bi-check-circle me-1"></i>Marcar pagado
             </button>
             {% else %}
@@ -79,14 +80,14 @@
             <!-- PP Cannon -->
             {% if not g.pp_recibido %}
             <button class="btn btn-sm btn-outline-light"
-                    onclick="marcarPP({{ g.pago_id }}, 1)">
+                    onclick="marcarPP('{{ g.fecha_pago }}', 1)">
               <i class="bi bi-gift me-1"></i>PP recibido
             </button>
             {% else %}
             <span class="badge bg-white text-success">
               <i class="bi bi-gift-fill me-1"></i>PP ✓ {{ g.fecha_pp.strftime('%d/%m/%Y') if g.fecha_pp else '' }}
             </span>
-            <button class="btn btn-sm btn-outline-light btn-xs" onclick="marcarPP({{ g.pago_id }}, 0)" title="Desmarcar">✕</button>
+            <button class="btn btn-sm btn-outline-light btn-xs" onclick="marcarPP('{{ g.fecha_pago }}', 0)" title="Desmarcar">✕</button>
             {% endif %}
             {% endif %}
           </div>
@@ -280,7 +281,6 @@
         <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <input type="hidden" id="pago_id">
         <input type="hidden" id="pago_fecha">
         <div class="mb-2">
           <label class="form-label small">Fecha de pago real</label>
@@ -418,8 +418,7 @@ async function guardarFactura() {
 
 // ── Pago ────────────────────────────────────────────────────────
 const _mPago = new bootstrap.Modal(document.getElementById('modalPago'));
-function abrirModalPago(pago_id, fecha_pago, total_pp) {
-  document.getElementById('pago_id').value = pago_id;
+function abrirModalPago(fecha_pago, total_pp) {
   document.getElementById('pago_fecha').value = fecha_pago;
   document.getElementById('pago_fecha_abono').value = _hoy;
   document.getElementById('pago_monto').value = total_pp;
@@ -429,7 +428,6 @@ function abrirModalPago(pago_id, fecha_pago, total_pp) {
 async function confirmarPago() {
   const res = await api({
     accion: 'marcar_pagado',
-    pago_id:      +document.getElementById('pago_id').value,
     fecha_pago:   document.getElementById('pago_fecha').value,
     monto_abonado: parseFloat(document.getElementById('pago_monto').value),
     fecha_abono:  document.getElementById('pago_fecha_abono').value,
@@ -441,13 +439,13 @@ async function confirmarPago() {
 }
 
 // ── Pronto pago ─────────────────────────────────────────────────
-async function marcarPP(pago_id, recibido) {
+async function marcarPP(fecha_pago, recibido) {
   let fecha_pp = null;
   if (recibido) {
     fecha_pp = prompt('Fecha de la NC de pronto pago (YYYY-MM-DD):', _hoy);
     if (fecha_pp === null) return;
   }
-  const res = await api({ accion:'marcar_pp_recibido', pago_id, recibido, fecha_pp });
+  const res = await api({ accion:'marcar_pp_recibido', fecha_pago, recibido, fecha_pp });
   if (!res.ok) { alert('Error: ' + res.error); return; }
   location.reload();
 }

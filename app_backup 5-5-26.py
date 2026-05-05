@@ -10263,14 +10263,13 @@ def _crear_tablas_pagos_cannon():
     execute_db("""
         CREATE TABLE IF NOT EXISTS cannon_pagos (
             id              INT AUTO_INCREMENT PRIMARY KEY,
-            fecha_pago      DATE NOT NULL,
+            fecha_pago      DATE NOT NULL UNIQUE,
             monto_abonado   DECIMAL(14,2),
             fecha_abono     DATE,
             pp_recibido     TINYINT(1) DEFAULT 0,
             fecha_pp        DATE,
             notas           TEXT,
-            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_fecha_pago (fecha_pago)
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     execute_db("""
@@ -10286,31 +10285,6 @@ def _crear_tablas_pagos_cannon():
             FOREIGN KEY (factura_id) REFERENCES cannon_facturas(id)
         )
     """)
-
-    # ── Migración: agregar pago_id a cannon_facturas ─────────────────
-    try:
-        execute_db("ALTER TABLE cannon_facturas ADD COLUMN pago_id INT DEFAULT NULL AFTER fecha_pago")
-    except Exception:
-        pass
-
-    # ── Migración: quitar UNIQUE de cannon_pagos.fecha_pago ──────────
-    # El nombre del índice puede variar según cómo MySQL lo haya creado.
-    for idx in ('fecha_pago', 'fecha_pago_2', 'cannon_pagos_fecha_pago_unique'):
-        try:
-            execute_db(f"ALTER TABLE cannon_pagos DROP INDEX {idx}")
-        except Exception:
-            pass
-
-    # ── Backfill: asociar facturas existentes a su cannon_pagos ──────
-    try:
-        execute_db("""
-            UPDATE cannon_facturas f
-            JOIN cannon_pagos p ON p.fecha_pago = f.fecha_pago
-            SET f.pago_id = p.id
-            WHERE f.pago_id IS NULL
-        """)
-    except Exception:
-        pass
 
 
 def _calcular_importe_pp(importe_total, pct):
@@ -10328,28 +10302,28 @@ def pagos_cannon():
 
     tab = request.args.get('tab', 'pendientes')
 
-    # Facturas pendientes de pago (agrupadas por pago_id — varios grupos pueden compartir fecha)
+    # Facturas pendientes de pago (agrupadas por fecha_pago)
     grupos_pendientes = query_db("""
         SELECT
             f.fecha_pago,
-            p.id AS pago_id,
             COUNT(f.id) AS total_fcs,
             SUM(f.importe_total) AS total_bruto,
             SUM(f.importe_pp) AS total_pp,
             SUM(f.descuento_pp_monto) AS total_descuento,
+            p.id AS pago_id,
             p.monto_abonado,
             p.fecha_abono,
             p.pp_recibido,
             p.fecha_pp,
             p.notas AS pago_notas
         FROM cannon_facturas f
-        JOIN cannon_pagos p ON p.id = f.pago_id
-        GROUP BY p.id, f.fecha_pago
-        ORDER BY f.fecha_pago ASC, p.id ASC
+        LEFT JOIN cannon_pagos p ON p.fecha_pago = f.fecha_pago
+        GROUP BY f.fecha_pago, p.id
+        ORDER BY f.fecha_pago ASC
     """)
 
-    # Detalle de facturas por grupo (indexado por pago_id)
-    facturas_por_pago_id = {}
+    # Detalle de facturas por grupo
+    facturas_por_fecha = {}
     todas_facturas = query_db("""
         SELECT f.*, r.id AS reclamo_id
         FROM cannon_facturas f
@@ -10357,10 +10331,10 @@ def pagos_cannon():
         ORDER BY f.fecha_pago ASC, f.fecha_comprobante ASC
     """)
     for fc in todas_facturas:
-        k = fc['pago_id']
-        if k not in facturas_por_pago_id:
-            facturas_por_pago_id[k] = []
-        facturas_por_pago_id[k].append(fc)
+        k = str(fc['fecha_pago'])
+        if k not in facturas_por_fecha:
+            facturas_por_fecha[k] = []
+        facturas_por_fecha[k].append(fc)
 
     # Reclamos
     reclamos = query_db("""
@@ -10372,7 +10346,7 @@ def pagos_cannon():
 
     return render_template('pagos_cannon.html',
         grupos=grupos_pendientes,
-        facturas_por_pago_id=facturas_por_pago_id,
+        facturas_por_fecha=facturas_por_fecha,
         reclamos=reclamos,
         tab=tab,
         hoy=date.today(),
@@ -10404,30 +10378,19 @@ def pagos_cannon_guardar():
             if existe:
                 return jsonify({'ok': False, 'error': 'Ya existe una factura con ese número'})
 
-            # Buscar grupo de pago abierto (no abonado) para esa fecha.
-            # Si ya está pagado o no existe, se crea un nuevo grupo aparte.
-            pago_abierto = query_one("""
-                SELECT id FROM cannon_pagos
-                WHERE fecha_pago = %s AND monto_abonado IS NULL
-                ORDER BY id ASC
-                LIMIT 1
-            """, (fecha_pago,))
-            if pago_abierto:
-                pago_id = pago_abierto['id']
-            else:
-                pago_id = execute_db(
-                    "INSERT INTO cannon_pagos (fecha_pago) VALUES (%s)",
-                    (fecha_pago,)
-                )
-
             execute_db("""
                 INSERT INTO cannon_facturas
                     (nro_comprobante, fecha_comprobante, fecha_recepcion,
                      importe_total, descuento_pp_pct, importe_pp, descuento_pp_monto,
-                     fecha_pago, pago_id, notas)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     fecha_pago, notas)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (data['nro_comprobante'], data['fecha_comprobante'], fecha_rec,
-                  importe, pct, imp_pp, descuento, fecha_pago, pago_id, data.get('notas', '')))
+                  importe, pct, imp_pp, descuento, fecha_pago, data.get('notas', '')))
+
+            # Crear registro de pago para esa fecha si no existe
+            execute_db("""
+                INSERT IGNORE INTO cannon_pagos (fecha_pago) VALUES (%s)
+            """, (fecha_pago,))
 
             return jsonify({'ok': True, 'fecha_pago': fecha_pago,
                             'importe_pp': imp_pp, 'descuento': descuento})
@@ -10439,16 +10402,16 @@ def pagos_cannon_guardar():
             execute_db("""
                 UPDATE cannon_pagos
                 SET monto_abonado = %s, fecha_abono = %s, notas = %s
-                WHERE id = %s
+                WHERE fecha_pago = %s
             """, (float(data['monto_abonado']), data['fecha_abono'],
-                  data.get('notas', ''), data['pago_id']))
+                  data.get('notas', ''), data['fecha_pago']))
 
         elif accion == 'marcar_pp_recibido':
             execute_db("""
                 UPDATE cannon_pagos
                 SET pp_recibido = %s, fecha_pp = %s
-                WHERE id = %s
-            """, (int(data['recibido']), data.get('fecha_pp') or None, data['pago_id']))
+                WHERE fecha_pago = %s
+            """, (int(data['recibido']), data.get('fecha_pp') or None, data['fecha_pago']))
 
         elif accion == 'marcar_error':
             execute_db("UPDATE cannon_facturas SET tiene_error = 1 WHERE id = %s", (data['factura_id'],))
