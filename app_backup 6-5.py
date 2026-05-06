@@ -6253,17 +6253,7 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
                 print(f"💰 Costo envío (shipping_option.cost): ${costo_envio}")
         
         shipping_data['costo_envio'] = costo_envio
-
-        # ✅ NUEVO: Costo de envío que paga el VENDEDOR (list_cost cuando el comprador no paga)
-        _so = shipment.get('shipping_option', {})
-        if _so:
-            _so_cost = _so.get('cost')          # lo que paga el comprador (0 = envío gratis para él)
-            _so_list  = float(_so.get('list_cost') or 0)
-            # Si el comprador no paga (cost==0), el costo lo absorbe el vendedor
-            shipping_data['list_cost_vendedor'] = _so_list if (_so_cost is not None and float(_so_cost) == 0) else 0.0
-        else:
-            shipping_data['list_cost_vendedor'] = 0.0
-
+        
         # Método de envío
         shipping_option = shipment.get('shipping_option', {})
         shipping_mode = shipping_option.get('shipping_method_id', '')
@@ -11866,7 +11856,6 @@ def _importar_orden_automatica(orden, access_token):
         orden_data = procesar_orden_ml(orden)
 
         # ML oculta first_name/last_name en búsqueda masiva — consultar orden individual
-        costo_comision_ml = 0.0
         try:
             headers_ml = {'Authorization': f'Bearer {access_token}'}
             r_individual = requests.get(
@@ -11874,18 +11863,14 @@ def _importar_orden_automatica(orden, access_token):
                 headers=headers_ml
             )
             if r_individual.status_code == 200:
-                orden_individual_json = r_individual.json()
-                buyer_full = orden_individual_json.get('buyer', {})
+                buyer_full = r_individual.json().get('buyer', {})
                 fn = (buyer_full.get('first_name') or '').strip()
                 ln = (buyer_full.get('last_name') or '').strip()
                 nombre_completo = f"{fn} {ln}".strip()
                 if nombre_completo:
                     orden_data['comprador_nombre'] = nombre_completo
-                # Extraer sale_fee (comisión ML ya incluye venta + financiación)
-                sale_fee_total = sum(float(it.get('sale_fee') or 0) for it in orden_individual_json.get('order_items', []))
-                costo_comision_ml = round(sale_fee_total / 1.21, 2)
         except Exception as e_buyer:
-            print(f"[AUTO-ML] No se pudo obtener nombre completo / sale_fee: {e_buyer}")
+            print(f"[AUTO-ML] No se pudo obtener nombre completo: {e_buyer}")
 
         # Verificar que todos los items tienen SKU mapeado en BD
         items_bd = []
@@ -12062,18 +12047,6 @@ def _importar_orden_automatica(orden, access_token):
         zona_envio = shipping.get('zona', '') if metodo_envio == 'Flete Propio' else zona_envio if metodo_envio == 'Delega' else ''
         direccion_entrega = shipping.get('direccion', '')
 
-        # ✅ NUEVO: Costos para rentabilidad
-        # Costo de envío que absorbe el vendedor: lo que cobra ML (list_cost) + flete propio si aplica
-        costo_envio_ml_vendedor = float(shipping.get('list_cost_vendedor', 0) or 0)
-        costo_flete_propio_config = 0.0
-        if metodo_envio in ('Flex', 'Flete Propio'):
-            try:
-                _row_fp = query_one("SELECT valor FROM configuracion WHERE clave='costo_flete_propio'")
-                costo_flete_propio_config = float(_row_fp['valor']) if _row_fp and _row_fp.get('valor') else 35000.0
-            except Exception:
-                costo_flete_propio_config = 35000.0
-        costo_envio_vendedor_calc = round(costo_envio_ml_vendedor + costo_flete_propio_config, 2)
-
         # Mapear SKUs compac a _DEP o _FULL ahora que conocemos ubicacion_despacho
         sufijo = '_FULL' if ubicacion_despacho == 'FULL' else '_DEP'
         items_bd = [
@@ -12132,13 +12105,11 @@ def _importar_orden_automatica(orden, access_token):
                     factura_business_name, factura_doc_type, factura_doc_number,
                     factura_taxpayer_type, factura_city, factura_street,
                     factura_state, factura_zip_code,
-                    auto_imported_at, notas_auto_orig,
-                    costo_comision, costo_envio_vendedor
+                    auto_imported_at, notas_auto_orig
                 ) VALUES (
                     %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                     %s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    NOW(), %s,
-                    %s,%s
+                    NOW(), %s
                 )
             ''', (
                 numero_venta, fecha_venta, canal, mla_code,
@@ -12154,7 +12125,6 @@ def _importar_orden_automatica(orden, access_token):
                 billing_info['city'], billing_info['street'],
                 billing_info['state'], billing_info['zip_code'],
                 notas,
-                costo_comision_ml, costo_envio_vendedor_calc,
             ))
             venta_id = cursor.lastrowid
 
@@ -13452,124 +13422,6 @@ def _build_precio_costos_map():
         print(f"[_build_precio_costos_map] Error: {e}")
         return {}
 
-
-# ============================================================================
-# RENTABILIDAD
-# ============================================================================
-
-@app.route('/rentabilidad')
-@login_required
-@admin_required
-def rentabilidad():
-    desde = request.args.get('desde', '')
-    hasta  = request.args.get('hasta',  '')
-
-    where_clauses = ["v.estado_entrega = 'entregada'"]
-    params = []
-    if desde:
-        where_clauses.append("DATE(v.fecha_venta) >= %s")
-        params.append(desde)
-    if hasta:
-        where_clauses.append("DATE(v.fecha_venta) <= %s")
-        params.append(hasta)
-
-    where_sql = ' AND '.join(where_clauses)
-
-    ventas_rows = query_db(f"""
-        SELECT v.id, v.numero_venta, v.fecha_venta, v.canal,
-               v.mla_code, v.nombre_cliente, v.metodo_envio, v.metodo_pago,
-               v.importe_total, v.costo_flete,
-               v.costo_comision, v.costo_envio_vendedor
-        FROM ventas v
-        WHERE {where_sql}
-        ORDER BY v.fecha_venta DESC
-    """, params)
-
-    if not ventas_rows:
-        return render_template('rentabilidad.html',
-                               ventas=[], desde=desde, hasta=hasta,
-                               totales={})
-
-    venta_ids = [v['id'] for v in ventas_rows]
-    fmt = ','.join(['%s'] * len(venta_ids))
-    items_rows = query_db(
-        f"SELECT venta_id, sku, cantidad, precio_unitario FROM items_venta WHERE venta_id IN ({fmt})",
-        venta_ids
-    )
-    items_por_venta = {}
-    for it in items_rows:
-        items_por_venta.setdefault(it['venta_id'], []).append(it)
-
-    precio_compra_map = _build_precio_compra_map()
-
-    resultados = []
-    tot_facturado = tot_sin_iva = tot_comision = tot_costo_prod = tot_costo_envio = tot_ganancia = 0.0
-
-    for v in ventas_rows:
-        # Total facturado con IVA (productos + flete si Flete Propio)
-        total_con_iva = float(v['importe_total'] or 0)
-        if v['metodo_envio'] == 'Flete Propio':
-            total_con_iva += float(v['costo_flete'] or 0)
-
-        total_sin_iva   = round(total_con_iva / 1.21, 2)
-        costo_comision  = float(v['costo_comision'] or 0)
-        costo_envio     = float(v['costo_envio_vendedor'] or 0)
-
-        # Costo de productos (precio de compra × cantidad por SKU)
-        costo_productos = 0.0
-        items = items_por_venta.get(v['id'], [])
-        for it in items:
-            sku_base = it['sku'].replace('_DEP', '').replace('_FULL', '')
-            pc = precio_compra_map.get(it['sku'], precio_compra_map.get(sku_base, 0))
-            costo_productos += pc * float(it['cantidad'])
-        costo_productos = round(costo_productos, 2)
-
-        ganancia = round(total_sin_iva - costo_comision - costo_productos - costo_envio, 2)
-        pct      = round(ganancia / total_con_iva * 100, 1) if total_con_iva else 0.0
-
-        resultados.append({
-            'id':             v['id'],
-            'numero_venta':   v['numero_venta'],
-            'fecha_venta':    v['fecha_venta'],
-            'canal':          v['canal'],
-            'mla_code':       v['mla_code'] or '',
-            'nombre_cliente': v['nombre_cliente'] or '',
-            'metodo_envio':   v['metodo_envio'] or '',
-            'metodo_pago':    v['metodo_pago'] or '',
-            'items':          items,
-            'total_con_iva':  total_con_iva,
-            'total_sin_iva':  total_sin_iva,
-            'costo_comision': costo_comision,
-            'costo_productos':costo_productos,
-            'costo_envio':    costo_envio,
-            'ganancia':       ganancia,
-            'pct':            pct,
-            'sin_costos':     v['costo_comision'] is None,
-        })
-
-        tot_facturado   += total_con_iva
-        tot_sin_iva     += total_sin_iva
-        tot_comision    += costo_comision
-        tot_costo_prod  += costo_productos
-        tot_costo_envio += costo_envio
-        tot_ganancia    += ganancia
-
-    totales = {
-        'facturado':    round(tot_facturado, 2),
-        'sin_iva':      round(tot_sin_iva, 2),
-        'comision':     round(tot_comision, 2),
-        'costo_prod':   round(tot_costo_prod, 2),
-        'costo_envio':  round(tot_costo_envio, 2),
-        'ganancia':     round(tot_ganancia, 2),
-        'pct':          round(tot_ganancia / tot_facturado * 100, 1) if tot_facturado else 0.0,
-    }
-
-    return render_template('rentabilidad.html',
-                           ventas=resultados, desde=desde, hasta=hasta,
-                           totales=totales)
-
-
-# ============================================================================
 
 @app.route('/costos')
 @admin_required

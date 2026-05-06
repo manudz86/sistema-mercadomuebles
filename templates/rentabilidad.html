@@ -1,0 +1,155 @@
+{% extends 'base.html' %}
+{% block title %}Rentabilidad{% endblock %}
+{% block content %}
+<div class="container-fluid px-4 py-3">
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="mb-0 fw-bold">📊 Rentabilidad — Ventas entregadas</h5>
+    <form class="d-flex gap-2 align-items-center" method="get">
+      <input type="date" name="desde" value="{{ desde }}" class="form-control form-control-sm" style="width:145px">
+      <span class="text-muted small">→</span>
+      <input type="date" name="hasta" value="{{ hasta }}" class="form-control form-control-sm" style="width:145px">
+      <button type="submit" class="btn btn-sm btn-primary">Filtrar</button>
+      {% if desde or hasta %}
+      <a href="{{ url_for('rentabilidad') }}" class="btn btn-sm btn-outline-secondary">✕</a>
+      {% endif %}
+    </form>
+  </div>
+
+  {% if ventas %}
+  <!-- Totales -->
+  <div class="row g-3 mb-4">
+    {% set cards = [
+      ('💰 Facturado c/IVA', totales.facturado, 'primary'),
+      ('🧾 Facturado s/IVA', totales.sin_iva, 'secondary'),
+      ('📉 Comisiones', totales.comision, 'warning'),
+      ('🏭 Costo productos', totales.costo_prod, 'info'),
+      ('🚚 Costo envío', totales.costo_envio, 'secondary'),
+      ('✅ Ganancia', totales.ganancia, 'success'),
+    ] %}
+    {% for label, valor, color in cards %}
+    <div class="col-md-2 col-sm-4">
+      <div class="card border-0 shadow-sm text-center py-2">
+        <div class="card-body p-2">
+          <div class="small text-muted">{{ label }}</div>
+          <div class="fw-bold fs-6 text-{{ color }}">${{ "{:,.0f}".format(valor).replace(",",".") }}</div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+    <div class="col-md-2 col-sm-4">
+      <div class="card border-0 shadow-sm text-center py-2 {% if totales.pct >= 20 %}bg-success bg-opacity-10{% elif totales.pct >= 10 %}bg-warning bg-opacity-10{% else %}bg-danger bg-opacity-10{% endif %}">
+        <div class="card-body p-2">
+          <div class="small text-muted">📈 % s/ facturado</div>
+          <div class="fw-bold fs-5 {% if totales.pct >= 20 %}text-success{% elif totales.pct >= 10 %}text-warning{% else %}text-danger{% endif %}">{{ totales.pct }}%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabla -->
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0 align-middle" style="font-size:0.78rem">
+          <thead class="table-dark">
+            <tr>
+              <th>Fecha</th>
+              <th>Venta</th>
+              <th>Cliente</th>
+              <th>Productos</th>
+              <th>Envío</th>
+              <th class="text-end">Total c/IVA</th>
+              <th class="text-end">Total s/IVA</th>
+              <th class="text-end">Comisión</th>
+              <th class="text-end">Costo prod.</th>
+              <th class="text-end">Costo envío</th>
+              <th class="text-end">Ganancia</th>
+              <th class="text-end">%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for v in ventas %}
+            <tr class="{% if v.sin_costos %}table-secondary{% elif v.pct >= 20 %}{% elif v.pct < 5 %}table-danger bg-opacity-25{% endif %}">
+              <td class="text-nowrap">{{ v.fecha_venta.strftime('%d/%m/%y') if v.fecha_venta else '—' }}</td>
+              <td>
+                <a href="{{ url_for('ventas_historicas') }}?q={{ v.numero_venta }}" class="text-decoration-none small">
+                  {{ v.numero_venta }}
+                </a>
+                {% if v.canal == 'Mercado Libre' %}<span class="badge bg-warning text-dark ms-1" style="font-size:0.65rem">ML</span>{% endif %}
+              </td>
+              <td>
+                {% if v.mla_code %}<strong>{{ v.mla_code }}</strong><br>{% endif %}
+                <span class="text-muted">{{ v.nombre_cliente }}</span>
+              </td>
+              <td style="max-width:200px">
+                {% for it in v.items %}
+                <span class="d-block text-truncate"><code>{{ it.sku }}</code> ×{{ it.cantidad }}</span>
+                {% endfor %}
+              </td>
+              <td>
+                {% if v.metodo_envio %}
+                <span class="badge
+                  {% if v.metodo_envio == 'Flex' %}bg-warning text-dark
+                  {% elif v.metodo_envio == 'Flete Propio' %}bg-danger
+                  {% elif v.metodo_envio == 'Zippin' %}bg-info text-dark
+                  {% elif v.metodo_envio == 'Turbo' %}bg-dark
+                  {% elif v.metodo_envio == 'Colecta' %}bg-primary
+                  {% elif v.metodo_envio == 'Delega' %}bg-secondary
+                  {% else %}bg-light text-dark{% endif %}">
+                  {{ v.metodo_envio }}
+                </span>
+                {% endif %}
+              </td>
+              <td class="text-end">${{ "{:,.0f}".format(v.total_con_iva).replace(",",".") }}</td>
+              <td class="text-end text-muted">${{ "{:,.0f}".format(v.total_sin_iva).replace(",",".") }}</td>
+              <td class="text-end text-warning">
+                {% if v.sin_costos %}<span class="text-muted">—</span>
+                {% else %>${{ "{:,.0f}".format(v.costo_comision).replace(",",".") }}{% endif %}
+              </td>
+              <td class="text-end">
+                {% if v.costo_productos %}${{ "{:,.0f}".format(v.costo_productos).replace(",",".") }}
+                {% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+              <td class="text-end">
+                {% if v.costo_envio %}${{ "{:,.0f}".format(v.costo_envio).replace(",",".") }}
+                {% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+              <td class="text-end fw-bold {% if not v.sin_costos %}{% if v.ganancia >= 0 %}text-success{% else %}text-danger{% endif %}{% else %}text-muted{% endif %}">
+                {% if v.sin_costos %}—
+                {% else %}${{ "{:,.0f}".format(v.ganancia).replace(",",".") }}{% endif %}
+              </td>
+              <td class="text-end fw-bold {% if not v.sin_costos %}{% if v.pct >= 20 %}text-success{% elif v.pct >= 10 %}text-warning{% else %}text-danger{% endif %}{% else %}text-muted{% endif %}">
+                {% if v.sin_costos %}—{% else %}{{ v.pct }}%{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot class="table-dark fw-bold">
+            <tr>
+              <td colspan="5">TOTAL ({{ ventas | length }} ventas)</td>
+              <td class="text-end">${{ "{:,.0f}".format(totales.facturado).replace(",",".") }}</td>
+              <td class="text-end">${{ "{:,.0f}".format(totales.sin_iva).replace(",",".") }}</td>
+              <td class="text-end text-warning">${{ "{:,.0f}".format(totales.comision).replace(",",".") }}</td>
+              <td class="text-end">${{ "{:,.0f}".format(totales.costo_prod).replace(",",".") }}</td>
+              <td class="text-end">${{ "{:,.0f}".format(totales.costo_envio).replace(",",".") }}</td>
+              <td class="text-end text-success">${{ "{:,.0f}".format(totales.ganancia).replace(",",".") }}</td>
+              <td class="text-end text-success">{{ totales.pct }}%</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-2 text-muted small">
+    🔘 Fila gris = venta sin datos de costos (importada antes de esta actualización) ·
+    🔴 Fila roja = ganancia &lt; 5%
+  </div>
+
+  {% else %}
+  <div class="alert alert-info">No hay ventas entregadas en el período seleccionado.</div>
+  {% endif %}
+
+</div>
+{% endblock %}
