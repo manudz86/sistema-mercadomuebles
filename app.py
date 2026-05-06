@@ -12062,17 +12062,24 @@ def _importar_orden_automatica(orden, access_token):
         zona_envio = shipping.get('zona', '') if metodo_envio == 'Flete Propio' else zona_envio if metodo_envio == 'Delega' else ''
         direccion_entrega = shipping.get('direccion', '')
 
-        # ✅ NUEVO: Costos para rentabilidad
-        # Costo de envío que absorbe el vendedor: lo que cobra ML (list_cost) + flete propio si aplica
-        costo_envio_ml_vendedor = float(shipping.get('list_cost_vendedor', 0) or 0)
-        costo_flete_propio_config = 0.0
+        # ✅ NUEVO: Costos de envío según modalidad
         if metodo_envio in ('Flex', 'Flete Propio'):
+            # Envío propio: solo costo fijo, NO se suma list_cost de ML
             try:
                 _row_fp = query_one("SELECT valor FROM configuracion WHERE clave='costo_flete_propio'")
-                costo_flete_propio_config = float(_row_fp['valor']) if _row_fp and _row_fp.get('valor') else 35000.0
+                costo_envio_vendedor_calc = float(_row_fp['valor']) if _row_fp and _row_fp.get('valor') else 35000.0
             except Exception:
-                costo_flete_propio_config = 35000.0
-        costo_envio_vendedor_calc = round(costo_envio_ml_vendedor + costo_flete_propio_config, 2)
+                costo_envio_vendedor_calc = 35000.0
+        elif metodo_envio == 'Delega':
+            # Delega: costo fijo configurable
+            try:
+                _row_del = query_one("SELECT valor FROM configuracion WHERE clave='costo_delega'")
+                costo_envio_vendedor_calc = float(_row_del['valor']) if _row_del and _row_del.get('valor') else 5000.0
+            except Exception:
+                costo_envio_vendedor_calc = 5000.0
+        else:
+            # Colecta, Turbo, Zippin, Retiro: lo que cobra ML al vendedor
+            costo_envio_vendedor_calc = round(float(shipping.get('list_cost_vendedor', 0) or 0), 2)
 
         # Mapear SKUs compac a _DEP o _FULL ahora que conocemos ubicacion_despacho
         sufijo = '_FULL' if ubicacion_despacho == 'FULL' else '_DEP'
@@ -13502,11 +13509,31 @@ def rentabilidad():
 
     precio_compra_map = _build_precio_compra_map()
 
+    # Mapa de componentes para combos (PLATINOX2, PLATINO3, etc.)
+    compuestos_comp = {}
+    try:
+        for cr in query_db(
+            "SELECT pc.sku as sc, pb.sku as sb, c.cantidad_necesaria as cn "
+            "FROM productos_compuestos pc "
+            "JOIN componentes c ON pc.id = c.producto_compuesto_id "
+            "JOIN productos_base pb ON c.producto_base_id = pb.id"
+        ):
+            compuestos_comp.setdefault(cr['sc'], []).append({'sku': cr['sb'], 'cant': float(cr['cn'])})
+    except Exception as e_cc:
+        print(f"[rentabilidad] componentes error: {e_cc}")
+
+    # Config costos de envio editables
+    r_fp  = query_one("SELECT valor FROM configuracion WHERE clave='costo_flete_propio'")
+    r_del = query_one("SELECT valor FROM configuracion WHERE clave='costo_delega'")
+    config_envio = {
+        'flete_propio': float(r_fp['valor'])  if r_fp  and r_fp.get('valor')  else 35000.0,
+        'delega':       float(r_del['valor']) if r_del and r_del.get('valor') else 5000.0,
+    }
+
     resultados = []
     tot_facturado = tot_sin_iva = tot_comision = tot_costo_prod = tot_costo_envio = tot_ganancia = 0.0
 
     for v in ventas_rows:
-        # Total facturado con IVA (productos + flete si Flete Propio)
         total_con_iva = float(v['importe_total'] or 0)
         if v['metodo_envio'] == 'Flete Propio':
             total_con_iva += float(v['costo_flete'] or 0)
@@ -13515,12 +13542,16 @@ def rentabilidad():
         costo_comision  = float(v['costo_comision'] or 0)
         costo_envio     = float(v['costo_envio_vendedor'] or 0)
 
-        # Costo de productos (precio de compra × cantidad por SKU)
+        # Costo de productos: base SKU directo, o descomponiendo combos
         costo_productos = 0.0
         items = items_por_venta.get(v['id'], [])
         for it in items:
-            sku_base = it['sku'].replace('_DEP', '').replace('_FULL', '')
-            pc = precio_compra_map.get(it['sku'], precio_compra_map.get(sku_base, 0))
+            sku_raw  = it['sku']
+            sku_base = sku_raw.replace('_DEP', '').replace('_FULL', '')
+            pc = precio_compra_map.get(sku_raw, precio_compra_map.get(sku_base, 0))
+            if not pc:
+                for comp in compuestos_comp.get(sku_raw, compuestos_comp.get(sku_base, [])):
+                    pc += precio_compra_map.get(comp['sku'], 0) * comp['cant']
             costo_productos += pc * float(it['cantidad'])
         costo_productos = round(costo_productos, 2)
 
@@ -13566,7 +13597,25 @@ def rentabilidad():
 
     return render_template('rentabilidad.html',
                            ventas=resultados, desde=desde, hasta=hasta,
-                           totales=totales)
+                           totales=totales, config_envio=config_envio)
+
+
+@app.route('/rentabilidad/config', methods=['POST'])
+@login_required
+@admin_required
+def rentabilidad_config():
+    """Guardar costos de envío editables desde el template de rentabilidad."""
+    try:
+        costo_fp  = float(request.form.get('costo_flete_propio', 35000))
+        costo_del = float(request.form.get('costo_delega', 5000))
+        execute_db("UPDATE configuracion SET valor=%s WHERE clave='costo_flete_propio'", [str(int(costo_fp))])
+        execute_db("UPDATE configuracion SET valor=%s WHERE clave='costo_delega'",       [str(int(costo_del))])
+    except Exception as e:
+        print(f"[rentabilidad_config] Error: {e}")
+    desde = request.form.get('desde', '')
+    hasta  = request.form.get('hasta',  '')
+    qs = f"?desde={desde}&hasta={hasta}" if (desde or hasta) else ''
+    return redirect(url_for('rentabilidad') + qs)
 
 
 # ============================================================================

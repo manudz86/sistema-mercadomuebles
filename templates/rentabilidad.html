@@ -5,15 +5,42 @@
 
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h5 class="mb-0 fw-bold">📊 Rentabilidad — Ventas entregadas</h5>
-    <form class="d-flex gap-2 align-items-center" method="get">
-      <input type="date" name="desde" value="{{ desde }}" class="form-control form-control-sm" style="width:145px">
-      <span class="text-muted small">→</span>
-      <input type="date" name="hasta" value="{{ hasta }}" class="form-control form-control-sm" style="width:145px">
-      <button type="submit" class="btn btn-sm btn-primary">Filtrar</button>
-      {% if desde or hasta %}
-      <a href="{{ url_for('rentabilidad') }}" class="btn btn-sm btn-outline-secondary">✕</a>
-      {% endif %}
-    </form>
+    <div class="d-flex gap-2 align-items-center">
+      <form class="d-flex gap-2 align-items-center" method="get">
+        <input type="date" name="desde" value="{{ desde }}" class="form-control form-control-sm" style="width:145px">
+        <span class="text-muted small">→</span>
+        <input type="date" name="hasta" value="{{ hasta }}" class="form-control form-control-sm" style="width:145px">
+        <button type="submit" class="btn btn-sm btn-primary">Filtrar</button>
+        {% if desde or hasta %}<a href="{{ url_for('rentabilidad') }}" class="btn btn-sm btn-outline-secondary">✕</a>{% endif %}
+      </form>
+      <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#config-envio">⚙️ Costos</button>
+    </div>
+  </div>
+
+  <!-- Panel config costos envío -->
+  <div class="collapse mb-3" id="config-envio">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body py-2">
+        <form method="post" action="{{ url_for('rentabilidad_config') }}" class="d-flex gap-3 align-items-end flex-wrap">
+          <input type="hidden" name="desde" value="{{ desde }}">
+          <input type="hidden" name="hasta" value="{{ hasta }}">
+          <div>
+            <label class="form-label small mb-1">Costo Flex / Flete Propio ($)</label>
+            <input type="number" name="costo_flete_propio" value="{{ config_envio.flete_propio | int }}"
+                   class="form-control form-control-sm" style="width:140px">
+          </div>
+          <div>
+            <label class="form-label small mb-1">Costo Delega ($)</label>
+            <input type="number" name="costo_delega" value="{{ config_envio.delega | int }}"
+                   class="form-control form-control-sm" style="width:140px">
+          </div>
+          <div>
+            <button type="submit" class="btn btn-sm btn-success">Guardar</button>
+          </div>
+          <div class="text-muted small align-self-center">Estos valores afectan ventas nuevas. Para recalcular históricas usar backfill.</div>
+        </form>
+      </div>
+    </div>
   </div>
 
   {% if ventas %}
@@ -176,8 +203,7 @@
   </div>
 
   <div class="mt-2 text-muted small">
-    🔘 Fila gris = sin datos de costos (anterior a esta actualización) ·
-    🔴 Fila roja = margen menor a 5%
+    🔘 Fila gris = sin datos de costos (anterior a esta actualización) · 🔴 Fila roja = margen menor a 5%
   </div>
 
   {% else %}
