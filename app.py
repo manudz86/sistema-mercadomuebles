@@ -13536,7 +13536,7 @@ def rentabilidad():
             'nombre_cliente': v['nombre_cliente'] or '',
             'metodo_envio':   v['metodo_envio'] or '',
             'metodo_pago':    v['metodo_pago'] or '',
-            'items':          items,
+            'lineas':         items,
             'total_con_iva':  total_con_iva,
             'total_sin_iva':  total_sin_iva,
             'costo_comision': costo_comision,

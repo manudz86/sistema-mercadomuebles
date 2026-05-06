@@ -118,7 +118,7 @@
                 <span class="text-muted">{{ v.nombre_cliente }}</span>
               </td>
               <td style="max-width:200px">
-                {% for it in v.items %}<span class="d-block text-truncate"><code>{{ it.sku }}</code> x{{ it.cantidad }}</span>{% endfor %}
+                {% for it in v.lineas %}<span class="d-block text-truncate"><code>{{ it.sku }}</code> x{{ it.cantidad }}</span>{% endfor %}
               </td>
               <td>
                 {% if v.metodo_envio == 'Flex' %}<span class="badge bg-warning text-dark">Flex</span>
