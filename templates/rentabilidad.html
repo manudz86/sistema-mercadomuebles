@@ -26,6 +26,10 @@
           <button type="submit" class="btn btn-sm btn-success">Guardar</button>
           <span class="text-muted small align-self-center">Solo afecta ventas nuevas. Para recalcular históricas usar backfill.</span>
         </form>
+        <hr class="my-2">
+        <form method="post" action="{{ url_for('rentabilidad_recalcular_costos') }}" onsubmit="return confirm('Recalcular costo_productos de TODAS las ventas históricas usando la lista de precios actual?');">
+          <button type="submit" class="btn btn-sm btn-outline-warning">🔄 Recalcular costos productos (todos los históricos)</button>
+        </form>
       </div>
     </div>
   </div>

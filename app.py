@@ -13675,6 +13675,42 @@ def rentabilidad():
                            canal_filter=canal_filter)
 
 
+@app.route('/rentabilidad/recalcular-costos', methods=['POST'])
+@login_required
+@admin_required
+def rentabilidad_recalcular_costos():
+    """Recalcula costo_productos para todas las ventas históricas usando _build_precio_compra_map() oficial."""
+    try:
+        pcmap = _build_precio_compra_map()
+        ccmap = {}
+        for cr in query_db(
+            "SELECT pc.sku sc, pb.sku sb, c.cantidad_necesaria cn "
+            "FROM productos_compuestos pc "
+            "JOIN componentes c ON pc.id=c.producto_compuesto_id "
+            "JOIN productos_base pb ON c.producto_base_id=pb.id"
+        ):
+            ccmap.setdefault(cr['sc'], []).append({'sku': cr['sb'], 'cant': float(cr['cn'])})
+
+        ventas_ids = [v['id'] for v in query_db("SELECT id FROM ventas WHERE estado_entrega='entregada' AND DATE(fecha_venta) >= '2026-04-01'")]
+        actualizadas = 0
+        for vid in ventas_ids:
+            costo = 0.0
+            for it in query_db("SELECT sku, cantidad FROM items_venta WHERE venta_id=%s", [vid]):
+                sr = it['sku']; sb = sr.replace('_DEP','').replace('_FULL','')
+                pc = pcmap.get(sr, pcmap.get(sb, 0))
+                if not pc:
+                    for c in ccmap.get(sr, ccmap.get(sb, [])):
+                        pc += pcmap.get(c['sku'], 0) * c['cant']
+                costo += pc * float(it['cantidad'])
+            execute_db("UPDATE ventas SET costo_productos=%s WHERE id=%s", [round(costo, 2), vid])
+            actualizadas += 1
+
+        flash(f'✅ {actualizadas} ventas recalculadas con costos correctos', 'success')
+    except Exception as e:
+        flash(f'Error: {e}', 'danger')
+    return redirect(url_for('rentabilidad'))
+
+
 @app.route('/rentabilidad/editar-costo', methods=['POST'])
 @login_required
 @admin_required
