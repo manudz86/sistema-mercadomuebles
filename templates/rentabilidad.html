@@ -5,19 +5,10 @@
 
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h5 class="mb-0 fw-bold">📊 Rentabilidad — Ventas entregadas</h5>
-    <div class="d-flex gap-2 align-items-center">
-      <form class="d-flex gap-2 align-items-center" method="get">
-        <input type="date" name="desde" value="{{ desde }}" class="form-control form-control-sm" style="width:145px">
-        <span class="text-muted small">→</span>
-        <input type="date" name="hasta" value="{{ hasta }}" class="form-control form-control-sm" style="width:145px">
-        <button type="submit" class="btn btn-sm btn-primary">Filtrar</button>
-        {% if desde or hasta %}<a href="{{ url_for('rentabilidad') }}" class="btn btn-sm btn-outline-secondary">✕</a>{% endif %}
-      </form>
-      <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#config-envio">⚙️ Costos</button>
-    </div>
+    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#config-envio">⚙️ Costos envío</button>
   </div>
 
-  <!-- Panel config costos envío -->
+  <!-- Panel config costos -->
   <div class="collapse mb-3" id="config-envio">
     <div class="card border-0 shadow-sm">
       <div class="card-body py-2">
@@ -25,84 +16,94 @@
           <input type="hidden" name="desde" value="{{ desde }}">
           <input type="hidden" name="hasta" value="{{ hasta }}">
           <div>
-            <label class="form-label small mb-1">Costo Flex / Flete Propio ($)</label>
-            <input type="number" name="costo_flete_propio" value="{{ config_envio.flete_propio | int }}"
-                   class="form-control form-control-sm" style="width:140px">
+            <label class="form-label small mb-1">Flex / Flete Propio ($)</label>
+            <input type="number" name="costo_flete_propio" value="{{ config_envio.flete_propio | int }}" class="form-control form-control-sm" style="width:130px">
           </div>
           <div>
-            <label class="form-label small mb-1">Costo Delega ($)</label>
-            <input type="number" name="costo_delega" value="{{ config_envio.delega | int }}"
-                   class="form-control form-control-sm" style="width:140px">
+            <label class="form-label small mb-1">Delega ($)</label>
+            <input type="number" name="costo_delega" value="{{ config_envio.delega | int }}" class="form-control form-control-sm" style="width:120px">
           </div>
-          <div>
-            <button type="submit" class="btn btn-sm btn-success">Guardar</button>
-          </div>
-          <div class="text-muted small align-self-center">Estos valores afectan ventas nuevas. Para recalcular históricas usar backfill.</div>
+          <button type="submit" class="btn btn-sm btn-success">Guardar</button>
+          <span class="text-muted small align-self-center">Solo afecta ventas nuevas. Para recalcular históricas usar backfill.</span>
         </form>
       </div>
     </div>
   </div>
 
+  <!-- Filtros -->
+  <form method="get" class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+      <div class="d-flex gap-2 align-items-end flex-wrap">
+        <div>
+          <label class="form-label small mb-1">Desde</label>
+          <input type="date" name="desde" value="{{ desde }}" class="form-control form-control-sm" style="width:140px">
+        </div>
+        <div>
+          <label class="form-label small mb-1">Hasta</label>
+          <input type="date" name="hasta" value="{{ hasta }}" class="form-control form-control-sm" style="width:140px">
+        </div>
+        <div>
+          <label class="form-label small mb-1">SKU</label>
+          <input type="text" name="sku" value="{{ sku_filter }}" placeholder="Ej: SPR14020" class="form-control form-control-sm" style="width:130px">
+        </div>
+        <div>
+          <label class="form-label small mb-1">Envío</label>
+          <select name="envio" class="form-select form-select-sm" style="width:140px">
+            <option value="">Todos</option>
+            {% for op in ['Flex','Flete Propio','Colecta','Turbo','Delega','Zippin','Retiro'] %}
+            <option value="{{ op }}" {% if envio_filter == op %}selected{% endif %}>{{ op }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="form-label small mb-1">Canal</label>
+          <select name="canal" class="form-select form-select-sm" style="width:130px">
+            <option value="">Todos</option>
+            <option value="ML" {% if canal_filter == 'ML' %}selected{% endif %}>ML</option>
+            <option value="MP" {% if canal_filter == 'MP' %}selected{% endif %}>MP Tienda</option>
+            <option value="GN" {% if canal_filter == 'GN' %}selected{% endif %}>GetNet</option>
+            <option value="PW" {% if canal_filter == 'PW' %}selected{% endif %}>Payway</option>
+            <option value="VENTA" {% if canal_filter == 'VENTA' %}selected{% endif %}>Venta Manual</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-sm btn-primary">Filtrar</button>
+        {% if desde or hasta or sku_filter or envio_filter or canal_filter %}
+        <a href="{{ url_for('rentabilidad') }}" class="btn btn-sm btn-outline-secondary">✕ Limpiar</a>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+
   {% if ventas %}
 
   <!-- Tarjetas totales -->
-  <div class="row g-3 mb-4">
-    <div class="col-md-2 col-sm-4">
-      <div class="card border-0 shadow-sm text-center py-2">
+  <div class="row g-2 mb-3">
+    {% set cards = [
+      ('💰 Facturado c/IVA', totales.facturado, 'primary'),
+      ('🧾 s/IVA', totales.sin_iva, 'secondary'),
+      ('📉 Comisiones', totales.comision, 'warning'),
+      ('🏭 Costo prod.', totales.costo_prod, 'info'),
+      ('🚚 Costo envío', totales.costo_envio, 'dark'),
+      ('✅ Ganancia', totales.ganancia, 'success'),
+    ] %}
+    {% for label, valor, color in cards %}
+    <div class="col">
+      <div class="card border-0 shadow-sm text-center py-1">
         <div class="card-body p-2">
-          <div class="small text-muted">💰 Facturado c/IVA</div>
-          <div class="fw-bold fs-6 text-primary">${{ "{:,.0f}".format(totales.facturado).replace(",",".") }}</div>
+          <div class="small text-muted">{{ label }}</div>
+          <div class="fw-bold text-{{ color }}">${{ "{:,.0f}".format(valor).replace(",",".") }}</div>
         </div>
       </div>
     </div>
-    <div class="col-md-2 col-sm-4">
-      <div class="card border-0 shadow-sm text-center py-2">
+    {% endfor %}
+    <div class="col">
+      {% if totales.pct >= 20 %}{% set pc = 'bg-success bg-opacity-10' %}{% set pt = 'text-success' %}
+      {% elif totales.pct >= 10 %}{% set pc = 'bg-warning bg-opacity-10' %}{% set pt = 'text-warning' %}
+      {% else %}{% set pc = 'bg-danger bg-opacity-10' %}{% set pt = 'text-danger' %}{% endif %}
+      <div class="card border-0 shadow-sm text-center py-1 {{ pc }}">
         <div class="card-body p-2">
-          <div class="small text-muted">🧾 Facturado s/IVA</div>
-          <div class="fw-bold fs-6 text-secondary">${{ "{:,.0f}".format(totales.sin_iva).replace(",",".") }}</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-2 col-sm-4">
-      <div class="card border-0 shadow-sm text-center py-2">
-        <div class="card-body p-2">
-          <div class="small text-muted">📉 Comisiones</div>
-          <div class="fw-bold fs-6 text-warning">${{ "{:,.0f}".format(totales.comision).replace(",",".") }}</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-2 col-sm-4">
-      <div class="card border-0 shadow-sm text-center py-2">
-        <div class="card-body p-2">
-          <div class="small text-muted">🏭 Costo productos</div>
-          <div class="fw-bold fs-6 text-info">${{ "{:,.0f}".format(totales.costo_prod).replace(",",".") }}</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-2 col-sm-4">
-      <div class="card border-0 shadow-sm text-center py-2">
-        <div class="card-body p-2">
-          <div class="small text-muted">🚚 Costo envío</div>
-          <div class="fw-bold fs-6">${{ "{:,.0f}".format(totales.costo_envio).replace(",",".") }}</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-2 col-sm-4">
-      <div class="card border-0 shadow-sm text-center py-2">
-        <div class="card-body p-2">
-          <div class="small text-muted">✅ Ganancia</div>
-          <div class="fw-bold fs-6 text-success">${{ "{:,.0f}".format(totales.ganancia).replace(",",".") }}</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-2 col-sm-4">
-      {% if totales.pct >= 20 %}{% set pct_clase = 'bg-success bg-opacity-10' %}{% set pct_txt = 'text-success' %}
-      {% elif totales.pct >= 10 %}{% set pct_clase = 'bg-warning bg-opacity-10' %}{% set pct_txt = 'text-warning' %}
-      {% else %}{% set pct_clase = 'bg-danger bg-opacity-10' %}{% set pct_txt = 'text-danger' %}{% endif %}
-      <div class="card border-0 shadow-sm text-center py-2 {{ pct_clase }}">
-        <div class="card-body p-2">
-          <div class="small text-muted">📈 Margen s/facturado</div>
-          <div class="fw-bold fs-5 {{ pct_txt }}">{{ totales.pct }}%</div>
+          <div class="small text-muted">📈 Margen</div>
+          <div class="fw-bold fs-5 {{ pt }}">{{ totales.pct }}%</div>
         </div>
       </div>
     </div>
@@ -123,7 +124,7 @@
               <th class="text-end">Total c/IVA</th>
               <th class="text-end">Total s/IVA</th>
               <th class="text-end">Comisión</th>
-              <th class="text-end">Costo prod.</th>
+              <th class="text-end" title="Click para editar">Costo prod. ✏️</th>
               <th class="text-end">Costo envío</th>
               <th class="text-end">Ganancia</th>
               <th class="text-end">Margen</th>
@@ -131,31 +132,31 @@
           </thead>
           <tbody>
             {% for v in ventas %}
-            {% if v.sin_costos %}{% set row_clase = 'table-secondary' %}
-            {% elif v.pct < 5 %}{% set row_clase = 'table-danger' %}
-            {% else %}{% set row_clase = '' %}{% endif %}
-            <tr class="{{ row_clase }}">
+            {% if v.sin_costos %}{% set rc = 'table-secondary' %}
+            {% elif v.pct < 5 %}{% set rc = 'table-danger' %}
+            {% else %}{% set rc = '' %}{% endif %}
+            <tr class="{{ rc }}" data-venta-id="{{ v.id }}">
               <td class="text-nowrap">{% if v.fecha_venta %}{{ v.fecha_venta.strftime('%d/%m/%y') }}{% else %}—{% endif %}</td>
               <td>
                 <a href="{{ url_for('ventas_historicas') }}?q={{ v.numero_venta }}" class="text-decoration-none small">{{ v.numero_venta }}</a>
-                {% if v.canal == 'Mercado Libre' %}<span class="badge bg-warning text-dark ms-1" style="font-size:0.65rem">ML</span>{% endif %}
+                {% if v.canal == 'Mercado Libre' %}<span class="badge bg-warning text-dark ms-1" style="font-size:0.6rem">ML</span>{% endif %}
               </td>
               <td>
                 {% if v.mla_code %}<strong>{{ v.mla_code }}</strong><br>{% endif %}
-                <span class="text-muted">{{ v.nombre_cliente }}</span>
+                <span class="text-muted small">{{ v.nombre_cliente }}</span>
               </td>
-              <td style="max-width:200px">
+              <td style="max-width:180px">
                 {% for it in v.lineas %}<span class="d-block text-truncate"><code>{{ it.sku }}</code> x{{ it.cantidad }}</span>{% endfor %}
               </td>
               <td>
                 {% if v.metodo_envio == 'Flex' %}<span class="badge bg-warning text-dark">Flex</span>
-                {% elif v.metodo_envio == 'Flete Propio' %}<span class="badge bg-danger">Flete Propio</span>
+                {% elif v.metodo_envio == 'Flete Propio' %}<span class="badge bg-danger">Flete</span>
                 {% elif v.metodo_envio == 'Zippin' %}<span class="badge bg-info text-dark">Zippin</span>
                 {% elif v.metodo_envio == 'Turbo' %}<span class="badge bg-dark">Turbo</span>
                 {% elif v.metodo_envio == 'Colecta' %}<span class="badge bg-primary">Colecta</span>
                 {% elif v.metodo_envio == 'Delega' %}<span class="badge bg-secondary">Delega</span>
-                {% elif v.metodo_envio == 'Retiro' %}<span class="badge bg-light text-dark">Retiro</span>
-                {% elif v.metodo_envio %}<span class="badge bg-light text-dark">{{ v.metodo_envio }}</span>{% endif %}
+                {% elif v.metodo_envio == 'Retiro' %}<span class="badge bg-light text-dark border">Retiro</span>
+                {% elif v.metodo_envio %}<span class="badge bg-light text-dark border">{{ v.metodo_envio }}</span>{% endif %}
               </td>
               <td class="text-end">${{ "{:,.0f}".format(v.total_con_iva).replace(",",".") }}</td>
               <td class="text-end text-muted">${{ "{:,.0f}".format(v.total_sin_iva).replace(",",".") }}</td>
@@ -163,9 +164,13 @@
                 {% if v.sin_costos %}<span class="text-muted">—</span>
                 {% else %}${{ "{:,.0f}".format(v.costo_comision).replace(",",".") }}{% endif %}
               </td>
-              <td class="text-end">
-                {% if v.costo_productos %}${{ "{:,.0f}".format(v.costo_productos).replace(",",".") }}
-                {% else %}<span class="text-muted">—</span>{% endif %}
+              <td class="text-end costo-prod-cell" style="cursor:pointer" title="Click para editar"
+                  data-venta-id="{{ v.id }}" data-valor="{{ v.costo_productos | int }}">
+                {% if v.costo_productos %}
+                  <span class="costo-display">${{ "{:,.0f}".format(v.costo_productos).replace(",",".") }}</span>
+                {% else %}
+                  <span class="costo-display text-muted">—</span>
+                {% endif %}
               </td>
               <td class="text-end">
                 {% if v.costo_envio %}${{ "{:,.0f}".format(v.costo_envio).replace(",",".") }}
@@ -203,7 +208,7 @@
   </div>
 
   <div class="mt-2 text-muted small">
-    🔘 Fila gris = sin datos de costos (anterior a esta actualización) · 🔴 Fila roja = margen menor a 5%
+    🔘 Fila gris = sin datos de costos · 🔴 Fila roja = margen &lt; 5% · ✏️ Click en costo prod. para editar
   </div>
 
   {% else %}
@@ -211,4 +216,46 @@
   {% endif %}
 
 </div>
+
+<script>
+// Edición inline de costo_productos
+document.querySelectorAll('.costo-prod-cell').forEach(cell => {
+  cell.addEventListener('click', function() {
+    if (this.querySelector('input')) return;
+    const ventaId = this.dataset.ventaId;
+    const valorActual = this.dataset.valor || '0';
+    const display = this.querySelector('.costo-display');
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.value = valorActual;
+    input.className = 'form-control form-control-sm text-end';
+    input.style.width = '110px';
+    input.style.display = 'inline-block';
+    display.style.display = 'none';
+    this.appendChild(input);
+    input.focus();
+    input.select();
+
+    const guardar = async () => {
+      const nuevo = parseFloat(input.value) || 0;
+      try {
+        const fd = new FormData();
+        fd.append('venta_id', ventaId);
+        fd.append('costo_productos', nuevo);
+        const r = await fetch('/rentabilidad/editar-costo', {method:'POST', body: fd});
+        const d = await r.json();
+        if (d.ok) {
+          cell.dataset.valor = nuevo;
+          display.textContent = nuevo > 0 ? '$' + nuevo.toLocaleString('es-AR', {maximumFractionDigits:0}) : '—';
+          display.className = nuevo > 0 ? 'costo-display' : 'costo-display text-muted';
+        }
+      } catch(e) { console.error(e); }
+      input.remove();
+      display.style.display = '';
+    };
+    input.addEventListener('blur', guardar);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') { input.remove(); display.style.display = ''; } });
+  });
+});
+</script>
 {% endblock %}
