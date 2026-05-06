@@ -11,8 +11,8 @@ import re
 
 # ── Config DB ──────────────────────────────────────────────────────────────
 DB_HOST = 'localhost'
-DB_USER = 'root'
-DB_PASS = 'APP_USR-2109946238600277-050610-678cc133526eec1ddae2e19a02a57988-29563319'
+DB_USER = 'cannon'
+DB_PASS = 'Sistema@32267845'
 DB_NAME = 'inventario_cannon'
 
 # ── Config ─────────────────────────────────────────────────────────────────
@@ -38,6 +38,9 @@ def main():
         print("❌ No se encontró ml_token en configuracion")
         return
     token   = row['valor'].strip()
+    import json as _json
+    if token.startswith('{'):
+        token = _json.loads(token).get('access_token', token)
     headers = {'Authorization': f'Bearer {token}'}
 
     # Costo flete propio desde DB
