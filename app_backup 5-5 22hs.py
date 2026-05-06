@@ -6200,7 +6200,6 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
         'metodo_envio_ml': '',
         'logistic_type_ml': '',
         'costo_envio': 0,
-        'substatus': '',
         'fecha_entrega_ml': '',
         'turbo_rango': '',
         'direccion': '',
@@ -6222,9 +6221,6 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
             return shipping_data
         
         shipment = response.json()
-        
-        # Capturar substatus (sirve para detectar 'shipment_paid')
-        shipping_data['substatus'] = shipment.get('substatus', '') or ''
         
         # ✅ NUEVO: Capturar COSTO DE ENVÍO
         # Puede estar en varios lugares según el tipo de envío
@@ -11826,19 +11822,6 @@ def _init_auto_import_table():
             print("[AUTO-ML] Columna ventas_no_mapeadas agregada.")
         except Exception:
             pass  # Ya existe, ignorar
-        # Columnas para rechequeo de ventas auto-importadas
-        try:
-            execute_db("ALTER TABLE ventas ADD COLUMN auto_imported_at TIMESTAMP NULL")
-        except Exception:
-            pass  # Ya existe
-        try:
-            execute_db("ALTER TABLE ventas ADD COLUMN auto_rechecked TINYINT DEFAULT 0")
-        except Exception:
-            pass  # Ya existe
-        try:
-            execute_db("ALTER TABLE ventas ADD COLUMN notas_auto_orig TEXT NULL")
-        except Exception:
-            pass  # Ya existe
     except Exception as e:
         print(f"[AUTO-ML] Error init tabla: {e}")
 
@@ -12059,17 +12042,6 @@ def _importar_orden_automatica(orden, access_token):
         importe_abonado = float(orden_data.get('paid_amount') or orden_data['total'])  # productos + flete
         pago_mp = importe_abonado
         pago_efectivo = 0.0
-
-        # Bug fix: en algunas órdenes ML reporta paid_amount sin sumar el flete
-        # (la mayoría sí lo suma). Detectamos el caso y agregamos el flete cuando
-        # el shipment está marcado como pagado por ML (substatus='shipment_paid').
-        if (importe_abonado <= importe_total
-                and costo_flete > 0
-                and metodo_envio in ['Flete Propio', 'Zippin']
-                and shipping.get('substatus') == 'shipment_paid'):
-            pago_mp += costo_flete
-            importe_abonado += costo_flete
-
         estado_entrega = 'pendiente'
         estado_pago = 'pagado'
 
@@ -12104,12 +12076,10 @@ def _importar_orden_automatica(orden, access_token):
                     fecha_entrega_estimada,
                     factura_business_name, factura_doc_type, factura_doc_number,
                     factura_taxpayer_type, factura_city, factura_street,
-                    factura_state, factura_zip_code,
-                    auto_imported_at, notas_auto_orig
+                    factura_state, factura_zip_code
                 ) VALUES (
                     %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    NOW(), %s
+                    %s,%s,%s,%s,%s,%s,%s,%s,%s
                 )
             ''', (
                 numero_venta, fecha_venta, canal, mla_code,
@@ -12124,7 +12094,6 @@ def _importar_orden_automatica(orden, access_token):
                 billing_info['doc_number'], billing_info['taxpayer_type'],
                 billing_info['city'], billing_info['street'],
                 billing_info['state'], billing_info['zip_code'],
-                notas,
             ))
             venta_id = cursor.lastrowid
 
@@ -12688,183 +12657,6 @@ def job_completar_notas_mp():
             print(f"[MP-NOTAS] Error general: {e}")
 
 
-def _rechequear_orden_ml(venta_id, orden_id, access_token, venta_actual):
-    """
-    Re-consulta una orden de ML auto-importada (~3 min después de importarla)
-    y actualiza solo los campos que pueden llegar incompletos al inicio:
-    nombre_cliente, telefono_cliente, direccion_entrega, notas.
-
-    NO toca: stock, items, importes, método de pago/envío, ubicación, zona.
-    NO dispara actualizar_publicaciones_ml.
-
-    Reglas de seguridad para no pisar ediciones manuales:
-    - notas: solo se reemplaza si las notas actuales son IDÉNTICAS a notas_auto_orig
-    - nombre_cliente: solo se reemplaza si el actual es el nickname (mla_code) y ML ahora trae nombre real distinto
-    - telefono_cliente: solo se reemplaza si está vacío y ML ahora lo trae
-    - direccion_entrega: solo se reemplaza si la actual contiene 'XXX' (placeholder ML) y la nueva no
-    """
-    try:
-        headers_ml = {'Authorization': f'Bearer {access_token}'}
-
-        # 1) Orden con buyer completo
-        try:
-            r_ind = requests.get(
-                f'https://api.mercadolibre.com/orders/{orden_id}',
-                headers=headers_ml, timeout=8
-            )
-            orden_full = r_ind.json() if r_ind.status_code == 200 else {}
-        except Exception:
-            orden_full = {}
-
-        nombre_real_nuevo = ''
-        buyer = orden_full.get('buyer', {}) or {}
-        fn = (buyer.get('first_name') or '').strip()
-        ln = (buyer.get('last_name') or '').strip()
-        if (fn + ln):
-            nombre_real_nuevo = f"{fn} {ln}".strip()
-
-        # 2) Shipment completo (dirección, fecha entrega, demora)
-        shipping_id = (orden_full.get('shipping') or {}).get('id')
-        shipping = {}
-        if shipping_id:
-            shipping = obtener_shipping_completo(
-                shipping_id, access_token, orden_full.get('date_created', '')
-            )
-
-        # 3) Teléfono desde el shipment
-        telefono_nuevo = ''
-        if shipping_id:
-            try:
-                r_ship = requests.get(
-                    f'https://api.mercadolibre.com/shipments/{shipping_id}',
-                    headers=headers_ml, timeout=8
-                )
-                if r_ship.status_code == 200:
-                    recv_phone = (r_ship.json().get('receiver_address') or {}).get('receiver_phone', '')
-                    if recv_phone and 'X' not in str(recv_phone).upper():
-                        telefono_nuevo = str(recv_phone).strip()
-            except Exception:
-                pass
-
-        # 4) Notas reconstruidas (mismo cálculo que en _importar_orden_automatica)
-        fecha_entrega_ml = shipping.get('fecha_entrega_ml', '') if shipping else ''
-        if fecha_entrega_ml:
-            notas_nuevas = fecha_entrega_ml
-        else:
-            notas_nuevas = f"Importado desde ML - Orden: {orden_id}"
-        demora_ml_dias = shipping.get('demora_ml_dias', 0) if shipping else 0
-        if demora_ml_dias:
-            notas_nuevas += f"\nDEMORA_ML: {demora_ml_dias} días"
-
-        # 5) Construir UPDATE solo de los campos que cambian
-        updates = {}
-
-        # Nombre: si el actual es igual a mla_code (no se obtuvo nombre real al importar)
-        # y ahora ML trae uno distinto, actualizar.
-        mla_code_actual = (venta_actual.get('mla_code') or '').strip()
-        nombre_actual = (venta_actual.get('nombre_cliente') or '').strip()
-        if nombre_real_nuevo and nombre_real_nuevo != nombre_actual:
-            if not nombre_actual or nombre_actual == mla_code_actual:
-                updates['nombre_cliente'] = nombre_real_nuevo
-
-        # Teléfono: si está vacío y ahora hay uno
-        tel_actual = (venta_actual.get('telefono_cliente') or '').strip()
-        if telefono_nuevo and not tel_actual:
-            updates['telefono_cliente'] = telefono_nuevo
-
-        # Dirección: si la actual tiene 'XXX' y la nueva no
-        dir_actual = (venta_actual.get('direccion_entrega') or '').strip()
-        dir_nueva = (shipping.get('direccion', '') if shipping else '').strip()
-        if dir_nueva and 'XXX' in dir_actual.upper() and 'XXX' not in dir_nueva.upper():
-            updates['direccion_entrega'] = dir_nueva
-
-        # Notas: solo si las actuales son IDÉNTICAS a las originales (sin ediciones manuales)
-        notas_actuales = (venta_actual.get('notas') or '')
-        notas_orig = (venta_actual.get('notas_auto_orig') or '')
-        if notas_orig and notas_actuales == notas_orig and notas_nuevas != notas_actuales:
-            updates['notas'] = notas_nuevas
-            # también actualizar notas_auto_orig para que un siguiente rechequeo (si lo hubiera) lo respete
-            updates['notas_auto_orig'] = notas_nuevas
-
-        if updates:
-            sets = ', '.join(f"{k} = %s" for k in updates.keys())
-            params = list(updates.values()) + [venta_id]
-            execute_db(f"UPDATE ventas SET {sets} WHERE id = %s", tuple(params))
-            print(f"[RECHECK-ML] ✅ Venta {venta_id} actualizada: {list(updates.keys())}")
-        else:
-            print(f"[RECHECK-ML] Venta {venta_id}: sin cambios")
-
-        return True
-
-    except Exception as e:
-        print(f"[RECHECK-ML] Error rechequeando venta {venta_id}: {e}")
-        return False
-
-
-def job_rechequear_autoimportadas():
-    """
-    Job que corre cada 60s. Busca ventas auto-importadas hace 3+ minutos
-    que aún no fueron rechequeadas, y reconsulta ML para actualizar
-    nombre/teléfono/dirección/notas si ML ya tiene la info completa.
-
-    Solo procesa ventas con estado_entrega='pendiente' (las que ya pasaron
-    a proceso o entregada se marcan rechequeadas y se ignoran).
-    """
-    with app.app_context():
-        try:
-            access_token = cargar_ml_token()
-            if not access_token:
-                return
-
-            ventas = query_db("""
-                SELECT id, numero_venta, mla_code, nombre_cliente, telefono_cliente,
-                       direccion_entrega, notas, notas_auto_orig, estado_entrega
-                FROM ventas
-                WHERE canal = 'Mercado Libre'
-                  AND auto_imported_at IS NOT NULL
-                  AND auto_imported_at <= DATE_SUB(NOW(), INTERVAL 3 MINUTE)
-                  AND auto_rechecked = 0
-                LIMIT 50
-            """)
-            if not ventas:
-                return
-
-            import re as _re
-            for v in ventas:
-                # Si ya pasó a proceso/entregada/cancelada, no se toca, solo se marca rechequeada
-                if v.get('estado_entrega') != 'pendiente':
-                    try:
-                        execute_db("UPDATE ventas SET auto_rechecked = 1 WHERE id = %s", (v['id'],))
-                    except Exception:
-                        pass
-                    continue
-
-                # Extraer orden_id del numero_venta (ML-XXXXXX)
-                numero = v['numero_venta'] or ''
-                m = _re.search(r'(\d{16})', numero)
-                if not m:
-                    # No hay orden_id válido, marcar igual para no reintentar
-                    try:
-                        execute_db("UPDATE ventas SET auto_rechecked = 1 WHERE id = %s", (v['id'],))
-                    except Exception:
-                        pass
-                    continue
-                orden_id = m.group(1)
-
-                _rechequear_orden_ml(v['id'], orden_id, access_token, v)
-
-                # Marcar rechequeada SIEMPRE (haya cambios o error, para no reintentar)
-                try:
-                    execute_db("UPDATE ventas SET auto_rechecked = 1 WHERE id = %s", (v['id'],))
-                except Exception:
-                    pass
-
-                time.sleep(0.5)
-
-        except Exception as e:
-            print(f"[RECHECK-ML] Error general: {e}")
-
-
 # ============================================================================
 # DASHBOARD AGENCIA
 # ============================================================================
@@ -13038,16 +12830,8 @@ def iniciar_scheduler():
             replace_existing=True,
             max_instances=1
         )
-        scheduler.add_job(
-            job_rechequear_autoimportadas,
-            'interval',
-            seconds=60,
-            id='rechequear_autoimportadas',
-            replace_existing=True,
-            max_instances=1
-        )
         scheduler.start()
-        print("[AUTO-ML] ✅ Scheduler iniciado — auto-import cada 120s, cancelaciones cada 10min, notas MP cada 10min, rechequeo auto-import cada 60s")
+        print("[AUTO-ML] ✅ Scheduler iniciado — auto-import cada 120s, cancelaciones cada 10min, notas MP cada 10min")
 
         # Monitor de competencia — 2 veces por día
         try:
