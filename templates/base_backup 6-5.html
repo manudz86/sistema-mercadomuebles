@@ -352,13 +352,6 @@
                         <i class="bi bi-calculator"></i> Costos
                     </a>
                 </li>
-                {% if current_user.rol == 'admin' %}
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'rentabilidad' %}active{% endif %}" href="/rentabilidad">
-                        <i class="bi bi-graph-up-arrow"></i> Rentabilidad
-                    </a>
-                </li>
-                {% endif %}
                 <li class="nav-item">
                     <a class="nav-link {% if request.endpoint in ('tienda_precios','tienda_precios_guardar') %}active{% endif %}" href="/tienda-admin/precios">
                         <i class="bi bi-tag"></i> Precios
@@ -563,13 +556,6 @@
                                 <i class="bi bi-calculator"></i> Costos
                             </a>
                         </li>
-                        {% if current_user.rol == 'admin' %}
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'rentabilidad' %}active{% endif %}" href="/rentabilidad">
-                                <i class="bi bi-graph-up-arrow"></i> Rentabilidad
-                            </a>
-                        </li>
-                        {% endif %}
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint in ('tienda_precios','tienda_precios_guardar') %}active{% endif %}" href="/tienda-admin/precios">
                                 <i class="bi bi-tag"></i> Precios
