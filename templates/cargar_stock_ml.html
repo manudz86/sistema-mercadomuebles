@@ -304,9 +304,19 @@
                                     <span class="text-muted">-</span>
                                 {% endif %}
                                 {% if pub.envio_tipo %}
-                                    <br><span class="badge mt-1" style="font-size:.65rem; background:{{ pub.envio_bg }}; color:{{ pub.envio_fg }};"
+                                    <br><span class="envio-wrap d-inline-block mt-1" data-mla="{{ pub.mla }}">
+                                        <span class="envio-badge badge" style="font-size:.65rem; background:{{ pub.envio_bg }}; color:{{ pub.envio_fg }};"
                                               title="mode: {{ pub.envio_mode }} / logistic_type: {{ pub.envio_logistic_type }}">
-                                        <i class="bi bi-truck"></i> {{ pub.envio_tipo }}
+                                            <i class="bi bi-truck"></i> {{ pub.envio_tipo }}
+                                        </span>
+                                        {% if pub.envio_mode == 'me1' %}
+                                            <button type="button" class="btn btn-sm btn-outline-primary py-0 px-1 ms-1 btn-pasar-flex"
+                                                    style="font-size:.6rem; line-height:1.2;"
+                                                    data-mla="{{ pub.mla }}"
+                                                    title="Pasar esta publicación a Flex (ME2 self_service)">
+                                                <i class="bi bi-arrow-right-circle"></i> FLEX
+                                            </button>
+                                        {% endif %}
                                     </span>
                                 {% endif %}
                             </td>
@@ -1004,5 +1014,57 @@ window.copiarLink = function(el) {
     icon.className = 'bi bi-clipboard-check text-success';
     setTimeout(() => { icon.className = 'bi bi-clipboard text-secondary'; }, 2000);
 }
+
+// ── Botón "Pasar a FLEX" en la columna Tipo publi ────────────────────────────
+document.addEventListener('click', async function(e) {
+    const btn = e.target.closest('.btn-pasar-flex');
+    if (!btn) return;
+
+    const mla = btn.dataset.mla;
+    if (!mla) return;
+
+    if (!confirm(`¿Pasar la publicación ${mla} a Flex (ME2 self_service)?\n\nEsto reemplaza el envío actual ME1. ML puede setear envío gratis automáticamente y el costo del envío lo absorbe el precio de la publi.`)) {
+        return;
+    }
+
+    const wrap   = btn.closest('.envio-wrap');
+    const badge  = wrap ? wrap.querySelector('.envio-badge') : null;
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span>';
+
+    try {
+        const res = await fetch(`/ml/cambiar-envio-flex/${mla}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+
+        if (!data.ok) {
+            alert('❌ No se pudo cambiar a Flex:\n\n' + (data.error || 'Error desconocido'));
+            btn.disabled = false;
+            btn.innerHTML = original;
+            return;
+        }
+
+        // Actualizar el badge in-place
+        if (badge) {
+            badge.style.background = data.envio_bg || '#0d6efd';
+            badge.style.color = data.envio_fg || '#ffffff';
+            badge.setAttribute('title', `mode: ${data.envio_mode} / logistic_type: ${data.envio_logistic_type}`);
+            badge.innerHTML = '<i class="bi bi-truck"></i> ' + (data.envio_tipo || 'FLEX');
+        }
+        // Sacar el botón (ya está en Flex)
+        btn.remove();
+
+        if (data.warning) {
+            alert('⚠️ ' + data.warning);
+        }
+    } catch (err) {
+        alert('❌ Error de red: ' + err.message);
+        btn.disabled = false;
+        btn.innerHTML = original;
+    }
+});
 </script>
 {% endblock %}

@@ -8165,6 +8165,63 @@ def buscar_sku_ml():
                            precio_costos=precio_costos,
                            cuotas_faltantes=cuotas_faltantes,
                            catalog_meta=catalog_meta)
+
+
+# ============================================================================
+# RUTA: Cambiar tipo de envío a Flex (ME2 self_service)
+# ============================================================================
+@app.route('/ml/cambiar-envio-flex/<mla_id>', methods=['POST'])
+@login_required
+def cambiar_envio_flex(mla_id):
+    """
+    Cambia una publicación a ME2 self_service (Flex).
+    Devuelve JSON: { ok, envio_tipo, envio_bg, envio_fg, envio_mode, envio_logistic_type, warning?, error? }
+    """
+    access_token = cargar_ml_token()
+    if not access_token:
+        return jsonify({'ok': False, 'error': 'No hay token de ML configurado'}), 400
+
+    try:
+        r = ml_request('put',
+            f'https://api.mercadolibre.com/items/{mla_id}',
+            access_token,
+            json_data={'shipping': {'mode': 'me2', 'logistic_type': 'self_service'}})
+
+        if r.status_code != 200:
+            try:
+                err = r.json()
+                msg = err.get('message') or err.get('error') or str(err)
+            except Exception:
+                msg = (r.text or '')[:300]
+            return jsonify({
+                'ok': False,
+                'error': f'ML rechazó el cambio (HTTP {r.status_code}): {msg}'
+            }), 400
+
+        data = r.json()
+        shipping = data.get('shipping') or {}
+        envio_tipo, envio_bg, envio_fg = _envio_label(shipping)
+
+        # Detectar si quedó adentro o afuera de Flex
+        tags = shipping.get('tags') or []
+        warning = None
+        if 'self_service_out' in tags:
+            warning = 'Cambio aplicado pero ML la dejó FUERA de Flex (probablemente por dimensiones del paquete o algún criterio interno).'
+
+        return jsonify({
+            'ok': True,
+            'envio_tipo':          envio_tipo,
+            'envio_bg':            envio_bg,
+            'envio_fg':            envio_fg,
+            'envio_mode':          shipping.get('mode'),
+            'envio_logistic_type': shipping.get('logistic_type'),
+            'tags':                tags,
+            'warning':             warning,
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 # ============================================================================
 # RUTA: Faltantes de catálogo ML (colchones)
 # ============================================================================
