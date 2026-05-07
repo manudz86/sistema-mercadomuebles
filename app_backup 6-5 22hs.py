@@ -7837,48 +7837,6 @@ def ml_request(method, url, access_token, json_data=None, params=None, max_retri
 
     return r
 
-def _envio_label(shipping):
-    """
-    Convierte el bloque shipping de ML a (label, color_bg, color_fg) para mostrar en UI.
-    Reglas:
-      mode=me1                                              -> ME1
-      mode=me2 + logistic_type=self_service + self_service_in   -> FLEX
-      mode=me2 + logistic_type=self_service + self_service_out  -> FLEX (out)
-      mode=me2 + logistic_type=cross_docking                -> COLECTA
-      mode=me2 + logistic_type=xd_drop_off                  -> PLACES
-      mode=me2 + logistic_type=drop_off                     -> DROP-OFF
-      mode=me2 + logistic_type=fulfillment                  -> FULL
-      mode=custom                                           -> ACORDAR
-      mode=not_specified                                    -> NO ESPECIF.
-    """
-    if not shipping:
-        return ('—', '#e9ecef', '#495057')
-    mode = shipping.get('mode')
-    lt   = shipping.get('logistic_type')
-    tags = shipping.get('tags') or []
-    if mode == 'me1':
-        return ('ME1', '#343a40', '#ffffff')
-    if mode == 'me2':
-        if lt == 'self_service':
-            if 'self_service_out' in tags:
-                return ('FLEX (out)', '#dc3545', '#ffffff')
-            return ('FLEX', '#0d6efd', '#ffffff')
-        if lt == 'cross_docking':
-            return ('COLECTA', '#6f42c1', '#ffffff')
-        if lt == 'xd_drop_off':
-            return ('PLACES', '#20c997', '#ffffff')
-        if lt == 'drop_off':
-            return ('DROP-OFF', '#fd7e14', '#ffffff')
-        if lt == 'fulfillment':
-            return ('FULL', '#198754', '#ffffff')
-        return (f'ME2 {lt or "?"}', '#0dcaf0', '#000000')
-    if mode == 'custom':
-        return ('ACORDAR', '#6c757d', '#ffffff')
-    if mode == 'not_specified':
-        return ('NO ESPECIF.', '#adb5bd', '#000000')
-    return (str(mode or '—'), '#e9ecef', '#495057')
-
-
 def obtener_datos_ml_batch(mla_ids, access_token):
     """
     Consulta datos de múltiples publicaciones ML en chunks de 20 (límite de la API).
@@ -7950,10 +7908,6 @@ def obtener_datos_ml_batch(mla_ids, access_token):
                             seller_sku = attr.get('value_name', '')
                             break
 
-                # Extraer info de envío (mode, logistic_type, tags) y armar etiqueta
-                shipping_data = data.get('shipping') or {}
-                envio_tipo, envio_bg, envio_fg = _envio_label(shipping_data)
-
                 resultado[mla_id] = {
                     'titulo':              data.get('title', mla_id),
                     'stock':               data.get('available_quantity', 0),
@@ -7968,11 +7922,6 @@ def obtener_datos_ml_batch(mla_ids, access_token):
                     'category_id':         data.get('category_id'),
                     'domain_id':           data.get('domain_id'),
                     'seller_sku':          seller_sku,
-                    'envio_tipo':          envio_tipo,
-                    'envio_bg':            envio_bg,
-                    'envio_fg':            envio_fg,
-                    'envio_mode':          shipping_data.get('mode'),
-                    'envio_logistic_type': shipping_data.get('logistic_type'),
                 }
 
         except Exception as e:
@@ -8126,11 +8075,6 @@ def buscar_sku_ml():
             'catalog_listing':     datos_ml.get('catalog_listing', False),
             'catalog_product_id':  datos_ml.get('catalog_product_id'),
             'category_id':         datos_ml.get('category_id'),
-            'envio_tipo':          datos_ml.get('envio_tipo'),
-            'envio_bg':            datos_ml.get('envio_bg'),
-            'envio_fg':            datos_ml.get('envio_fg'),
-            'envio_mode':          datos_ml.get('envio_mode'),
-            'envio_logistic_type': datos_ml.get('envio_logistic_type'),
         })
 
     # Ordenar por tipo de publicación

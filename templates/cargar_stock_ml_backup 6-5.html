@@ -303,12 +303,6 @@
                                 {% else %}
                                     <span class="text-muted">-</span>
                                 {% endif %}
-                                {% if pub.envio_tipo %}
-                                    <br><span class="badge mt-1" style="font-size:.65rem; background:{{ pub.envio_bg }}; color:{{ pub.envio_fg }};"
-                                              title="mode: {{ pub.envio_mode }} / logistic_type: {{ pub.envio_logistic_type }}">
-                                        <i class="bi bi-truck"></i> {{ pub.envio_tipo }}
-                                    </span>
-                                {% endif %}
                             </td>
                             <td class="text-center">
                                 {% if pub.status_raw == 'active' %}

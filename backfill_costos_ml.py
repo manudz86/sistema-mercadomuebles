@@ -172,7 +172,7 @@ def main():
         if metodo in ('Flex', 'Flete Propio'):
             costo_envio_vendedor = costo_flete_propio
         elif metodo == 'Delega':
-            costo_envio_vendedor = costo_delega if list_cost_vendedor > 0 else 0.0
+            costo_envio_vendedor = costo_delega if total >= 33000 else 0.0
         elif metodo == 'Turbo':
             todos_alm = all(s in SKUS_ALM for s in items_skus if s)
             if not todos_alm:
