@@ -8225,13 +8225,12 @@ def cambiar_envio_flex(mla_id):
 # ============================================================================
 # RUTA: Faltantes de catálogo ML (colchones)
 # ============================================================================
-def _faltantes_catalogo_guardar_cache(resultados, total_skus, diag=None):
+def _faltantes_catalogo_guardar_cache(resultados, total_skus):
     """Guarda resultados en configuracion para que la ruta sirva al instante."""
     cache_data = json.dumps({
         'timestamp': datetime.now().strftime('%d/%m/%Y %H:%M'),
         'resultados': resultados,
         'total_skus': total_skus,
-        'diag': diag or {},
     })
     existing = query_one("SELECT 1 FROM configuracion WHERE clave = 'faltantes_catalogo_cache'")
     if existing:
@@ -8300,31 +8299,11 @@ def job_faltantes_catalogo_ml():
         }
 
         DOMINIOS_VALIDOS = ('MLA-MATTRESSES', 'MLA-BED_AND_MATTRESS_SETS')
-
-        # Diagnóstico: contar dominios de catálogo + buscar SKUs específicos
-        diag_domains_catalog = {}
-        diag_excluidos = []  # ejemplos (sku → domain) que tienen catálogo pero no entran al filtro
-        diag_sexp140 = None
-
         skus_data = {}
         for mla_id, datos in datos_batch.items():
-            sku_raw = (datos.get('seller_sku') or '').upper()
-            if 'SEXP140' in sku_raw and diag_sexp140 is None:
-                diag_sexp140 = {
-                    'mla_id':          mla_id,
-                    'sku':             datos.get('seller_sku'),
-                    'domain_id':       datos.get('domain_id'),
-                    'catalog_listing': datos.get('catalog_listing'),
-                    'listing_type':    datos.get('listing_type'),
-                    'status':          datos.get('status'),
-                }
             if not datos.get('catalog_listing'):
                 continue
-            dom = datos.get('domain_id') or 'SIN_DOMAIN'
-            diag_domains_catalog[dom] = diag_domains_catalog.get(dom, 0) + 1
-            if dom not in DOMINIOS_VALIDOS:
-                if len(diag_excluidos) < 20:
-                    diag_excluidos.append(f"{datos.get('seller_sku') or '(sin sku)'} → {dom}")
+            if datos.get('domain_id') not in DOMINIOS_VALIDOS:
                 continue
             sku = datos.get('seller_sku') or ''
             if not sku:
@@ -8338,9 +8317,6 @@ def job_faltantes_catalogo_ml():
             lt = datos.get('listing_type', '')
             if lt and lt not in skus_data[sku]['tipos']:
                 skus_data[sku]['tipos'][lt] = mla_id
-
-        print(f"[FALTANTES-CAT] Diagnóstico dominios catálogo: {diag_domains_catalog}")
-        print(f"[FALTANTES-CAT] Diagnóstico SEXP140: {diag_sexp140}")
 
         # 4. Calcular faltantes con precio sugerido
         resultados = []
@@ -8365,11 +8341,7 @@ def job_faltantes_catalogo_ml():
                 'catalog_product_id':  info['catalog_product_id'],
             })
 
-        _faltantes_catalogo_guardar_cache(resultados, len(skus_data), diag={
-            'domains_catalog': diag_domains_catalog,
-            'excluidos':       diag_excluidos,
-            'sexp140':         diag_sexp140,
-        })
+        _faltantes_catalogo_guardar_cache(resultados, len(skus_data))
         print(f"[FALTANTES-CAT] Listo — {len(resultados)} SKUs con faltantes de {len(skus_data)} totales")
 
     except Exception as e:
@@ -8387,15 +8359,13 @@ def faltantes_catalogo_ml():
             return render_template('faltantes_catalogo_ml.html',
                                    resultados=cached.get('resultados', []),
                                    total_skus=cached.get('total_skus', 0),
-                                   cache_ts=cached.get('timestamp'),
-                                   diag=cached.get('diag', {}))
+                                   cache_ts=cached.get('timestamp'))
         except Exception:
             pass
     return render_template('faltantes_catalogo_ml.html',
                            resultados=None,
                            total_skus=0,
-                           cache_ts=None,
-                           diag={})
+                           cache_ts=None)
 
 
 @app.route('/faltantes-catalogo-ml/refresh', methods=['POST'])

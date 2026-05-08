@@ -111,5 +111,41 @@
         </table>
     </div>
     {% endif %}
+
+    {% if diag %}
+    <div class="mt-4">
+        <details>
+            <summary class="text-muted" style="cursor:pointer; font-size:.85rem">
+                <i class="bi bi-bug"></i> Diagnóstico (clic para abrir)
+            </summary>
+            <div class="mt-2 p-3 border rounded bg-light" style="font-size:.82rem">
+                {% if diag.domains_catalog %}
+                <p class="mb-1"><strong>Dominios encontrados en publicaciones de catálogo:</strong></p>
+                <ul class="mb-2">
+                    {% for d, c in diag.domains_catalog.items() %}
+                    <li><code>{{ d }}</code> → {{ c }} publicaciones</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+
+                {% if diag.excluidos %}
+                <p class="mb-1"><strong>SKUs con catálogo excluidos por filtro de dominio (primeros 20):</strong></p>
+                <ul class="mb-2">
+                    {% for ex in diag.excluidos %}
+                    <li><code>{{ ex }}</code></li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+
+                {% if diag.sexp140 %}
+                <p class="mb-1"><strong>Datos de SEXP140:</strong></p>
+                <pre class="mb-0" style="font-size:.78rem">{{ diag.sexp140 | tojson(indent=2) }}</pre>
+                {% else %}
+                <p class="mb-0 text-danger"><strong>SEXP140 no apareció en ninguna publicación traída de ML.</strong></p>
+                {% endif %}
+            </div>
+        </details>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}
