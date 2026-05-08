@@ -8225,105 +8225,155 @@ def cambiar_envio_flex(mla_id):
 # ============================================================================
 # RUTA: Faltantes de catálogo ML (colchones)
 # ============================================================================
+def _faltantes_catalogo_guardar_cache(resultados, total_skus):
+    """Guarda resultados en configuracion para que la ruta sirva al instante."""
+    cache_data = json.dumps({
+        'timestamp': datetime.now().strftime('%d/%m/%Y %H:%M'),
+        'resultados': resultados,
+        'total_skus': total_skus,
+    })
+    existing = query_one("SELECT 1 FROM configuracion WHERE clave = 'faltantes_catalogo_cache'")
+    if existing:
+        execute_db("UPDATE configuracion SET valor = %s WHERE clave = 'faltantes_catalogo_cache'", (cache_data,))
+    else:
+        execute_db("INSERT INTO configuracion (clave, valor) VALUES ('faltantes_catalogo_cache', %s)", (cache_data,))
+
+
+def job_faltantes_catalogo_ml():
+    """
+    Corre en background (scheduler o thread manual).
+    Guarda resultados en configuracion['faltantes_catalogo_cache'].
+    """
+    print("[FALTANTES-CAT] Iniciando cómputo...")
+    try:
+        access_token = cargar_ml_token()
+        if not access_token:
+            print("[FALTANTES-CAT] Sin token ML, abortando")
+            return
+
+        try:
+            row = query_one("SELECT valor FROM configuracion WHERE clave = 'porcentajes_ml'")
+            porcentajes = json.loads(row['valor']) if row else PORCENTAJES_ML_DEFAULT
+        except Exception:
+            porcentajes = PORCENTAJES_ML_DEFAULT
+
+        # 1. Obtener todos los IDs (activos + pausados)
+        all_ids = []
+        for status in ('active', 'paused'):
+            offset = 0
+            while True:
+                r = ml_request('get',
+                    f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/items/search',
+                    access_token,
+                    params={'limit': 100, 'offset': offset, 'status': status})
+                if r.status_code != 200:
+                    break
+                data = r.json()
+                results = data.get('results', [])
+                all_ids.extend(results)
+                total = data.get('paging', {}).get('total', 0)
+                offset += 100
+                if offset >= total:
+                    break
+
+        if not all_ids:
+            _faltantes_catalogo_guardar_cache([], 0)
+            return
+
+        # 2. Fetch en batch (reutiliza obtener_datos_ml_batch)
+        datos_batch = obtener_datos_ml_batch(all_ids, access_token)
+
+        # 3. Filtrar catálogo + colchones, agrupar por SKU
+        TODOS_LOS_TIPOS = [
+            'Sin cuotas propias', 'Cuota Simple',
+            '3 cuotas s/interés', '6 cuotas s/interés',
+            '9 cuotas s/interés', '12 cuotas s/interés',
+        ]
+        TIPO_A_PRECIO = {
+            'Sin cuotas propias': 'precio_sin_cuotas',
+            'Cuota Simple':       'precio_1c',
+            '3 cuotas s/interés': 'precio_3c',
+            '6 cuotas s/interés': 'precio_6c',
+            '9 cuotas s/interés': 'precio_9c',
+            '12 cuotas s/interés':'precio_12c',
+        }
+
+        skus_data = {}
+        for mla_id, datos in datos_batch.items():
+            if not datos.get('catalog_listing'):
+                continue
+            if datos.get('domain_id') != 'MLA-MATTRESSES':
+                continue
+            sku = datos.get('seller_sku') or ''
+            if not sku:
+                continue
+            if sku not in skus_data:
+                skus_data[sku] = {
+                    'tipos': {},
+                    'catalog_product_id': datos.get('catalog_product_id'),
+                    'category_id':        datos.get('category_id'),
+                }
+            lt = datos.get('listing_type', '')
+            if lt and lt not in skus_data[sku]['tipos']:
+                skus_data[sku]['tipos'][lt] = mla_id
+
+        # 4. Calcular faltantes con precio sugerido
+        resultados = []
+        for sku in sorted(skus_data.keys()):
+            info = skus_data[sku]
+            tipos_existentes = set(info['tipos'].keys())
+            faltantes_tipos = [t for t in TODOS_LOS_TIPOS if t not in tipos_existentes]
+            if not faltantes_tipos:
+                continue
+            pc = _get_precio_costos_sku(sku, porcentajes)
+            mla_ref = next(iter(info['tipos'].values())) if info['tipos'] else None
+            faltantes_con_precio = []
+            for tipo in faltantes_tipos:
+                precio_key = TIPO_A_PRECIO.get(tipo)
+                precio_sug = pc.get(precio_key) if pc and precio_key else None
+                faltantes_con_precio.append({'tipo': tipo, 'precio_sugerido': precio_sug})
+            resultados.append({
+                'sku':                 sku,
+                'faltantes':           faltantes_con_precio,
+                'existentes':          sorted(tipos_existentes, key=lambda t: TODOS_LOS_TIPOS.index(t) if t in TODOS_LOS_TIPOS else 99),
+                'mla_ref':             mla_ref,
+                'catalog_product_id':  info['catalog_product_id'],
+            })
+
+        _faltantes_catalogo_guardar_cache(resultados, len(skus_data))
+        print(f"[FALTANTES-CAT] Listo — {len(resultados)} SKUs con faltantes de {len(skus_data)} totales")
+
+    except Exception as e:
+        print(f"[FALTANTES-CAT] Error en job: {e}")
+
+
 @app.route('/faltantes-catalogo-ml')
 @login_required
 def faltantes_catalogo_ml():
-    access_token = cargar_ml_token()
-    if not access_token:
-        flash('❌ No hay token de ML configurado', 'warning')
-        return redirect(url_for('dashboard'))
-
-    try:
-        row = query_one("SELECT valor FROM configuracion WHERE clave = 'porcentajes_ml'")
-        porcentajes = json.loads(row['valor']) if row else PORCENTAJES_ML_DEFAULT
-    except:
-        porcentajes = PORCENTAJES_ML_DEFAULT
-
-    # 1. Obtener todos los IDs (activos + pausados)
-    all_ids = []
-    for status in ('active', 'paused'):
-        offset = 0
-        while True:
-            r = ml_request('get',
-                f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/items/search',
-                access_token,
-                params={'limit': 100, 'offset': offset, 'status': status})
-            if r.status_code != 200:
-                break
-            data = r.json()
-            results = data.get('results', [])
-            all_ids.extend(results)
-            total = data.get('paging', {}).get('total', 0)
-            offset += 100
-            if offset >= total:
-                break
-
-    if not all_ids:
-        return render_template('faltantes_catalogo_ml.html', resultados=[], total_skus=0)
-
-    # 2. Fetch en batch (reutiliza obtener_datos_ml_batch)
-    datos_batch = obtener_datos_ml_batch(all_ids, access_token)
-
-    # 3. Filtrar catálogo + colchones, agrupar por SKU
-    TODOS_LOS_TIPOS = [
-        'Sin cuotas propias', 'Cuota Simple',
-        '3 cuotas s/interés', '6 cuotas s/interés',
-        '9 cuotas s/interés', '12 cuotas s/interés',
-    ]
-    TIPO_A_PRECIO = {
-        'Sin cuotas propias': 'precio_sin_cuotas',
-        'Cuota Simple':       'precio_1c',
-        '3 cuotas s/interés': 'precio_3c',
-        '6 cuotas s/interés': 'precio_6c',
-        '9 cuotas s/interés': 'precio_9c',
-        '12 cuotas s/interés':'precio_12c',
-    }
-
-    skus_data = {}
-    for mla_id, datos in datos_batch.items():
-        if not datos.get('catalog_listing'):
-            continue
-        if datos.get('domain_id') != 'MLA-MATTRESSES':
-            continue
-        sku = datos.get('seller_sku') or ''
-        if not sku:
-            continue
-        if sku not in skus_data:
-            skus_data[sku] = {
-                'tipos': {},
-                'catalog_product_id': datos.get('catalog_product_id'),
-                'category_id':        datos.get('category_id'),
-            }
-        lt = datos.get('listing_type', '')
-        if lt and lt not in skus_data[sku]['tipos']:
-            skus_data[sku]['tipos'][lt] = mla_id
-
-    # 4. Calcular faltantes con precio sugerido
-    resultados = []
-    for sku in sorted(skus_data.keys()):
-        info = skus_data[sku]
-        tipos_existentes = set(info['tipos'].keys())
-        faltantes_tipos = [t for t in TODOS_LOS_TIPOS if t not in tipos_existentes]
-        if not faltantes_tipos:
-            continue
-        pc = _get_precio_costos_sku(sku, porcentajes)
-        mla_ref = next(iter(info['tipos'].values())) if info['tipos'] else None
-        faltantes_con_precio = []
-        for tipo in faltantes_tipos:
-            precio_key = TIPO_A_PRECIO.get(tipo)
-            precio_sug = pc.get(precio_key) if pc and precio_key else None
-            faltantes_con_precio.append({'tipo': tipo, 'precio_sugerido': precio_sug})
-        resultados.append({
-            'sku':                 sku,
-            'faltantes':           faltantes_con_precio,
-            'existentes':          sorted(tipos_existentes, key=lambda t: TODOS_LOS_TIPOS.index(t) if t in TODOS_LOS_TIPOS else 99),
-            'mla_ref':             mla_ref,
-            'catalog_product_id':  info['catalog_product_id'],
-        })
-
+    """Sirve siempre desde caché. El cómputo pesado corre en background."""
+    cache_row = query_one("SELECT valor FROM configuracion WHERE clave = 'faltantes_catalogo_cache'")
+    if cache_row:
+        try:
+            cached = json.loads(cache_row['valor'])
+            return render_template('faltantes_catalogo_ml.html',
+                                   resultados=cached.get('resultados', []),
+                                   total_skus=cached.get('total_skus', 0),
+                                   cache_ts=cached.get('timestamp'))
+        except Exception:
+            pass
     return render_template('faltantes_catalogo_ml.html',
-                           resultados=resultados,
-                           total_skus=len(skus_data))
+                           resultados=None,
+                           total_skus=0,
+                           cache_ts=None)
+
+
+@app.route('/faltantes-catalogo-ml/refresh', methods=['POST'])
+@login_required
+def faltantes_catalogo_refresh():
+    """Dispara el job en background y vuelve al instante."""
+    threading.Thread(target=job_faltantes_catalogo_ml, daemon=True).start()
+    flash('✅ Actualización iniciada. Los datos estarán listos en 1-2 minutos. Recargá la página.', 'info')
+    return redirect(url_for('faltantes_catalogo_ml'))
 
 
 # ============================================================================
@@ -13239,8 +13289,16 @@ def iniciar_scheduler():
             replace_existing=True,
             max_instances=1
         )
+        scheduler.add_job(
+            job_faltantes_catalogo_ml,
+            'interval',
+            minutes=20,
+            id='faltantes_catalogo_ml',
+            replace_existing=True,
+            max_instances=1
+        )
         scheduler.start()
-        print("[AUTO-ML] ✅ Scheduler iniciado — auto-import cada 120s, cancelaciones cada 10min, notas MP cada 10min, rechequeo auto-import cada 60s")
+        print("[AUTO-ML] ✅ Scheduler iniciado — auto-import cada 120s, cancelaciones cada 10min, notas MP cada 10min, rechequeo auto-import cada 60s, faltantes-catálogo cada 20min")
 
         # Monitor de competencia — 2 veces por día
         try:
