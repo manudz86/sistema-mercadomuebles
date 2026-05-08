@@ -8298,11 +8298,12 @@ def job_faltantes_catalogo_ml():
             '12 cuotas s/interés':'precio_12c',
         }
 
+        DOMINIOS_VALIDOS = ('MLA-MATTRESSES', 'MLA-BED_AND_MATTRESS_SETS')
         skus_data = {}
         for mla_id, datos in datos_batch.items():
             if not datos.get('catalog_listing'):
                 continue
-            if datos.get('domain_id') != 'MLA-MATTRESSES':
+            if datos.get('domain_id') not in DOMINIOS_VALIDOS:
                 continue
             sku = datos.get('seller_sku') or ''
             if not sku:
