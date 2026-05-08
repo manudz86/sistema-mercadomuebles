@@ -8299,7 +8299,7 @@ def job_faltantes_catalogo_ml():
             '12 cuotas s/interés':'precio_12c',
         }
 
-        DOMINIOS_VALIDOS = ('MLA-MATTRESSES', 'MLA-BED_AND_MATTRESS_SETS')
+        DOMINIOS_VALIDOS = ('MLA-MATTRESSES', 'MLA-BOX_SPRING_AND_MATTRESS_KITS')
 
         # Diagnóstico: contar dominios de catálogo + buscar SKUs específicos
         diag_domains_catalog = {}
