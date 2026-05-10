@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Email HOT — Test{% endblock %}
+{% block content %}
+<div style="max-width:600px; margin:40px auto; padding:30px; background:#fff; border-radius:10px; box-shadow:0 2px 10px rgba(0,0,0,0.08);">
+  <h1 style="margin:0 0 8px; color:#1a1a2e;">📧 Test Email HOT MercadoMuebles</h1>
+  <p style="color:#666; margin:0 0 24px;">
+    Enviá una copia del email a cualquier dirección para revisar el diseño antes del lanzamiento.
+  </p>
+
+  {% if enviado %}
+  <div style="padding:14px; background:#d4edda; color:#155724; border-radius:6px; margin-bottom:20px;">
+    ✅ Email enviado a <strong>{{ destinatario }}</strong>. Revisá tu inbox (y la carpeta de spam por las dudas).
+  </div>
+  {% endif %}
+
+  {% if error %}
+  <div style="padding:14px; background:#f8d7da; color:#721c24; border-radius:6px; margin-bottom:20px;">
+    ❌ {{ error }}
+  </div>
+  {% endif %}
+
+  <form method="POST" action="/tienda-admin/email-hot-test">
+    <label style="display:block; font-weight:600; margin-bottom:8px; color:#333;">
+      Email destinatario
+    </label>
+    <input type="email" name="destinatario" value="{{ destinatario }}" required
+           placeholder="tu@email.com"
+           style="width:100%; padding:12px 14px; border:2px solid #ddd; border-radius:6px; font-size:1rem; box-sizing:border-box; margin-bottom:16px;">
+    <button type="submit"
+            style="width:100%; padding:14px; background:#c1272d; color:#fff; border:none; border-radius:6px; font-size:1rem; font-weight:700; cursor:pointer;">
+      Enviar email de prueba
+    </button>
+  </form>
+
+  <div style="margin-top:30px; padding-top:24px; border-top:1px solid #eee; font-size:0.85rem; color:#888;">
+    <strong>Nota:</strong> esto envía SOLO al email que pongas, no a la lista de suscriptores. El envío masivo se va a habilitar después de que el diseño esté aprobado.
+  </div>
+</div>
+{% endblock %}
