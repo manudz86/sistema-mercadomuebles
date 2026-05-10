@@ -407,6 +407,111 @@ def _enviar_email_hot_event(destinatario):
     return True
 
 
+def enviar_hot_event_a_todos():
+    """
+    Envía el email del HOT MERCADOMUEBLES a todos los suscriptores + email testigo.
+
+    Usa un lock en la tabla configuracion (clave 'hot_email_envio_estado') para
+    evitar envíos duplicados desde múltiples workers de Gunicorn (5 workers
+    correrían el job 5 veces sin este lock).
+
+    Estados del lock:
+      - sin entrada o vacío: nadie tomó el job
+      - 'enviando_<timestamp>': un worker está ejecutando
+      - 'completado_<ok>ok_<err>err_<timestamp>': terminó con stats
+      - 'error_<msg>_<timestamp>': falló catastróficamente
+
+    Para reintento manual, borrar la entrada desde el panel admin.
+
+    Retorna dict con stats del envío o razón del abort.
+    """
+    import time
+    import json
+    from datetime import datetime
+
+    EMAIL_TESTIGO = 'manudz86@gmail.com'
+
+    # Verificar lock
+    estado_actual = query_one(
+        "SELECT valor FROM configuracion WHERE clave='hot_email_envio_estado'"
+    )
+    if estado_actual:
+        valor = (estado_actual.get('valor') or '').strip()
+        if valor.startswith('enviando') or valor.startswith('completado'):
+            print(f"[HOT email] Otro worker ya procesa/terminó (estado: {valor}). Abort.")
+            return {'ok': False, 'razon': 'lock_activo', 'estado': valor}
+
+    # Tomar el lock atómicamente
+    lock_value = f'enviando_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    execute_db("""
+        INSERT INTO configuracion (clave, valor) VALUES ('hot_email_envio_estado', %s)
+        ON DUPLICATE KEY UPDATE valor=%s
+    """, (lock_value, lock_value))
+
+    print(f"[HOT email] Iniciando envío masivo (lock={lock_value})")
+
+    try:
+        suscriptores = query_db(
+            "SELECT email FROM suscriptores WHERE email IS NOT NULL AND email != ''"
+        ) or []
+
+        # Lista de destinatarios únicos (suscriptores + testigo)
+        emails_set = set()
+        for s in suscriptores:
+            email = (s.get('email') or '').strip().lower()
+            if email and '@' in email:
+                emails_set.add(email)
+        emails_set.add(EMAIL_TESTIGO.lower())
+        destinatarios = sorted(emails_set)
+        total = len(destinatarios)
+
+        print(f"[HOT email] Destinatarios totales: {total} (suscriptores BD + testigo)")
+
+        ok = 0
+        fallidos = []
+
+        for i, email in enumerate(destinatarios, 1):
+            try:
+                _enviar_email_hot_event(email)
+                ok += 1
+                print(f"[HOT email] {i}/{total} OK: {email}")
+            except Exception as e:
+                fallidos.append({'email': email, 'error': str(e)[:200]})
+                print(f"[HOT email] {i}/{total} ERROR: {email} - {e}")
+
+            # Throttling: 1 segundo entre cada email para no saturar SMTP
+            time.sleep(1)
+
+        estado_final = (f'completado_{ok}ok_{len(fallidos)}err_'
+                        f'{datetime.now().strftime("%Y%m%d_%H%M%S")}')
+        execute_db("""
+            INSERT INTO configuracion (clave, valor) VALUES ('hot_email_envio_estado', %s)
+            ON DUPLICATE KEY UPDATE valor=%s
+        """, (estado_final, estado_final))
+
+        if fallidos:
+            fallidos_json = json.dumps(fallidos)[:10000]
+            execute_db("""
+                INSERT INTO configuracion (clave, valor) VALUES ('hot_email_envio_fallidos', %s)
+                ON DUPLICATE KEY UPDATE valor=%s
+            """, (fallidos_json, fallidos_json))
+        else:
+            execute_db("DELETE FROM configuracion WHERE clave='hot_email_envio_fallidos'")
+
+        print(f"[HOT email] Completado: {ok} OK, {len(fallidos)} fallidos")
+        return {'ok': True, 'enviados': ok, 'fallidos': len(fallidos),
+                'detalle_fallidos': fallidos}
+
+    except Exception as e:
+        error_value = f'error_{str(e)[:100]}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+        execute_db("""
+            INSERT INTO configuracion (clave, valor) VALUES ('hot_email_envio_estado', %s)
+            ON DUPLICATE KEY UPDATE valor=%s
+        """, (error_value, error_value))
+        print(f"[HOT email] Error catastrófico: {e}")
+        raise
+
+
 # ============================================================================
 # RUTAS - PÁGINAS
 # ============================================================================
@@ -11985,6 +12090,74 @@ def email_hot_test():
                            enviado=enviado,
                            error=error,
                            destinatario=destinatario)
+
+
+@app.route('/tienda-admin/email-hot-masivo', methods=['GET', 'POST'])
+@admin_required
+def email_hot_masivo():
+    """
+    Panel del envío masivo del email HOT MERCADOMUEBLES a suscriptores.
+    El job se programa automáticamente para el lunes 11/05/2026 a las 9:00 AM ARG.
+    Esta página sirve para:
+      - Ver cuántos suscriptores hay y el estado del último envío
+      - Disparar el envío manualmente si el job programado no corrió
+      - Resetear el estado para permitir un reenvío
+    """
+    import threading
+    import json
+
+    if request.method == 'POST':
+        accion = request.form.get('accion', '')
+
+        if accion == 'enviar':
+            confirmar = (request.form.get('confirmar') or '').strip()
+            if confirmar != 'SI ENVIAR':
+                flash('❌ Confirmación incorrecta. Tenés que escribir exactamente: SI ENVIAR',
+                      'danger')
+                return redirect(url_for('email_hot_masivo'))
+
+            execute_db("DELETE FROM configuracion WHERE clave='hot_email_envio_estado'")
+            execute_db("DELETE FROM configuracion WHERE clave='hot_email_envio_fallidos'")
+
+            def _disparar_bg():
+                try:
+                    enviar_hot_event_a_todos()
+                except Exception as e:
+                    print(f"[HOT email] Error en disparo manual: {e}")
+
+            threading.Thread(target=_disparar_bg, daemon=True).start()
+            flash('✅ Envío disparado en background. Refrescá esta página en 1-2 minutos para ver el resultado.',
+                  'success')
+            return redirect(url_for('email_hot_masivo'))
+
+        if accion == 'reset':
+            execute_db("DELETE FROM configuracion WHERE clave='hot_email_envio_estado'")
+            execute_db("DELETE FROM configuracion WHERE clave='hot_email_envio_fallidos'")
+            flash('✅ Estado reseteado. Ahora se puede disparar un nuevo envío.', 'success')
+            return redirect(url_for('email_hot_masivo'))
+
+    total_susc_row = query_one(
+        "SELECT COUNT(*) as c FROM suscriptores WHERE email IS NOT NULL AND email != ''"
+    )
+    estado_row = query_one(
+        "SELECT valor FROM configuracion WHERE clave='hot_email_envio_estado'"
+    )
+    fallidos_row = query_one(
+        "SELECT valor FROM configuracion WHERE clave='hot_email_envio_fallidos'"
+    )
+
+    fallidos_list = []
+    if fallidos_row and fallidos_row.get('valor'):
+        try:
+            fallidos_list = json.loads(fallidos_row['valor'])
+        except Exception:
+            fallidos_list = []
+
+    return render_template('email_hot_masivo.html',
+        total_suscriptores=(total_susc_row['c'] if total_susc_row else 0),
+        estado=(estado_row['valor'] if estado_row else 'no_iniciado'),
+        fallidos=fallidos_list,
+    )
 # ============================================================================
 
 # SKUs de almohadas a excluir de actualización ML
@@ -13512,6 +13685,32 @@ def iniciar_scheduler():
             replace_existing=True,
             max_instances=1
         )
+
+        # Envío automático del email HOT MERCADOMUEBLES
+        # Programado para el lunes 11/05/2026 a las 9:00 AM hora Argentina.
+        # El lock interno en la función previene envíos duplicados desde múltiples workers.
+        try:
+            from apscheduler.triggers.date import DateTrigger
+            from datetime import datetime as _dt
+            try:
+                from zoneinfo import ZoneInfo as _ZI
+                _tz_ar = _ZI('America/Argentina/Buenos_Aires')
+                _run_dt = _dt(2026, 5, 11, 9, 0, 0, tzinfo=_tz_ar)
+            except Exception:
+                # Fallback si zoneinfo no disponible: server en UTC, 9 AM ARG = 12:00 UTC
+                _run_dt = _dt(2026, 5, 11, 12, 0, 0)
+
+            scheduler.add_job(
+                enviar_hot_event_a_todos,
+                trigger=DateTrigger(run_date=_run_dt),
+                id='hot_email_lunes_9am',
+                replace_existing=True,
+                misfire_grace_time=3600  # 1 hora de gracia si arranca tarde
+            )
+            print(f"[HOT email] Job programado para {_run_dt}")
+        except Exception as _e:
+            print(f"[HOT email] Error programando job: {_e}")
+
         scheduler.start()
         print("[AUTO-ML] ✅ Scheduler iniciado — auto-import cada 120s, cancelaciones cada 10min, notas MP cada 10min, rechequeo auto-import cada 60s, faltantes-catálogo cada 20min")
 
