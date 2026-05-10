@@ -253,25 +253,22 @@ def enviar_whatsapp(telefono, template_name, componentes=None):
 def _enviar_email_hot_event(destinatario):
     """
     Envía el email del HOT MERCADOMUEBLES a un destinatario.
-    Usa SMTP de Hostinger con las mismas credenciales que tienda_bp.py
-    (variables de entorno SMTP_HOST/PORT/USER/PASSWORD).
-
-    Si las variables de entorno usan otros nombres en tu .env, ajustar
-    los os.getenv() de abajo para que coincidan.
+    Usa SMTP de Hostinger con las credenciales del .env del VPS
+    (variables de entorno MAIL_SMTP_HOST/PORT/USER/PASS).
     """
     import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
 
-    SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.hostinger.com')
-    SMTP_PORT = int(os.getenv('SMTP_PORT', 465))
-    SMTP_USER = os.getenv('SMTP_USER', 'sales@mercadomuebles.com.ar')
-    SMTP_PASS = os.getenv('SMTP_PASSWORD', '') or os.getenv('SMTP_PASS', '')
+    SMTP_HOST = os.getenv('MAIL_SMTP_HOST', 'mm100.hosting-ar.com')
+    SMTP_PORT = int(os.getenv('MAIL_SMTP_PORT', 465))
+    SMTP_USER = os.getenv('MAIL_SMTP_USER', 'sales@mercadomuebles.com.ar')
+    SMTP_PASS = os.getenv('MAIL_SMTP_PASS', '')
 
     if not SMTP_PASS:
         raise RuntimeError(
-            'No se encontró la contraseña SMTP. Verificá las variables '
-            'de entorno SMTP_PASSWORD o SMTP_PASS en el .env del VPS.'
+            'No se encontró la contraseña SMTP. Verificá la variable '
+            'de entorno MAIL_SMTP_PASS en el .env del VPS.'
         )
 
     subject = '🔥 HOT MercadoMuebles — Hasta 15% OFF en colchones Cannon'
