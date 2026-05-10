@@ -849,69 +849,6 @@ def guardar_porcentajes_ml():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
-
-# Configuración de publicaciones Z (ME1) cuando se quedan sin stock disponible.
-# Las publicaciones SIN Z (Flex) se pausan automáticamente con stock=0.
-# Las publicaciones CON Z (ME1) se mantienen activas con un stock mínimo y demora.
-ML_Z_SIN_STOCK_DEFAULT = {'stock': 2, 'dias_demora': 7}
-
-
-def _get_ml_z_sin_stock_config():
-    """Lee la config de stock/demora para publicaciones Z sin stock disponible."""
-    try:
-        rows = query_db(
-            "SELECT clave, valor FROM configuracion "
-            "WHERE clave IN ('ml_z_sin_stock_unidades', 'ml_z_sin_stock_dias_demora')"
-        ) or []
-        cfg = {r['clave']: r.get('valor') for r in rows}
-        stock = int(cfg.get('ml_z_sin_stock_unidades') or ML_Z_SIN_STOCK_DEFAULT['stock'])
-        dias  = int(cfg.get('ml_z_sin_stock_dias_demora') or ML_Z_SIN_STOCK_DEFAULT['dias_demora'])
-        # Sanity: rangos razonables
-        if stock < 1 or stock > 50:
-            stock = ML_Z_SIN_STOCK_DEFAULT['stock']
-        if dias < 1 or dias > 90:
-            dias = ML_Z_SIN_STOCK_DEFAULT['dias_demora']
-        return {'stock': stock, 'dias_demora': dias}
-    except Exception:
-        return dict(ML_Z_SIN_STOCK_DEFAULT)
-
-
-@app.route('/configuracion/ml-z-sin-stock', methods=['GET'])
-@login_required
-def get_ml_z_sin_stock():
-    """Retorna stock y días de demora a aplicar en publicaciones Z sin stock."""
-    try:
-        return jsonify({'ok': True, 'config': _get_ml_z_sin_stock_config()})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
-
-
-@app.route('/configuracion/ml-z-sin-stock', methods=['POST'])
-@admin_required
-def guardar_ml_z_sin_stock():
-    """Guarda stock y días de demora para publicaciones Z sin stock."""
-    try:
-        data = request.get_json() or {}
-        stock = int(data.get('stock', ML_Z_SIN_STOCK_DEFAULT['stock']))
-        dias  = int(data.get('dias_demora', ML_Z_SIN_STOCK_DEFAULT['dias_demora']))
-        if stock < 1 or stock > 50:
-            return jsonify({'ok': False, 'error': 'Las unidades deben estar entre 1 y 50'}), 400
-        if dias < 1 or dias > 90:
-            return jsonify({'ok': False, 'error': 'Los días de demora deben estar entre 1 y 90'}), 400
-        execute_db(
-            "INSERT INTO configuracion (clave, valor) VALUES ('ml_z_sin_stock_unidades', %s) "
-            "ON DUPLICATE KEY UPDATE valor = %s, actualizado_at = NOW()",
-            (str(stock), str(stock))
-        )
-        execute_db(
-            "INSERT INTO configuracion (clave, valor) VALUES ('ml_z_sin_stock_dias_demora', %s) "
-            "ON DUPLICATE KEY UPDATE valor = %s, actualizado_at = NOW()",
-            (str(dias), str(dias))
-        )
-        return jsonify({'ok': True, 'config': {'stock': stock, 'dias_demora': dias}})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
-
 # ============================================================================
 # FUNCIÓN CORREGIDA: EXCLUIR VENTA ACTUAL
 # Reemplazar detectar_alertas_stock_bajo() en app.py
@@ -8106,9 +8043,6 @@ def cargar_stock_ml():
     except:
         porcentajes = PORCENTAJES_ML_DEFAULT
 
-    # Config de publicaciones Z cuando se quedan sin stock (para mostrar en el panel)
-    ml_z_config = _get_ml_z_sin_stock_config()
-
     return render_template('cargar_stock_ml.html',
                            sku_buscado=None,
                            publicaciones=[],
@@ -8116,7 +8050,6 @@ def cargar_stock_ml():
                            mensaje=None,
                            mensaje_tipo=None,
                            porcentajes=porcentajes,
-                           ml_z_config=ml_z_config,
                            precio_costos=None)
 
 # ============================================================================
@@ -12313,11 +12246,6 @@ def actualizar_publicaciones_ml(skus_base_afectados):
         print("[AUTO-ML] Sin access_token, abortando actualización.")
         return
 
-    # Config de publicaciones Z cuando se quedan sin stock (configurable desde panel)
-    z_cfg = _get_ml_z_sin_stock_config()
-    Z_STOCK_SIN = z_cfg['stock']
-    Z_DIAS_DEMORA = z_cfg['dias_demora']
-
     # Calcular stock disponible de todos los SKUs
     try:
         stock_todos = calcular_stock_por_sku()
@@ -12397,12 +12325,12 @@ def actualizar_publicaciones_ml(skus_base_afectados):
                     print(f"[AUTO-ML] {sku_z} → {mla} quitar demora: {'✅' if ok2 else '❌'}")
                     time.sleep(0.5)
                 else:
-                    # Sin stock: stock=Z_STOCK_SIN + Z_DIAS_DEMORA días demora (configurable)
-                    ok, msg = actualizar_stock_ml(mla, Z_STOCK_SIN, access_token)
-                    print(f"[AUTO-ML] {sku_z} → {mla} stock={Z_STOCK_SIN}: {'✅' if ok else '❌'} {msg}")
+                    # Sin stock: stock=1 + 7 días demora
+                    ok, msg = actualizar_stock_ml(mla, 1, access_token)
+                    print(f"[AUTO-ML] {sku_z} → {mla} stock=1: {'✅' if ok else '❌'} {msg}")
                     time.sleep(0.5)
-                    ok2 = _poner_demora_ml(mla, access_token, dias=Z_DIAS_DEMORA)
-                    print(f"[AUTO-ML] {sku_z} → {mla} poner demora {Z_DIAS_DEMORA}d: {'✅' if ok2 else '❌'}")
+                    ok2 = _poner_demora_ml(mla, access_token, dias=7)
+                    print(f"[AUTO-ML] {sku_z} → {mla} poner demora 7d: {'✅' if ok2 else '❌'}")
                     time.sleep(0.5)
         except Exception as e:
             print(f"[AUTO-ML] Error actualizando con Z de {sku}: {e}")
@@ -13173,11 +13101,6 @@ def actualizar_publicaciones_ml_con_progreso(skus_base_afectados):
                            'ok': [], 'errors': [f'Error calculando stock: {e}'], 'skus': []})
         return
 
-    # Config de publicaciones Z cuando se quedan sin stock (configurable desde panel)
-    z_cfg = _get_ml_z_sin_stock_config()
-    Z_STOCK_SIN = z_cfg['stock']
-    Z_DIAS_DEMORA = z_cfg['dias_demora']
-
     skus_a_actualizar = set()
     for sku_base in skus_base_afectados:
         sku_base = sku_base.upper()
@@ -13249,10 +13172,10 @@ def actualizar_publicaciones_ml_con_progreso(skus_base_afectados):
                     _quitar_demora_ml(mla, access_token)
                     label += ' + quitar demora'
                 else:
-                    ok, msg = actualizar_stock_ml(mla, Z_STOCK_SIN, access_token)
-                    label = f"{sku_z} \u2192 {mla} stock={Z_STOCK_SIN}+demora{Z_DIAS_DEMORA}d"
+                    ok, msg = actualizar_stock_ml(mla, 1, access_token)
+                    label = f"{sku_z} \u2192 {mla} stock=1+demora"
                     time.sleep(0.1)
-                    _poner_demora_ml(mla, access_token, dias=Z_DIAS_DEMORA)
+                    _poner_demora_ml(mla, access_token, dias=7)
                 if ok:
                     resultados_ok.append(label)
                 else:

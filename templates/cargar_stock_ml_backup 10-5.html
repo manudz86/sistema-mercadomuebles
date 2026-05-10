@@ -81,49 +81,6 @@
         </div>
     </div>
 
-    <!-- CONFIGURAR STOCK/DEMORA AUTOMÁTICA EN PUBLICACIONES Z SIN STOCK -->
-    <div class="card mb-3 shadow-sm border-info">
-        <div class="card-header bg-info bg-opacity-10 d-flex justify-content-between align-items-center"
-             style="cursor:pointer" onclick="toggleMlZSinStock()">
-            <span><i class="bi bi-clock-history me-2"></i><strong>Auto-stock en publicaciones Z (ME1) sin stock disponible</strong></span>
-            <i class="bi bi-chevron-down" id="chevron-mlz"></i>
-        </div>
-        <div class="card-body" id="panel-mlz-sin-stock" style="display:none">
-            <p class="text-muted small mb-3">
-                Cuando un producto se queda sin stock disponible, las publicaciones <strong>SIN Z (Flex)</strong>
-                se ponen automáticamente en stock 0 (se pausan solas).
-                Las publicaciones <strong>CON Z (ME1)</strong> se mantienen activas con un stock mínimo y demora,
-                para que ML las siga mostrando. Estos valores son los que se aplican a las publicaciones Z.
-            </p>
-            <div class="row g-2 align-items-end">
-                <div class="col-md-3">
-                    <label class="form-label small fw-bold">Stock a dejar en publicaciones Z</label>
-                    <div class="input-group input-group-sm">
-                        <input type="number" class="form-control" id="mlz_stock"
-                               min="1" max="50" step="1"
-                               value="{{ ml_z_config.stock if ml_z_config else 2 }}">
-                        <span class="input-group-text">unidades</span>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label small fw-bold">Días de demora (MANUFACTURING_TIME)</label>
-                    <div class="input-group input-group-sm">
-                        <input type="number" class="form-control" id="mlz_dias"
-                               min="1" max="90" step="1"
-                               value="{{ ml_z_config.dias_demora if ml_z_config else 7 }}">
-                        <span class="input-group-text">días</span>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <button class="btn btn-info btn-sm w-100" onclick="guardarMlZSinStock()">
-                        <i class="bi bi-floppy"></i> Guardar configuración
-                    </button>
-                </div>
-            </div>
-            <div id="msg-mlz-sin-stock" class="mt-2"></div>
-        </div>
-    </div>
-
     <!-- BUSCADOR -->
     <div class="card mb-4 shadow-sm">
         <div class="card-body">
@@ -873,45 +830,6 @@ async function guardarPorcentajes() {
         }
     } catch (e) {
         document.getElementById('msg-porcentajes').innerHTML = '<span class="text-danger">Error de conexión</span>';
-    }
-}
-
-// ── Panel auto-stock publicaciones Z sin stock ──────────────────
-function toggleMlZSinStock() {
-    const panel = document.getElementById('panel-mlz-sin-stock');
-    const chevron = document.getElementById('chevron-mlz');
-    const visible = panel.style.display !== 'none';
-    panel.style.display = visible ? 'none' : 'block';
-    chevron.className = visible ? 'bi bi-chevron-down' : 'bi bi-chevron-up';
-}
-
-async function guardarMlZSinStock() {
-    const stock = parseInt(document.getElementById('mlz_stock').value);
-    const dias  = parseInt(document.getElementById('mlz_dias').value);
-    const msg = document.getElementById('msg-mlz-sin-stock');
-    if (!stock || stock < 1 || stock > 50) {
-        msg.innerHTML = '<span class="text-danger">Stock debe estar entre 1 y 50</span>';
-        return;
-    }
-    if (!dias || dias < 1 || dias > 90) {
-        msg.innerHTML = '<span class="text-danger">Días debe estar entre 1 y 90</span>';
-        return;
-    }
-    try {
-        const r = await fetch('/configuracion/ml-z-sin-stock', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stock, dias_demora: dias })
-        });
-        const data = await r.json();
-        if (data.ok) {
-            msg.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Guardado. A partir de la próxima actualización automática de stock se usarán estos valores.</span>';
-            setTimeout(() => msg.innerHTML = '', 5000);
-        } else {
-            msg.innerHTML = `<span class="text-danger">Error: ${data.error || 'desconocido'}</span>`;
-        }
-    } catch (e) {
-        msg.innerHTML = '<span class="text-danger">Error de conexión</span>';
     }
 }
 
