@@ -101,7 +101,8 @@
                 <select name="canal" class="form-select form-select-sm">
                     <option value="">Todos</option>
                     <option value="ML" {% if filtro_canal == 'ML' %}selected{% endif %}>MercadoLibre</option>
-                    <option value="no_ml" {% if filtro_canal == 'no_ml' %}selected{% endif %}>Venta Directa</option>
+                    <option value="WEB" {% if filtro_canal == 'WEB' %}selected{% endif %}>Tienda Web</option>
+                    <option value="PRESENCIAL" {% if filtro_canal == 'PRESENCIAL' %}selected{% endif %}>Presencial</option>
                 </select>
             </div>
             <div class="col-md-2">

@@ -250,13 +250,11 @@ def enviar_whatsapp(telefono, template_name, componentes=None):
         return {"ok": False, "error": str(e)}
 
 
-def _enviar_email_hot_event(destinatario, subject_override=None):
+def _enviar_email_hot_event(destinatario):
     """
     Envía el email del HOT MERCADOMUEBLES a un destinatario.
     Usa SMTP de Hostinger con las credenciales del .env del VPS
     (variables de entorno MAIL_SMTP_HOST/PORT/USER/PASS).
-
-    Si se pasa `subject_override`, lo usa en lugar del subject por defecto.
     """
     import smtplib
     from email.mime.multipart import MIMEMultipart
@@ -273,7 +271,7 @@ def _enviar_email_hot_event(destinatario, subject_override=None):
             'de entorno MAIL_SMTP_PASS en el .env del VPS.'
         )
 
-    subject = subject_override or '🔥 HOT MercadoMuebles — Hasta 15% OFF en colchones Cannon'
+    subject = '🔥 HOT MercadoMuebles — Hasta 15% OFF en colchones Cannon'
 
     html = """
 <!DOCTYPE html>
@@ -413,16 +411,13 @@ def enviar_hot_event_a_todos():
     """
     Envía el email del HOT MERCADOMUEBLES a todos los suscriptores + email testigo.
 
-    Usa un LOCK ATÓMICO en la tabla configuracion (clave 'hot_email_envio_estado')
-    para evitar envíos duplicados desde múltiples workers de Gunicorn (5 workers
+    Usa un lock en la tabla configuracion (clave 'hot_email_envio_estado') para
+    evitar envíos duplicados desde múltiples workers de Gunicorn (5 workers
     correrían el job 5 veces sin este lock).
 
-    El lock usa UPDATE ... WHERE para garantizar atomicidad: solo UN worker
-    de los 5 verá affected_rows == 1; los otros 4 abortan inmediatamente.
-
     Estados del lock:
-      - sin entrada o 'no_iniciado': nadie tomó el job
-      - 'enviando_<timestamp>_<uuid>': un worker está ejecutando
+      - sin entrada o vacío: nadie tomó el job
+      - 'enviando_<timestamp>': un worker está ejecutando
       - 'completado_<ok>ok_<err>err_<timestamp>': terminó con stats
       - 'error_<msg>_<timestamp>': falló catastróficamente
 
@@ -432,66 +427,28 @@ def enviar_hot_event_a_todos():
     """
     import time
     import json
-    import uuid
     from datetime import datetime
 
     EMAIL_TESTIGO = 'manudz86@gmail.com'
 
-    # ── Lock atómico contra race conditions entre workers ──
-    # Generar un valor único para este intento
-    lock_id = uuid.uuid4().hex[:12]
-    lock_value = f'enviando_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{lock_id}'
-
-    # 1) Asegurar que la fila existe (idempotente, no compite con otros workers)
-    try:
-        execute_db("""
-            INSERT IGNORE INTO configuracion (clave, valor)
-            VALUES ('hot_email_envio_estado', 'no_iniciado')
-        """)
-    except Exception as e:
-        print(f"[HOT email] Error asegurando fila del lock: {e}")
-        return {'ok': False, 'razon': 'error_init', 'error': str(e)}
-
-    # 2) Tomar el lock atómicamente con UPDATE conditional.
-    #    MySQL/InnoDB hace UPDATE atómico: solo 1 worker verá affected_rows == 1.
-    affected = 0
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("""
-            UPDATE configuracion
-            SET valor = %s
-            WHERE clave = 'hot_email_envio_estado'
-              AND valor NOT LIKE 'enviando_%%'
-              AND valor NOT LIKE 'completado_%%'
-        """, (lock_value,))
-        conn.commit()
-        affected = cur.rowcount
-        cur.close()
-        conn.close()
-    except Exception as e:
-        print(f"[HOT email] Error tomando lock: {e}")
-        return {'ok': False, 'razon': 'error_lock', 'error': str(e)}
-
-    if affected == 0:
-        # Otro worker ya tiene el lock, o ya completó
-        estado_real = query_one(
-            "SELECT valor FROM configuracion WHERE clave='hot_email_envio_estado'"
-        )
-        valor = (estado_real.get('valor') if estado_real else '?')
-        print(f"[HOT email] Lock NO obtenido. Estado actual: {valor}. Abort.")
-        return {'ok': False, 'razon': 'lock_no_obtenido', 'estado': valor}
-
-    # 3) Doble verificación: confirmar que el lock_value en la DB es realmente el nuestro
-    estado = query_one(
+    # Verificar lock
+    estado_actual = query_one(
         "SELECT valor FROM configuracion WHERE clave='hot_email_envio_estado'"
     )
-    if not estado or estado.get('valor') != lock_value:
-        valor_real = estado.get('valor') if estado else '?'
-        print(f"[HOT email] Lock perdido en verificación (esperaba {lock_value}, hay {valor_real}). Abort.")
-        return {'ok': False, 'razon': 'lock_perdido'}
+    if estado_actual:
+        valor = (estado_actual.get('valor') or '').strip()
+        if valor.startswith('enviando') or valor.startswith('completado'):
+            print(f"[HOT email] Otro worker ya procesa/terminó (estado: {valor}). Abort.")
+            return {'ok': False, 'razon': 'lock_activo', 'estado': valor}
 
-    print(f"[HOT email] Lock obtenido atómicamente: {lock_value}")
+    # Tomar el lock atómicamente
+    lock_value = f'enviando_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+    execute_db("""
+        INSERT INTO configuracion (clave, valor) VALUES ('hot_email_envio_estado', %s)
+        ON DUPLICATE KEY UPDATE valor=%s
+    """, (lock_value, lock_value))
+
+    print(f"[HOT email] Iniciando envío masivo (lock={lock_value})")
 
     try:
         suscriptores = query_db(
@@ -552,160 +509,6 @@ def enviar_hot_event_a_todos():
             ON DUPLICATE KEY UPDATE valor=%s
         """, (error_value, error_value))
         print(f"[HOT email] Error catastrófico: {e}")
-        raise
-
-
-# Subject usado SOLO para el reintento a fallidos (puede editarse).
-HOT_REINTENTO_SUBJECT = '🔥 ¡Te quedan pocos días! HOT MercadoMuebles hasta el 18/05'
-
-
-def enviar_hot_event_a_fallidos():
-    """
-    Reintento del HOT MERCADOMUEBLES SOLO a los destinatarios que figuran en
-    'hot_email_envio_fallidos' (los que NO recibieron ninguna copia el lunes
-    porque la casilla SMTP se quedó sin cuota).
-
-    Usa subject distinto (HOT_REINTENTO_SUBJECT) y un lock INDEPENDIENTE
-    ('hot_email_reenvio_estado'), también con UPDATE atómico para evitar
-    duplicación entre los 5 workers de Gunicorn.
-
-    Incluye al EMAIL_TESTIGO (manudz86@gmail.com) para verificación.
-
-    Para volver a habilitar un reintento (después de uno fallido), borrar
-    la entrada 'hot_email_reenvio_estado' desde el panel admin.
-    """
-    import time
-    import json
-    import uuid
-    from datetime import datetime
-
-    EMAIL_TESTIGO = 'manudz86@gmail.com'
-
-    # ── Lock atómico independiente del envío original ──
-    lock_id = uuid.uuid4().hex[:12]
-    lock_value = f'enviando_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{lock_id}'
-
-    try:
-        execute_db("""
-            INSERT IGNORE INTO configuracion (clave, valor)
-            VALUES ('hot_email_reenvio_estado', 'no_iniciado')
-        """)
-    except Exception as e:
-        print(f"[HOT reenvio] Error init lock: {e}")
-        return {'ok': False, 'razon': 'error_init', 'error': str(e)}
-
-    # Tomar el lock atómicamente
-    affected = 0
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("""
-            UPDATE configuracion
-            SET valor = %s
-            WHERE clave = 'hot_email_reenvio_estado'
-              AND valor NOT LIKE 'enviando_%%'
-              AND valor NOT LIKE 'completado_%%'
-        """, (lock_value,))
-        conn.commit()
-        affected = cur.rowcount
-        cur.close()
-        conn.close()
-    except Exception as e:
-        print(f"[HOT reenvio] Error tomando lock: {e}")
-        return {'ok': False, 'razon': 'error_lock', 'error': str(e)}
-
-    if affected == 0:
-        estado_real = query_one(
-            "SELECT valor FROM configuracion WHERE clave='hot_email_reenvio_estado'"
-        )
-        valor = (estado_real.get('valor') if estado_real else '?')
-        print(f"[HOT reenvio] Lock NO obtenido. Estado: {valor}. Abort.")
-        return {'ok': False, 'razon': 'lock_no_obtenido', 'estado': valor}
-
-    estado = query_one(
-        "SELECT valor FROM configuracion WHERE clave='hot_email_reenvio_estado'"
-    )
-    if not estado or estado.get('valor') != lock_value:
-        print(f"[HOT reenvio] Lock perdido en verificación. Abort.")
-        return {'ok': False, 'razon': 'lock_perdido'}
-
-    print(f"[HOT reenvio] Lock obtenido: {lock_value}")
-
-    try:
-        # Leer la lista de fallidos del envío original
-        row = query_one(
-            "SELECT valor FROM configuracion WHERE clave='hot_email_envio_fallidos'"
-        )
-        if not row or not row.get('valor'):
-            print("[HOT reenvio] No hay fallidos para reenviar.")
-            execute_db("""
-                INSERT INTO configuracion (clave, valor)
-                VALUES ('hot_email_reenvio_estado', 'completado_0ok_0err_sin_fallidos')
-                ON DUPLICATE KEY UPDATE valor=VALUES(valor)
-            """)
-            return {'ok': True, 'enviados': 0, 'fallidos': 0, 'razon': 'sin_fallidos'}
-
-        try:
-            fallidos_orig = json.loads(row['valor'])
-        except Exception as e:
-            print(f"[HOT reenvio] Error parseando fallidos: {e}")
-            fallidos_orig = []
-
-        # Set único de emails a reintentar + testigo
-        emails_set = set()
-        for f in fallidos_orig:
-            email = (f.get('email') or '').strip().lower()
-            if email and '@' in email:
-                emails_set.add(email)
-        emails_set.add(EMAIL_TESTIGO.lower())
-        destinatarios = sorted(emails_set)
-        total = len(destinatarios)
-
-        print(f"[HOT reenvio] Reintentando a {total} destinatarios (fallidos + testigo)")
-
-        ok = 0
-        fallidos = []
-
-        for i, email in enumerate(destinatarios, 1):
-            try:
-                _enviar_email_hot_event(email, subject_override=HOT_REINTENTO_SUBJECT)
-                ok += 1
-                print(f"[HOT reenvio] {i}/{total} OK: {email}")
-            except Exception as e:
-                fallidos.append({'email': email, 'error': str(e)[:200]})
-                print(f"[HOT reenvio] {i}/{total} ERROR: {email} - {e}")
-
-            # Throttling: 1 segundo entre emails
-            time.sleep(1)
-
-        estado_final = (f'completado_{ok}ok_{len(fallidos)}err_'
-                        f'{datetime.now().strftime("%Y%m%d_%H%M%S")}')
-        execute_db("""
-            INSERT INTO configuracion (clave, valor) VALUES ('hot_email_reenvio_estado', %s)
-            ON DUPLICATE KEY UPDATE valor=%s
-        """, (estado_final, estado_final))
-
-        # Guardar fallidos del reenvío (separados del original)
-        if fallidos:
-            fallidos_json = json.dumps(fallidos)[:10000]
-            execute_db("""
-                INSERT INTO configuracion (clave, valor) VALUES ('hot_email_reenvio_fallidos', %s)
-                ON DUPLICATE KEY UPDATE valor=%s
-            """, (fallidos_json, fallidos_json))
-        else:
-            execute_db("DELETE FROM configuracion WHERE clave='hot_email_reenvio_fallidos'")
-
-        print(f"[HOT reenvio] Completado: {ok} OK, {len(fallidos)} fallidos")
-        return {'ok': True, 'enviados': ok, 'fallidos': len(fallidos),
-                'detalle_fallidos': fallidos}
-
-    except Exception as e:
-        error_value = f'error_{str(e)[:100]}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
-        execute_db("""
-            INSERT INTO configuracion (clave, valor) VALUES ('hot_email_reenvio_estado', %s)
-            ON DUPLICATE KEY UPDATE valor=%s
-        """, (error_value, error_value))
-        print(f"[HOT reenvio] Error catastrófico: {e}")
         raise
 
 
@@ -10305,12 +10108,7 @@ def estadisticas():
 
     if filtro_canal == 'ML':
         base_where += " AND v.canal = 'Mercado Libre'"
-    elif filtro_canal == 'WEB':
-        base_where += " AND v.canal = 'tienda_web'"
-    elif filtro_canal == 'PRESENCIAL':
-        base_where += " AND v.canal NOT IN ('Mercado Libre', 'tienda_web')"
     elif filtro_canal == 'no_ml':
-        # compatibilidad con links viejos: no-ML = web + presencial
         base_where += " AND v.canal != 'Mercado Libre'"
 
     if filtro_metodo:
@@ -10324,30 +10122,16 @@ def estadisticas():
     # ========================================
     # 1. MÉTRICAS RESUMEN
     # ========================================
-    # OJO: el resumen se calcula en 2 queries separadas porque hacer LEFT JOIN
-    # con items_venta duplica filas (1 por cada item) e infla COUNT() y SUM(importe_total).
-    resumen_ventas = query_one(f"""
+    resumen = query_one(f"""
         SELECT
             COUNT(*) as total_ventas,
             COALESCE(SUM(v.importe_total), 0) as total_facturado,
-            COALESCE(AVG(v.importe_total), 0) as ticket_promedio
+            COALESCE(AVG(v.importe_total), 0) as ticket_promedio,
+            COALESCE(SUM(iv.cantidad), 0) as total_unidades
         FROM ventas v
+        LEFT JOIN items_venta iv ON iv.venta_id = v.id
         {base_where}
     """, tuple(base_params))
-
-    resumen_unidades = query_one(f"""
-        SELECT COALESCE(SUM(iv.cantidad), 0) as total_unidades
-        FROM ventas v
-        JOIN items_venta iv ON iv.venta_id = v.id
-        {base_where}
-    """, tuple(base_params))
-
-    resumen = {
-        'total_ventas':     resumen_ventas['total_ventas']     if resumen_ventas else 0,
-        'total_facturado':  resumen_ventas['total_facturado']  if resumen_ventas else 0,
-        'ticket_promedio':  resumen_ventas['ticket_promedio']  if resumen_ventas else 0,
-        'total_unidades':   resumen_unidades['total_unidades'] if resumen_unidades else 0,
-    }
 
     # ========================================
     # 2. VENTAS POR DÍA (para gráfico de línea)
@@ -10364,15 +10148,11 @@ def estadisticas():
     """, tuple(base_params))
 
     # ========================================
-    # 3. DESGLOSE POR CANAL (para torta) — 3 categorías
+    # 3. DESGLOSE POR CANAL (para torta)
     # ========================================
     por_canal = query_db(f"""
         SELECT
-            CASE
-                WHEN v.canal = 'Mercado Libre' THEN 'MercadoLibre'
-                WHEN v.canal = 'tienda_web'    THEN 'Tienda Web'
-                ELSE 'Presencial'
-            END as canal_label,
+            CASE WHEN v.canal = 'Mercado Libre' THEN 'MercadoLibre' ELSE 'Venta Directa' END as canal_label,
             COUNT(*) as cantidad,
             SUM(v.importe_total) as total
         FROM ventas v
@@ -10471,12 +10251,7 @@ def exportar_reposicion():
 
     if filtro_canal == 'ML':
         base_where += " AND v.canal = 'Mercado Libre'"
-    elif filtro_canal == 'WEB':
-        base_where += " AND v.canal = 'tienda_web'"
-    elif filtro_canal == 'PRESENCIAL':
-        base_where += " AND v.canal NOT IN ('Mercado Libre', 'tienda_web')"
     elif filtro_canal == 'no_ml':
-        # compatibilidad con links viejos
         base_where += " AND v.canal != 'Mercado Libre'"
     if filtro_metodo:
         base_where += " AND v.metodo_envio = %s"
@@ -12389,12 +12164,11 @@ def email_hot_test():
 def email_hot_masivo():
     """
     Panel del envío masivo del email HOT MERCADOMUEBLES a suscriptores.
-
-    Funciones:
-      - Ver estado del envío original (lunes 11/05/2026 9:00 AM ARG)
-      - Ver estado del reenvío a fallidos (martes 12/05/2026 9:00 AM ARG)
-      - Disparar manualmente cualquiera de los dos
-      - Resetear estados para permitir reintentos
+    El job se programa automáticamente para el lunes 11/05/2026 a las 9:00 AM ARG.
+    Esta página sirve para:
+      - Ver cuántos suscriptores hay y el estado del último envío
+      - Disparar el envío manualmente si el job programado no corrió
+      - Resetear el estado para permitir un reenvío
     """
     import threading
     import json
@@ -12402,7 +12176,6 @@ def email_hot_masivo():
     if request.method == 'POST':
         accion = request.form.get('accion', '')
 
-        # ── Envío masivo original (a todos los suscriptores) ──
         if accion == 'enviar':
             confirmar = (request.form.get('confirmar') or '').strip()
             if confirmar != 'SI ENVIAR':
@@ -12424,42 +12197,12 @@ def email_hot_masivo():
                   'success')
             return redirect(url_for('email_hot_masivo'))
 
-        # ── Reenvío SOLO a fallidos del envío original ──
-        if accion == 'enviar_reintento':
-            confirmar = (request.form.get('confirmar') or '').strip()
-            if confirmar != 'SI REENVIAR':
-                flash('❌ Confirmación incorrecta. Tenés que escribir exactamente: SI REENVIAR',
-                      'danger')
-                return redirect(url_for('email_hot_masivo'))
-
-            # Solo limpiamos el estado del REENVÍO, no tocamos los fallidos del original
-            execute_db("DELETE FROM configuracion WHERE clave='hot_email_reenvio_estado'")
-            execute_db("DELETE FROM configuracion WHERE clave='hot_email_reenvio_fallidos'")
-
-            def _disparar_reintento_bg():
-                try:
-                    enviar_hot_event_a_fallidos()
-                except Exception as e:
-                    print(f"[HOT reenvio] Error en disparo manual: {e}")
-
-            threading.Thread(target=_disparar_reintento_bg, daemon=True).start()
-            flash('✅ Reenvío disparado en background. Refrescá esta página en 1-2 minutos para ver el resultado.',
-                  'success')
-            return redirect(url_for('email_hot_masivo'))
-
         if accion == 'reset':
             execute_db("DELETE FROM configuracion WHERE clave='hot_email_envio_estado'")
             execute_db("DELETE FROM configuracion WHERE clave='hot_email_envio_fallidos'")
-            flash('✅ Estado del envío original reseteado.', 'success')
+            flash('✅ Estado reseteado. Ahora se puede disparar un nuevo envío.', 'success')
             return redirect(url_for('email_hot_masivo'))
 
-        if accion == 'reset_reenvio':
-            execute_db("DELETE FROM configuracion WHERE clave='hot_email_reenvio_estado'")
-            execute_db("DELETE FROM configuracion WHERE clave='hot_email_reenvio_fallidos'")
-            flash('✅ Estado del reenvío reseteado.', 'success')
-            return redirect(url_for('email_hot_masivo'))
-
-    # ── GET: armar contexto del template ──
     total_susc_row = query_one(
         "SELECT COUNT(*) as c FROM suscriptores WHERE email IS NOT NULL AND email != ''"
     )
@@ -12469,12 +12212,6 @@ def email_hot_masivo():
     fallidos_row = query_one(
         "SELECT valor FROM configuracion WHERE clave='hot_email_envio_fallidos'"
     )
-    reenvio_estado_row = query_one(
-        "SELECT valor FROM configuracion WHERE clave='hot_email_reenvio_estado'"
-    )
-    reenvio_fallidos_row = query_one(
-        "SELECT valor FROM configuracion WHERE clave='hot_email_reenvio_fallidos'"
-    )
 
     fallidos_list = []
     if fallidos_row and fallidos_row.get('valor'):
@@ -12483,20 +12220,10 @@ def email_hot_masivo():
         except Exception:
             fallidos_list = []
 
-    reenvio_fallidos_list = []
-    if reenvio_fallidos_row and reenvio_fallidos_row.get('valor'):
-        try:
-            reenvio_fallidos_list = json.loads(reenvio_fallidos_row['valor'])
-        except Exception:
-            reenvio_fallidos_list = []
-
     return render_template('email_hot_masivo.html',
         total_suscriptores=(total_susc_row['c'] if total_susc_row else 0),
         estado=(estado_row['valor'] if estado_row else 'no_iniciado'),
         fallidos=fallidos_list,
-        reenvio_estado=(reenvio_estado_row['valor'] if reenvio_estado_row else 'no_iniciado'),
-        reenvio_fallidos=reenvio_fallidos_list,
-        reenvio_total_destinatarios=len(fallidos_list),
     )
 # ============================================================================
 
@@ -14060,29 +13787,6 @@ def iniciar_scheduler():
             print(f"[HOT email] Job programado para {_run_dt}")
         except Exception as _e:
             print(f"[HOT email] Error programando job: {_e}")
-
-        # REENVÍO automático SOLO a fallidos del lunes — martes 12/05/2026 a las 9:00 AM ARG.
-        # Lock atómico independiente; subject distinto definido en HOT_REINTENTO_SUBJECT.
-        try:
-            from apscheduler.triggers.date import DateTrigger
-            from datetime import datetime as _dt
-            try:
-                from zoneinfo import ZoneInfo as _ZI
-                _tz_ar = _ZI('America/Argentina/Buenos_Aires')
-                _run_dt_re = _dt(2026, 5, 12, 9, 0, 0, tzinfo=_tz_ar)
-            except Exception:
-                _run_dt_re = _dt(2026, 5, 12, 12, 0, 0)  # 9 AM ARG = 12:00 UTC
-
-            scheduler.add_job(
-                enviar_hot_event_a_fallidos,
-                trigger=DateTrigger(run_date=_run_dt_re),
-                id='hot_email_reenvio_martes_9am',
-                replace_existing=True,
-                misfire_grace_time=3600
-            )
-            print(f"[HOT reenvio] Job programado para {_run_dt_re}")
-        except Exception as _e:
-            print(f"[HOT reenvio] Error programando job: {_e}")
 
         scheduler.start()
         print("[AUTO-ML] ✅ Scheduler iniciado — auto-import cada 120s, cancelaciones cada 10min, notas MP cada 10min, rechequeo auto-import cada 60s, faltantes-catálogo cada 20min")
