@@ -14136,6 +14136,14 @@ def _build_precio_costos_map():
                 precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct, multiplicador
             ) / 1000) * 1000
             mapa[sku] = precio
+        # Agregar CCO sintéticos si tienen override (no están en cannon_productos)
+        for medida_cco in ('80','100','140','160'):
+            sku_cco = f'CCO{medida_cco}'
+            if sku_cco in mapa:
+                continue
+            _cco_val = cco_overrides.get(f'cco{medida_cco}_precio_cannon', 0)
+            if _cco_val > 0:
+                mapa[sku_cco] = round(_calcular_precio_lista(_cco_val, 0, 0, 0, prontopago_pct, multiplicador) / 1000) * 1000
         # Agregar sommiers — primero los de conjunto_configuracion
         conjuntos = query_db("SELECT colchon_sku, base_sku_default, cantidad_bases FROM conjunto_configuracion WHERE activo=1")
         for c in conjuntos:
@@ -14533,6 +14541,14 @@ def _build_precio_compra_map():
             mapa[sku] = _calcular_precio_compra(
                 precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct
             )
+        # Agregar CCO sintéticos si tienen override (no están en cannon_productos)
+        for medida_cco in ('80','100','140','160'):
+            sku_cco = f'CCO{medida_cco}'
+            if sku_cco in mapa:
+                continue
+            _cco_val = cco_overrides.get(f'cco{medida_cco}_precio_cannon', 0)
+            if _cco_val > 0:
+                mapa[sku_cco] = _calcular_precio_compra(_cco_val, 0, 0, 0, prontopago_pct)
         # Sommiers calculados para TODAS las medidas/modelos de la lista PDF
         # (no depende de conjunto_configuracion para incluir todos los SKUs del PDF)
         for medida in ['80', '90', '100', '130', '140', '150', '160', '180', '200']:
@@ -15361,6 +15377,61 @@ def costos_calcular():
                 'precio_ml_9c':    _precio_cuotas(precio_lista, porcentajes_ml.get('cuotas_9', 20.7)),
                 'precio_ml_12c':   _precio_cuotas(precio_lista, porcentajes_ml.get('cuotas_12', 25.9)),
             })
+
+    # ── Agregar productos Compac sintéticos si hay override ──────────────
+    # (Para que aparezcan en /costos/calcular aunque no estén en cannon_productos)
+    skus_existentes = {p['sku'].upper() for p in productos}
+    for medida in ['80', '100', '140', '160']:
+        sku_cco = f'CCO{medida}'
+        if sku_cco in skus_existentes:
+            continue
+        cco_val = cco_overrides.get(f'cco{medida}_precio_cannon', 0)
+        if cco_val <= 0:
+            continue
+        ancho = int(medida)
+        es_colecta = ancho <= 100
+        # Solo prontopago, sin otros descuentos
+        precio_lista_cco  = _mil(_calcular_precio_lista(cco_val, 0, 0, 0, prontopago_pct, multiplicador))
+        precio_compra_cco = _calcular_precio_compra(cco_val, 0, 0, 0, prontopago_pct)
+        # Costo envío desde cannon_costos_envio
+        ce_row = query_one(
+            "SELECT costo FROM cannon_costos_envio WHERE sku = %s AND tipo = %s",
+            (sku_cco, 'colecta' if es_colecta else 'flex')
+        )
+        costo_envio_ml_cco = float(ce_row['costo']) if ce_row else 0
+        # Precio actual de productos_base (usamos el SKU con _FULL primero, después _DEP)
+        precio_actual_cco = 0
+        for suf in ('_FULL', '_DEP', ''):
+            pb = query_one("SELECT precio_base FROM productos_base WHERE sku = %s", (sku_cco + suf,))
+            if pb and pb.get('precio_base'):
+                precio_actual_cco = float(pb['precio_base'])
+                break
+        precio_ml_sc_cco = _mil(precio_lista_cco + costo_envio_ml_cco)
+        productos.append({
+            'id':              None,
+            'sku':             sku_cco,
+            'descripcion':     f'Colchón Compac {medida}x190 (override manual)',
+            'precio_cannon':   cco_val,
+            'precio_compra':   precio_compra_cco,
+            'clave_descuento': 'compac',
+            'desc_linea':      0,
+            'desc_cliente':    0,
+            'desc_adi':        0,
+            'precio_lista':    precio_lista_cco,
+            'precio_actual':   precio_actual_cco,
+            'costo_envio_ml':  costo_envio_ml_cco,
+            'tipo_pub':        'colecta' if es_colecta else 'flex',
+            'es_z':            False,
+            'es_conjunto':     False,
+            'precio_ml_sin_cuotas': precio_ml_sc_cco,
+            'precio_ml_1c':    _precio_cuotas(precio_ml_sc_cco, porcentajes_ml.get('cuota_simple', 5.0)),
+            'precio_ml_3c':    _precio_cuotas(precio_ml_sc_cco, porcentajes_ml.get('cuotas_3', 9.4)),
+            'precio_ml_6c':    _precio_cuotas(precio_ml_sc_cco, porcentajes_ml.get('cuotas_6', 15.1)),
+            'precio_ml_9c':    _precio_cuotas(precio_ml_sc_cco, porcentajes_ml.get('cuotas_9', 20.7)),
+            'precio_ml_12c':   _precio_cuotas(precio_ml_sc_cco, porcentajes_ml.get('cuotas_12', 25.9)),
+        })
+        colchones_precio_lista[sku_cco]  = precio_lista_cco
+        colchones_precio_compra[sku_cco] = precio_compra_cco
 
     # ── Agregar sommiers ──────────────────────────────────────────────────────
     for sku_col, cfg_conj in conjuntos_cfg.items():
