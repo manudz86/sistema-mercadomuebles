@@ -33,39 +33,6 @@
     </div>
   </div>
 
-  <!-- ── Precios especiales Compac (CCO) ── -->
-  <div class="card border-0 shadow-sm mb-3" style="border-left:4px solid #f39c12 !important;">
-    <div class="card-header fw-semibold bg-light">
-      📌 Precios especiales Compac (CCO)
-    </div>
-    <div class="card-body">
-      <div class="row g-2">
-        {% for sku in ['CCO80','CCO100','CCO140','CCO160'] %}
-        {% set k = sku | lower ~ '_precio_cannon' %}
-        <div class="col-md-3">
-          <label class="form-label small text-muted mb-1">Precio Cannon {{ sku }} ($)</label>
-          <input type="number" class="form-control cco-precio"
-                 data-sku="{{ sku | lower }}"
-                 value="{{ cco_precios.get(k, '') }}"
-                 placeholder="Ej: 200000" min="0" step="100">
-        </div>
-        {% endfor %}
-      </div>
-      <div class="row g-2 align-items-center mt-2">
-        <div class="col-md-10">
-          <small class="text-muted">
-            Override manual. Si está cargado, se usa este precio en vez del de la lista Excel.
-            Los SKU con sufijo <code>_DEP</code> y <code>_FULL</code> usan el mismo precio.
-            Solo aplica <strong>prontopago</strong>, sin otros descuentos.
-          </small>
-        </div>
-        <div class="col-md-2">
-          <button class="btn btn-success w-100" onclick="guardarCco()">💾 Guardar</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <div class="card border-0 shadow-sm">
     <div class="card-body p-0">
       <table class="table table-sm table-hover mb-0 align-middle">
@@ -184,20 +151,6 @@ async function guardarCtr80() {
   });
   const data = await res.json();
   toast(data.ok ? '✅ Precio CTR80 guardado' : '❌ ' + data.error, data.ok ? 'success' : 'danger');
-}
-
-async function guardarCco() {
-  const cco_precios = {};
-  document.querySelectorAll('.cco-precio').forEach(i => {
-    cco_precios[i.dataset.sku] = i.value;
-  });
-  const res = await fetch('/costos/descuentos', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({cco_precios: cco_precios})
-  });
-  const data = await res.json();
-  toast(data.ok ? '✅ Precios Compac guardados' : '❌ ' + data.error, data.ok ? 'success' : 'danger');
 }
 
 function toast(msg, tipo) {

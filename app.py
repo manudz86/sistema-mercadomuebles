@@ -13928,8 +13928,11 @@ def _get_precio_costos_sku(sku, porcentajes_ml=None):
 
         def _detectar_clave_simple(desc, sku_up):
             desc = (desc or '').upper()
+            sku_check = sku_up.replace('_DEP', '').replace('_FULL', '')
             # CTR80 — caso especial, solo prontopago
-            if sku_up == 'CTR80': return 'ctr80'
+            if sku_check == 'CTR80': return 'ctr80'
+            # Compac — caso especial, solo prontopago
+            if sku_check in ('CCO80','CCO100','CCO140','CCO160'): return 'compac'
             # Bases primero — para que BASE_SUBL no caiga en sublime
             if sku_up.startswith('BASE_') or desc.startswith('SOM') or desc.startswith('BASE'): return 'bases'
             if sku_up in ('CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE'): return 'almohadas'
@@ -14067,6 +14070,11 @@ def _build_precio_costos_map():
         # Override CTR80
         ctr80_row = query_one("SELECT valor FROM configuracion WHERE clave = 'ctr80_precio_cannon'")
         ctr80_override = float(ctr80_row['valor']) if ctr80_row and ctr80_row.get('valor') else 0
+        # Override Compac (CCO80/100/140/160) — mismo comportamiento que CTR80
+        cco_overrides = {}
+        for _r in query_db("SELECT clave, valor FROM configuracion WHERE clave IN ('cco80_precio_cannon','cco100_precio_cannon','cco140_precio_cannon','cco160_precio_cannon')"):
+            try: cco_overrides[_r['clave']] = float(_r['valor']) if _r.get('valor') else 0
+            except: cco_overrides[_r['clave']] = 0
 
         rows = query_db("""
             SELECT cp.sku, clp.precio_lista, cp.descripcion,
@@ -14080,11 +14088,14 @@ def _build_precio_costos_map():
         for r in rows:
             sku = r['sku']
             sku_up = sku.upper()
+            sku_check = sku_up.replace('_DEP', '').replace('_FULL', '')
             desc = (r['descripcion'] or '').upper()
             # Detección de clave (mismo orden que _detectar_clave en costos_calcular)
             clave = None
-            if sku_up == 'CTR80':
+            if sku_check == 'CTR80':
                 clave = 'ctr80'
+            elif sku_check in ('CCO80', 'CCO100', 'CCO140', 'CCO160'):
+                clave = 'compac'
             elif sku_up.startswith('BASE_') or desc.startswith('SOM') or desc.startswith('BASE'):
                 clave = 'bases'
             elif sku_up in ('CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE') or desc.startswith('ALM'):
@@ -14106,16 +14117,20 @@ def _build_precio_costos_map():
             desc_entry = descuentos.get(clave, {'valor': 0, 'desc_adicional': 0}) if clave else {'valor': 0, 'desc_adicional': 0}
             desc_adi = desc_entry['desc_adicional'] + float(r['desc_adicional'] or 0)
 
-            # Almohadas y CTR80 no llevan descuento cliente, línea ni adicional
-            sin_descuentos = (clave in ('almohadas', 'ctr80'))
+            # Almohadas, CTR80 y Compac no llevan descuento cliente, línea ni adicional
+            sin_descuentos = (clave in ('almohadas', 'ctr80', 'compac'))
             desc_linea_aplicar   = 0 if sin_descuentos else desc_entry['valor']
             desc_cliente_aplicar = 0 if sin_descuentos else desc_cliente_pct
             desc_adi_aplicar     = 0 if sin_descuentos else desc_adi
 
-            # Precio Cannon (con override para CTR80)
+            # Precio Cannon (con override para CTR80 y Compac)
             precio_cannon = float(r['precio_lista'])
             if sku_up == 'CTR80' and ctr80_override > 0:
                 precio_cannon = ctr80_override
+            elif clave == 'compac':
+                _cco_val = cco_overrides.get(sku_check.lower() + '_precio_cannon', 0)
+                if _cco_val > 0:
+                    precio_cannon = _cco_val
 
             precio = round(_calcular_precio_lista(
                 precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct, multiplicador
@@ -14463,6 +14478,11 @@ def _build_precio_compra_map():
                       for r in query_db("SELECT clave, valor, desc_adicional FROM cannon_descuentos WHERE tipo = 'descuento_linea'")}
         ctr80_row = query_one("SELECT valor FROM configuracion WHERE clave = 'ctr80_precio_cannon'")
         ctr80_override = float(ctr80_row['valor']) if ctr80_row and ctr80_row.get('valor') else 0
+        # Override Compac (CCO80/100/140/160)
+        cco_overrides = {}
+        for _r in query_db("SELECT clave, valor FROM configuracion WHERE clave IN ('cco80_precio_cannon','cco100_precio_cannon','cco140_precio_cannon','cco160_precio_cannon')"):
+            try: cco_overrides[_r['clave']] = float(_r['valor']) if _r.get('valor') else 0
+            except: cco_overrides[_r['clave']] = 0
 
         rows = query_db("""
             SELECT cp.sku, clp.precio_lista, cp.descripcion,
@@ -14476,9 +14496,11 @@ def _build_precio_compra_map():
         for r in rows:
             sku = r['sku']
             sku_up = sku.upper()
+            sku_check = sku_up.replace('_DEP', '').replace('_FULL', '')
             desc = (r['descripcion'] or '').upper()
             clave = None
-            if sku_up == 'CTR80':                clave = 'ctr80'
+            if sku_check == 'CTR80':              clave = 'ctr80'
+            elif sku_check in ('CCO80','CCO100','CCO140','CCO160'): clave = 'compac'
             elif sku_up.startswith('BASE_') or desc.startswith('SOM') or desc.startswith('BASE'): clave = 'bases'
             elif sku_up in ('CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE') or desc.startswith('ALM'): clave = 'almohadas'
             elif 'EUROPILLOW' in desc: clave = 'sublime_europillow' if 'SUBLIME' in desc else 'renovation_europillow'
@@ -14495,7 +14517,7 @@ def _build_precio_compra_map():
 
             desc_entry = descuentos.get(clave, {'valor': 0, 'desc_adicional': 0}) if clave else {'valor': 0, 'desc_adicional': 0}
             desc_adi = desc_entry['desc_adicional'] + float(r['desc_adicional'] or 0)
-            sin_descuentos = (clave in ('almohadas', 'ctr80'))
+            sin_descuentos = (clave in ('almohadas', 'ctr80', 'compac'))
             desc_linea_aplicar   = 0 if sin_descuentos else desc_entry['valor']
             desc_cliente_aplicar = 0 if sin_descuentos else desc_cliente_pct
             desc_adi_aplicar     = 0 if sin_descuentos else desc_adi
@@ -14503,6 +14525,10 @@ def _build_precio_compra_map():
             precio_cannon = float(r['precio_lista'])
             if sku_up == 'CTR80' and ctr80_override > 0:
                 precio_cannon = ctr80_override
+            elif clave == 'compac':
+                _cco_val = cco_overrides.get(sku_check.lower() + '_precio_cannon', 0)
+                if _cco_val > 0:
+                    precio_cannon = _cco_val
 
             mapa[sku] = _calcular_precio_compra(
                 precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct
@@ -14900,6 +14926,19 @@ def costos_descuentos():
                 return jsonify(ok=True)
             except Exception as e:
                 return jsonify(ok=False, error=str(e))
+        # Overrides de precios Compac (CCO80/100/140/160)
+        if 'cco_precios' in data:
+            try:
+                for sku_low, valor in (data.get('cco_precios') or {}).items():
+                    if sku_low not in ('cco80','cco100','cco140','cco160'):
+                        continue
+                    execute_db("""
+                        INSERT INTO configuracion (clave, valor) VALUES (%s, %s)
+                        ON DUPLICATE KEY UPDATE valor = VALUES(valor)
+                    """, (f"{sku_low}_precio_cannon", str(valor).strip()))
+                return jsonify(ok=True)
+            except Exception as e:
+                return jsonify(ok=False, error=str(e))
         cambios = data.get('cambios', [])
         try:
             for c in cambios:
@@ -14920,7 +14959,11 @@ def costos_descuentos():
     rows = query_db("SELECT clave, descripcion, valor, desc_adicional, tipo FROM cannon_descuentos ORDER BY tipo, descripcion")
     ctr80_row = query_one("SELECT valor FROM configuracion WHERE clave = 'ctr80_precio_cannon'")
     ctr80_precio = float(ctr80_row['valor']) if ctr80_row and ctr80_row.get('valor') else 0
-    return render_template('costos_descuentos.html', descuentos=rows, ctr80_precio=ctr80_precio)
+    cco_precios = {}
+    for _r in query_db("SELECT clave, valor FROM configuracion WHERE clave IN ('cco80_precio_cannon','cco100_precio_cannon','cco140_precio_cannon','cco160_precio_cannon')"):
+        cco_precios[_r['clave']] = _r['valor'] or ''
+    return render_template('costos_descuentos.html', descuentos=rows,
+                           ctr80_precio=ctr80_precio, cco_precios=cco_precios)
 
 
 @app.route('/costos/importar', methods=['GET', 'POST'])
@@ -15154,9 +15197,13 @@ def costos_calcular():
     def _detectar_clave(descripcion, sku=''):
         desc = (descripcion or '').upper()
         sku_up = (sku or '').upper()
+        sku_check = sku_up.replace('_DEP', '').replace('_FULL', '')
         # CTR80 — caso especial, solo prontopago, sin otros descuentos
-        if sku_up == 'CTR80':
+        if sku_check == 'CTR80':
             return 'ctr80'
+        # Compac — caso especial, solo prontopago, sin otros descuentos
+        if sku_check in ('CCO80', 'CCO100', 'CCO140', 'CCO160'):
+            return 'compac'
         # Bases primero — antes que las líneas de modelo, para que BASE_SUBL no caiga en 'sublime'
         if sku_up.startswith('BASE_') or desc.startswith('SOM') or desc.startswith('BASE'):
             return 'bases'
@@ -15199,14 +15246,25 @@ def costos_calcular():
     # Override de precio Cannon CTR80 (caso especial)
     ctr80_row = query_one("SELECT valor FROM configuracion WHERE clave = 'ctr80_precio_cannon'")
     ctr80_override = float(ctr80_row['valor']) if ctr80_row and ctr80_row.get('valor') else 0
+    # Override de precio Cannon Compac (caso especial)
+    cco_overrides = {}
+    for _r in query_db("SELECT clave, valor FROM configuracion WHERE clave IN ('cco80_precio_cannon','cco100_precio_cannon','cco140_precio_cannon','cco160_precio_cannon')"):
+        try: cco_overrides[_r['clave']] = float(_r['valor']) if _r.get('valor') else 0
+        except: cco_overrides[_r['clave']] = 0
 
     productos = []
     for p in productos_raw:
         precio_cannon = float(p['precio_cannon'] or 0)
         sku = p['sku'] or ''
+        sku_check_cco = sku.upper().replace('_DEP', '').replace('_FULL', '')
         # Aplicar override CTR80 si existe
         if sku.upper() == 'CTR80' and ctr80_override > 0:
             precio_cannon = ctr80_override
+        # Aplicar override Compac si existe
+        elif sku_check_cco in ('CCO80', 'CCO100', 'CCO140', 'CCO160'):
+            _cco_val = cco_overrides.get(sku_check_cco.lower() + '_precio_cannon', 0)
+            if _cco_val > 0:
+                precio_cannon = _cco_val
         if not precio_cannon:
             continue
         clave = _detectar_clave(p['descripcion'], sku)
@@ -15215,8 +15273,8 @@ def costos_calcular():
         desc_adi_linea = desc_entry['desc_adicional']
         desc_adi_sku = float(p['desc_adicional'] or 0)
         desc_adi   = desc_adi_linea + desc_adi_sku
-        # Almohadas y CTR80 no llevan descuento de cliente, línea ni adicional — solo prontopago
-        sin_descuentos = (clave in ('almohadas', 'ctr80'))
+        # Almohadas, CTR80 y Compac no llevan descuento de cliente, línea ni adicional — solo prontopago
+        sin_descuentos = (clave in ('almohadas', 'ctr80', 'compac'))
         desc_cliente_aplicar = 0 if sin_descuentos else desc_cliente_pct
         desc_adi_aplicar     = 0 if sin_descuentos else desc_adi
         desc_linea_aplicar   = 0 if sin_descuentos else desc_linea
