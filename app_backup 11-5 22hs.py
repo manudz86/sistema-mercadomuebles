@@ -14290,8 +14290,7 @@ def _get_precio_costos_sku(sku, porcentajes_ml=None):
         else:
             costo_envio = 0
 
-        # Netear envío por comisión ML (~14%) antes de sumar al precio_lista
-        precio_sc = round((precio_lista + costo_envio / 0.86) / 1000) * 1000
+        precio_sc = round((precio_lista + costo_envio) / 1000) * 1000
 
         def _pc(base, pct):
             return round(base * 0.76 / (0.76 - pct / 100) / 1000) * 1000
@@ -15591,10 +15590,9 @@ def costos_calcular():
         desc_cliente_aplicar = 0 if sin_descuentos else desc_cliente_pct
         desc_adi_aplicar     = 0 if sin_descuentos else desc_adi
         desc_linea_aplicar   = 0 if sin_descuentos else desc_linea
-        precio_lista_raw = _calcular_precio_lista(
+        precio_lista = _mil(_calcular_precio_lista(
             precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct, multiplicador
-        )
-        precio_lista = _mil(precio_lista_raw)
+        ))
 
         # Guardar precio colchon para calcular sommiers después
         if clave != 'bases' and clave != 'almohadas':
@@ -15617,9 +15615,7 @@ def costos_calcular():
                 costo_envio_ml = float(p['costo_flex'] or 0)
                 tipo_pub = 'flex'
 
-        # ML cobra ~14% de comisión sobre el precio final (incluye envío),
-        # por eso el envío se netea dividiendo por 0.86 antes de sumarlo al precio_lista.
-        precio_ml_sin_cuotas = _mil(precio_lista_raw + costo_envio_ml / 0.86) if not es_z else precio_lista
+        precio_ml_sin_cuotas = _mil(precio_lista + costo_envio_ml) if not es_z else precio_lista
 
         precio_compra = _calcular_precio_compra(
             precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct
@@ -15691,8 +15687,7 @@ def costos_calcular():
         ancho = int(medida)
         es_colecta = ancho <= 100
         # Solo prontopago, sin otros descuentos
-        precio_lista_cco_raw = _calcular_precio_lista(cco_val, 0, 0, 0, prontopago_pct, multiplicador)
-        precio_lista_cco     = _mil(precio_lista_cco_raw)
+        precio_lista_cco  = _mil(_calcular_precio_lista(cco_val, 0, 0, 0, prontopago_pct, multiplicador))
         precio_compra_cco = _calcular_precio_compra(cco_val, 0, 0, 0, prontopago_pct)
         # Costo envío desde cannon_costos_envio
         ce_row = query_one(
@@ -15707,8 +15702,7 @@ def costos_calcular():
             if pb and pb.get('precio_base'):
                 precio_actual_cco = float(pb['precio_base'])
                 break
-        # Netear envío por comisión ML (~14%) antes de sumar al precio_lista raw
-        precio_ml_sc_cco = _mil(precio_lista_cco_raw + costo_envio_ml_cco / 0.86)
+        precio_ml_sc_cco = _mil(precio_lista_cco + costo_envio_ml_cco)
         productos.append({
             'id':              None,
             'sku':             sku_cco,
@@ -15780,8 +15774,7 @@ def costos_calcular():
         ce_flex = query_one("SELECT costo FROM cannon_costos_envio WHERE sku = %s AND tipo = 'flex'", (sku_conj,))
         costo_flex = float(ce_flex['costo'] or 0) if ce_flex else 0
 
-        # Netear envío por comisión ML (~14%) antes de sumar al precio_conjunto
-        precio_ml_flex = _mil(precio_conjunto + costo_flex / 0.86)
+        precio_ml_flex = _mil(precio_conjunto + costo_flex)
 
         productos.append({
             'id':              None,
