@@ -14719,15 +14719,12 @@ def rentabilidad_recalcular_costos():
 @login_required
 @admin_required
 def rentabilidad_editar_costo():
-    """Editar costo_comision, costo_productos o costo_envio_vendedor de una venta."""
+    """Editar costo_productos de una venta desde el template de rentabilidad."""
     try:
         venta_id = int(request.form.get('venta_id', 0))
-        campo    = request.form.get('campo', 'costo_productos')
-        valor    = float(request.form.get('valor', request.form.get('costo_productos', 0)))
-        if campo not in ('costo_comision', 'costo_productos', 'costo_envio_vendedor'):
-            return jsonify({'ok': False, 'error': 'campo inválido'}), 400
-        execute_db(f"UPDATE ventas SET {campo}=%s WHERE id=%s", [valor, venta_id])
-        return jsonify({'ok': True, 'valor': valor})
+        costo    = float(request.form.get('costo_productos', 0))
+        execute_db("UPDATE ventas SET costo_productos=%s WHERE id=%s", [costo, venta_id])
+        return jsonify({'ok': True, 'costo': costo})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 400
 

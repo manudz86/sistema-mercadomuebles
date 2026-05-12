@@ -127,9 +127,9 @@
               <th>Envío</th>
               <th class="text-end">Total c/IVA</th>
               <th class="text-end">Total s/IVA</th>
-              <th class="text-end">Comisión</th>
+              <th class="text-end" title="Click para editar">Comisión ✏️</th>
               <th class="text-end" title="Click para editar">Costo prod. ✏️</th>
-              <th class="text-end">Costo envío</th>
+              <th class="text-end" title="Click para editar">Costo envío ✏️</th>
               <th class="text-end">Ganancia</th>
               <th class="text-end">Margen</th>
             </tr>
@@ -139,7 +139,13 @@
             {% if v.sin_costos %}{% set rc = 'table-secondary' %}
             {% elif v.pct < 5 %}{% set rc = 'table-danger' %}
             {% else %}{% set rc = '' %}{% endif %}
-            <tr class="{{ rc }}" data-venta-id="{{ v.id }}">
+            <tr class="{{ rc }} fila-rent"
+                data-venta-id="{{ v.id }}"
+                data-total-civa="{{ v.total_con_iva }}"
+                data-total-siva="{{ v.total_sin_iva }}"
+                data-comision="{{ v.costo_comision or 0 }}"
+                data-costo-prod="{{ v.costo_productos or 0 }}"
+                data-costo-envio="{{ v.costo_envio or 0 }}">
               <td class="text-nowrap">{% if v.fecha_venta %}{{ v.fecha_venta.strftime('%d/%m/%y') }}{% else %}—{% endif %}</td>
               <td>
                 <a href="{{ url_for('ventas_historicas') }}?q={{ v.numero_venta }}" class="text-decoration-none small">{{ v.numero_venta }}</a>
@@ -164,28 +170,30 @@
               </td>
               <td class="text-end">${{ "{:,.0f}".format(v.total_con_iva).replace(",",".") }}</td>
               <td class="text-end text-muted">${{ "{:,.0f}".format(v.total_sin_iva).replace(",",".") }}</td>
-              <td class="text-end text-warning">
-                {% if v.sin_costos %}<span class="text-muted">—</span>
-                {% else %}${{ "{:,.0f}".format(v.costo_comision).replace(",",".") }}{% endif %}
+              <td class="text-end text-warning editable-cell" data-campo="costo_comision" style="cursor:pointer">
+                <span class="celda-display">
+                  {% if v.sin_costos %}<span class="text-muted">—</span>
+                  {% else %}${{ "{:,.0f}".format(v.costo_comision).replace(",",".") }}{% endif %}
+                </span>
               </td>
-              <td class="text-end costo-prod-cell" style="cursor:pointer" title="Click para editar"
-                  data-venta-id="{{ v.id }}" data-valor="{{ v.costo_productos | int }}">
-                {% if v.costo_productos %}
-                  <span class="costo-display">${{ "{:,.0f}".format(v.costo_productos).replace(",",".") }}</span>
-                {% else %}
-                  <span class="costo-display text-muted">—</span>
-                {% endif %}
+              <td class="text-end editable-cell" data-campo="costo_productos" style="cursor:pointer">
+                <span class="celda-display">
+                  {% if v.costo_productos %}${{ "{:,.0f}".format(v.costo_productos).replace(",",".") }}
+                  {% else %}<span class="text-muted">—</span>{% endif %}
+                </span>
               </td>
-              <td class="text-end">
-                {% if v.costo_envio %}${{ "{:,.0f}".format(v.costo_envio).replace(",",".") }}
-                {% else %}<span class="text-muted">—</span>{% endif %}
+              <td class="text-end editable-cell" data-campo="costo_envio_vendedor" style="cursor:pointer">
+                <span class="celda-display">
+                  {% if v.costo_envio %}${{ "{:,.0f}".format(v.costo_envio).replace(",",".") }}
+                  {% else %}<span class="text-muted">—</span>{% endif %}
+                </span>
               </td>
-              <td class="text-end fw-bold">
+              <td class="text-end fw-bold celda-ganancia">
                 {% if v.sin_costos %}<span class="text-muted">—</span>
                 {% elif v.ganancia >= 0 %}<span class="text-success">${{ "{:,.0f}".format(v.ganancia).replace(",",".") }}</span>
                 {% else %}<span class="text-danger">${{ "{:,.0f}".format(v.ganancia).replace(",",".") }}</span>{% endif %}
               </td>
-              <td class="text-end fw-bold">
+              <td class="text-end fw-bold celda-margen">
                 {% if v.sin_costos %}<span class="text-muted">—</span>
                 {% elif v.pct >= 20 %}<span class="text-success">{{ v.pct }}%</span>
                 {% elif v.pct >= 10 %}<span class="text-warning">{{ v.pct }}%</span>
@@ -212,7 +220,7 @@
   </div>
 
   <div class="mt-2 text-muted small">
-    🔘 Fila gris = sin datos de costos · 🔴 Fila roja = margen &lt; 5% · ✏️ Click en costo prod. para editar
+    🔘 Fila gris = sin datos de costos · 🔴 Fila roja = margen &lt; 5% · ✏️ Click en comisión, costo prod. o costo envío para editar
   </div>
 
   {% else %}
@@ -222,13 +230,43 @@
 </div>
 
 <script>
-// Edición inline de costo_productos
-document.querySelectorAll('.costo-prod-cell').forEach(cell => {
+function fmtPesos(n) {
+  const v = Math.round(n);
+  const abs = Math.abs(v).toLocaleString('es-AR', {maximumFractionDigits:0});
+  return (v < 0 ? '-$' : '$') + abs.replace(/,/g, '.');
+}
+
+function recalcularFila(row) {
+  const totalCiva  = parseFloat(row.dataset.totalCiva) || 0;
+  const totalSiva  = parseFloat(row.dataset.totalSiva) || 0;
+  const comision   = parseFloat(row.dataset.comision) || 0;
+  const costoProd  = parseFloat(row.dataset.costoProd) || 0;
+  const costoEnvio = parseFloat(row.dataset.costoEnvio) || 0;
+
+  const ganancia = totalSiva - comision - costoProd - costoEnvio;
+  const pct = totalCiva ? Math.round(ganancia / totalCiva * 1000) / 10 : 0;
+
+  const claseGan = ganancia >= 0 ? 'text-success' : 'text-danger';
+  let claseMargen = 'text-danger';
+  if (pct >= 20) claseMargen = 'text-success';
+  else if (pct >= 10) claseMargen = 'text-warning';
+
+  row.querySelector('.celda-ganancia').innerHTML = `<span class="${claseGan}">${fmtPesos(ganancia)}</span>`;
+  row.querySelector('.celda-margen').innerHTML = `<span class="${claseMargen}">${pct}%</span>`;
+
+  row.classList.remove('table-secondary','table-danger');
+  if (pct < 5) row.classList.add('table-danger');
+}
+
+document.querySelectorAll('.editable-cell').forEach(cell => {
   cell.addEventListener('click', function() {
     if (this.querySelector('input')) return;
-    const ventaId = this.dataset.ventaId;
-    const valorActual = this.dataset.valor || '0';
-    const display = this.querySelector('.costo-display');
+    const row     = this.closest('tr');
+    const ventaId = row.dataset.ventaId;
+    const campo   = this.dataset.campo;
+    const dsKey   = {'costo_comision':'comision', 'costo_productos':'costoProd', 'costo_envio_vendedor':'costoEnvio'}[campo];
+    const valorActual = row.dataset[dsKey] || '0';
+    const display = this.querySelector('.celda-display');
     const input = document.createElement('input');
     input.type = 'number';
     input.value = valorActual;
@@ -245,20 +283,24 @@ document.querySelectorAll('.costo-prod-cell').forEach(cell => {
       try {
         const fd = new FormData();
         fd.append('venta_id', ventaId);
-        fd.append('costo_productos', nuevo);
+        fd.append('campo', campo);
+        fd.append('valor', nuevo);
         const r = await fetch('/rentabilidad/editar-costo', {method:'POST', body: fd});
         const d = await r.json();
         if (d.ok) {
-          cell.dataset.valor = nuevo;
-          display.textContent = nuevo > 0 ? '$' + nuevo.toLocaleString('es-AR', {maximumFractionDigits:0}) : '—';
-          display.className = nuevo > 0 ? 'costo-display' : 'costo-display text-muted';
+          row.dataset[dsKey] = nuevo;
+          display.innerHTML = nuevo !== 0 ? fmtPesos(nuevo) : '<span class="text-muted">—</span>';
+          recalcularFila(row);
         }
       } catch(e) { console.error(e); }
       input.remove();
       display.style.display = '';
     };
     input.addEventListener('blur', guardar);
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') { input.remove(); display.style.display = ''; } });
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') guardar();
+      if (e.key === 'Escape') { input.remove(); display.style.display = ''; }
+    });
   });
 });
 </script>
