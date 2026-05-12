@@ -64,7 +64,7 @@
             {% endif %}
         {% endfor %}
     </div>
-{% elif venta.canal == 'Mercado Libre' %}
+{% elif venta.canal == 'Mercado Libre' and (venta.metodo_envio == 'Flete Propio' or venta.tipo_entrega == 'retiro') %}
     <div style="font-size:0.78rem; line-height:1.6;">
         {% if venta.fecha_entrega_estimada %}
         <div><span class="text-muted">Promesa de {{ 'retiro' if venta.tipo_entrega == 'retiro' else 'entrega' }}:</span> <strong>{{ venta.fecha_entrega_estimada.strftime('%d/%m/%Y') if venta.fecha_entrega_estimada and venta.fecha_entrega_estimada != '' else venta.fecha_entrega_estimada }}</strong></div>
