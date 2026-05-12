@@ -250,6 +250,465 @@ def enviar_whatsapp(telefono, template_name, componentes=None):
         return {"ok": False, "error": str(e)}
 
 
+def _enviar_email_hot_event(destinatario, subject_override=None):
+    """
+    Envía el email del HOT MERCADOMUEBLES a un destinatario.
+    Usa SMTP de Hostinger con las credenciales del .env del VPS
+    (variables de entorno MAIL_SMTP_HOST/PORT/USER/PASS).
+
+    Si se pasa `subject_override`, lo usa en lugar del subject por defecto.
+    """
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    SMTP_HOST = os.getenv('MAIL_SMTP_HOST', 'mm100.hosting-ar.com')
+    SMTP_PORT = int(os.getenv('MAIL_SMTP_PORT', 465))
+    SMTP_USER = os.getenv('MAIL_SMTP_USER', 'sales@mercadomuebles.com.ar')
+    SMTP_PASS = os.getenv('MAIL_SMTP_PASS', '')
+
+    if not SMTP_PASS:
+        raise RuntimeError(
+            'No se encontró la contraseña SMTP. Verificá la variable '
+            'de entorno MAIL_SMTP_PASS en el .env del VPS.'
+        )
+
+    subject = subject_override or '🔥 HOT MercadoMuebles — Hasta 15% OFF en colchones Cannon'
+
+    html = """
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HOT MercadoMuebles</title>
+  <style>
+    @media only screen and (max-width: 600px) {
+      .container { width: 100% !important; }
+      .px { padding-left: 20px !important; padding-right: 20px !important; }
+      .h1 { font-size: 26px !important; }
+    }
+  </style>
+</head>
+<body style="margin:0; padding:0; background:#f4f4f4; font-family:'Helvetica Neue', Helvetica, Arial, sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f4f4;">
+    <tr>
+      <td align="center" style="padding:30px 10px;">
+        <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0" style="background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,0.08);">
+
+          <tr>
+            <td align="center" style="padding:24px 20px; background:#fff;">
+              <img src="https://mercadomuebles.com.ar/static/img/logo_mercadomuebles.png" alt="Mercadomuebles" height="44" style="display:block; height:44px;">
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:0;">
+              <a href="https://mercadomuebles.com.ar/tienda/?utm_source=email&utm_medium=email&utm_campaign=hot_mercadomuebles" target="_blank" style="display:block; text-decoration:none;">
+                <img src="https://mercadomuebles.com.ar/static/img/banners/banner_hot.png" alt="HOT MERCADOMUEBLES - 11 al 18 de mayo" width="600" style="display:block; width:100%; height:auto; max-width:600px; border:0;">
+              </a>
+            </td>
+          </tr>
+
+          <tr>
+            <td class="px" align="center" style="padding:36px 40px 18px;">
+              <h1 class="h1" style="margin:0 0 14px; font-size:30px; font-weight:900; color:#1a1a2e; line-height:1.2; letter-spacing:-0.5px;">
+                Arrancó el HOT MercadoMuebles
+              </h1>
+              <p style="margin:0; font-size:16px; line-height:1.6; color:#555;">
+                Del <strong>11 al 18 de mayo</strong>, hasta <strong>15% OFF</strong> en colchones, sommiers y almohadas Cannon.<br>
+                Con <strong>3 y 6 cuotas</strong> y env&iacute;os a todo el pa&iacute;s.
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td align="center" style="padding:8px 40px 36px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td bgcolor="#c1272d" style="border-radius:8px;">
+                    <a href="https://mercadomuebles.com.ar/tienda/?utm_source=email&utm_medium=email&utm_campaign=hot_mercadomuebles" target="_blank" style="display:inline-block; padding:16px 42px; font-size:16px; font-weight:800; color:#ffffff; text-decoration:none; letter-spacing:0.8px; text-transform:uppercase; border-radius:8px;">
+                      Ver ofertas
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td class="px" style="padding:0 40px 30px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #eee; border-bottom:1px solid #eee;">
+                <tr>
+                  <td align="center" width="33%" style="padding:22px 4px; font-size:13px; color:#666; line-height:1.5;">
+                    <div style="font-size:22px; margin-bottom:6px;">🏅</div>
+                    <strong style="color:#1a1a2e;">Distribuidores<br>oficiales Cannon</strong>
+                  </td>
+                  <td align="center" width="33%" style="padding:22px 4px; font-size:13px; color:#666; line-height:1.5;">
+                    <div style="font-size:22px; margin-bottom:6px;">💳</div>
+                    <strong style="color:#1a1a2e;">3 y 6<br>cuotas</strong>
+                  </td>
+                  <td align="center" width="33%" style="padding:22px 4px; font-size:13px; color:#666; line-height:1.5;">
+                    <div style="font-size:22px; margin-bottom:6px;">🚀</div>
+                    <strong style="color:#1a1a2e;">Env&iacute;os a<br>todo el pa&iacute;s</strong>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td align="center" style="padding:0 40px 36px;">
+              <p style="margin:0; font-size:14px; color:#c1272d; font-weight:700;">
+                &#9200; Solo del 11 al 18 de mayo. No te quedes sin tu colch&oacute;n.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+
+        <table role="presentation" class="container" width="600" cellpadding="0" cellspacing="0" border="0" style="margin-top:18px;">
+          <tr>
+            <td align="center" style="padding:18px; font-size:12px; color:#888; line-height:1.7;">
+              MercadoMuebles &middot; CIMATER S.R.L.<br>
+              Bah&iacute;a Blanca 1777, Floresta, CABA<br>
+              <a href="https://wa.me/5491131890519" style="color:#888; text-decoration:underline;">WhatsApp</a> &middot;
+              <a href="mailto:sales@mercadomuebles.com.ar" style="color:#888; text-decoration:underline;">sales@mercadomuebles.com.ar</a>
+              <br><br>
+              Recib&iacute;s este email porque te suscribiste en mercadomuebles.com.ar
+            </td>
+          </tr>
+        </table>
+
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+"""
+
+    text_alt = (
+        "HOT MercadoMuebles - Hasta 15% OFF\n"
+        "Del 11 al 18 de mayo, hasta 15% OFF en colchones, sommiers y almohadas Cannon.\n"
+        "Con 3 y 6 cuotas y envios a todo el pais.\n\n"
+        "Ver ofertas: https://mercadomuebles.com.ar/tienda/?utm_source=email&utm_medium=email&utm_campaign=hot_mercadomuebles\n\n"
+        "MercadoMuebles - sales@mercadomuebles.com.ar\n"
+    )
+
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From'] = f'Mercadomuebles <{SMTP_USER}>'
+    msg['To'] = destinatario
+    msg.attach(MIMEText(text_alt, 'plain', 'utf-8'))
+    msg.attach(MIMEText(html, 'html', 'utf-8'))
+
+    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+        server.login(SMTP_USER, SMTP_PASS)
+        server.send_message(msg)
+
+    return True
+
+
+def enviar_hot_event_a_todos():
+    """
+    Envía el email del HOT MERCADOMUEBLES a todos los suscriptores + email testigo.
+
+    Usa un LOCK ATÓMICO en la tabla configuracion (clave 'hot_email_envio_estado')
+    para evitar envíos duplicados desde múltiples workers de Gunicorn (5 workers
+    correrían el job 5 veces sin este lock).
+
+    El lock usa UPDATE ... WHERE para garantizar atomicidad: solo UN worker
+    de los 5 verá affected_rows == 1; los otros 4 abortan inmediatamente.
+
+    Estados del lock:
+      - sin entrada o 'no_iniciado': nadie tomó el job
+      - 'enviando_<timestamp>_<uuid>': un worker está ejecutando
+      - 'completado_<ok>ok_<err>err_<timestamp>': terminó con stats
+      - 'error_<msg>_<timestamp>': falló catastróficamente
+
+    Para reintento manual, borrar la entrada desde el panel admin.
+
+    Retorna dict con stats del envío o razón del abort.
+    """
+    import time
+    import json
+    import uuid
+    from datetime import datetime
+
+    EMAIL_TESTIGO = 'manudz86@gmail.com'
+
+    # ── Lock atómico contra race conditions entre workers ──
+    # Generar un valor único para este intento
+    lock_id = uuid.uuid4().hex[:12]
+    lock_value = f'enviando_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{lock_id}'
+
+    # 1) Asegurar que la fila existe (idempotente, no compite con otros workers)
+    try:
+        execute_db("""
+            INSERT IGNORE INTO configuracion (clave, valor)
+            VALUES ('hot_email_envio_estado', 'no_iniciado')
+        """)
+    except Exception as e:
+        print(f"[HOT email] Error asegurando fila del lock: {e}")
+        return {'ok': False, 'razon': 'error_init', 'error': str(e)}
+
+    # 2) Tomar el lock atómicamente con UPDATE conditional.
+    #    MySQL/InnoDB hace UPDATE atómico: solo 1 worker verá affected_rows == 1.
+    affected = 0
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE configuracion
+            SET valor = %s
+            WHERE clave = 'hot_email_envio_estado'
+              AND valor NOT LIKE 'enviando_%%'
+              AND valor NOT LIKE 'completado_%%'
+        """, (lock_value,))
+        conn.commit()
+        affected = cur.rowcount
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"[HOT email] Error tomando lock: {e}")
+        return {'ok': False, 'razon': 'error_lock', 'error': str(e)}
+
+    if affected == 0:
+        # Otro worker ya tiene el lock, o ya completó
+        estado_real = query_one(
+            "SELECT valor FROM configuracion WHERE clave='hot_email_envio_estado'"
+        )
+        valor = (estado_real.get('valor') if estado_real else '?')
+        print(f"[HOT email] Lock NO obtenido. Estado actual: {valor}. Abort.")
+        return {'ok': False, 'razon': 'lock_no_obtenido', 'estado': valor}
+
+    # 3) Doble verificación: confirmar que el lock_value en la DB es realmente el nuestro
+    estado = query_one(
+        "SELECT valor FROM configuracion WHERE clave='hot_email_envio_estado'"
+    )
+    if not estado or estado.get('valor') != lock_value:
+        valor_real = estado.get('valor') if estado else '?'
+        print(f"[HOT email] Lock perdido en verificación (esperaba {lock_value}, hay {valor_real}). Abort.")
+        return {'ok': False, 'razon': 'lock_perdido'}
+
+    print(f"[HOT email] Lock obtenido atómicamente: {lock_value}")
+
+    try:
+        suscriptores = query_db(
+            "SELECT email FROM suscriptores WHERE email IS NOT NULL AND email != ''"
+        ) or []
+
+        # Lista de destinatarios únicos (suscriptores + testigo)
+        emails_set = set()
+        for s in suscriptores:
+            email = (s.get('email') or '').strip().lower()
+            if email and '@' in email:
+                emails_set.add(email)
+        emails_set.add(EMAIL_TESTIGO.lower())
+        destinatarios = sorted(emails_set)
+        total = len(destinatarios)
+
+        print(f"[HOT email] Destinatarios totales: {total} (suscriptores BD + testigo)")
+
+        ok = 0
+        fallidos = []
+
+        for i, email in enumerate(destinatarios, 1):
+            try:
+                _enviar_email_hot_event(email)
+                ok += 1
+                print(f"[HOT email] {i}/{total} OK: {email}")
+            except Exception as e:
+                fallidos.append({'email': email, 'error': str(e)[:200]})
+                print(f"[HOT email] {i}/{total} ERROR: {email} - {e}")
+
+            # Throttling: 1 segundo entre cada email para no saturar SMTP
+            time.sleep(1)
+
+        estado_final = (f'completado_{ok}ok_{len(fallidos)}err_'
+                        f'{datetime.now().strftime("%Y%m%d_%H%M%S")}')
+        execute_db("""
+            INSERT INTO configuracion (clave, valor) VALUES ('hot_email_envio_estado', %s)
+            ON DUPLICATE KEY UPDATE valor=%s
+        """, (estado_final, estado_final))
+
+        if fallidos:
+            fallidos_json = json.dumps(fallidos)[:10000]
+            execute_db("""
+                INSERT INTO configuracion (clave, valor) VALUES ('hot_email_envio_fallidos', %s)
+                ON DUPLICATE KEY UPDATE valor=%s
+            """, (fallidos_json, fallidos_json))
+        else:
+            execute_db("DELETE FROM configuracion WHERE clave='hot_email_envio_fallidos'")
+
+        print(f"[HOT email] Completado: {ok} OK, {len(fallidos)} fallidos")
+        return {'ok': True, 'enviados': ok, 'fallidos': len(fallidos),
+                'detalle_fallidos': fallidos}
+
+    except Exception as e:
+        error_value = f'error_{str(e)[:100]}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+        execute_db("""
+            INSERT INTO configuracion (clave, valor) VALUES ('hot_email_envio_estado', %s)
+            ON DUPLICATE KEY UPDATE valor=%s
+        """, (error_value, error_value))
+        print(f"[HOT email] Error catastrófico: {e}")
+        raise
+
+
+# Subject usado SOLO para el reintento a fallidos (puede editarse).
+HOT_REINTENTO_SUBJECT = '🔥 ¡Te quedan pocos días! HOT MercadoMuebles hasta el 18/05'
+
+
+def enviar_hot_event_a_fallidos():
+    """
+    Reintento del HOT MERCADOMUEBLES SOLO a los destinatarios que figuran en
+    'hot_email_envio_fallidos' (los que NO recibieron ninguna copia el lunes
+    porque la casilla SMTP se quedó sin cuota).
+
+    Usa subject distinto (HOT_REINTENTO_SUBJECT) y un lock INDEPENDIENTE
+    ('hot_email_reenvio_estado'), también con UPDATE atómico para evitar
+    duplicación entre los 5 workers de Gunicorn.
+
+    Incluye al EMAIL_TESTIGO (manudz86@gmail.com) para verificación.
+
+    Para volver a habilitar un reintento (después de uno fallido), borrar
+    la entrada 'hot_email_reenvio_estado' desde el panel admin.
+    """
+    import time
+    import json
+    import uuid
+    from datetime import datetime
+
+    EMAIL_TESTIGO = 'manudz86@gmail.com'
+
+    # ── Lock atómico independiente del envío original ──
+    lock_id = uuid.uuid4().hex[:12]
+    lock_value = f'enviando_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{lock_id}'
+
+    try:
+        execute_db("""
+            INSERT IGNORE INTO configuracion (clave, valor)
+            VALUES ('hot_email_reenvio_estado', 'no_iniciado')
+        """)
+    except Exception as e:
+        print(f"[HOT reenvio] Error init lock: {e}")
+        return {'ok': False, 'razon': 'error_init', 'error': str(e)}
+
+    # Tomar el lock atómicamente
+    affected = 0
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE configuracion
+            SET valor = %s
+            WHERE clave = 'hot_email_reenvio_estado'
+              AND valor NOT LIKE 'enviando_%%'
+              AND valor NOT LIKE 'completado_%%'
+        """, (lock_value,))
+        conn.commit()
+        affected = cur.rowcount
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"[HOT reenvio] Error tomando lock: {e}")
+        return {'ok': False, 'razon': 'error_lock', 'error': str(e)}
+
+    if affected == 0:
+        estado_real = query_one(
+            "SELECT valor FROM configuracion WHERE clave='hot_email_reenvio_estado'"
+        )
+        valor = (estado_real.get('valor') if estado_real else '?')
+        print(f"[HOT reenvio] Lock NO obtenido. Estado: {valor}. Abort.")
+        return {'ok': False, 'razon': 'lock_no_obtenido', 'estado': valor}
+
+    estado = query_one(
+        "SELECT valor FROM configuracion WHERE clave='hot_email_reenvio_estado'"
+    )
+    if not estado or estado.get('valor') != lock_value:
+        print(f"[HOT reenvio] Lock perdido en verificación. Abort.")
+        return {'ok': False, 'razon': 'lock_perdido'}
+
+    print(f"[HOT reenvio] Lock obtenido: {lock_value}")
+
+    try:
+        # Leer la lista de fallidos del envío original
+        row = query_one(
+            "SELECT valor FROM configuracion WHERE clave='hot_email_envio_fallidos'"
+        )
+        if not row or not row.get('valor'):
+            print("[HOT reenvio] No hay fallidos para reenviar.")
+            execute_db("""
+                INSERT INTO configuracion (clave, valor)
+                VALUES ('hot_email_reenvio_estado', 'completado_0ok_0err_sin_fallidos')
+                ON DUPLICATE KEY UPDATE valor=VALUES(valor)
+            """)
+            return {'ok': True, 'enviados': 0, 'fallidos': 0, 'razon': 'sin_fallidos'}
+
+        try:
+            fallidos_orig = json.loads(row['valor'])
+        except Exception as e:
+            print(f"[HOT reenvio] Error parseando fallidos: {e}")
+            fallidos_orig = []
+
+        # Set único de emails a reintentar + testigo
+        emails_set = set()
+        for f in fallidos_orig:
+            email = (f.get('email') or '').strip().lower()
+            if email and '@' in email:
+                emails_set.add(email)
+        emails_set.add(EMAIL_TESTIGO.lower())
+        destinatarios = sorted(emails_set)
+        total = len(destinatarios)
+
+        print(f"[HOT reenvio] Reintentando a {total} destinatarios (fallidos + testigo)")
+
+        ok = 0
+        fallidos = []
+
+        for i, email in enumerate(destinatarios, 1):
+            try:
+                _enviar_email_hot_event(email, subject_override=HOT_REINTENTO_SUBJECT)
+                ok += 1
+                print(f"[HOT reenvio] {i}/{total} OK: {email}")
+            except Exception as e:
+                fallidos.append({'email': email, 'error': str(e)[:200]})
+                print(f"[HOT reenvio] {i}/{total} ERROR: {email} - {e}")
+
+            # Throttling: 1 segundo entre emails
+            time.sleep(1)
+
+        estado_final = (f'completado_{ok}ok_{len(fallidos)}err_'
+                        f'{datetime.now().strftime("%Y%m%d_%H%M%S")}')
+        execute_db("""
+            INSERT INTO configuracion (clave, valor) VALUES ('hot_email_reenvio_estado', %s)
+            ON DUPLICATE KEY UPDATE valor=%s
+        """, (estado_final, estado_final))
+
+        # Guardar fallidos del reenvío (separados del original)
+        if fallidos:
+            fallidos_json = json.dumps(fallidos)[:10000]
+            execute_db("""
+                INSERT INTO configuracion (clave, valor) VALUES ('hot_email_reenvio_fallidos', %s)
+                ON DUPLICATE KEY UPDATE valor=%s
+            """, (fallidos_json, fallidos_json))
+        else:
+            execute_db("DELETE FROM configuracion WHERE clave='hot_email_reenvio_fallidos'")
+
+        print(f"[HOT reenvio] Completado: {ok} OK, {len(fallidos)} fallidos")
+        return {'ok': True, 'enviados': ok, 'fallidos': len(fallidos),
+                'detalle_fallidos': fallidos}
+
+    except Exception as e:
+        error_value = f'error_{str(e)[:100]}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
+        execute_db("""
+            INSERT INTO configuracion (clave, valor) VALUES ('hot_email_reenvio_estado', %s)
+            ON DUPLICATE KEY UPDATE valor=%s
+        """, (error_value, error_value))
+        print(f"[HOT reenvio] Error catastrófico: {e}")
+        raise
+
+
 # ============================================================================
 # RUTAS - PÁGINAS
 # ============================================================================
@@ -584,6 +1043,69 @@ def guardar_porcentajes_ml():
             (valor, valor)
         )
         return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# Configuración de publicaciones Z (ME1) cuando se quedan sin stock disponible.
+# Las publicaciones SIN Z (Flex) se pausan automáticamente con stock=0.
+# Las publicaciones CON Z (ME1) se mantienen activas con un stock mínimo y demora.
+ML_Z_SIN_STOCK_DEFAULT = {'stock': 2, 'dias_demora': 7}
+
+
+def _get_ml_z_sin_stock_config():
+    """Lee la config de stock/demora para publicaciones Z sin stock disponible."""
+    try:
+        rows = query_db(
+            "SELECT clave, valor FROM configuracion "
+            "WHERE clave IN ('ml_z_sin_stock_unidades', 'ml_z_sin_stock_dias_demora')"
+        ) or []
+        cfg = {r['clave']: r.get('valor') for r in rows}
+        stock = int(cfg.get('ml_z_sin_stock_unidades') or ML_Z_SIN_STOCK_DEFAULT['stock'])
+        dias  = int(cfg.get('ml_z_sin_stock_dias_demora') or ML_Z_SIN_STOCK_DEFAULT['dias_demora'])
+        # Sanity: rangos razonables
+        if stock < 1 or stock > 50:
+            stock = ML_Z_SIN_STOCK_DEFAULT['stock']
+        if dias < 1 or dias > 90:
+            dias = ML_Z_SIN_STOCK_DEFAULT['dias_demora']
+        return {'stock': stock, 'dias_demora': dias}
+    except Exception:
+        return dict(ML_Z_SIN_STOCK_DEFAULT)
+
+
+@app.route('/configuracion/ml-z-sin-stock', methods=['GET'])
+@login_required
+def get_ml_z_sin_stock():
+    """Retorna stock y días de demora a aplicar en publicaciones Z sin stock."""
+    try:
+        return jsonify({'ok': True, 'config': _get_ml_z_sin_stock_config()})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/configuracion/ml-z-sin-stock', methods=['POST'])
+@admin_required
+def guardar_ml_z_sin_stock():
+    """Guarda stock y días de demora para publicaciones Z sin stock."""
+    try:
+        data = request.get_json() or {}
+        stock = int(data.get('stock', ML_Z_SIN_STOCK_DEFAULT['stock']))
+        dias  = int(data.get('dias_demora', ML_Z_SIN_STOCK_DEFAULT['dias_demora']))
+        if stock < 1 or stock > 50:
+            return jsonify({'ok': False, 'error': 'Las unidades deben estar entre 1 y 50'}), 400
+        if dias < 1 or dias > 90:
+            return jsonify({'ok': False, 'error': 'Los días de demora deben estar entre 1 y 90'}), 400
+        execute_db(
+            "INSERT INTO configuracion (clave, valor) VALUES ('ml_z_sin_stock_unidades', %s) "
+            "ON DUPLICATE KEY UPDATE valor = %s, actualizado_at = NOW()",
+            (str(stock), str(stock))
+        )
+        execute_db(
+            "INSERT INTO configuracion (clave, valor) VALUES ('ml_z_sin_stock_dias_demora', %s) "
+            "ON DUPLICATE KEY UPDATE valor = %s, actualizado_at = NOW()",
+            (str(dias), str(dias))
+        )
+        return jsonify({'ok': True, 'config': {'stock': stock, 'dias_demora': dias}})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
@@ -6200,6 +6722,7 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
         'metodo_envio_ml': '',
         'logistic_type_ml': '',
         'costo_envio': 0,
+        'substatus': '',
         'fecha_entrega_ml': '',
         'turbo_rango': '',
         'direccion': '',
@@ -6221,6 +6744,9 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
             return shipping_data
         
         shipment = response.json()
+        
+        # Capturar substatus (sirve para detectar 'shipment_paid')
+        shipping_data['substatus'] = shipment.get('substatus', '') or ''
         
         # ✅ NUEVO: Capturar COSTO DE ENVÍO
         # Puede estar en varios lugares según el tipo de envío
@@ -6249,7 +6775,17 @@ def obtener_shipping_completo(shipping_id, access_token, fecha_orden_iso=''):
                 print(f"💰 Costo envío (shipping_option.cost): ${costo_envio}")
         
         shipping_data['costo_envio'] = costo_envio
-        
+
+        # ✅ NUEVO: Costo de envío que paga el VENDEDOR (list_cost cuando el comprador no paga)
+        _so = shipment.get('shipping_option', {})
+        if _so:
+            _so_cost = _so.get('cost')          # lo que paga el comprador (0 = envío gratis para él)
+            _so_list  = float(_so.get('list_cost') or 0)
+            # Si el comprador no paga (cost==0), el costo lo absorbe el vendedor
+            shipping_data['list_cost_vendedor'] = _so_list if (_so_cost is not None and float(_so_cost) == 0) else 0.0
+        else:
+            shipping_data['list_cost_vendedor'] = 0.0
+
         # Método de envío
         shipping_option = shipment.get('shipping_option', {})
         shipping_mode = shipping_option.get('shipping_method_id', '')
@@ -7767,6 +8303,9 @@ def cargar_stock_ml():
     except:
         porcentajes = PORCENTAJES_ML_DEFAULT
 
+    # Config de publicaciones Z cuando se quedan sin stock (para mostrar en el panel)
+    ml_z_config = _get_ml_z_sin_stock_config()
+
     return render_template('cargar_stock_ml.html',
                            sku_buscado=None,
                            publicaciones=[],
@@ -7774,6 +8313,7 @@ def cargar_stock_ml():
                            mensaje=None,
                            mensaje_tipo=None,
                            porcentajes=porcentajes,
+                           ml_z_config=ml_z_config,
                            precio_costos=None)
 
 # ============================================================================
@@ -7822,6 +8362,48 @@ def ml_request(method, url, access_token, json_data=None, params=None, max_retri
             raise
 
     return r
+
+def _envio_label(shipping):
+    """
+    Convierte el bloque shipping de ML a (label, color_bg, color_fg) para mostrar en UI.
+    Reglas:
+      mode=me1                                              -> ME1
+      mode=me2 + logistic_type=self_service + self_service_in   -> FLEX
+      mode=me2 + logistic_type=self_service + self_service_out  -> FLEX (out)
+      mode=me2 + logistic_type=cross_docking                -> COLECTA
+      mode=me2 + logistic_type=xd_drop_off                  -> PLACES
+      mode=me2 + logistic_type=drop_off                     -> DROP-OFF
+      mode=me2 + logistic_type=fulfillment                  -> FULL
+      mode=custom                                           -> ACORDAR
+      mode=not_specified                                    -> NO ESPECIF.
+    """
+    if not shipping:
+        return ('—', '#e9ecef', '#495057')
+    mode = shipping.get('mode')
+    lt   = shipping.get('logistic_type')
+    tags = shipping.get('tags') or []
+    if mode == 'me1':
+        return ('ME1', '#343a40', '#ffffff')
+    if mode == 'me2':
+        if lt == 'self_service':
+            if 'self_service_out' in tags:
+                return ('FLEX (out)', '#dc3545', '#ffffff')
+            return ('FLEX', '#0d6efd', '#ffffff')
+        if lt == 'cross_docking':
+            return ('COLECTA', '#6f42c1', '#ffffff')
+        if lt == 'xd_drop_off':
+            return ('PLACES', '#20c997', '#ffffff')
+        if lt == 'drop_off':
+            return ('DROP-OFF', '#fd7e14', '#ffffff')
+        if lt == 'fulfillment':
+            return ('FULL', '#198754', '#ffffff')
+        return (f'ME2 {lt or "?"}', '#0dcaf0', '#000000')
+    if mode == 'custom':
+        return ('ACORDAR', '#6c757d', '#ffffff')
+    if mode == 'not_specified':
+        return ('NO ESPECIF.', '#adb5bd', '#000000')
+    return (str(mode or '—'), '#e9ecef', '#495057')
+
 
 def obtener_datos_ml_batch(mla_ids, access_token):
     """
@@ -7894,6 +8476,10 @@ def obtener_datos_ml_batch(mla_ids, access_token):
                             seller_sku = attr.get('value_name', '')
                             break
 
+                # Extraer info de envío (mode, logistic_type, tags) y armar etiqueta
+                shipping_data = data.get('shipping') or {}
+                envio_tipo, envio_bg, envio_fg = _envio_label(shipping_data)
+
                 resultado[mla_id] = {
                     'titulo':              data.get('title', mla_id),
                     'stock':               data.get('available_quantity', 0),
@@ -7908,6 +8494,11 @@ def obtener_datos_ml_batch(mla_ids, access_token):
                     'category_id':         data.get('category_id'),
                     'domain_id':           data.get('domain_id'),
                     'seller_sku':          seller_sku,
+                    'envio_tipo':          envio_tipo,
+                    'envio_bg':            envio_bg,
+                    'envio_fg':            envio_fg,
+                    'envio_mode':          shipping_data.get('mode'),
+                    'envio_logistic_type': shipping_data.get('logistic_type'),
                 }
 
         except Exception as e:
@@ -8061,6 +8652,11 @@ def buscar_sku_ml():
             'catalog_listing':     datos_ml.get('catalog_listing', False),
             'catalog_product_id':  datos_ml.get('catalog_product_id'),
             'category_id':         datos_ml.get('category_id'),
+            'envio_tipo':          datos_ml.get('envio_tipo'),
+            'envio_bg':            datos_ml.get('envio_bg'),
+            'envio_fg':            datos_ml.get('envio_fg'),
+            'envio_mode':          datos_ml.get('envio_mode'),
+            'envio_logistic_type': datos_ml.get('envio_logistic_type'),
         })
 
     # Ordenar por tipo de publicación
@@ -8095,108 +8691,246 @@ def buscar_sku_ml():
                            precio_costos=precio_costos,
                            cuotas_faltantes=cuotas_faltantes,
                            catalog_meta=catalog_meta)
+
+
+# ============================================================================
+# RUTA: Cambiar tipo de envío a Flex (ME2 self_service)
+# ============================================================================
+@app.route('/ml/cambiar-envio-flex/<mla_id>', methods=['POST'])
+@login_required
+def cambiar_envio_flex(mla_id):
+    """
+    Cambia una publicación a ME2 self_service (Flex).
+    Devuelve JSON: { ok, envio_tipo, envio_bg, envio_fg, envio_mode, envio_logistic_type, warning?, error? }
+    """
+    access_token = cargar_ml_token()
+    if not access_token:
+        return jsonify({'ok': False, 'error': 'No hay token de ML configurado'}), 400
+
+    try:
+        r = ml_request('put',
+            f'https://api.mercadolibre.com/items/{mla_id}',
+            access_token,
+            json_data={'shipping': {'mode': 'me2', 'logistic_type': 'self_service'}})
+
+        if r.status_code != 200:
+            try:
+                err = r.json()
+                msg = err.get('message') or err.get('error') or str(err)
+            except Exception:
+                msg = (r.text or '')[:300]
+            return jsonify({
+                'ok': False,
+                'error': f'ML rechazó el cambio (HTTP {r.status_code}): {msg}'
+            }), 400
+
+        data = r.json()
+        shipping = data.get('shipping') or {}
+        envio_tipo, envio_bg, envio_fg = _envio_label(shipping)
+
+        # Detectar si quedó adentro o afuera de Flex
+        tags = shipping.get('tags') or []
+        warning = None
+        if 'self_service_out' in tags:
+            warning = 'Cambio aplicado pero ML la dejó FUERA de Flex (probablemente por dimensiones del paquete o algún criterio interno).'
+
+        return jsonify({
+            'ok': True,
+            'envio_tipo':          envio_tipo,
+            'envio_bg':            envio_bg,
+            'envio_fg':            envio_fg,
+            'envio_mode':          shipping.get('mode'),
+            'envio_logistic_type': shipping.get('logistic_type'),
+            'tags':                tags,
+            'warning':             warning,
+        })
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 # ============================================================================
 # RUTA: Faltantes de catálogo ML (colchones)
 # ============================================================================
+def _faltantes_catalogo_guardar_cache(resultados, total_skus, diag=None):
+    """Guarda resultados en configuracion para que la ruta sirva al instante."""
+    cache_data = json.dumps({
+        'timestamp': datetime.now().strftime('%d/%m/%Y %H:%M'),
+        'resultados': resultados,
+        'total_skus': total_skus,
+        'diag': diag or {},
+    })
+    existing = query_one("SELECT 1 FROM configuracion WHERE clave = 'faltantes_catalogo_cache'")
+    if existing:
+        execute_db("UPDATE configuracion SET valor = %s WHERE clave = 'faltantes_catalogo_cache'", (cache_data,))
+    else:
+        execute_db("INSERT INTO configuracion (clave, valor) VALUES ('faltantes_catalogo_cache', %s)", (cache_data,))
+
+
+def job_faltantes_catalogo_ml():
+    """
+    Corre en background (scheduler o thread manual).
+    Guarda resultados en configuracion['faltantes_catalogo_cache'].
+    """
+    print("[FALTANTES-CAT] Iniciando cómputo...")
+    try:
+        access_token = cargar_ml_token()
+        if not access_token:
+            print("[FALTANTES-CAT] Sin token ML, abortando")
+            return
+
+        try:
+            row = query_one("SELECT valor FROM configuracion WHERE clave = 'porcentajes_ml'")
+            porcentajes = json.loads(row['valor']) if row else PORCENTAJES_ML_DEFAULT
+        except Exception:
+            porcentajes = PORCENTAJES_ML_DEFAULT
+
+        # 1. Obtener todos los IDs (activos + pausados)
+        all_ids = []
+        for status in ('active', 'paused'):
+            offset = 0
+            while True:
+                r = ml_request('get',
+                    f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/items/search',
+                    access_token,
+                    params={'limit': 100, 'offset': offset, 'status': status})
+                if r.status_code != 200:
+                    break
+                data = r.json()
+                results = data.get('results', [])
+                all_ids.extend(results)
+                total = data.get('paging', {}).get('total', 0)
+                offset += 100
+                if offset >= total:
+                    break
+
+        if not all_ids:
+            _faltantes_catalogo_guardar_cache([], 0)
+            return
+
+        # 2. Fetch en batch (reutiliza obtener_datos_ml_batch)
+        datos_batch = obtener_datos_ml_batch(all_ids, access_token)
+
+        # 3. Filtrar catálogo + colchones, agrupar por SKU
+        TODOS_LOS_TIPOS = [
+            'Sin cuotas propias', 'Cuota Simple',
+            '3 cuotas s/interés', '6 cuotas s/interés',
+            '9 cuotas s/interés', '12 cuotas s/interés',
+        ]
+        TIPO_A_PRECIO = {
+            'Sin cuotas propias': 'precio_sin_cuotas',
+            'Cuota Simple':       'precio_1c',
+            '3 cuotas s/interés': 'precio_3c',
+            '6 cuotas s/interés': 'precio_6c',
+            '9 cuotas s/interés': 'precio_9c',
+            '12 cuotas s/interés':'precio_12c',
+        }
+
+        DOMINIOS_VALIDOS = ('MLA-MATTRESSES', 'MLA-BOX_SPRING_AND_MATTRESS_KITS')
+
+        # Diagnóstico: contar dominios de catálogo + buscar SKUs específicos
+        diag_domains_catalog = {}
+        diag_excluidos = []  # ejemplos (sku → domain) que tienen catálogo pero no entran al filtro
+        diag_sexp140 = None
+
+        skus_data = {}
+        for mla_id, datos in datos_batch.items():
+            sku_raw = (datos.get('seller_sku') or '').upper()
+            if 'SEXP140' in sku_raw and diag_sexp140 is None:
+                diag_sexp140 = {
+                    'mla_id':          mla_id,
+                    'sku':             datos.get('seller_sku'),
+                    'domain_id':       datos.get('domain_id'),
+                    'catalog_listing': datos.get('catalog_listing'),
+                    'listing_type':    datos.get('listing_type'),
+                    'status':          datos.get('status'),
+                }
+            if not datos.get('catalog_listing'):
+                continue
+            dom = datos.get('domain_id') or 'SIN_DOMAIN'
+            diag_domains_catalog[dom] = diag_domains_catalog.get(dom, 0) + 1
+            if dom not in DOMINIOS_VALIDOS:
+                if len(diag_excluidos) < 20:
+                    diag_excluidos.append(f"{datos.get('seller_sku') or '(sin sku)'} → {dom}")
+                continue
+            sku = datos.get('seller_sku') or ''
+            if not sku:
+                continue
+            if sku not in skus_data:
+                skus_data[sku] = {
+                    'tipos': {},
+                    'catalog_product_id': datos.get('catalog_product_id'),
+                    'category_id':        datos.get('category_id'),
+                }
+            lt = datos.get('listing_type', '')
+            if lt and lt not in skus_data[sku]['tipos']:
+                skus_data[sku]['tipos'][lt] = mla_id
+
+        print(f"[FALTANTES-CAT] Diagnóstico dominios catálogo: {diag_domains_catalog}")
+        print(f"[FALTANTES-CAT] Diagnóstico SEXP140: {diag_sexp140}")
+
+        # 4. Calcular faltantes con precio sugerido
+        resultados = []
+        for sku in sorted(skus_data.keys()):
+            info = skus_data[sku]
+            tipos_existentes = set(info['tipos'].keys())
+            faltantes_tipos = [t for t in TODOS_LOS_TIPOS if t not in tipos_existentes]
+            if not faltantes_tipos:
+                continue
+            pc = _get_precio_costos_sku(sku, porcentajes)
+            mla_ref = next(iter(info['tipos'].values())) if info['tipos'] else None
+            faltantes_con_precio = []
+            for tipo in faltantes_tipos:
+                precio_key = TIPO_A_PRECIO.get(tipo)
+                precio_sug = pc.get(precio_key) if pc and precio_key else None
+                faltantes_con_precio.append({'tipo': tipo, 'precio_sugerido': precio_sug})
+            resultados.append({
+                'sku':                 sku,
+                'faltantes':           faltantes_con_precio,
+                'existentes':          sorted(tipos_existentes, key=lambda t: TODOS_LOS_TIPOS.index(t) if t in TODOS_LOS_TIPOS else 99),
+                'mla_ref':             mla_ref,
+                'catalog_product_id':  info['catalog_product_id'],
+            })
+
+        _faltantes_catalogo_guardar_cache(resultados, len(skus_data), diag={
+            'domains_catalog': diag_domains_catalog,
+            'excluidos':       diag_excluidos,
+            'sexp140':         diag_sexp140,
+        })
+        print(f"[FALTANTES-CAT] Listo — {len(resultados)} SKUs con faltantes de {len(skus_data)} totales")
+
+    except Exception as e:
+        print(f"[FALTANTES-CAT] Error en job: {e}")
+
+
 @app.route('/faltantes-catalogo-ml')
 @login_required
 def faltantes_catalogo_ml():
-    access_token = cargar_ml_token()
-    if not access_token:
-        flash('❌ No hay token de ML configurado', 'warning')
-        return redirect(url_for('dashboard'))
-
-    try:
-        row = query_one("SELECT valor FROM configuracion WHERE clave = 'porcentajes_ml'")
-        porcentajes = json.loads(row['valor']) if row else PORCENTAJES_ML_DEFAULT
-    except:
-        porcentajes = PORCENTAJES_ML_DEFAULT
-
-    # 1. Obtener todos los IDs (activos + pausados)
-    all_ids = []
-    for status in ('active', 'paused'):
-        offset = 0
-        while True:
-            r = ml_request('get',
-                f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/items/search',
-                access_token,
-                params={'limit': 100, 'offset': offset, 'status': status})
-            if r.status_code != 200:
-                break
-            data = r.json()
-            results = data.get('results', [])
-            all_ids.extend(results)
-            total = data.get('paging', {}).get('total', 0)
-            offset += 100
-            if offset >= total:
-                break
-
-    if not all_ids:
-        return render_template('faltantes_catalogo_ml.html', resultados=[], total_skus=0)
-
-    # 2. Fetch en batch (reutiliza obtener_datos_ml_batch)
-    datos_batch = obtener_datos_ml_batch(all_ids, access_token)
-
-    # 3. Filtrar catálogo + colchones, agrupar por SKU
-    TODOS_LOS_TIPOS = [
-        'Sin cuotas propias', 'Cuota Simple',
-        '3 cuotas s/interés', '6 cuotas s/interés',
-        '9 cuotas s/interés', '12 cuotas s/interés',
-    ]
-    TIPO_A_PRECIO = {
-        'Sin cuotas propias': 'precio_sin_cuotas',
-        'Cuota Simple':       'precio_1c',
-        '3 cuotas s/interés': 'precio_3c',
-        '6 cuotas s/interés': 'precio_6c',
-        '9 cuotas s/interés': 'precio_9c',
-        '12 cuotas s/interés':'precio_12c',
-    }
-
-    skus_data = {}
-    for mla_id, datos in datos_batch.items():
-        if not datos.get('catalog_listing'):
-            continue
-        if datos.get('domain_id') != 'MLA-MATTRESSES':
-            continue
-        sku = datos.get('seller_sku') or ''
-        if not sku:
-            continue
-        if sku not in skus_data:
-            skus_data[sku] = {
-                'tipos': {},
-                'catalog_product_id': datos.get('catalog_product_id'),
-                'category_id':        datos.get('category_id'),
-            }
-        lt = datos.get('listing_type', '')
-        if lt and lt not in skus_data[sku]['tipos']:
-            skus_data[sku]['tipos'][lt] = mla_id
-
-    # 4. Calcular faltantes con precio sugerido
-    resultados = []
-    for sku in sorted(skus_data.keys()):
-        info = skus_data[sku]
-        tipos_existentes = set(info['tipos'].keys())
-        faltantes_tipos = [t for t in TODOS_LOS_TIPOS if t not in tipos_existentes]
-        if not faltantes_tipos:
-            continue
-        pc = _get_precio_costos_sku(sku, porcentajes)
-        mla_ref = next(iter(info['tipos'].values())) if info['tipos'] else None
-        faltantes_con_precio = []
-        for tipo in faltantes_tipos:
-            precio_key = TIPO_A_PRECIO.get(tipo)
-            precio_sug = pc.get(precio_key) if pc and precio_key else None
-            faltantes_con_precio.append({'tipo': tipo, 'precio_sugerido': precio_sug})
-        resultados.append({
-            'sku':                 sku,
-            'faltantes':           faltantes_con_precio,
-            'existentes':          sorted(tipos_existentes, key=lambda t: TODOS_LOS_TIPOS.index(t) if t in TODOS_LOS_TIPOS else 99),
-            'mla_ref':             mla_ref,
-            'catalog_product_id':  info['catalog_product_id'],
-        })
-
+    """Sirve siempre desde caché. El cómputo pesado corre en background."""
+    cache_row = query_one("SELECT valor FROM configuracion WHERE clave = 'faltantes_catalogo_cache'")
+    if cache_row:
+        try:
+            cached = json.loads(cache_row['valor'])
+            return render_template('faltantes_catalogo_ml.html',
+                                   resultados=cached.get('resultados', []),
+                                   total_skus=cached.get('total_skus', 0),
+                                   cache_ts=cached.get('timestamp'),
+                                   diag=cached.get('diag', {}))
+        except Exception:
+            pass
     return render_template('faltantes_catalogo_ml.html',
-                           resultados=resultados,
-                           total_skus=len(skus_data))
+                           resultados=None,
+                           total_skus=0,
+                           cache_ts=None,
+                           diag={})
+
+
+@app.route('/faltantes-catalogo-ml/refresh', methods=['POST'])
+@login_required
+def faltantes_catalogo_refresh():
+    """Dispara el job en background y vuelve al instante."""
+    threading.Thread(target=job_faltantes_catalogo_ml, daemon=True).start()
+    flash('✅ Actualización iniciada. Los datos estarán listos en 1-2 minutos. Recargá la página.', 'info')
+    return redirect(url_for('faltantes_catalogo_ml'))
 
 
 # ============================================================================
@@ -9571,7 +10305,12 @@ def estadisticas():
 
     if filtro_canal == 'ML':
         base_where += " AND v.canal = 'Mercado Libre'"
+    elif filtro_canal == 'WEB':
+        base_where += " AND v.canal = 'tienda_web'"
+    elif filtro_canal == 'PRESENCIAL':
+        base_where += " AND v.canal NOT IN ('Mercado Libre', 'tienda_web')"
     elif filtro_canal == 'no_ml':
+        # compatibilidad con links viejos: no-ML = web + presencial
         base_where += " AND v.canal != 'Mercado Libre'"
 
     if filtro_metodo:
@@ -9585,16 +10324,30 @@ def estadisticas():
     # ========================================
     # 1. MÉTRICAS RESUMEN
     # ========================================
-    resumen = query_one(f"""
+    # OJO: el resumen se calcula en 2 queries separadas porque hacer LEFT JOIN
+    # con items_venta duplica filas (1 por cada item) e infla COUNT() y SUM(importe_total).
+    resumen_ventas = query_one(f"""
         SELECT
             COUNT(*) as total_ventas,
             COALESCE(SUM(v.importe_total), 0) as total_facturado,
-            COALESCE(AVG(v.importe_total), 0) as ticket_promedio,
-            COALESCE(SUM(iv.cantidad), 0) as total_unidades
+            COALESCE(AVG(v.importe_total), 0) as ticket_promedio
         FROM ventas v
-        LEFT JOIN items_venta iv ON iv.venta_id = v.id
         {base_where}
     """, tuple(base_params))
+
+    resumen_unidades = query_one(f"""
+        SELECT COALESCE(SUM(iv.cantidad), 0) as total_unidades
+        FROM ventas v
+        JOIN items_venta iv ON iv.venta_id = v.id
+        {base_where}
+    """, tuple(base_params))
+
+    resumen = {
+        'total_ventas':     resumen_ventas['total_ventas']     if resumen_ventas else 0,
+        'total_facturado':  resumen_ventas['total_facturado']  if resumen_ventas else 0,
+        'ticket_promedio':  resumen_ventas['ticket_promedio']  if resumen_ventas else 0,
+        'total_unidades':   resumen_unidades['total_unidades'] if resumen_unidades else 0,
+    }
 
     # ========================================
     # 2. VENTAS POR DÍA (para gráfico de línea)
@@ -9611,11 +10364,15 @@ def estadisticas():
     """, tuple(base_params))
 
     # ========================================
-    # 3. DESGLOSE POR CANAL (para torta)
+    # 3. DESGLOSE POR CANAL (para torta) — 3 categorías
     # ========================================
     por_canal = query_db(f"""
         SELECT
-            CASE WHEN v.canal = 'Mercado Libre' THEN 'MercadoLibre' ELSE 'Venta Directa' END as canal_label,
+            CASE
+                WHEN v.canal = 'Mercado Libre' THEN 'MercadoLibre'
+                WHEN v.canal = 'tienda_web'    THEN 'Tienda Web'
+                ELSE 'Presencial'
+            END as canal_label,
             COUNT(*) as cantidad,
             SUM(v.importe_total) as total
         FROM ventas v
@@ -9714,7 +10471,12 @@ def exportar_reposicion():
 
     if filtro_canal == 'ML':
         base_where += " AND v.canal = 'Mercado Libre'"
+    elif filtro_canal == 'WEB':
+        base_where += " AND v.canal = 'tienda_web'"
+    elif filtro_canal == 'PRESENCIAL':
+        base_where += " AND v.canal NOT IN ('Mercado Libre', 'tienda_web')"
     elif filtro_canal == 'no_ml':
+        # compatibilidad con links viejos
         base_where += " AND v.canal != 'Mercado Libre'"
     if filtro_metodo:
         base_where += " AND v.metodo_envio = %s"
@@ -10263,13 +11025,14 @@ def _crear_tablas_pagos_cannon():
     execute_db("""
         CREATE TABLE IF NOT EXISTS cannon_pagos (
             id              INT AUTO_INCREMENT PRIMARY KEY,
-            fecha_pago      DATE NOT NULL UNIQUE,
+            fecha_pago      DATE NOT NULL,
             monto_abonado   DECIMAL(14,2),
             fecha_abono     DATE,
             pp_recibido     TINYINT(1) DEFAULT 0,
             fecha_pp        DATE,
             notas           TEXT,
-            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_fecha_pago (fecha_pago)
         )
     """)
     execute_db("""
@@ -10285,6 +11048,31 @@ def _crear_tablas_pagos_cannon():
             FOREIGN KEY (factura_id) REFERENCES cannon_facturas(id)
         )
     """)
+
+    # ── Migración: agregar pago_id a cannon_facturas ─────────────────
+    try:
+        execute_db("ALTER TABLE cannon_facturas ADD COLUMN pago_id INT DEFAULT NULL AFTER fecha_pago")
+    except Exception:
+        pass
+
+    # ── Migración: quitar UNIQUE de cannon_pagos.fecha_pago ──────────
+    # El nombre del índice puede variar según cómo MySQL lo haya creado.
+    for idx in ('fecha_pago', 'fecha_pago_2', 'cannon_pagos_fecha_pago_unique'):
+        try:
+            execute_db(f"ALTER TABLE cannon_pagos DROP INDEX {idx}")
+        except Exception:
+            pass
+
+    # ── Backfill: asociar facturas existentes a su cannon_pagos ──────
+    try:
+        execute_db("""
+            UPDATE cannon_facturas f
+            JOIN cannon_pagos p ON p.fecha_pago = f.fecha_pago
+            SET f.pago_id = p.id
+            WHERE f.pago_id IS NULL
+        """)
+    except Exception:
+        pass
 
 
 def _calcular_importe_pp(importe_total, pct):
@@ -10302,28 +11090,28 @@ def pagos_cannon():
 
     tab = request.args.get('tab', 'pendientes')
 
-    # Facturas pendientes de pago (agrupadas por fecha_pago)
+    # Facturas pendientes de pago (agrupadas por pago_id — varios grupos pueden compartir fecha)
     grupos_pendientes = query_db("""
         SELECT
             f.fecha_pago,
+            p.id AS pago_id,
             COUNT(f.id) AS total_fcs,
             SUM(f.importe_total) AS total_bruto,
             SUM(f.importe_pp) AS total_pp,
             SUM(f.descuento_pp_monto) AS total_descuento,
-            p.id AS pago_id,
             p.monto_abonado,
             p.fecha_abono,
             p.pp_recibido,
             p.fecha_pp,
             p.notas AS pago_notas
         FROM cannon_facturas f
-        LEFT JOIN cannon_pagos p ON p.fecha_pago = f.fecha_pago
-        GROUP BY f.fecha_pago, p.id
-        ORDER BY f.fecha_pago ASC
+        JOIN cannon_pagos p ON p.id = f.pago_id
+        GROUP BY p.id, f.fecha_pago
+        ORDER BY f.fecha_pago ASC, p.id ASC
     """)
 
-    # Detalle de facturas por grupo
-    facturas_por_fecha = {}
+    # Detalle de facturas por grupo (indexado por pago_id)
+    facturas_por_pago_id = {}
     todas_facturas = query_db("""
         SELECT f.*, r.id AS reclamo_id
         FROM cannon_facturas f
@@ -10331,10 +11119,10 @@ def pagos_cannon():
         ORDER BY f.fecha_pago ASC, f.fecha_comprobante ASC
     """)
     for fc in todas_facturas:
-        k = str(fc['fecha_pago'])
-        if k not in facturas_por_fecha:
-            facturas_por_fecha[k] = []
-        facturas_por_fecha[k].append(fc)
+        k = fc['pago_id']
+        if k not in facturas_por_pago_id:
+            facturas_por_pago_id[k] = []
+        facturas_por_pago_id[k].append(fc)
 
     # Reclamos
     reclamos = query_db("""
@@ -10346,7 +11134,7 @@ def pagos_cannon():
 
     return render_template('pagos_cannon.html',
         grupos=grupos_pendientes,
-        facturas_por_fecha=facturas_por_fecha,
+        facturas_por_pago_id=facturas_por_pago_id,
         reclamos=reclamos,
         tab=tab,
         hoy=date.today(),
@@ -10378,19 +11166,30 @@ def pagos_cannon_guardar():
             if existe:
                 return jsonify({'ok': False, 'error': 'Ya existe una factura con ese número'})
 
+            # Buscar grupo de pago abierto (no abonado) para esa fecha.
+            # Si ya está pagado o no existe, se crea un nuevo grupo aparte.
+            pago_abierto = query_one("""
+                SELECT id FROM cannon_pagos
+                WHERE fecha_pago = %s AND monto_abonado IS NULL
+                ORDER BY id ASC
+                LIMIT 1
+            """, (fecha_pago,))
+            if pago_abierto:
+                pago_id = pago_abierto['id']
+            else:
+                pago_id = execute_db(
+                    "INSERT INTO cannon_pagos (fecha_pago) VALUES (%s)",
+                    (fecha_pago,)
+                )
+
             execute_db("""
                 INSERT INTO cannon_facturas
                     (nro_comprobante, fecha_comprobante, fecha_recepcion,
                      importe_total, descuento_pp_pct, importe_pp, descuento_pp_monto,
-                     fecha_pago, notas)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     fecha_pago, pago_id, notas)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (data['nro_comprobante'], data['fecha_comprobante'], fecha_rec,
-                  importe, pct, imp_pp, descuento, fecha_pago, data.get('notas', '')))
-
-            # Crear registro de pago para esa fecha si no existe
-            execute_db("""
-                INSERT IGNORE INTO cannon_pagos (fecha_pago) VALUES (%s)
-            """, (fecha_pago,))
+                  importe, pct, imp_pp, descuento, fecha_pago, pago_id, data.get('notas', '')))
 
             return jsonify({'ok': True, 'fecha_pago': fecha_pago,
                             'importe_pp': imp_pp, 'descuento': descuento})
@@ -10402,16 +11201,16 @@ def pagos_cannon_guardar():
             execute_db("""
                 UPDATE cannon_pagos
                 SET monto_abonado = %s, fecha_abono = %s, notas = %s
-                WHERE fecha_pago = %s
+                WHERE id = %s
             """, (float(data['monto_abonado']), data['fecha_abono'],
-                  data.get('notas', ''), data['fecha_pago']))
+                  data.get('notas', ''), data['pago_id']))
 
         elif accion == 'marcar_pp_recibido':
             execute_db("""
                 UPDATE cannon_pagos
                 SET pp_recibido = %s, fecha_pp = %s
-                WHERE fecha_pago = %s
-            """, (int(data['recibido']), data.get('fecha_pp') or None, data['fecha_pago']))
+                WHERE id = %s
+            """, (int(data['recibido']), data.get('fecha_pp') or None, data['pago_id']))
 
         elif accion == 'marcar_error':
             execute_db("UPDATE cannon_facturas SET tiene_error = 1 WHERE id = %s", (data['factura_id'],))
@@ -11556,6 +12355,149 @@ def tienda_suscriptores_eliminar():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
     return jsonify({'ok': True})
+
+
+@app.route('/tienda-admin/email-hot-test', methods=['GET', 'POST'])
+@admin_required
+def email_hot_test():
+    """
+    Página admin para enviar PRUEBAS del email del HOT MERCADOMUEBLES.
+    Permite ingresar un email y enviar el diseño para revisarlo en el inbox
+    antes del lanzamiento masivo.
+    """
+    enviado = False
+    error = None
+    destinatario = ''
+    if request.method == 'POST':
+        destinatario = (request.form.get('destinatario') or '').strip()
+        if not destinatario or '@' not in destinatario:
+            error = 'Ingresá un email válido'
+        else:
+            try:
+                _enviar_email_hot_event(destinatario)
+                enviado = True
+            except Exception as e:
+                error = f'Error al enviar: {e}'
+    return render_template('email_hot_test.html',
+                           enviado=enviado,
+                           error=error,
+                           destinatario=destinatario)
+
+
+@app.route('/tienda-admin/email-hot-masivo', methods=['GET', 'POST'])
+@admin_required
+def email_hot_masivo():
+    """
+    Panel del envío masivo del email HOT MERCADOMUEBLES a suscriptores.
+
+    Funciones:
+      - Ver estado del envío original (lunes 11/05/2026 9:00 AM ARG)
+      - Ver estado del reenvío a fallidos (martes 12/05/2026 9:00 AM ARG)
+      - Disparar manualmente cualquiera de los dos
+      - Resetear estados para permitir reintentos
+    """
+    import threading
+    import json
+
+    if request.method == 'POST':
+        accion = request.form.get('accion', '')
+
+        # ── Envío masivo original (a todos los suscriptores) ──
+        if accion == 'enviar':
+            confirmar = (request.form.get('confirmar') or '').strip()
+            if confirmar != 'SI ENVIAR':
+                flash('❌ Confirmación incorrecta. Tenés que escribir exactamente: SI ENVIAR',
+                      'danger')
+                return redirect(url_for('email_hot_masivo'))
+
+            execute_db("DELETE FROM configuracion WHERE clave='hot_email_envio_estado'")
+            execute_db("DELETE FROM configuracion WHERE clave='hot_email_envio_fallidos'")
+
+            def _disparar_bg():
+                try:
+                    enviar_hot_event_a_todos()
+                except Exception as e:
+                    print(f"[HOT email] Error en disparo manual: {e}")
+
+            threading.Thread(target=_disparar_bg, daemon=True).start()
+            flash('✅ Envío disparado en background. Refrescá esta página en 1-2 minutos para ver el resultado.',
+                  'success')
+            return redirect(url_for('email_hot_masivo'))
+
+        # ── Reenvío SOLO a fallidos del envío original ──
+        if accion == 'enviar_reintento':
+            confirmar = (request.form.get('confirmar') or '').strip()
+            if confirmar != 'SI REENVIAR':
+                flash('❌ Confirmación incorrecta. Tenés que escribir exactamente: SI REENVIAR',
+                      'danger')
+                return redirect(url_for('email_hot_masivo'))
+
+            # Solo limpiamos el estado del REENVÍO, no tocamos los fallidos del original
+            execute_db("DELETE FROM configuracion WHERE clave='hot_email_reenvio_estado'")
+            execute_db("DELETE FROM configuracion WHERE clave='hot_email_reenvio_fallidos'")
+
+            def _disparar_reintento_bg():
+                try:
+                    enviar_hot_event_a_fallidos()
+                except Exception as e:
+                    print(f"[HOT reenvio] Error en disparo manual: {e}")
+
+            threading.Thread(target=_disparar_reintento_bg, daemon=True).start()
+            flash('✅ Reenvío disparado en background. Refrescá esta página en 1-2 minutos para ver el resultado.',
+                  'success')
+            return redirect(url_for('email_hot_masivo'))
+
+        if accion == 'reset':
+            execute_db("DELETE FROM configuracion WHERE clave='hot_email_envio_estado'")
+            execute_db("DELETE FROM configuracion WHERE clave='hot_email_envio_fallidos'")
+            flash('✅ Estado del envío original reseteado.', 'success')
+            return redirect(url_for('email_hot_masivo'))
+
+        if accion == 'reset_reenvio':
+            execute_db("DELETE FROM configuracion WHERE clave='hot_email_reenvio_estado'")
+            execute_db("DELETE FROM configuracion WHERE clave='hot_email_reenvio_fallidos'")
+            flash('✅ Estado del reenvío reseteado.', 'success')
+            return redirect(url_for('email_hot_masivo'))
+
+    # ── GET: armar contexto del template ──
+    total_susc_row = query_one(
+        "SELECT COUNT(*) as c FROM suscriptores WHERE email IS NOT NULL AND email != ''"
+    )
+    estado_row = query_one(
+        "SELECT valor FROM configuracion WHERE clave='hot_email_envio_estado'"
+    )
+    fallidos_row = query_one(
+        "SELECT valor FROM configuracion WHERE clave='hot_email_envio_fallidos'"
+    )
+    reenvio_estado_row = query_one(
+        "SELECT valor FROM configuracion WHERE clave='hot_email_reenvio_estado'"
+    )
+    reenvio_fallidos_row = query_one(
+        "SELECT valor FROM configuracion WHERE clave='hot_email_reenvio_fallidos'"
+    )
+
+    fallidos_list = []
+    if fallidos_row and fallidos_row.get('valor'):
+        try:
+            fallidos_list = json.loads(fallidos_row['valor'])
+        except Exception:
+            fallidos_list = []
+
+    reenvio_fallidos_list = []
+    if reenvio_fallidos_row and reenvio_fallidos_row.get('valor'):
+        try:
+            reenvio_fallidos_list = json.loads(reenvio_fallidos_row['valor'])
+        except Exception:
+            reenvio_fallidos_list = []
+
+    return render_template('email_hot_masivo.html',
+        total_suscriptores=(total_susc_row['c'] if total_susc_row else 0),
+        estado=(estado_row['valor'] if estado_row else 'no_iniciado'),
+        fallidos=fallidos_list,
+        reenvio_estado=(reenvio_estado_row['valor'] if reenvio_estado_row else 'no_iniciado'),
+        reenvio_fallidos=reenvio_fallidos_list,
+        reenvio_total_destinatarios=len(fallidos_list),
+    )
 # ============================================================================
 
 # SKUs de almohadas a excluir de actualización ML
@@ -11644,6 +12586,11 @@ def actualizar_publicaciones_ml(skus_base_afectados):
         print("[AUTO-ML] Sin access_token, abortando actualización.")
         return
 
+    # Config de publicaciones Z cuando se quedan sin stock (configurable desde panel)
+    z_cfg = _get_ml_z_sin_stock_config()
+    Z_STOCK_SIN = z_cfg['stock']
+    Z_DIAS_DEMORA = z_cfg['dias_demora']
+
     # Calcular stock disponible de todos los SKUs
     try:
         stock_todos = calcular_stock_por_sku()
@@ -11723,12 +12670,12 @@ def actualizar_publicaciones_ml(skus_base_afectados):
                     print(f"[AUTO-ML] {sku_z} → {mla} quitar demora: {'✅' if ok2 else '❌'}")
                     time.sleep(0.5)
                 else:
-                    # Sin stock: stock=1 + 7 días demora
-                    ok, msg = actualizar_stock_ml(mla, 1, access_token)
-                    print(f"[AUTO-ML] {sku_z} → {mla} stock=1: {'✅' if ok else '❌'} {msg}")
+                    # Sin stock: stock=Z_STOCK_SIN + Z_DIAS_DEMORA días demora (configurable)
+                    ok, msg = actualizar_stock_ml(mla, Z_STOCK_SIN, access_token)
+                    print(f"[AUTO-ML] {sku_z} → {mla} stock={Z_STOCK_SIN}: {'✅' if ok else '❌'} {msg}")
                     time.sleep(0.5)
-                    ok2 = _poner_demora_ml(mla, access_token, dias=7)
-                    print(f"[AUTO-ML] {sku_z} → {mla} poner demora 7d: {'✅' if ok2 else '❌'}")
+                    ok2 = _poner_demora_ml(mla, access_token, dias=Z_DIAS_DEMORA)
+                    print(f"[AUTO-ML] {sku_z} → {mla} poner demora {Z_DIAS_DEMORA}d: {'✅' if ok2 else '❌'}")
                     time.sleep(0.5)
         except Exception as e:
             print(f"[AUTO-ML] Error actualizando con Z de {sku}: {e}")
@@ -11785,6 +12732,19 @@ def _init_auto_import_table():
             print("[AUTO-ML] Columna ventas_no_mapeadas agregada.")
         except Exception:
             pass  # Ya existe, ignorar
+        # Columnas para rechequeo de ventas auto-importadas
+        try:
+            execute_db("ALTER TABLE ventas ADD COLUMN auto_imported_at TIMESTAMP NULL")
+        except Exception:
+            pass  # Ya existe
+        try:
+            execute_db("ALTER TABLE ventas ADD COLUMN auto_rechecked TINYINT DEFAULT 0")
+        except Exception:
+            pass  # Ya existe
+        try:
+            execute_db("ALTER TABLE ventas ADD COLUMN notas_auto_orig TEXT NULL")
+        except Exception:
+            pass  # Ya existe
     except Exception as e:
         print(f"[AUTO-ML] Error init tabla: {e}")
 
@@ -11802,6 +12762,7 @@ def _importar_orden_automatica(orden, access_token):
         orden_data = procesar_orden_ml(orden)
 
         # ML oculta first_name/last_name en búsqueda masiva — consultar orden individual
+        costo_comision_ml = 0.0
         try:
             headers_ml = {'Authorization': f'Bearer {access_token}'}
             r_individual = requests.get(
@@ -11809,14 +12770,18 @@ def _importar_orden_automatica(orden, access_token):
                 headers=headers_ml
             )
             if r_individual.status_code == 200:
-                buyer_full = r_individual.json().get('buyer', {})
+                orden_individual_json = r_individual.json()
+                buyer_full = orden_individual_json.get('buyer', {})
                 fn = (buyer_full.get('first_name') or '').strip()
                 ln = (buyer_full.get('last_name') or '').strip()
                 nombre_completo = f"{fn} {ln}".strip()
                 if nombre_completo:
                     orden_data['comprador_nombre'] = nombre_completo
+                # Extraer sale_fee (comisión ML ya incluye venta + financiación)
+                sale_fee_total = sum(float(it.get('sale_fee') or 0) for it in orden_individual_json.get('order_items', []))
+                costo_comision_ml = round(sale_fee_total / 1.21, 2)
         except Exception as e_buyer:
-            print(f"[AUTO-ML] No se pudo obtener nombre completo: {e_buyer}")
+            print(f"[AUTO-ML] No se pudo obtener nombre completo / sale_fee: {e_buyer}")
 
         # Verificar que todos los items tienen SKU mapeado en BD
         items_bd = []
@@ -11993,6 +12958,29 @@ def _importar_orden_automatica(orden, access_token):
         zona_envio = shipping.get('zona', '') if metodo_envio == 'Flete Propio' else zona_envio if metodo_envio == 'Delega' else ''
         direccion_entrega = shipping.get('direccion', '')
 
+        # ✅ NUEVO: Costos de envío según modalidad
+        if metodo_envio in ('Flex', 'Flete Propio'):
+            # Envío propio: solo costo fijo, NO se suma list_cost de ML
+            try:
+                _row_fp = query_one("SELECT valor FROM configuracion WHERE clave='costo_flete_propio'")
+                costo_envio_vendedor_calc = float(_row_fp['valor']) if _row_fp and _row_fp.get('valor') else 35000.0
+            except Exception:
+                costo_envio_vendedor_calc = 35000.0
+        elif metodo_envio == 'Delega':
+            # Delega: costo fijo solo si el producto >= $33k (regla de negocio)
+            _total_delega = float(orden_data.get('total') or 0)
+            if _total_delega >= 33000:
+                try:
+                    _row_del = query_one("SELECT valor FROM configuracion WHERE clave='costo_delega'")
+                    costo_envio_vendedor_calc = float(_row_del['valor']) if _row_del and _row_del.get('valor') else 5000.0
+                except Exception:
+                    costo_envio_vendedor_calc = 5000.0
+            else:
+                costo_envio_vendedor_calc = 0.0
+        else:
+            # Colecta, Turbo, Zippin, Retiro: lo que cobra ML al vendedor (sin IVA)
+            costo_envio_vendedor_calc = round(float(shipping.get('list_cost_vendedor', 0) or 0) / 1.21, 2)
+
         # Mapear SKUs compac a _DEP o _FULL ahora que conocemos ubicacion_despacho
         sufijo = '_FULL' if ubicacion_despacho == 'FULL' else '_DEP'
         items_bd = [
@@ -12003,8 +12991,58 @@ def _importar_orden_automatica(orden, access_token):
         metodo_pago = 'Mercadopago'
         importe_total = float(orden_data['total'])          # solo productos
         importe_abonado = float(orden_data.get('paid_amount') or orden_data['total'])  # productos + flete
+
+        # Turbo: lógica especial según items y total (override del cálculo previo)
+        if metodo_envio == 'Turbo':
+            _todos_alm = all(_es_almohada(it['sku']) for it in items_bd)
+            if not _todos_alm:
+                try:
+                    _r = query_one("SELECT valor FROM configuracion WHERE clave='costo_flete_propio'")
+                    costo_envio_vendedor_calc = float(_r['valor']) if _r and _r.get('valor') else 35000.0
+                except Exception: costo_envio_vendedor_calc = 35000.0
+            elif importe_total < 33000:
+                costo_envio_vendedor_calc = 0.0
+            else:
+                try:
+                    _r = query_one("SELECT valor FROM configuracion WHERE clave='costo_delega'")
+                    costo_envio_vendedor_calc = round(float(_r['valor']) * 1.5, 2) if _r and _r.get('valor') else 7500.0
+                except Exception: costo_envio_vendedor_calc = 7500.0
+
+        # Costo de productos al momento de importación (se guarda para no depender de lista futura)
+        costo_productos_venta = 0.0
+        try:
+            _pcmap = _build_precio_compra_map()
+            _ccmap = {}
+            for _cr in query_db(
+                "SELECT pc.sku sc, pb.sku sb, c.cantidad_necesaria cn "
+                "FROM productos_compuestos pc "
+                "JOIN componentes c ON pc.id=c.producto_compuesto_id "
+                "JOIN productos_base pb ON c.producto_base_id=pb.id"
+            ):
+                _ccmap.setdefault(_cr['sc'], []).append({'sku': _cr['sb'], 'cant': float(_cr['cn'])})
+            for _it in items_bd:
+                _sr = _it['sku']; _sb = _sr.replace('_DEP','').replace('_FULL','')
+                _pc = _pcmap.get(_sr, _pcmap.get(_sb, 0))
+                if not _pc:
+                    for _c in _ccmap.get(_sr, _ccmap.get(_sb, [])):
+                        _pc += _pcmap.get(_c['sku'], 0) * _c['cant']
+                costo_productos_venta += _pc * float(_it['cantidad'])
+            costo_productos_venta = round(costo_productos_venta, 2)
+        except Exception as _e_cp:
+            print(f"[AUTO-ML] costo_productos error: {_e_cp}")
         pago_mp = importe_abonado
         pago_efectivo = 0.0
+
+        # Bug fix: en algunas órdenes ML reporta paid_amount sin sumar el flete
+        # (la mayoría sí lo suma). Detectamos el caso y agregamos el flete cuando
+        # el shipment está marcado como pagado por ML (substatus='shipment_paid').
+        if (importe_abonado <= importe_total
+                and costo_flete > 0
+                and metodo_envio in ['Flete Propio', 'Zippin']
+                and shipping.get('substatus') == 'shipment_paid'):
+            pago_mp += costo_flete
+            importe_abonado += costo_flete
+
         estado_entrega = 'pendiente'
         estado_pago = 'pagado'
 
@@ -12039,10 +13077,14 @@ def _importar_orden_automatica(orden, access_token):
                     fecha_entrega_estimada,
                     factura_business_name, factura_doc_type, factura_doc_number,
                     factura_taxpayer_type, factura_city, factura_street,
-                    factura_state, factura_zip_code
+                    factura_state, factura_zip_code,
+                    auto_imported_at, notas_auto_orig,
+                    costo_comision, costo_envio_vendedor, costo_productos
                 ) VALUES (
                     %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s
+                    %s,%s,%s,%s,%s,%s,%s,%s,%s,
+                    NOW(), %s,
+                    %s,%s,%s
                 )
             ''', (
                 numero_venta, fecha_venta, canal, mla_code,
@@ -12057,6 +13099,8 @@ def _importar_orden_automatica(orden, access_token):
                 billing_info['doc_number'], billing_info['taxpayer_type'],
                 billing_info['city'], billing_info['street'],
                 billing_info['state'], billing_info['zip_code'],
+                notas,
+                costo_comision_ml, costo_envio_vendedor_calc, costo_productos_venta,
             ))
             venta_id = cursor.lastrowid
 
@@ -12402,6 +13446,11 @@ def actualizar_publicaciones_ml_con_progreso(skus_base_afectados):
                            'ok': [], 'errors': [f'Error calculando stock: {e}'], 'skus': []})
         return
 
+    # Config de publicaciones Z cuando se quedan sin stock (configurable desde panel)
+    z_cfg = _get_ml_z_sin_stock_config()
+    Z_STOCK_SIN = z_cfg['stock']
+    Z_DIAS_DEMORA = z_cfg['dias_demora']
+
     skus_a_actualizar = set()
     for sku_base in skus_base_afectados:
         sku_base = sku_base.upper()
@@ -12473,10 +13522,10 @@ def actualizar_publicaciones_ml_con_progreso(skus_base_afectados):
                     _quitar_demora_ml(mla, access_token)
                     label += ' + quitar demora'
                 else:
-                    ok, msg = actualizar_stock_ml(mla, 1, access_token)
-                    label = f"{sku_z} \u2192 {mla} stock=1+demora"
+                    ok, msg = actualizar_stock_ml(mla, Z_STOCK_SIN, access_token)
+                    label = f"{sku_z} \u2192 {mla} stock={Z_STOCK_SIN}+demora{Z_DIAS_DEMORA}d"
                     time.sleep(0.1)
-                    _poner_demora_ml(mla, access_token, dias=7)
+                    _poner_demora_ml(mla, access_token, dias=Z_DIAS_DEMORA)
                 if ok:
                     resultados_ok.append(label)
                 else:
@@ -12618,6 +13667,183 @@ def job_completar_notas_mp():
 
         except Exception as e:
             print(f"[MP-NOTAS] Error general: {e}")
+
+
+def _rechequear_orden_ml(venta_id, orden_id, access_token, venta_actual):
+    """
+    Re-consulta una orden de ML auto-importada (~3 min después de importarla)
+    y actualiza solo los campos que pueden llegar incompletos al inicio:
+    nombre_cliente, telefono_cliente, direccion_entrega, notas.
+
+    NO toca: stock, items, importes, método de pago/envío, ubicación, zona.
+    NO dispara actualizar_publicaciones_ml.
+
+    Reglas de seguridad para no pisar ediciones manuales:
+    - notas: solo se reemplaza si las notas actuales son IDÉNTICAS a notas_auto_orig
+    - nombre_cliente: solo se reemplaza si el actual es el nickname (mla_code) y ML ahora trae nombre real distinto
+    - telefono_cliente: solo se reemplaza si está vacío y ML ahora lo trae
+    - direccion_entrega: solo se reemplaza si la actual contiene 'XXX' (placeholder ML) y la nueva no
+    """
+    try:
+        headers_ml = {'Authorization': f'Bearer {access_token}'}
+
+        # 1) Orden con buyer completo
+        try:
+            r_ind = requests.get(
+                f'https://api.mercadolibre.com/orders/{orden_id}',
+                headers=headers_ml, timeout=8
+            )
+            orden_full = r_ind.json() if r_ind.status_code == 200 else {}
+        except Exception:
+            orden_full = {}
+
+        nombre_real_nuevo = ''
+        buyer = orden_full.get('buyer', {}) or {}
+        fn = (buyer.get('first_name') or '').strip()
+        ln = (buyer.get('last_name') or '').strip()
+        if (fn + ln):
+            nombre_real_nuevo = f"{fn} {ln}".strip()
+
+        # 2) Shipment completo (dirección, fecha entrega, demora)
+        shipping_id = (orden_full.get('shipping') or {}).get('id')
+        shipping = {}
+        if shipping_id:
+            shipping = obtener_shipping_completo(
+                shipping_id, access_token, orden_full.get('date_created', '')
+            )
+
+        # 3) Teléfono desde el shipment
+        telefono_nuevo = ''
+        if shipping_id:
+            try:
+                r_ship = requests.get(
+                    f'https://api.mercadolibre.com/shipments/{shipping_id}',
+                    headers=headers_ml, timeout=8
+                )
+                if r_ship.status_code == 200:
+                    recv_phone = (r_ship.json().get('receiver_address') or {}).get('receiver_phone', '')
+                    if recv_phone and 'X' not in str(recv_phone).upper():
+                        telefono_nuevo = str(recv_phone).strip()
+            except Exception:
+                pass
+
+        # 4) Notas reconstruidas (mismo cálculo que en _importar_orden_automatica)
+        fecha_entrega_ml = shipping.get('fecha_entrega_ml', '') if shipping else ''
+        if fecha_entrega_ml:
+            notas_nuevas = fecha_entrega_ml
+        else:
+            notas_nuevas = f"Importado desde ML - Orden: {orden_id}"
+        demora_ml_dias = shipping.get('demora_ml_dias', 0) if shipping else 0
+        if demora_ml_dias:
+            notas_nuevas += f"\nDEMORA_ML: {demora_ml_dias} días"
+
+        # 5) Construir UPDATE solo de los campos que cambian
+        updates = {}
+
+        # Nombre: si el actual es igual a mla_code (no se obtuvo nombre real al importar)
+        # y ahora ML trae uno distinto, actualizar.
+        mla_code_actual = (venta_actual.get('mla_code') or '').strip()
+        nombre_actual = (venta_actual.get('nombre_cliente') or '').strip()
+        if nombre_real_nuevo and nombre_real_nuevo != nombre_actual:
+            if not nombre_actual or nombre_actual == mla_code_actual:
+                updates['nombre_cliente'] = nombre_real_nuevo
+
+        # Teléfono: si está vacío y ahora hay uno
+        tel_actual = (venta_actual.get('telefono_cliente') or '').strip()
+        if telefono_nuevo and not tel_actual:
+            updates['telefono_cliente'] = telefono_nuevo
+
+        # Dirección: si la actual tiene 'XXX' y la nueva no
+        dir_actual = (venta_actual.get('direccion_entrega') or '').strip()
+        dir_nueva = (shipping.get('direccion', '') if shipping else '').strip()
+        if dir_nueva and 'XXX' in dir_actual.upper() and 'XXX' not in dir_nueva.upper():
+            updates['direccion_entrega'] = dir_nueva
+
+        # Notas: solo si las actuales son IDÉNTICAS a las originales (sin ediciones manuales)
+        notas_actuales = (venta_actual.get('notas') or '')
+        notas_orig = (venta_actual.get('notas_auto_orig') or '')
+        if notas_orig and notas_actuales == notas_orig and notas_nuevas != notas_actuales:
+            updates['notas'] = notas_nuevas
+            # también actualizar notas_auto_orig para que un siguiente rechequeo (si lo hubiera) lo respete
+            updates['notas_auto_orig'] = notas_nuevas
+
+        if updates:
+            sets = ', '.join(f"{k} = %s" for k in updates.keys())
+            params = list(updates.values()) + [venta_id]
+            execute_db(f"UPDATE ventas SET {sets} WHERE id = %s", tuple(params))
+            print(f"[RECHECK-ML] ✅ Venta {venta_id} actualizada: {list(updates.keys())}")
+        else:
+            print(f"[RECHECK-ML] Venta {venta_id}: sin cambios")
+
+        return True
+
+    except Exception as e:
+        print(f"[RECHECK-ML] Error rechequeando venta {venta_id}: {e}")
+        return False
+
+
+def job_rechequear_autoimportadas():
+    """
+    Job que corre cada 60s. Busca ventas auto-importadas hace 3+ minutos
+    que aún no fueron rechequeadas, y reconsulta ML para actualizar
+    nombre/teléfono/dirección/notas si ML ya tiene la info completa.
+
+    Solo procesa ventas con estado_entrega='pendiente' (las que ya pasaron
+    a proceso o entregada se marcan rechequeadas y se ignoran).
+    """
+    with app.app_context():
+        try:
+            access_token = cargar_ml_token()
+            if not access_token:
+                return
+
+            ventas = query_db("""
+                SELECT id, numero_venta, mla_code, nombre_cliente, telefono_cliente,
+                       direccion_entrega, notas, notas_auto_orig, estado_entrega
+                FROM ventas
+                WHERE canal = 'Mercado Libre'
+                  AND auto_imported_at IS NOT NULL
+                  AND auto_imported_at <= DATE_SUB(NOW(), INTERVAL 3 MINUTE)
+                  AND auto_rechecked = 0
+                LIMIT 50
+            """)
+            if not ventas:
+                return
+
+            import re as _re
+            for v in ventas:
+                # Si ya pasó a proceso/entregada/cancelada, no se toca, solo se marca rechequeada
+                if v.get('estado_entrega') != 'pendiente':
+                    try:
+                        execute_db("UPDATE ventas SET auto_rechecked = 1 WHERE id = %s", (v['id'],))
+                    except Exception:
+                        pass
+                    continue
+
+                # Extraer orden_id del numero_venta (ML-XXXXXX)
+                numero = v['numero_venta'] or ''
+                m = _re.search(r'(\d{16})', numero)
+                if not m:
+                    # No hay orden_id válido, marcar igual para no reintentar
+                    try:
+                        execute_db("UPDATE ventas SET auto_rechecked = 1 WHERE id = %s", (v['id'],))
+                    except Exception:
+                        pass
+                    continue
+                orden_id = m.group(1)
+
+                _rechequear_orden_ml(v['id'], orden_id, access_token, v)
+
+                # Marcar rechequeada SIEMPRE (haya cambios o error, para no reintentar)
+                try:
+                    execute_db("UPDATE ventas SET auto_rechecked = 1 WHERE id = %s", (v['id'],))
+                except Exception:
+                    pass
+
+                time.sleep(0.5)
+
+        except Exception as e:
+            print(f"[RECHECK-ML] Error general: {e}")
 
 
 # ============================================================================
@@ -12793,8 +14019,73 @@ def iniciar_scheduler():
             replace_existing=True,
             max_instances=1
         )
+        scheduler.add_job(
+            job_rechequear_autoimportadas,
+            'interval',
+            seconds=60,
+            id='rechequear_autoimportadas',
+            replace_existing=True,
+            max_instances=1
+        )
+        scheduler.add_job(
+            job_faltantes_catalogo_ml,
+            'interval',
+            minutes=20,
+            id='faltantes_catalogo_ml',
+            replace_existing=True,
+            max_instances=1
+        )
+
+        # Envío automático del email HOT MERCADOMUEBLES
+        # Programado para el lunes 11/05/2026 a las 9:00 AM hora Argentina.
+        # El lock interno en la función previene envíos duplicados desde múltiples workers.
+        try:
+            from apscheduler.triggers.date import DateTrigger
+            from datetime import datetime as _dt
+            try:
+                from zoneinfo import ZoneInfo as _ZI
+                _tz_ar = _ZI('America/Argentina/Buenos_Aires')
+                _run_dt = _dt(2026, 5, 11, 9, 0, 0, tzinfo=_tz_ar)
+            except Exception:
+                # Fallback si zoneinfo no disponible: server en UTC, 9 AM ARG = 12:00 UTC
+                _run_dt = _dt(2026, 5, 11, 12, 0, 0)
+
+            scheduler.add_job(
+                enviar_hot_event_a_todos,
+                trigger=DateTrigger(run_date=_run_dt),
+                id='hot_email_lunes_9am',
+                replace_existing=True,
+                misfire_grace_time=3600  # 1 hora de gracia si arranca tarde
+            )
+            print(f"[HOT email] Job programado para {_run_dt}")
+        except Exception as _e:
+            print(f"[HOT email] Error programando job: {_e}")
+
+        # REENVÍO automático SOLO a fallidos del lunes — martes 12/05/2026 a las 9:00 AM ARG.
+        # Lock atómico independiente; subject distinto definido en HOT_REINTENTO_SUBJECT.
+        try:
+            from apscheduler.triggers.date import DateTrigger
+            from datetime import datetime as _dt
+            try:
+                from zoneinfo import ZoneInfo as _ZI
+                _tz_ar = _ZI('America/Argentina/Buenos_Aires')
+                _run_dt_re = _dt(2026, 5, 12, 9, 0, 0, tzinfo=_tz_ar)
+            except Exception:
+                _run_dt_re = _dt(2026, 5, 12, 12, 0, 0)  # 9 AM ARG = 12:00 UTC
+
+            scheduler.add_job(
+                enviar_hot_event_a_fallidos,
+                trigger=DateTrigger(run_date=_run_dt_re),
+                id='hot_email_reenvio_martes_9am',
+                replace_existing=True,
+                misfire_grace_time=3600
+            )
+            print(f"[HOT reenvio] Job programado para {_run_dt_re}")
+        except Exception as _e:
+            print(f"[HOT reenvio] Error programando job: {_e}")
+
         scheduler.start()
-        print("[AUTO-ML] ✅ Scheduler iniciado — auto-import cada 120s, cancelaciones cada 10min, notas MP cada 10min")
+        print("[AUTO-ML] ✅ Scheduler iniciado — auto-import cada 120s, cancelaciones cada 10min, notas MP cada 10min, rechequeo auto-import cada 60s, faltantes-catálogo cada 20min")
 
         # Monitor de competencia — 2 veces por día
         try:
@@ -12933,8 +14224,11 @@ def _get_precio_costos_sku(sku, porcentajes_ml=None):
 
         def _detectar_clave_simple(desc, sku_up):
             desc = (desc or '').upper()
+            sku_check = sku_up.replace('_DEP', '').replace('_FULL', '')
             # CTR80 — caso especial, solo prontopago
-            if sku_up == 'CTR80': return 'ctr80'
+            if sku_check == 'CTR80': return 'ctr80'
+            # Compac — caso especial, solo prontopago
+            if sku_check in ('CCO80','CCO100','CCO140','CCO160'): return 'compac'
             # Bases primero — para que BASE_SUBL no caiga en sublime
             if sku_up.startswith('BASE_') or desc.startswith('SOM') or desc.startswith('BASE'): return 'bases'
             if sku_up in ('CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE'): return 'almohadas'
@@ -12961,8 +14255,31 @@ def _get_precio_costos_sku(sku, porcentajes_ml=None):
         desc_linea = desc_entry['valor']
         desc_adi = desc_entry['desc_adicional'] + float(cp['desc_adicional'] or 0)
 
+        # Almohadas, CTR80 y Compac no llevan descuento cliente, línea ni adicional — solo prontopago
+        sin_descuentos = (clave in ('almohadas', 'ctr80', 'compac'))
+        desc_linea_aplicar   = 0 if sin_descuentos else desc_linea
+        desc_cliente_aplicar = 0 if sin_descuentos else desc_cliente_pct
+        desc_adi_aplicar     = 0 if sin_descuentos else desc_adi
+
+        # Precio Cannon con override para CTR80 y Compac (mismo comportamiento que costos_calcular)
+        precio_cannon = float(cp['precio_lista'])
+        sku_check_override = sku_col.upper().replace('_DEP', '').replace('_FULL', '')
+        if sku_check_override == 'CTR80':
+            ctr80_row = query_one("SELECT valor FROM configuracion WHERE clave = 'ctr80_precio_cannon'")
+            ctr80_override = float(ctr80_row['valor']) if ctr80_row and ctr80_row.get('valor') else 0
+            if ctr80_override > 0:
+                precio_cannon = ctr80_override
+        elif sku_check_override in ('CCO80', 'CCO100', 'CCO140', 'CCO160'):
+            cco_row = query_one(
+                "SELECT valor FROM configuracion WHERE clave = %s",
+                (sku_check_override.lower() + '_precio_cannon',)
+            )
+            cco_override = float(cco_row['valor']) if cco_row and cco_row.get('valor') else 0
+            if cco_override > 0:
+                precio_cannon = cco_override
+
         precio_lista = round(_calcular_precio_lista(
-            float(cp['precio_lista']), desc_linea, desc_cliente_pct, desc_adi, prontopago_pct, multiplicador
+            precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct, multiplicador
         ) / 1000) * 1000
 
         # Si es sommier, sumar base
@@ -12996,7 +14313,8 @@ def _get_precio_costos_sku(sku, porcentajes_ml=None):
         else:
             costo_envio = 0
 
-        precio_sc = round((precio_lista + costo_envio) / 1000) * 1000
+        # Netear envío por comisión ML (~14%) antes de sumar al precio_lista
+        precio_sc = round((precio_lista + costo_envio / 0.86) / 1000) * 1000
 
         def _pc(base, pct):
             return round(base * 0.76 / (0.76 - pct / 100) / 1000) * 1000
@@ -13072,6 +14390,11 @@ def _build_precio_costos_map():
         # Override CTR80
         ctr80_row = query_one("SELECT valor FROM configuracion WHERE clave = 'ctr80_precio_cannon'")
         ctr80_override = float(ctr80_row['valor']) if ctr80_row and ctr80_row.get('valor') else 0
+        # Override Compac (CCO80/100/140/160) — mismo comportamiento que CTR80
+        cco_overrides = {}
+        for _r in query_db("SELECT clave, valor FROM configuracion WHERE clave IN ('cco80_precio_cannon','cco100_precio_cannon','cco140_precio_cannon','cco160_precio_cannon')"):
+            try: cco_overrides[_r['clave']] = float(_r['valor']) if _r.get('valor') else 0
+            except: cco_overrides[_r['clave']] = 0
 
         rows = query_db("""
             SELECT cp.sku, clp.precio_lista, cp.descripcion,
@@ -13085,11 +14408,14 @@ def _build_precio_costos_map():
         for r in rows:
             sku = r['sku']
             sku_up = sku.upper()
+            sku_check = sku_up.replace('_DEP', '').replace('_FULL', '')
             desc = (r['descripcion'] or '').upper()
             # Detección de clave (mismo orden que _detectar_clave en costos_calcular)
             clave = None
-            if sku_up == 'CTR80':
+            if sku_check == 'CTR80':
                 clave = 'ctr80'
+            elif sku_check in ('CCO80', 'CCO100', 'CCO140', 'CCO160'):
+                clave = 'compac'
             elif sku_up.startswith('BASE_') or desc.startswith('SOM') or desc.startswith('BASE'):
                 clave = 'bases'
             elif sku_up in ('CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE') or desc.startswith('ALM'):
@@ -13111,21 +14437,33 @@ def _build_precio_costos_map():
             desc_entry = descuentos.get(clave, {'valor': 0, 'desc_adicional': 0}) if clave else {'valor': 0, 'desc_adicional': 0}
             desc_adi = desc_entry['desc_adicional'] + float(r['desc_adicional'] or 0)
 
-            # Almohadas y CTR80 no llevan descuento cliente, línea ni adicional
-            sin_descuentos = (clave in ('almohadas', 'ctr80'))
+            # Almohadas, CTR80 y Compac no llevan descuento cliente, línea ni adicional
+            sin_descuentos = (clave in ('almohadas', 'ctr80', 'compac'))
             desc_linea_aplicar   = 0 if sin_descuentos else desc_entry['valor']
             desc_cliente_aplicar = 0 if sin_descuentos else desc_cliente_pct
             desc_adi_aplicar     = 0 if sin_descuentos else desc_adi
 
-            # Precio Cannon (con override para CTR80)
+            # Precio Cannon (con override para CTR80 y Compac)
             precio_cannon = float(r['precio_lista'])
             if sku_up == 'CTR80' and ctr80_override > 0:
                 precio_cannon = ctr80_override
+            elif clave == 'compac':
+                _cco_val = cco_overrides.get(sku_check.lower() + '_precio_cannon', 0)
+                if _cco_val > 0:
+                    precio_cannon = _cco_val
 
             precio = round(_calcular_precio_lista(
                 precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct, multiplicador
             ) / 1000) * 1000
             mapa[sku] = precio
+        # Agregar CCO sintéticos si tienen override (no están en cannon_productos)
+        for medida_cco in ('80','100','140','160'):
+            sku_cco = f'CCO{medida_cco}'
+            if sku_cco in mapa:
+                continue
+            _cco_val = cco_overrides.get(f'cco{medida_cco}_precio_cannon', 0)
+            if _cco_val > 0:
+                mapa[sku_cco] = round(_calcular_precio_lista(_cco_val, 0, 0, 0, prontopago_pct, multiplicador) / 1000) * 1000
         # Agregar sommiers — primero los de conjunto_configuracion
         conjuntos = query_db("SELECT colchon_sku, base_sku_default, cantidad_bases FROM conjunto_configuracion WHERE activo=1")
         for c in conjuntos:
@@ -13169,6 +14507,250 @@ def _build_precio_costos_map():
         print(f"[_build_precio_costos_map] Error: {e}")
         return {}
 
+
+# ============================================================================
+# RENTABILIDAD
+# ============================================================================
+
+@app.route('/rentabilidad')
+@login_required
+@admin_required
+def rentabilidad():
+    desde        = request.args.get('desde', '')
+    hasta        = request.args.get('hasta', '')
+    sku_filter   = request.args.get('sku', '').strip().upper()
+    envio_filter = request.args.get('envio', '')
+    canal_filter = request.args.get('canal', '')
+
+    where_clauses = ["v.estado_entrega = 'entregada'"]
+    params = []
+    if desde:
+        where_clauses.append("DATE(v.fecha_venta) >= %s")
+        params.append(desde)
+    if hasta:
+        where_clauses.append("DATE(v.fecha_venta) <= %s")
+        params.append(hasta)
+    if sku_filter:
+        where_clauses.append("v.id IN (SELECT venta_id FROM items_venta WHERE UPPER(sku) = %s)")
+        params.append(sku_filter)
+    if envio_filter:
+        where_clauses.append("v.metodo_envio = %s")
+        params.append(envio_filter)
+    if canal_filter == 'ML':
+        where_clauses.append("v.canal = 'Mercado Libre'")
+    elif canal_filter == 'MP':
+        where_clauses.append("v.canal = 'Tienda Web' AND v.metodo_pago LIKE '%Mercadopago%'")
+    elif canal_filter == 'GN':
+        where_clauses.append("v.metodo_pago = 'GetNet'")
+    elif canal_filter == 'PW':
+        where_clauses.append("v.metodo_pago = 'Payway'")
+    elif canal_filter == 'VENTA':
+        where_clauses.append("v.canal NOT IN ('Mercado Libre', 'Tienda Web')")
+
+    where_sql = ' AND '.join(where_clauses)
+
+    ventas_rows = query_db(
+        "SELECT v.id, v.numero_venta, v.fecha_venta, v.canal,"
+        " v.mla_code, v.nombre_cliente, v.metodo_envio, v.metodo_pago,"
+        " v.importe_total, v.costo_flete,"
+        " v.costo_comision, v.costo_envio_vendedor, v.costo_productos"
+        " FROM ventas v WHERE " + where_sql + " ORDER BY v.fecha_venta DESC",
+        params
+    )
+
+    r_fp  = query_one("SELECT valor FROM configuracion WHERE clave='costo_flete_propio'")
+    r_del = query_one("SELECT valor FROM configuracion WHERE clave='costo_delega'")
+    config_envio = {
+        'flete_propio': float(r_fp['valor'])  if r_fp  and r_fp.get('valor')  else 35000.0,
+        'delega':       float(r_del['valor']) if r_del and r_del.get('valor') else 5000.0,
+    }
+
+    if not ventas_rows:
+        return render_template('rentabilidad.html',
+                               ventas=[], desde=desde, hasta=hasta, totales={},
+                               sku_filter=sku_filter, envio_filter=envio_filter,
+                               canal_filter=canal_filter, config_envio=config_envio)
+
+    venta_ids = [v['id'] for v in ventas_rows]
+    fmt = ','.join(['%s'] * len(venta_ids))
+    items_rows = query_db(
+        f"SELECT venta_id, sku, cantidad, precio_unitario FROM items_venta WHERE venta_id IN ({fmt})",
+        venta_ids
+    )
+    items_por_venta = {}
+    for it in items_rows:
+        items_por_venta.setdefault(it['venta_id'], []).append(it)
+
+    precio_compra_map = _build_precio_compra_map()
+
+    # Mapa de componentes para combos (PLATINOX2, PLATINO3, etc.)
+    compuestos_comp = {}
+    try:
+        for cr in query_db(
+            "SELECT pc.sku as sc, pb.sku as sb, c.cantidad_necesaria as cn "
+            "FROM productos_compuestos pc "
+            "JOIN componentes c ON pc.id = c.producto_compuesto_id "
+            "JOIN productos_base pb ON c.producto_base_id = pb.id"
+        ):
+            compuestos_comp.setdefault(cr['sc'], []).append({'sku': cr['sb'], 'cant': float(cr['cn'])})
+    except Exception as e_cc:
+        print(f"[rentabilidad] componentes error: {e_cc}")
+
+    # Config costos de envio editables
+    r_fp  = query_one("SELECT valor FROM configuracion WHERE clave='costo_flete_propio'")
+    r_del = query_one("SELECT valor FROM configuracion WHERE clave='costo_delega'")
+    config_envio = {
+        'flete_propio': float(r_fp['valor'])  if r_fp  and r_fp.get('valor')  else 35000.0,
+        'delega':       float(r_del['valor']) if r_del and r_del.get('valor') else 5000.0,
+    }
+
+    resultados = []
+    tot_facturado = tot_sin_iva = tot_comision = tot_costo_prod = tot_costo_envio = tot_ganancia = 0.0
+
+    for v in ventas_rows:
+        total_con_iva = float(v['importe_total'] or 0)
+        if v['metodo_envio'] == 'Flete Propio':
+            total_con_iva += float(v['costo_flete'] or 0)
+
+        total_sin_iva   = round(total_con_iva / 1.21, 2)
+        costo_comision  = float(v['costo_comision'] or 0)
+        costo_envio     = float(v['costo_envio_vendedor'] or 0)
+
+        # Costo de productos: usar valor guardado si existe, si no calcular (fallback)
+        items = items_por_venta.get(v['id'], [])
+        if v['costo_productos'] is not None:
+            costo_productos = float(v['costo_productos'])
+        else:
+            costo_productos = 0.0
+            for it in items:
+                sku_raw  = it['sku']
+                sku_base = sku_raw.replace('_DEP', '').replace('_FULL', '')
+                pc = precio_compra_map.get(sku_raw, precio_compra_map.get(sku_base, 0))
+                if not pc:
+                    for comp in compuestos_comp.get(sku_raw, compuestos_comp.get(sku_base, [])):
+                        pc += precio_compra_map.get(comp['sku'], 0) * comp['cant']
+                costo_productos += pc * float(it['cantidad'])
+            costo_productos = round(costo_productos, 2)
+
+        ganancia = round(total_sin_iva - costo_comision - costo_productos - costo_envio, 2)
+        pct      = round(ganancia / total_con_iva * 100, 1) if total_con_iva else 0.0
+
+        resultados.append({
+            'id':             v['id'],
+            'numero_venta':   v['numero_venta'],
+            'fecha_venta':    v['fecha_venta'],
+            'canal':          v['canal'],
+            'mla_code':       v['mla_code'] or '',
+            'nombre_cliente': v['nombre_cliente'] or '',
+            'metodo_envio':   v['metodo_envio'] or '',
+            'metodo_pago':    v['metodo_pago'] or '',
+            'lineas':         items,
+            'total_con_iva':  total_con_iva,
+            'total_sin_iva':  total_sin_iva,
+            'costo_comision': costo_comision,
+            'costo_productos':costo_productos,
+            'costo_envio':    costo_envio,
+            'ganancia':       ganancia,
+            'pct':            pct,
+            'sin_costos':     v['costo_comision'] is None,
+        })
+
+        tot_facturado   += total_con_iva
+        tot_sin_iva     += total_sin_iva
+        tot_comision    += costo_comision
+        tot_costo_prod  += costo_productos
+        tot_costo_envio += costo_envio
+        tot_ganancia    += ganancia
+
+    totales = {
+        'facturado':    round(tot_facturado, 2),
+        'sin_iva':      round(tot_sin_iva, 2),
+        'comision':     round(tot_comision, 2),
+        'costo_prod':   round(tot_costo_prod, 2),
+        'costo_envio':  round(tot_costo_envio, 2),
+        'ganancia':     round(tot_ganancia, 2),
+        'pct':          round(tot_ganancia / tot_facturado * 100, 1) if tot_facturado else 0.0,
+    }
+
+    return render_template('rentabilidad.html',
+                           ventas=resultados, desde=desde, hasta=hasta,
+                           totales=totales, config_envio=config_envio,
+                           sku_filter=sku_filter, envio_filter=envio_filter,
+                           canal_filter=canal_filter)
+
+
+@app.route('/rentabilidad/recalcular-costos', methods=['POST'])
+@login_required
+@admin_required
+def rentabilidad_recalcular_costos():
+    """Recalcula costo_productos para todas las ventas históricas usando _build_precio_compra_map() oficial."""
+    try:
+        pcmap = _build_precio_compra_map()
+        ccmap = {}
+        for cr in query_db(
+            "SELECT pc.sku sc, pb.sku sb, c.cantidad_necesaria cn "
+            "FROM productos_compuestos pc "
+            "JOIN componentes c ON pc.id=c.producto_compuesto_id "
+            "JOIN productos_base pb ON c.producto_base_id=pb.id"
+        ):
+            ccmap.setdefault(cr['sc'], []).append({'sku': cr['sb'], 'cant': float(cr['cn'])})
+
+        ventas_ids = [v['id'] for v in query_db("SELECT id FROM ventas WHERE estado_entrega='entregada' AND DATE(fecha_venta) >= '2026-04-01'")]
+        actualizadas = 0
+        for vid in ventas_ids:
+            costo = 0.0
+            for it in query_db("SELECT sku, cantidad FROM items_venta WHERE venta_id=%s", [vid]):
+                sr = it['sku']; sb = sr.replace('_DEP','').replace('_FULL','')
+                pc = pcmap.get(sr, pcmap.get(sb, 0))
+                if not pc:
+                    for c in ccmap.get(sr, ccmap.get(sb, [])):
+                        pc += pcmap.get(c['sku'], 0) * c['cant']
+                costo += pc * float(it['cantidad'])
+            execute_db("UPDATE ventas SET costo_productos=%s WHERE id=%s", [round(costo, 2), vid])
+            actualizadas += 1
+
+        flash(f'✅ {actualizadas} ventas recalculadas con costos correctos', 'success')
+    except Exception as e:
+        flash(f'Error: {e}', 'danger')
+    return redirect(url_for('rentabilidad'))
+
+
+@app.route('/rentabilidad/editar-costo', methods=['POST'])
+@login_required
+@admin_required
+def rentabilidad_editar_costo():
+    """Editar costo_comision, costo_productos o costo_envio_vendedor de una venta."""
+    try:
+        venta_id = int(request.form.get('venta_id', 0))
+        campo    = request.form.get('campo', 'costo_productos')
+        valor    = float(request.form.get('valor', request.form.get('costo_productos', 0)))
+        if campo not in ('costo_comision', 'costo_productos', 'costo_envio_vendedor'):
+            return jsonify({'ok': False, 'error': 'campo inválido'}), 400
+        execute_db(f"UPDATE ventas SET {campo}=%s WHERE id=%s", [valor, venta_id])
+        return jsonify({'ok': True, 'valor': valor})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 400
+
+
+@app.route('/rentabilidad/config', methods=['POST'])
+@login_required
+@admin_required
+def rentabilidad_config():
+    """Guardar costos de envío editables desde el template de rentabilidad."""
+    try:
+        costo_fp  = float(request.form.get('costo_flete_propio', 35000))
+        costo_del = float(request.form.get('costo_delega', 5000))
+        execute_db("UPDATE configuracion SET valor=%s WHERE clave='costo_flete_propio'", [str(int(costo_fp))])
+        execute_db("UPDATE configuracion SET valor=%s WHERE clave='costo_delega'",       [str(int(costo_del))])
+    except Exception as e:
+        print(f"[rentabilidad_config] Error: {e}")
+    desde = request.form.get('desde', '')
+    hasta  = request.form.get('hasta',  '')
+    qs = f"?desde={desde}&hasta={hasta}" if (desde or hasta) else ''
+    return redirect(url_for('rentabilidad') + qs)
+
+
+# ============================================================================
 
 @app.route('/costos')
 @admin_required
@@ -13227,6 +14809,11 @@ def _build_precio_compra_map():
                       for r in query_db("SELECT clave, valor, desc_adicional FROM cannon_descuentos WHERE tipo = 'descuento_linea'")}
         ctr80_row = query_one("SELECT valor FROM configuracion WHERE clave = 'ctr80_precio_cannon'")
         ctr80_override = float(ctr80_row['valor']) if ctr80_row and ctr80_row.get('valor') else 0
+        # Override Compac (CCO80/100/140/160)
+        cco_overrides = {}
+        for _r in query_db("SELECT clave, valor FROM configuracion WHERE clave IN ('cco80_precio_cannon','cco100_precio_cannon','cco140_precio_cannon','cco160_precio_cannon')"):
+            try: cco_overrides[_r['clave']] = float(_r['valor']) if _r.get('valor') else 0
+            except: cco_overrides[_r['clave']] = 0
 
         rows = query_db("""
             SELECT cp.sku, clp.precio_lista, cp.descripcion,
@@ -13240,9 +14827,11 @@ def _build_precio_compra_map():
         for r in rows:
             sku = r['sku']
             sku_up = sku.upper()
+            sku_check = sku_up.replace('_DEP', '').replace('_FULL', '')
             desc = (r['descripcion'] or '').upper()
             clave = None
-            if sku_up == 'CTR80':                clave = 'ctr80'
+            if sku_check == 'CTR80':              clave = 'ctr80'
+            elif sku_check in ('CCO80','CCO100','CCO140','CCO160'): clave = 'compac'
             elif sku_up.startswith('BASE_') or desc.startswith('SOM') or desc.startswith('BASE'): clave = 'bases'
             elif sku_up in ('CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE') or desc.startswith('ALM'): clave = 'almohadas'
             elif 'EUROPILLOW' in desc: clave = 'sublime_europillow' if 'SUBLIME' in desc else 'renovation_europillow'
@@ -13259,7 +14848,7 @@ def _build_precio_compra_map():
 
             desc_entry = descuentos.get(clave, {'valor': 0, 'desc_adicional': 0}) if clave else {'valor': 0, 'desc_adicional': 0}
             desc_adi = desc_entry['desc_adicional'] + float(r['desc_adicional'] or 0)
-            sin_descuentos = (clave in ('almohadas', 'ctr80'))
+            sin_descuentos = (clave in ('almohadas', 'ctr80', 'compac'))
             desc_linea_aplicar   = 0 if sin_descuentos else desc_entry['valor']
             desc_cliente_aplicar = 0 if sin_descuentos else desc_cliente_pct
             desc_adi_aplicar     = 0 if sin_descuentos else desc_adi
@@ -13267,10 +14856,22 @@ def _build_precio_compra_map():
             precio_cannon = float(r['precio_lista'])
             if sku_up == 'CTR80' and ctr80_override > 0:
                 precio_cannon = ctr80_override
+            elif clave == 'compac':
+                _cco_val = cco_overrides.get(sku_check.lower() + '_precio_cannon', 0)
+                if _cco_val > 0:
+                    precio_cannon = _cco_val
 
             mapa[sku] = _calcular_precio_compra(
                 precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct
             )
+        # Agregar CCO sintéticos si tienen override (no están en cannon_productos)
+        for medida_cco in ('80','100','140','160'):
+            sku_cco = f'CCO{medida_cco}'
+            if sku_cco in mapa:
+                continue
+            _cco_val = cco_overrides.get(f'cco{medida_cco}_precio_cannon', 0)
+            if _cco_val > 0:
+                mapa[sku_cco] = _calcular_precio_compra(_cco_val, 0, 0, 0, prontopago_pct)
         # Sommiers calculados para TODAS las medidas/modelos de la lista PDF
         # (no depende de conjunto_configuracion para incluir todos los SKUs del PDF)
         for medida in ['80', '90', '100', '130', '140', '150', '160', '180', '200']:
@@ -13664,6 +15265,19 @@ def costos_descuentos():
                 return jsonify(ok=True)
             except Exception as e:
                 return jsonify(ok=False, error=str(e))
+        # Overrides de precios Compac (CCO80/100/140/160)
+        if 'cco_precios' in data:
+            try:
+                for sku_low, valor in (data.get('cco_precios') or {}).items():
+                    if sku_low not in ('cco80','cco100','cco140','cco160'):
+                        continue
+                    execute_db("""
+                        INSERT INTO configuracion (clave, valor) VALUES (%s, %s)
+                        ON DUPLICATE KEY UPDATE valor = VALUES(valor)
+                    """, (f"{sku_low}_precio_cannon", str(valor).strip()))
+                return jsonify(ok=True)
+            except Exception as e:
+                return jsonify(ok=False, error=str(e))
         cambios = data.get('cambios', [])
         try:
             for c in cambios:
@@ -13684,7 +15298,11 @@ def costos_descuentos():
     rows = query_db("SELECT clave, descripcion, valor, desc_adicional, tipo FROM cannon_descuentos ORDER BY tipo, descripcion")
     ctr80_row = query_one("SELECT valor FROM configuracion WHERE clave = 'ctr80_precio_cannon'")
     ctr80_precio = float(ctr80_row['valor']) if ctr80_row and ctr80_row.get('valor') else 0
-    return render_template('costos_descuentos.html', descuentos=rows, ctr80_precio=ctr80_precio)
+    cco_precios = {}
+    for _r in query_db("SELECT clave, valor FROM configuracion WHERE clave IN ('cco80_precio_cannon','cco100_precio_cannon','cco140_precio_cannon','cco160_precio_cannon')"):
+        cco_precios[_r['clave']] = _r['valor'] or ''
+    return render_template('costos_descuentos.html', descuentos=rows,
+                           ctr80_precio=ctr80_precio, cco_precios=cco_precios)
 
 
 @app.route('/costos/importar', methods=['GET', 'POST'])
@@ -13918,9 +15536,13 @@ def costos_calcular():
     def _detectar_clave(descripcion, sku=''):
         desc = (descripcion or '').upper()
         sku_up = (sku or '').upper()
+        sku_check = sku_up.replace('_DEP', '').replace('_FULL', '')
         # CTR80 — caso especial, solo prontopago, sin otros descuentos
-        if sku_up == 'CTR80':
+        if sku_check == 'CTR80':
             return 'ctr80'
+        # Compac — caso especial, solo prontopago, sin otros descuentos
+        if sku_check in ('CCO80', 'CCO100', 'CCO140', 'CCO160'):
+            return 'compac'
         # Bases primero — antes que las líneas de modelo, para que BASE_SUBL no caiga en 'sublime'
         if sku_up.startswith('BASE_') or desc.startswith('SOM') or desc.startswith('BASE'):
             return 'bases'
@@ -13963,14 +15585,25 @@ def costos_calcular():
     # Override de precio Cannon CTR80 (caso especial)
     ctr80_row = query_one("SELECT valor FROM configuracion WHERE clave = 'ctr80_precio_cannon'")
     ctr80_override = float(ctr80_row['valor']) if ctr80_row and ctr80_row.get('valor') else 0
+    # Override de precio Cannon Compac (caso especial)
+    cco_overrides = {}
+    for _r in query_db("SELECT clave, valor FROM configuracion WHERE clave IN ('cco80_precio_cannon','cco100_precio_cannon','cco140_precio_cannon','cco160_precio_cannon')"):
+        try: cco_overrides[_r['clave']] = float(_r['valor']) if _r.get('valor') else 0
+        except: cco_overrides[_r['clave']] = 0
 
     productos = []
     for p in productos_raw:
         precio_cannon = float(p['precio_cannon'] or 0)
         sku = p['sku'] or ''
+        sku_check_cco = sku.upper().replace('_DEP', '').replace('_FULL', '')
         # Aplicar override CTR80 si existe
         if sku.upper() == 'CTR80' and ctr80_override > 0:
             precio_cannon = ctr80_override
+        # Aplicar override Compac si existe
+        elif sku_check_cco in ('CCO80', 'CCO100', 'CCO140', 'CCO160'):
+            _cco_val = cco_overrides.get(sku_check_cco.lower() + '_precio_cannon', 0)
+            if _cco_val > 0:
+                precio_cannon = _cco_val
         if not precio_cannon:
             continue
         clave = _detectar_clave(p['descripcion'], sku)
@@ -13979,14 +15612,15 @@ def costos_calcular():
         desc_adi_linea = desc_entry['desc_adicional']
         desc_adi_sku = float(p['desc_adicional'] or 0)
         desc_adi   = desc_adi_linea + desc_adi_sku
-        # Almohadas y CTR80 no llevan descuento de cliente, línea ni adicional — solo prontopago
-        sin_descuentos = (clave in ('almohadas', 'ctr80'))
+        # Almohadas, CTR80 y Compac no llevan descuento de cliente, línea ni adicional — solo prontopago
+        sin_descuentos = (clave in ('almohadas', 'ctr80', 'compac'))
         desc_cliente_aplicar = 0 if sin_descuentos else desc_cliente_pct
         desc_adi_aplicar     = 0 if sin_descuentos else desc_adi
         desc_linea_aplicar   = 0 if sin_descuentos else desc_linea
-        precio_lista = _mil(_calcular_precio_lista(
+        precio_lista_raw = _calcular_precio_lista(
             precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct, multiplicador
-        ))
+        )
+        precio_lista = _mil(precio_lista_raw)
 
         # Guardar precio colchon para calcular sommiers después
         if clave != 'bases' and clave != 'almohadas':
@@ -14009,7 +15643,9 @@ def costos_calcular():
                 costo_envio_ml = float(p['costo_flex'] or 0)
                 tipo_pub = 'flex'
 
-        precio_ml_sin_cuotas = _mil(precio_lista + costo_envio_ml) if not es_z else precio_lista
+        # ML cobra ~14% de comisión sobre el precio final (incluye envío),
+        # por eso el envío se netea dividiendo por 0.86 antes de sumarlo al precio_lista.
+        precio_ml_sin_cuotas = _mil(precio_lista_raw + costo_envio_ml / 0.86) if not es_z else precio_lista
 
         precio_compra = _calcular_precio_compra(
             precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct
@@ -14068,6 +15704,63 @@ def costos_calcular():
                 'precio_ml_12c':   _precio_cuotas(precio_lista, porcentajes_ml.get('cuotas_12', 25.9)),
             })
 
+    # ── Agregar productos Compac sintéticos si hay override ──────────────
+    # (Para que aparezcan en /costos/calcular aunque no estén en cannon_productos)
+    skus_existentes = {p['sku'].upper() for p in productos}
+    for medida in ['80', '100', '140', '160']:
+        sku_cco = f'CCO{medida}'
+        if sku_cco in skus_existentes:
+            continue
+        cco_val = cco_overrides.get(f'cco{medida}_precio_cannon', 0)
+        if cco_val <= 0:
+            continue
+        ancho = int(medida)
+        es_colecta = ancho <= 100
+        # Solo prontopago, sin otros descuentos
+        precio_lista_cco_raw = _calcular_precio_lista(cco_val, 0, 0, 0, prontopago_pct, multiplicador)
+        precio_lista_cco     = _mil(precio_lista_cco_raw)
+        precio_compra_cco = _calcular_precio_compra(cco_val, 0, 0, 0, prontopago_pct)
+        # Costo envío desde cannon_costos_envio
+        ce_row = query_one(
+            "SELECT costo FROM cannon_costos_envio WHERE sku = %s AND tipo = %s",
+            (sku_cco, 'colecta' if es_colecta else 'flex')
+        )
+        costo_envio_ml_cco = float(ce_row['costo']) if ce_row else 0
+        # Precio actual de productos_base (usamos el SKU con _FULL primero, después _DEP)
+        precio_actual_cco = 0
+        for suf in ('_FULL', '_DEP', ''):
+            pb = query_one("SELECT precio_base FROM productos_base WHERE sku = %s", (sku_cco + suf,))
+            if pb and pb.get('precio_base'):
+                precio_actual_cco = float(pb['precio_base'])
+                break
+        # Netear envío por comisión ML (~14%) antes de sumar al precio_lista raw
+        precio_ml_sc_cco = _mil(precio_lista_cco_raw + costo_envio_ml_cco / 0.86)
+        productos.append({
+            'id':              None,
+            'sku':             sku_cco,
+            'descripcion':     f'Colchón Compac {medida}x190 (override manual)',
+            'precio_cannon':   cco_val,
+            'precio_compra':   precio_compra_cco,
+            'clave_descuento': 'compac',
+            'desc_linea':      0,
+            'desc_cliente':    0,
+            'desc_adi':        0,
+            'precio_lista':    precio_lista_cco,
+            'precio_actual':   precio_actual_cco,
+            'costo_envio_ml':  costo_envio_ml_cco,
+            'tipo_pub':        'colecta' if es_colecta else 'flex',
+            'es_z':            False,
+            'es_conjunto':     False,
+            'precio_ml_sin_cuotas': precio_ml_sc_cco,
+            'precio_ml_1c':    _precio_cuotas(precio_ml_sc_cco, porcentajes_ml.get('cuota_simple', 5.0)),
+            'precio_ml_3c':    _precio_cuotas(precio_ml_sc_cco, porcentajes_ml.get('cuotas_3', 9.4)),
+            'precio_ml_6c':    _precio_cuotas(precio_ml_sc_cco, porcentajes_ml.get('cuotas_6', 15.1)),
+            'precio_ml_9c':    _precio_cuotas(precio_ml_sc_cco, porcentajes_ml.get('cuotas_9', 20.7)),
+            'precio_ml_12c':   _precio_cuotas(precio_ml_sc_cco, porcentajes_ml.get('cuotas_12', 25.9)),
+        })
+        colchones_precio_lista[sku_cco]  = precio_lista_cco
+        colchones_precio_compra[sku_cco] = precio_compra_cco
+
     # ── Agregar sommiers ──────────────────────────────────────────────────────
     for sku_col, cfg_conj in conjuntos_cfg.items():
         precio_col = colchones_precio_lista.get(sku_col)
@@ -14113,7 +15806,8 @@ def costos_calcular():
         ce_flex = query_one("SELECT costo FROM cannon_costos_envio WHERE sku = %s AND tipo = 'flex'", (sku_conj,))
         costo_flex = float(ce_flex['costo'] or 0) if ce_flex else 0
 
-        precio_ml_flex = _mil(precio_conjunto + costo_flex)
+        # Netear envío por comisión ML (~14%) antes de sumar al precio_conjunto
+        precio_ml_flex = _mil(precio_conjunto + costo_flex / 0.86)
 
         productos.append({
             'id':              None,

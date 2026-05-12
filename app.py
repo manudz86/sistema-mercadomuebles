@@ -12851,6 +12851,27 @@ def _importar_orden_automatica(orden, access_token):
             )
         else:
             shipping = orden_data['shipping']
+            # Retiro (sin shipping): capturar demora directamente del payload de la orden.
+            # ML expone manufacturing_days en cada order_item y manufacturing_ending_date en la orden.
+            try:
+                mdays = 0
+                for _it in orden.get('order_items', []):
+                    _md = _it.get('manufacturing_days') or 0
+                    if _md and int(_md) > mdays:
+                        mdays = int(_md)
+                if mdays > 0:
+                    shipping['demora_ml_dias'] = mdays
+                    _mend = orden.get('manufacturing_ending_date', '')
+                    if _mend:
+                        try:
+                            _fp = datetime.fromisoformat(_mend[:10]).date()
+                            shipping['fecha_entrega_prometida'] = _fp.strftime('%Y-%m-%d')
+                        except Exception:
+                            pass
+                    print(f"[AUTO-ML] ⏳ Retiro con demora: {mdays} días "
+                          f"(fecha lista: {shipping.get('fecha_entrega_prometida','-')})")
+            except Exception as _e_md:
+                print(f"[AUTO-ML] Error leyendo manufacturing_days en retiro: {_e_md}")
 
         # Billing info
         billing_info = {
