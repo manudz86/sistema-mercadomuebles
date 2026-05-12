@@ -65,15 +65,20 @@
         {% endfor %}
     </div>
 {% elif venta.canal == 'Mercado Libre' %}
+    {% set _es_retiro = venta.tipo_entrega == 'retiro' %}
+    {% set _es_flete_propio = venta.metodo_envio == 'Flete Propio' %}
+    {% set _muestra_demora = _es_retiro or _es_flete_propio or venta.metodo_envio == 'Zippin' %}
     <div style="font-size:0.78rem; line-height:1.6;">
-        {% if venta.fecha_entrega_estimada %}
-        <div><span class="text-muted">Promesa de {{ 'retiro' if venta.tipo_entrega == 'retiro' else 'entrega' }}:</span> <strong>{{ venta.fecha_entrega_estimada.strftime('%d/%m/%Y') if venta.fecha_entrega_estimada and venta.fecha_entrega_estimada != '' else venta.fecha_entrega_estimada }}</strong></div>
+        {% if venta.fecha_entrega_estimada and (_es_retiro or _es_flete_propio) %}
+        <div><span class="text-muted">Promesa de {{ 'retiro' if _es_retiro else 'entrega' }}:</span> <strong>{{ venta.fecha_entrega_estimada.strftime('%d/%m/%Y') if venta.fecha_entrega_estimada and venta.fecha_entrega_estimada != '' else venta.fecha_entrega_estimada }}</strong></div>
         {% endif %}
         {% if venta.notas %}
             {% set lineas_ml = venta.notas.replace('\\n', '\n').split('\n') %}
             {% for l in lineas_ml %}
                 {% if l.startswith('DEMORA_ML:') %}
-                <div class="badge bg-warning text-dark mt-1" style="font-size:0.72rem;">⏳ Compra con demora: {{ l[10:].strip() }}</div>
+                    {% if _muestra_demora %}
+                    <div class="badge bg-warning text-dark mt-1" style="font-size:0.72rem;">⏳ Compra con demora: {{ l[10:].strip() }}</div>
+                    {% endif %}
                 {% elif not l.startswith('Importado desde ML') and l.strip() %}
                 <div class="text-muted">{{ l }}</div>
                 {% endif %}
