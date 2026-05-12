@@ -57,10 +57,10 @@
         </div>
         {% endif %}
     </div>
-{% elif venta.canal == 'Mercado Libre' and (venta.metodo_envio == 'Flete Propio' or venta.tipo_entrega == 'retiro') %}
+{% elif venta.canal == 'Mercado Libre' and venta.metodo_envio == 'Flete Propio' %}
     <div style="font-size:0.78rem; line-height:1.6;">
         {% if venta.fecha_entrega_estimada %}
-        <div><span class="text-muted">Promesa de {{ 'retiro' if venta.tipo_entrega == 'retiro' else 'entrega' }}:</span> <strong>{{ venta.fecha_entrega_estimada.strftime('%d/%m/%Y') if venta.fecha_entrega_estimada and venta.fecha_entrega_estimada != '' else venta.fecha_entrega_estimada }}</strong></div>
+        <div><span class="text-muted">Promesa de entrega:</span> <strong>{{ venta.fecha_entrega_estimada.strftime('%d/%m/%Y') if venta.fecha_entrega_estimada and venta.fecha_entrega_estimada != '' else venta.fecha_entrega_estimada }}</strong></div>
         {% endif %}
         {% if venta.notas %}
             {% set lineas_ml = venta.notas.replace('\\n', '\n').split('\n') %}
