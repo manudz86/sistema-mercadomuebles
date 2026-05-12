@@ -14255,8 +14255,31 @@ def _get_precio_costos_sku(sku, porcentajes_ml=None):
         desc_linea = desc_entry['valor']
         desc_adi = desc_entry['desc_adicional'] + float(cp['desc_adicional'] or 0)
 
+        # Almohadas, CTR80 y Compac no llevan descuento cliente, línea ni adicional — solo prontopago
+        sin_descuentos = (clave in ('almohadas', 'ctr80', 'compac'))
+        desc_linea_aplicar   = 0 if sin_descuentos else desc_linea
+        desc_cliente_aplicar = 0 if sin_descuentos else desc_cliente_pct
+        desc_adi_aplicar     = 0 if sin_descuentos else desc_adi
+
+        # Precio Cannon con override para CTR80 y Compac (mismo comportamiento que costos_calcular)
+        precio_cannon = float(cp['precio_lista'])
+        sku_check_override = sku_col.upper().replace('_DEP', '').replace('_FULL', '')
+        if sku_check_override == 'CTR80':
+            ctr80_row = query_one("SELECT valor FROM configuracion WHERE clave = 'ctr80_precio_cannon'")
+            ctr80_override = float(ctr80_row['valor']) if ctr80_row and ctr80_row.get('valor') else 0
+            if ctr80_override > 0:
+                precio_cannon = ctr80_override
+        elif sku_check_override in ('CCO80', 'CCO100', 'CCO140', 'CCO160'):
+            cco_row = query_one(
+                "SELECT valor FROM configuracion WHERE clave = %s",
+                (sku_check_override.lower() + '_precio_cannon',)
+            )
+            cco_override = float(cco_row['valor']) if cco_row and cco_row.get('valor') else 0
+            if cco_override > 0:
+                precio_cannon = cco_override
+
         precio_lista = round(_calcular_precio_lista(
-            float(cp['precio_lista']), desc_linea, desc_cliente_pct, desc_adi, prontopago_pct, multiplicador
+            precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct, multiplicador
         ) / 1000) * 1000
 
         # Si es sommier, sumar base
