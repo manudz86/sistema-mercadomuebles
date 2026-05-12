@@ -68,8 +68,11 @@
     {% set _es_retiro = venta.tipo_entrega == 'retiro' %}
     {% set _es_flete_propio = venta.metodo_envio == 'Flete Propio' %}
     {% set _muestra_demora = _es_retiro or _es_flete_propio or venta.metodo_envio == 'Zippin' %}
-    <div style="font-size:0.78rem; line-height:1.6;">
-        {% if venta.fecha_entrega_estimada and (_es_retiro or _es_flete_propio) %}
+    {% set _tiene_promesa = venta.fecha_entrega_estimada and (_es_retiro or _es_flete_propio) %}
+    {% set _tiene_badge_demora = _muestra_demora and venta.notas and 'DEMORA_ML:' in venta.notas %}
+    {% set _solo_notas = not _tiene_promesa and not _tiene_badge_demora %}
+    <div style="font-size:{{ '0.92rem' if _solo_notas else '0.78rem' }}; line-height:1.6;">
+        {% if _tiene_promesa %}
         <div><span class="text-muted">Promesa de {{ 'retiro' if _es_retiro else 'entrega' }}:</span> <strong>{{ venta.fecha_entrega_estimada.strftime('%d/%m/%Y') if venta.fecha_entrega_estimada and venta.fecha_entrega_estimada != '' else venta.fecha_entrega_estimada }}</strong></div>
         {% endif %}
         {% if venta.notas %}
