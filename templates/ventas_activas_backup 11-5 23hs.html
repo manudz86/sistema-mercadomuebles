@@ -56,13 +56,6 @@
             {% endif %}
         </div>
         {% endif %}
-        {# Líneas libres: cualquier observación manual que el usuario haya agregado editando #}
-        {% set prefijos_conocidos = ('MPID:', 'PWID:', 'OP_PAYWAY:', 'GN_PID:', 'AUTH:', 'Tarjeta:', 'VEID:', 'SHID:', 'TRID:', 'ZNID:', 'ZN_URL:', 'DEMORA:') %}
-        {% for l in lineas %}
-            {% if l.strip() and not l.startswith(prefijos_conocidos) %}
-            <div class="text-muted">{{ l }}</div>
-            {% endif %}
-        {% endfor %}
     </div>
 {% elif venta.canal == 'Mercado Libre' and (venta.metodo_envio == 'Flete Propio' or venta.tipo_entrega == 'retiro') %}
     <div style="font-size:0.78rem; line-height:1.6;">
