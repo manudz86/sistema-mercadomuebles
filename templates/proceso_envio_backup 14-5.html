@@ -420,48 +420,8 @@
                                 <small class="text-info">🔷 Depósito</small>
                             {% endif %}
                         {% endif %}
-
-                        <!-- DIRECCIÓN CON BOTONES - SOLO PARA FLETE PROPIO, FLEX Y TURBO -->
-                        {% if venta.metodo_envio in ['Flete Propio', 'Flex', 'Turbo'] and venta.direccion_entrega %}
-                            <br>
-                            <div class="mt-1">
-                                <small class="text-muted" style="font-size: 0.75em; display: block; word-break: break-word; white-space: normal; line-height: 1.3;">
-                                    {{ venta.direccion_entrega }}
-                                </small>
-                                <div class="d-flex gap-1 mt-1">
-                                    <!-- Botón copiar -->
-                                    <button type="button"
-                                            class="btn btn-sm btn-outline-secondary p-0"
-                                            style="width: 24px; height: 24px; font-size: 0.7em;"
-                                            onclick="copiarDireccion('{{ venta.direccion_entrega }}', '{{ venta.zona_envio or '' }}')"
-                                            title="Copiar dirección">
-                                        <i class="bi bi-clipboard"></i>
-                                    </button>
-
-                                    <!-- Botón Google Maps -->
-                                    {% if venta.zona_envio == 'Capital' %}
-                                        {% set direccion_maps = venta.direccion_entrega + ', ciudad autonoma de buenos aires' %}
-                                    {% else %}
-                                        {% set direccion_maps = venta.direccion_entrega %}
-                                    {% endif %}
-                                    <a href="https://www.google.com/maps/search/?api=1&query={{ direccion_maps|urlencode }}"
-                                       target="_blank"
-                                       class="btn btn-sm btn-outline-primary p-0"
-                                       style="width: 24px; height: 24px; font-size: 0.7em;"
-                                       title="Abrir en Google Maps">
-                                        <i class="bi bi-geo-alt-fill"></i>
-                                    </a>
-
-                                    <!-- Botón Papel Azul -->
-                                    <a href="{{ url_for('papel_azul_pdf', venta_id=venta.id) }}"
-                                       target="_blank"
-                                       class="btn btn-sm btn-outline-dark p-0"
-                                       style="width: 24px; height: 24px; font-size: 0.7em;"
-                                       title="Imprimir papel azul">
-                                        🖨️
-                                    </a>
-                                </div>
-                            </div>
+                        {% if venta.direccion_entrega %}
+                            <br><small class="text-muted">{{ venta.direccion_entrega[:25] }}{% if venta.direccion_entrega|length > 25 %}...{% endif %}</small>
                         {% endif %}
                     {% endif %}
                 </td>
@@ -586,25 +546,9 @@
                 {% if venta.pago_tarjeta and venta.pago_tarjeta > 0 %}<small class="text-muted ms-1">Tarj: ${{ "{:,.0f}".format(venta.pago_tarjeta) }}</small>{% endif %}
             </div>
 
-            <!-- DIRECCIÓN MOBILE - SOLO PARA FLETE PROPIO, FLEX Y TURBO -->
-            {% if venta.metodo_envio in ['Flete Propio', 'Flex', 'Turbo'] and venta.direccion_entrega %}
-            <div class="d-flex align-items-start gap-2 mb-2" style="font-size:0.78rem;">
-                <span class="text-muted" style="flex:1; word-break:break-word;">📍 {{ venta.direccion_entrega }}</span>
-                <button type="button" class="btn btn-sm btn-outline-secondary p-0"
-                        style="width:26px; height:26px; flex-shrink:0;"
-                        onclick="copiarDireccion('{{ venta.direccion_entrega }}', '{{ venta.zona_envio or '' }}')"
-                        title="Copiar"><i class="bi bi-clipboard"></i></button>
-                {% if venta.zona_envio == 'Capital' %}{% set dir_maps_p = venta.direccion_entrega + ', ciudad autonoma de buenos aires' %}{% else %}{% set dir_maps_p = venta.direccion_entrega %}{% endif %}
-                <a href="https://www.google.com/maps/search/?api=1&query={{ dir_maps_p|urlencode }}"
-                   target="_blank" class="btn btn-sm btn-outline-primary p-0"
-                   style="width:26px; height:26px; flex-shrink:0;" title="Maps">
-                   <i class="bi bi-geo-alt-fill"></i></a>
-                <a href="{{ url_for('papel_azul_pdf', venta_id=venta.id) }}" target="_blank"
-                   class="btn btn-sm btn-outline-dark p-0"
-                   style="width:26px; height:26px; flex-shrink:0;" title="Papel azul">🖨️</a>
-            </div>
-            {% elif venta.direccion_entrega %}
-            <div class="text-muted mb-2" style="font-size:0.78rem; word-break:break-word;">📍 {{ venta.direccion_entrega }}</div>
+            <!-- DIRECCIÓN -->
+            {% if venta.direccion_entrega %}
+            <div class="text-muted mb-2" style="font-size:0.78rem;">📍 {{ venta.direccion_entrega[:60] }}{% if venta.direccion_entrega|length > 60 %}...{% endif %}</div>
             {% endif %}
 
             <!-- NOTAS -->
@@ -669,26 +613,6 @@
 </style>
 
 <script>
-// ============================================
-// COPIAR DIRECCIÓN (mismo helper que en ventas_activas)
-// ============================================
-function copiarDireccion(direccion, zona) {
-    let direccionCompleta = direccion;
-    if (zona === 'Capital') {
-        direccionCompleta = direccion + ', ciudad autonoma de buenos aires';
-    }
-    const textArea = document.createElement('textarea');
-    textArea.value = direccionCompleta;
-    document.body.appendChild(textArea);
-    textArea.select();
-    try {
-        document.execCommand('copy');
-    } catch (err) {
-        console.error('Error al copiar:', err);
-    }
-    document.body.removeChild(textArea);
-}
-
 // ============================================
 // ACCIONES INDIVIDUALES (modal)
 // ============================================

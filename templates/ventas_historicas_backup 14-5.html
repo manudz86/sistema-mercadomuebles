@@ -89,25 +89,6 @@
                     <option value="trimestre" {% if filtro_periodo == 'trimestre' %}selected{% endif %}>Último Trimestre</option>
                 </select>
             </div>
-
-            <div class="col-md-2">
-                <label class="form-label"><i class="bi bi-calendar-event"></i> Filtrar fecha por</label>
-                <select class="form-select" name="tipo_fecha">
-                    <option value="entrega" {% if filtro_tipo_fecha == 'entrega' %}selected{% endif %}>Fecha Entrega</option>
-                    <option value="venta"   {% if filtro_tipo_fecha == 'venta'   %}selected{% endif %}>Fecha Compra</option>
-                </select>
-            </div>
-
-            <div class="col-md-2">
-                <label class="form-label"><i class="bi bi-sort-down"></i> Ordenar por</label>
-                <select class="form-select" name="ordenar">
-                    <option value="fecha_entrega_desc" {% if filtro_ordenar == 'fecha_entrega_desc' %}selected{% endif %}>Fecha Entrega (más reciente)</option>
-                    <option value="fecha_entrega_asc"  {% if filtro_ordenar == 'fecha_entrega_asc'  %}selected{% endif %}>Fecha Entrega (más antigua)</option>
-                    <option value="fecha_venta_desc"   {% if filtro_ordenar == 'fecha_venta_desc'   %}selected{% endif %}>Fecha Compra (más reciente)</option>
-                    <option value="fecha_venta_asc"    {% if filtro_ordenar == 'fecha_venta_asc'    %}selected{% endif %}>Fecha Compra (más antigua)</option>
-                    <option value="id_desc"            {% if filtro_ordenar == 'id_desc'            %}selected{% endif %}>ID (más reciente)</option>
-                </select>
-            </div>
             
             <div class="col-md-2">
                 <label class="form-label"><i class="bi bi-box"></i> Método Envío</label>
@@ -190,8 +171,6 @@
     <input type="hidden" name="metodo_envio" id="mobh-metodo-hidden" value="{{ filtro_metodo_envio|join(',') }}">
     <input type="hidden" name="zona" id="mobh-zona-hidden" value="{{ filtro_zona|join(',') }}">
     <input type="hidden" name="canal" id="mobh-canal-hidden" value="{{ filtro_canal|join(',') }}">
-    <input type="hidden" name="tipo_fecha" id="mobh-tipo-fecha-hidden" value="{{ filtro_tipo_fecha }}">
-    <input type="hidden" name="ordenar" id="mobh-ordenar-hidden" value="{{ filtro_ordenar }}">
 
     <div class="filtros-mobile-panel">
       <button type="button" class="filtros-mobile-toggle {% if hay_filtro_mob %}open{% endif %}" id="mobh-toggle" onclick="toggleMobFiltrosH()">
@@ -217,28 +196,6 @@
           {% for val, label in [('todo','Todo'),('hoy','Hoy'),('semana','Semana'),('mes','Mes'),('trimestre','Trimestre')] %}
           <span class="fm-chip {% if filtro_periodo == val %}active{% endif %}"
                 onclick="setChipSingleH('mobh-periodo-hidden','{{ val }}',this)">{{ label }}</span>
-          {% endfor %}
-        </div>
-
-        <div class="fm-section-label">Filtrar fecha por</div>
-        <div class="fm-chips">
-          {% for val, label in [('entrega','Fecha Entrega'),('venta','Fecha Compra')] %}
-          <span class="fm-chip {% if filtro_tipo_fecha == val %}active{% endif %}"
-                onclick="setChipSingleH('mobh-tipo-fecha-hidden','{{ val }}',this)">{{ label }}</span>
-          {% endfor %}
-        </div>
-
-        <div class="fm-section-label">Ordenar por</div>
-        <div class="fm-chips">
-          {% for val, label in [
-              ('fecha_entrega_desc','Entrega ↓'),
-              ('fecha_entrega_asc','Entrega ↑'),
-              ('fecha_venta_desc','Compra ↓'),
-              ('fecha_venta_asc','Compra ↑'),
-              ('id_desc','ID ↓')
-          ] %}
-          <span class="fm-chip {% if filtro_ordenar == val %}active{% endif %}"
-                onclick="setChipSingleH('mobh-ordenar-hidden','{{ val }}',this)">{{ label }}</span>
           {% endfor %}
         </div>
 
@@ -515,49 +472,6 @@
                                 <small class="text-info">🔷 DEP</small>
                             {% endif %}
                         {% endif %}
-
-                        <!-- DIRECCIÓN CON BOTONES - SOLO PARA FLETE PROPIO, FLEX Y TURBO -->
-                        {% if venta.metodo_envio in ['Flete Propio', 'Flex', 'Turbo'] and venta.direccion_entrega %}
-                            <br>
-                            <div class="mt-1">
-                                <small class="text-muted" style="font-size: 0.75em; display: block; word-break: break-word; white-space: normal; line-height: 1.3;">
-                                    {{ venta.direccion_entrega }}
-                                </small>
-                                <div class="d-flex gap-1 mt-1">
-                                    <!-- Botón copiar -->
-                                    <button type="button"
-                                            class="btn btn-sm btn-outline-secondary p-0"
-                                            style="width: 24px; height: 24px; font-size: 0.7em;"
-                                            onclick="copiarDireccion('{{ venta.direccion_entrega }}', '{{ venta.zona_envio or '' }}')"
-                                            title="Copiar dirección">
-                                        <i class="bi bi-clipboard"></i>
-                                    </button>
-
-                                    <!-- Botón Google Maps -->
-                                    {% if venta.zona_envio == 'Capital' %}
-                                        {% set direccion_maps = venta.direccion_entrega + ', ciudad autonoma de buenos aires' %}
-                                    {% else %}
-                                        {% set direccion_maps = venta.direccion_entrega %}
-                                    {% endif %}
-                                    <a href="https://www.google.com/maps/search/?api=1&query={{ direccion_maps|urlencode }}"
-                                       target="_blank"
-                                       class="btn btn-sm btn-outline-primary p-0"
-                                       style="width: 24px; height: 24px; font-size: 0.7em;"
-                                       title="Abrir en Google Maps">
-                                        <i class="bi bi-geo-alt-fill"></i>
-                                    </a>
-
-                                    <!-- Botón Papel Azul -->
-                                    <a href="{{ url_for('papel_azul_pdf', venta_id=venta.id) }}"
-                                       target="_blank"
-                                       class="btn btn-sm btn-outline-dark p-0"
-                                       style="width: 24px; height: 24px; font-size: 0.7em;"
-                                       title="Imprimir papel azul">
-                                        🖨️
-                                    </a>
-                                </div>
-                            </div>
-                        {% endif %}
                     {% endif %}
                 </td>
                 
@@ -726,12 +640,6 @@
                     <span class="badge bg-secondary">{{ venta.metodo_envio }}</span>
                     {% if venta.zona_envio %}<span class="badge bg-light text-dark border">{{ venta.zona_envio }}</span>{% endif %}
                     {% if venta.ubicacion_despacho == 'FULL' %}<span class="badge bg-warning text-dark">🔶 FULL</span>{% endif %}
-                    {% if venta.metodo_envio in ['Flete Propio', 'Zippin'] and venta.costo_flete and venta.costo_flete > 0 %}
-                        <span class="ms-1
-                            {% if venta.importe_abonado >= venta.importe_total + venta.costo_flete %}text-success
-                            {% elif venta.importe_abonado > venta.importe_total %}text-warning
-                            {% else %}text-danger{% endif %} fw-bold">💰 ${{ "{:,.0f}".format(venta.costo_flete) }}</span>
-                    {% endif %}
                 {% endif %}
                 {% if venta.importe_abonado >= venta.importe_total %}
                     <span class="badge bg-success">Pagado</span>
@@ -741,25 +649,6 @@
                     <span class="badge bg-danger">Impago</span>
                 {% endif %}
             </div>
-
-            <!-- DIRECCIÓN MOBILE - SOLO PARA FLETE PROPIO, FLEX Y TURBO -->
-            {% if venta.metodo_envio in ['Flete Propio', 'Flex', 'Turbo'] and venta.direccion_entrega %}
-            <div class="d-flex align-items-start gap-2 mb-2" style="font-size:0.78rem;">
-                <span class="text-muted" style="flex:1; word-break:break-word;">📍 {{ venta.direccion_entrega }}</span>
-                <button type="button" class="btn btn-sm btn-outline-secondary p-0"
-                        style="width:26px; height:26px; flex-shrink:0;"
-                        onclick="copiarDireccion('{{ venta.direccion_entrega }}', '{{ venta.zona_envio or '' }}')"
-                        title="Copiar"><i class="bi bi-clipboard"></i></button>
-                {% if venta.zona_envio == 'Capital' %}{% set dir_maps_h = venta.direccion_entrega + ', ciudad autonoma de buenos aires' %}{% else %}{% set dir_maps_h = venta.direccion_entrega %}{% endif %}
-                <a href="https://www.google.com/maps/search/?api=1&query={{ dir_maps_h|urlencode }}"
-                   target="_blank" class="btn btn-sm btn-outline-primary p-0"
-                   style="width:26px; height:26px; flex-shrink:0;" title="Maps">
-                   <i class="bi bi-geo-alt-fill"></i></a>
-                <a href="{{ url_for('papel_azul_pdf', venta_id=venta.id) }}" target="_blank"
-                   class="btn btn-sm btn-outline-dark p-0"
-                   style="width:26px; height:26px; flex-shrink:0;" title="Papel azul">🖨️</a>
-            </div>
-            {% endif %}
             <div class="mb-2">{{ obs_me2(venta) }}</div>
             <!-- ACCIONES -->
             <div class="d-flex gap-1 flex-wrap align-items-center">
@@ -836,24 +725,6 @@ function toggleSelectAll(checkbox) {
     const checkboxes = document.querySelectorAll('.venta-checkbox');
     checkboxes.forEach(cb => { cb.checked = checkbox.checked; });
     actualizarContador();
-}
-
-// Copia la dirección al portapapeles (igual que en ventas_activas)
-function copiarDireccion(direccion, zona) {
-    let direccionCompleta = direccion;
-    if (zona === 'Capital') {
-        direccionCompleta = direccion + ', ciudad autonoma de buenos aires';
-    }
-    const textArea = document.createElement('textarea');
-    textArea.value = direccionCompleta;
-    document.body.appendChild(textArea);
-    textArea.select();
-    try {
-        document.execCommand('copy');
-    } catch (err) {
-        console.error('Error al copiar:', err);
-    }
-    document.body.removeChild(textArea);
 }
 
 function actualizarContador() {

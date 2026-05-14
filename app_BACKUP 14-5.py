@@ -2175,11 +2175,10 @@ def marcar_entregada(venta_id):
                 descontar_stock_item(cursor, item, venta['ubicacion_despacho'])
         
         # Actualizar estado Y FECHA DE ENTREGA
-        # NOTA: VPS corre en UTC; restamos 3 horas para guardar fecha/hora Argentina (GMT-3)
         cursor.execute('''
             UPDATE ventas 
             SET estado_entrega = 'entregada',
-                fecha_entrega = DATE_SUB(NOW(), INTERVAL 3 HOUR),
+                fecha_entrega = NOW(),
                 fecha_modificacion = NOW()
             WHERE id = %s
         ''', (venta_id,))
@@ -2477,11 +2476,10 @@ def marcar_entregadas_multiple():
                     descontar_stock_item(cursor, item, venta['ubicacion_despacho'])
                 
                 # Actualizar estado Y FECHA DE ENTREGA
-                # NOTA: VPS corre en UTC; restamos 3 horas para guardar fecha/hora Argentina (GMT-3)
                 cursor.execute('''
                     UPDATE ventas 
                     SET estado_entrega = 'entregada',
-                        fecha_entrega = DATE_SUB(NOW(), INTERVAL 3 HOUR),
+                        fecha_entrega = NOW(),
                         fecha_modificacion = NOW()
                     WHERE id = %s
                 ''', (venta_id,))
@@ -2795,11 +2793,10 @@ def proceso_marcar_entregada(venta_id):
             return redirect(url_for('ventas_proceso'))
         
         # Actualizar estado Y FECHA DE ENTREGA (NO descuenta stock, ya se descontó)
-        # NOTA: VPS corre en UTC; restamos 3 horas para guardar fecha/hora Argentina (GMT-3)
         cursor.execute('''
             UPDATE ventas 
             SET estado_entrega = 'entregada',
-                fecha_entrega = DATE_SUB(NOW(), INTERVAL 3 HOUR),
+                fecha_entrega = NOW(),
                 fecha_modificacion = NOW()
             WHERE id = %s
         ''', (venta_id,))
@@ -3004,11 +3001,10 @@ def proceso_marcar_entregadas_multiple():
                     continue
                 
                 # Actualizar estado Y FECHA DE ENTREGA (NO descuenta stock)
-                # NOTA: VPS corre en UTC; restamos 3 horas para guardar fecha/hora Argentina (GMT-3)
                 cursor.execute('''
                     UPDATE ventas 
                     SET estado_entrega = 'entregada',
-                        fecha_entrega = DATE_SUB(NOW(), INTERVAL 3 HOUR),
+                        fecha_entrega = NOW(),
                         fecha_modificacion = NOW()
                     WHERE id = %s
                 ''', (venta_id,))
@@ -4107,21 +4103,6 @@ def ventas_historicas():
         filtro_metodo_envio = parsear_filtro_multi(request.args.getlist('metodo_envio') or request.args.get('metodo_envio', ''))
         filtro_zona         = parsear_filtro_multi(request.args.getlist('zona')         or request.args.get('zona', ''))
         filtro_canal        = parsear_filtro_multi(request.args.getlist('canal')        or request.args.get('canal', ''))
-        # NUEVO: Tipo de fecha al que se aplican el período y el ordenamiento
-        # Valores permitidos: 'entrega' (default), 'venta'
-        filtro_tipo_fecha = request.args.get('tipo_fecha', 'entrega').strip().lower()
-        if filtro_tipo_fecha not in ('entrega', 'venta'):
-            filtro_tipo_fecha = 'entrega'
-        # NUEVO: Criterio de ordenamiento
-        # Valores permitidos: 'fecha_entrega_desc' (default), 'fecha_entrega_asc',
-        # 'fecha_venta_desc', 'fecha_venta_asc', 'id_desc'
-        filtro_ordenar = request.args.get('ordenar', 'fecha_entrega_desc').strip().lower()
-        if filtro_ordenar not in (
-            'fecha_entrega_desc', 'fecha_entrega_asc',
-            'fecha_venta_desc', 'fecha_venta_asc',
-            'id_desc'
-        ):
-            filtro_ordenar = 'fecha_entrega_desc'
         pagina = max(1, int(request.args.get('pagina', 1)))
 
         # ========================================
@@ -4135,22 +4116,14 @@ def ventas_historicas():
         where += frag
         params.extend(p)
 
-        # Período aplicado al campo elegido por tipo_fecha
-        # - Para fecha_entrega usamos COALESCE con fecha_modificacion (compatibilidad histórica)
-        # - Para fecha_venta usamos directamente fecha_venta
-        if filtro_tipo_fecha == 'venta':
-            campo_periodo = 'fecha_venta'
-        else:
-            campo_periodo = 'COALESCE(fecha_entrega, fecha_modificacion)'
-
         if filtro_periodo == 'hoy':
-            where += f' AND DATE({campo_periodo}) = CURDATE()'
+            where += ' AND DATE(COALESCE(fecha_entrega, fecha_modificacion)) = CURDATE()'
         elif filtro_periodo == 'semana':
-            where += f' AND {campo_periodo} >= DATE_SUB(NOW(), INTERVAL 7 DAY)'
+            where += ' AND COALESCE(fecha_entrega, fecha_modificacion) >= DATE_SUB(NOW(), INTERVAL 7 DAY)'
         elif filtro_periodo == 'mes':
-            where += f' AND {campo_periodo} >= DATE_SUB(NOW(), INTERVAL 30 DAY)'
+            where += ' AND COALESCE(fecha_entrega, fecha_modificacion) >= DATE_SUB(NOW(), INTERVAL 30 DAY)'
         elif filtro_periodo == 'trimestre':
-            where += f' AND {campo_periodo} >= DATE_SUB(NOW(), INTERVAL 90 DAY)'
+            where += ' AND COALESCE(fecha_entrega, fecha_modificacion) >= DATE_SUB(NOW(), INTERVAL 90 DAY)'
 
         if filtro_buscar:
             where += '''
@@ -4183,22 +4156,7 @@ def ventas_historicas():
         offset = (pagina - 1) * POR_PAGINA
 
         # ========================================
-        # ORDER BY según filtro_ordenar
-        # Para fecha_entrega usamos COALESCE para que las ventas canceladas (sin fecha_entrega)
-        # también se ordenen con criterio consistente.
-        # Se agrega "id DESC" como desempate estable.
-        # ========================================
-        ORDER_MAP = {
-            'fecha_entrega_desc': 'COALESCE(fecha_entrega, fecha_modificacion) DESC, id DESC',
-            'fecha_entrega_asc':  'COALESCE(fecha_entrega, fecha_modificacion) ASC, id ASC',
-            'fecha_venta_desc':   'fecha_venta DESC, id DESC',
-            'fecha_venta_asc':    'fecha_venta ASC, id ASC',
-            'id_desc':            'id DESC',
-        }
-        order_by_clause = ORDER_MAP[filtro_ordenar]
-
-        # ========================================
-        # QUERY PAGINADA
+        # QUERY PAGINADA — ordenada por id DESC
         # ========================================
         query = f'''
             SELECT
@@ -4208,12 +4166,11 @@ def ventas_historicas():
                 zona_envio, direccion_entrega, costo_flete,
                 metodo_pago, importe_total, importe_abonado,
                 pago_mercadopago, pago_efectivo,
-                pago_transferencia, pago_tarjeta,
                 estado_entrega, estado_pago, notas,
                 factura_generada, factura_fecha_generacion
             FROM ventas
             {where}
-            ORDER BY {order_by_clause}
+            ORDER BY id DESC
             LIMIT %s OFFSET %s
         '''
         params_page = list(params) + [POR_PAGINA, offset]
@@ -4242,7 +4199,7 @@ def ventas_historicas():
                 venta['hora_venta_str'] = ''
 
         # ========================================
-        # STATS — siempre con el mismo criterio de período/tipo_fecha que aplica al listado
+        # STATS
         # ========================================
         stats_query = '''
             SELECT estado_entrega, COUNT(*) as total
@@ -4251,13 +4208,13 @@ def ventas_historicas():
         '''
         if filtro_periodo != 'todo':
             if filtro_periodo == 'hoy':
-                stats_query += f' AND DATE({campo_periodo}) = CURDATE()'
+                stats_query += ' AND DATE(COALESCE(fecha_entrega, fecha_modificacion)) = CURDATE()'
             elif filtro_periodo == 'semana':
-                stats_query += f' AND {campo_periodo} >= DATE_SUB(NOW(), INTERVAL 7 DAY)'
+                stats_query += ' AND COALESCE(fecha_entrega, fecha_modificacion) >= DATE_SUB(NOW(), INTERVAL 7 DAY)'
             elif filtro_periodo == 'mes':
-                stats_query += f' AND {campo_periodo} >= DATE_SUB(NOW(), INTERVAL 30 DAY)'
+                stats_query += ' AND COALESCE(fecha_entrega, fecha_modificacion) >= DATE_SUB(NOW(), INTERVAL 30 DAY)'
             elif filtro_periodo == 'trimestre':
-                stats_query += f' AND {campo_periodo} >= DATE_SUB(NOW(), INTERVAL 90 DAY)'
+                stats_query += ' AND COALESCE(fecha_entrega, fecha_modificacion) >= DATE_SUB(NOW(), INTERVAL 90 DAY)'
         stats_query += ' GROUP BY estado_entrega'
         stats = query_db(stats_query)
 
@@ -4279,8 +4236,6 @@ def ventas_historicas():
                              filtro_metodo_envio=filtro_metodo_envio,
                              filtro_zona=filtro_zona,
                              filtro_canal=filtro_canal,
-                             filtro_tipo_fecha=filtro_tipo_fecha,
-                             filtro_ordenar=filtro_ordenar,
                              pagina=pagina,
                              total_paginas=total_paginas,
                              total_ventas_filtradas=total_ventas_filtradas,
