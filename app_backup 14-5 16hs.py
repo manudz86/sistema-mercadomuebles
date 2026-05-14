@@ -13739,12 +13739,11 @@ def job_completar_notas_mp():
 
 def _rechequear_orden_ml(venta_id, orden_id, access_token, venta_actual):
     """
-    Re-consulta una orden de ML auto-importada y actualiza solo los campos que
-    pueden llegar incompletos al inicio: nombre_cliente, telefono_cliente,
-    direccion_entrega, notas, e importe_abonado/pago_mercadopago cuando ML
-    todavía no había marcado el shipment como pagado al momento del import.
+    Re-consulta una orden de ML auto-importada (~3 min después de importarla)
+    y actualiza solo los campos que pueden llegar incompletos al inicio:
+    nombre_cliente, telefono_cliente, direccion_entrega, notas.
 
-    NO toca: stock, items, importe_total, método de pago/envío, ubicación, zona.
+    NO toca: stock, items, importes, método de pago/envío, ubicación, zona.
     NO dispara actualizar_publicaciones_ml.
 
     Reglas de seguridad para no pisar ediciones manuales:
@@ -13752,12 +13751,6 @@ def _rechequear_orden_ml(venta_id, orden_id, access_token, venta_actual):
     - nombre_cliente: solo se reemplaza si el actual es el nickname (mla_code) y ML ahora trae nombre real distinto
     - telefono_cliente: solo se reemplaza si está vacío y ML ahora lo trae
     - direccion_entrega: solo se reemplaza si la actual contiene 'XXX' (placeholder ML) y la nueva no
-    - flete: solo se suma si importe_abonado <= importe_total y substatus == 'shipment_paid'
-      (mismo criterio que _importar_orden_automatica)
-
-    Retorna True si después del rechequeo TODOS los datos están completos
-    (no quedan XXX, hay teléfono, nombre != mla_code, flete cubierto si corresponde).
-    Retorna False si algún dato sigue incompleto y conviene reintentar más tarde.
     """
     try:
         headers_ml = {'Authorization': f'Bearer {access_token}'}
@@ -13779,7 +13772,7 @@ def _rechequear_orden_ml(venta_id, orden_id, access_token, venta_actual):
         if (fn + ln):
             nombre_real_nuevo = f"{fn} {ln}".strip()
 
-        # 2) Shipment completo (dirección, fecha entrega, demora, substatus)
+        # 2) Shipment completo (dirección, fecha entrega, demora)
         shipping_id = (orden_full.get('shipping') or {}).get('id')
         shipping = {}
         if shipping_id:
@@ -13822,20 +13815,17 @@ def _rechequear_orden_ml(venta_id, orden_id, access_token, venta_actual):
         if nombre_real_nuevo and nombre_real_nuevo != nombre_actual:
             if not nombre_actual or nombre_actual == mla_code_actual:
                 updates['nombre_cliente'] = nombre_real_nuevo
-                nombre_actual = nombre_real_nuevo  # actualizar para evaluación final
 
         # Teléfono: si está vacío y ahora hay uno
         tel_actual = (venta_actual.get('telefono_cliente') or '').strip()
         if telefono_nuevo and not tel_actual:
             updates['telefono_cliente'] = telefono_nuevo
-            tel_actual = telefono_nuevo  # actualizar para evaluación final
 
         # Dirección: si la actual tiene 'XXX' y la nueva no
         dir_actual = (venta_actual.get('direccion_entrega') or '').strip()
         dir_nueva = (shipping.get('direccion', '') if shipping else '').strip()
         if dir_nueva and 'XXX' in dir_actual.upper() and 'XXX' not in dir_nueva.upper():
             updates['direccion_entrega'] = dir_nueva
-            dir_actual = dir_nueva  # actualizar para evaluación final
 
         # Notas: solo si las actuales son IDÉNTICAS a las originales (sin ediciones manuales)
         notas_actuales = (venta_actual.get('notas') or '')
@@ -13845,24 +13835,6 @@ def _rechequear_orden_ml(venta_id, orden_id, access_token, venta_actual):
             # también actualizar notas_auto_orig para que un siguiente rechequeo (si lo hubiera) lo respete
             updates['notas_auto_orig'] = notas_nuevas
 
-        # Flete: bug fix de ML que a veces no suma el costo del envío al paid_amount.
-        # Mismo criterio que _importar_orden_automatica.
-        metodo_envio_actual = (venta_actual.get('metodo_envio') or '').strip()
-        costo_flete_actual = float(venta_actual.get('costo_flete') or 0)
-        importe_total_actual = float(venta_actual.get('importe_total') or 0)
-        importe_abonado_actual = float(venta_actual.get('importe_abonado') or 0)
-        pago_mp_actual = float(venta_actual.get('pago_mercadopago') or 0)
-        shipment_substatus = shipping.get('substatus', '') if shipping else ''
-        flete_aplicado_ahora = False
-        if (metodo_envio_actual in ('Flete Propio', 'Zippin')
-                and costo_flete_actual > 0
-                and importe_abonado_actual <= importe_total_actual
-                and shipment_substatus == 'shipment_paid'):
-            updates['importe_abonado'] = importe_abonado_actual + costo_flete_actual
-            updates['pago_mercadopago'] = pago_mp_actual + costo_flete_actual
-            flete_aplicado_ahora = True
-            importe_abonado_actual = updates['importe_abonado']  # para evaluación final
-
         if updates:
             sets = ', '.join(f"{k} = %s" for k in updates.keys())
             params = list(updates.values()) + [venta_id]
@@ -13871,16 +13843,7 @@ def _rechequear_orden_ml(venta_id, orden_id, access_token, venta_actual):
         else:
             print(f"[RECHECK-ML] Venta {venta_id}: sin cambios")
 
-        # 6) Evaluar si la venta quedó "completa" para decidir si seguir reintentando
-        nombre_ok = bool(nombre_actual) and (not mla_code_actual or nombre_actual != mla_code_actual)
-        tel_ok = bool(tel_actual)
-        dir_ok = bool(dir_actual) and 'XXX' not in dir_actual.upper()
-        if metodo_envio_actual in ('Flete Propio', 'Zippin') and costo_flete_actual > 0:
-            flete_ok = importe_abonado_actual >= (importe_total_actual + costo_flete_actual)
-        else:
-            flete_ok = True
-        completo = nombre_ok and tel_ok and dir_ok and flete_ok
-        return completo
+        return True
 
     except Exception as e:
         print(f"[RECHECK-ML] Error rechequeando venta {venta_id}: {e}")
@@ -13889,22 +13852,12 @@ def _rechequear_orden_ml(venta_id, orden_id, access_token, venta_actual):
 
 def job_rechequear_autoimportadas():
     """
-    Job que corre cada 5 minutos. Re-consulta ML para corregir datos que
-    llegan incompletos al importar (típicamente compras nocturnas o muy recientes).
+    Job que corre cada 60s. Busca ventas auto-importadas hace 3+ minutos
+    que aún no fueron rechequeadas, y reconsulta ML para actualizar
+    nombre/teléfono/dirección/notas si ML ya tiene la info completa.
 
-    A diferencia de la versión inicial, este job reintenta múltiples veces sobre
-    la misma venta MIENTRAS:
-    - Esté en estado_entrega = 'pendiente' (sigue en ventas activas)
-    - No hayan pasado más de 24 horas desde el import (cap de seguridad)
-    - Algún dato siga incompleto: dirección con XXX, teléfono vacío,
-      nombre = mla_code, o flete sin sumar al importe_abonado
-
-    Una venta queda marcada como rechequeada (auto_rechecked = 1) cuando:
-    - Todos sus datos están completos según _rechequear_orden_ml
-    - O ya pasó a proceso/entregada/cancelada
-    - O pasaron más de 24h desde el auto_imported_at
-
-    Las funciones internas tienen guards que evitan pisar ediciones manuales.
+    Solo procesa ventas con estado_entrega='pendiente' (las que ya pasaron
+    a proceso o entregada se marcan rechequeadas y se ignoran).
     """
     with app.app_context():
         try:
@@ -13914,41 +13867,27 @@ def job_rechequear_autoimportadas():
 
             ventas = query_db("""
                 SELECT id, numero_venta, mla_code, nombre_cliente, telefono_cliente,
-                       direccion_entrega, notas, notas_auto_orig, estado_entrega,
-                       metodo_envio, costo_flete, importe_total, importe_abonado,
-                       pago_mercadopago
+                       direccion_entrega, notas, notas_auto_orig, estado_entrega
                 FROM ventas
                 WHERE canal = 'Mercado Libre'
                   AND auto_imported_at IS NOT NULL
                   AND auto_imported_at <= DATE_SUB(NOW(), INTERVAL 3 MINUTE)
-                  AND auto_imported_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
                   AND auto_rechecked = 0
-                  AND estado_entrega = 'pendiente'
                 LIMIT 50
             """)
-
-            # Cierre por cap de 24h: marcar como rechequeadas las que ya no van a corregirse más.
-            # Cubre tanto las que pasaron a proceso/entregada como las que pasaron de 24h sin completarse.
-            try:
-                execute_db("""
-                    UPDATE ventas
-                    SET auto_rechecked = 1
-                    WHERE canal = 'Mercado Libre'
-                      AND auto_rechecked = 0
-                      AND auto_imported_at IS NOT NULL
-                      AND (
-                            estado_entrega != 'pendiente'
-                            OR auto_imported_at < DATE_SUB(NOW(), INTERVAL 24 HOUR)
-                          )
-                """)
-            except Exception:
-                pass
-
             if not ventas:
                 return
 
             import re as _re
             for v in ventas:
+                # Si ya pasó a proceso/entregada/cancelada, no se toca, solo se marca rechequeada
+                if v.get('estado_entrega') != 'pendiente':
+                    try:
+                        execute_db("UPDATE ventas SET auto_rechecked = 1 WHERE id = %s", (v['id'],))
+                    except Exception:
+                        pass
+                    continue
+
                 # Extraer orden_id del numero_venta (ML-XXXXXX)
                 numero = v['numero_venta'] or ''
                 m = _re.search(r'(\d{16})', numero)
@@ -13961,15 +13900,13 @@ def job_rechequear_autoimportadas():
                     continue
                 orden_id = m.group(1)
 
-                completo = _rechequear_orden_ml(v['id'], orden_id, access_token, v)
+                _rechequear_orden_ml(v['id'], orden_id, access_token, v)
 
-                # Solo marcar rechequeada si todos los datos están completos.
-                # Si no, queda en 0 para reintentar en el próximo ciclo (hasta el cap de 24h).
-                if completo:
-                    try:
-                        execute_db("UPDATE ventas SET auto_rechecked = 1 WHERE id = %s", (v['id'],))
-                    except Exception:
-                        pass
+                # Marcar rechequeada SIEMPRE (haya cambios o error, para no reintentar)
+                try:
+                    execute_db("UPDATE ventas SET auto_rechecked = 1 WHERE id = %s", (v['id'],))
+                except Exception:
+                    pass
 
                 time.sleep(0.5)
 
@@ -14153,7 +14090,7 @@ def iniciar_scheduler():
         scheduler.add_job(
             job_rechequear_autoimportadas,
             'interval',
-            minutes=5,
+            seconds=60,
             id='rechequear_autoimportadas',
             replace_existing=True,
             max_instances=1
