@@ -10288,13 +10288,11 @@ def estadisticas():
     filtro_metodo = request.args.get('metodo_envio', '')
     filtro_zona = request.args.get('zona', '')
 
-    # Default: HOY en hora de Argentina (UTC-3). El VPS puede estar en otra zona horaria,
-    # por eso forzamos el offset en vez de usar datetime.now() directo.
-    hoy_arg = (datetime.utcnow() - timedelta(hours=3)).strftime('%Y-%m-%d')
+    # Default: último mes
     if not fecha_desde:
-        fecha_desde = hoy_arg
+        fecha_desde = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
     if not fecha_hasta:
-        fecha_hasta = hoy_arg
+        fecha_hasta = datetime.now().strftime('%Y-%m-%d')
 
     # ========================================
     # BASE DE FILTROS (reutilizable)

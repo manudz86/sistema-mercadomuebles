@@ -2,6 +2,8 @@
 {% block title %}Estadísticas de Ventas{% endblock %}
 
 {% block content %}
+<!-- Flatpickr: datepicker con formato dd/mm/yyyy y locale español -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
 <style>
     :root {
         --azul: #1F4E79;
@@ -137,11 +139,11 @@
         <div class="row g-2 align-items-end">
             <div class="col-md-2">
                 <label class="form-label fw-semibold" style="font-size:.8rem;">Desde</label>
-                <input type="date" name="fecha_desde" class="form-control form-control-sm" value="{{ fecha_desde }}">
+                <input type="text" name="fecha_desde" class="form-control form-control-sm fecha-input" value="{{ fecha_desde }}" placeholder="DD/MM/AAAA">
             </div>
             <div class="col-md-2">
                 <label class="form-label fw-semibold" style="font-size:.8rem;">Hasta</label>
-                <input type="date" name="fecha_hasta" class="form-control form-control-sm" value="{{ fecha_hasta }}">
+                <input type="text" name="fecha_hasta" class="form-control form-control-sm fecha-input" value="{{ fecha_hasta }}" placeholder="DD/MM/AAAA">
             </div>
             <div class="col-md-2">
                 <label class="form-label fw-semibold" style="font-size:.8rem;">Canal</label>
@@ -186,6 +188,7 @@
         <!-- Atajos de período -->
         <div class="mt-2 d-flex gap-2 flex-wrap">
             <small class="text-muted me-1" style="line-height:2;">Período rápido:</small>
+            <a href="?periodo=hoy" class="btn btn-outline-secondary btn-sm py-0" style="font-size:.75rem;">Hoy</a>
             <a href="?periodo=7" class="btn btn-outline-secondary btn-sm py-0" style="font-size:.75rem;">7 días</a>
             <a href="?periodo=30" class="btn btn-outline-secondary btn-sm py-0" style="font-size:.75rem;">30 días</a>
             <a href="?periodo=90" class="btn btn-outline-secondary btn-sm py-0" style="font-size:.75rem;">90 días</a>
@@ -335,7 +338,19 @@
 
 <!-- CHART.JS -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<!-- Flatpickr: datepicker -->
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/l10n/es.js"></script>
 <script>
+// ─── Datepickers (flatpickr) ─────────────────────────────────────────
+// El usuario ve dd/mm/yyyy, el form envía Y-m-d al backend.
+flatpickr('.fecha-input', {
+    dateFormat: 'Y-m-d',
+    altInput: true,
+    altFormat: 'd/m/Y',
+    locale: 'es',
+    allowInput: true,
+});
 // ─── Datos desde Flask ───────────────────────────────────────────────
 const diasLabels = {{ ventas_por_dia | map(attribute='dia') | list | tojson }};
 const diasCantidad = {{ ventas_por_dia | map(attribute='cantidad') | list | tojson }};
@@ -473,26 +488,41 @@ new Chart(document.getElementById('chartMetodo'), {
 });
 
 // ─── Atajos de período ────────────────────────────────────────────────
+// Formato YYYY-MM-DD en hora local del browser (evita el bug de toISOString
+// que usa UTC y puede dar el día siguiente si es tarde-noche).
+function fmtDate(d) {
+    return d.getFullYear() + '-' +
+           String(d.getMonth() + 1).padStart(2, '0') + '-' +
+           String(d.getDate()).padStart(2, '0');
+}
+
 document.querySelectorAll('[href^="?periodo"]').forEach(link => {
     link.addEventListener('click', function(e) {
         e.preventDefault();
         const periodo = this.getAttribute('href').split('=')[1];
         const hoy = new Date();
-        let desde, hasta = hoy.toISOString().split('T')[0];
+        const hasta = fmtDate(hoy);
+        let desde;
 
-        if (periodo === '7') {
-            desde = new Date(hoy - 7*86400000).toISOString().split('T')[0];
+        if (periodo === 'hoy') {
+            desde = hasta;
+        } else if (periodo === '7') {
+            desde = fmtDate(new Date(hoy.getTime() - 7*86400000));
         } else if (periodo === '30') {
-            desde = new Date(hoy - 30*86400000).toISOString().split('T')[0];
+            desde = fmtDate(new Date(hoy.getTime() - 30*86400000));
         } else if (periodo === '90') {
-            desde = new Date(hoy - 90*86400000).toISOString().split('T')[0];
+            desde = fmtDate(new Date(hoy.getTime() - 90*86400000));
         } else if (periodo === 'mes_actual') {
-            desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0];
+            desde = fmtDate(new Date(hoy.getFullYear(), hoy.getMonth(), 1));
         } else if (periodo === 'anio_actual') {
-            desde = new Date(hoy.getFullYear(), 0, 1).toISOString().split('T')[0];
+            desde = fmtDate(new Date(hoy.getFullYear(), 0, 1));
         }
 
-        window.location.href = `?fecha_desde=${desde}&fecha_hasta=${hasta}`;
+        // Preservar filtros actuales (canal, metodo, zona)
+        const params = new URLSearchParams(window.location.search);
+        params.set('fecha_desde', desde);
+        params.set('fecha_hasta', hasta);
+        window.location.href = '?' + params.toString();
     });
 });
 </script>
