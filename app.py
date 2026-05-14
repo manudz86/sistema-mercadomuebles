@@ -2258,6 +2258,45 @@ def cancelar_venta(venta_id):
     
     return redirect(url_for('ventas_activas'))
 
+@app.route('/ventas/activas/<int:venta_id>/quitar-demora', methods=['POST'])
+@login_required
+def quitar_demora_venta(venta_id):
+    """
+    Quita la línea 'DEMORA_ML: X días' de las notas de una venta.
+    Mantiene el resto del contenido intacto. Acción manual desde el panel
+    para usar cuando ya se cuenta con stock y la demora dejó de aplicar.
+
+    También actualiza notas_auto_orig para que un eventual rechequeo no
+    vuelva a insertar la línea.
+    """
+    try:
+        venta = query_one(
+            "SELECT notas, notas_auto_orig FROM ventas WHERE id = %s",
+            (venta_id,)
+        )
+        if not venta:
+            return jsonify({'ok': False, 'error': 'Venta no encontrada'}), 404
+
+        def _strip_demora(s):
+            if not s:
+                return s
+            # Acepta '\n' literal escapado o salto real
+            lineas = s.replace('\\n', '\n').split('\n')
+            return '\n'.join(l for l in lineas if not l.startswith('DEMORA_ML:'))
+
+        notas_nuevas = _strip_demora(venta.get('notas') or '')
+        notas_orig_nuevas = _strip_demora(venta.get('notas_auto_orig') or '')
+
+        execute_db(
+            "UPDATE ventas SET notas = %s, notas_auto_orig = %s WHERE id = %s",
+            (notas_nuevas, notas_orig_nuevas, venta_id)
+        )
+        return jsonify({'ok': True})
+    except Exception as e:
+        print(f"[QUITAR-DEMORA] Error venta {venta_id}: {e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 @app.route('/ventas/activas/<int:venta_id>/eliminar', methods=['POST'])
 @login_required
 def eliminar_venta(venta_id):

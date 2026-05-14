@@ -80,7 +80,7 @@
             {% for l in lineas_ml %}
                 {% if l.startswith('DEMORA_ML:') %}
                     {% if _muestra_demora %}
-                    <div class="badge bg-warning text-dark mt-1 demora-badge" style="font-size:0.72rem;" data-venta-id="{{ venta.id }}">⏳ Compra con demora: {{ l[10:].strip() }}<span class="quitar-demora" onclick="quitarDemora({{ venta.id }}, this)" title="Marcar como en stock (quita la demora)" style="margin-left:6px; cursor:pointer; font-weight:bold;">✕</span></div>
+                    <div class="badge bg-warning text-dark mt-1" style="font-size:0.72rem;">⏳ Compra con demora: {{ l[10:].strip() }}</div>
                     {% endif %}
                 {% elif not l.startswith('Importado desde ML') and l.strip() %}
                 <div class="text-muted">{{ l }}</div>
@@ -1014,30 +1014,6 @@ function actualizarContador() {
 function sincronizarDesdeMovil(el) {
     const desk = document.querySelector('.venta-checkbox-desktop[value="' + el.value + '"]');
     if (desk) { desk.checked = el.checked; actualizarContador(); }
-}
-
-function quitarDemora(ventaId, btnX) {
-    // Quita el badge "Compra con demora" sin recargar la página.
-    // No requiere confirmación: si se equivoca se puede editar la venta y agregar la línea de vuelta.
-    const badge = btnX.closest('.demora-badge');
-    if (badge) badge.style.opacity = '0.4';  // feedback visual durante el fetch
-    fetch('/ventas/activas/' + ventaId + '/quitar-demora', {
-        method: 'POST',
-        headers: {'X-Requested-With': 'XMLHttpRequest'}
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data && data.ok) {
-            if (badge) badge.remove();
-        } else {
-            if (badge) badge.style.opacity = '';
-            alert('No se pudo quitar la demora: ' + ((data && data.error) || 'error desconocido'));
-        }
-    })
-    .catch(err => {
-        if (badge) badge.style.opacity = '';
-        alert('Error de red: ' + err);
-    });
 }
 
 function marcarZplDescargado(ventaId, btn) {
