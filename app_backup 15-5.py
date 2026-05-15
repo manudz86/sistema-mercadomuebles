@@ -5718,14 +5718,7 @@ def nueva_venta():
         # ========================================
         # 1. GENERAR SIGUIENTE NÚMERO DE VENTA
         # ========================================
-        # Filtrar SOLO ventas con formato VENTA-XXX (manuales).
-        # Las ventas de ML/MP/PW/GN tienen otros prefijos y no deben influir.
-        ultima_venta = query_db('''
-            SELECT numero_venta FROM ventas
-            WHERE numero_venta REGEXP '^VENTA-[0-9]+$'
-            ORDER BY CAST(SUBSTRING(numero_venta, 7) AS UNSIGNED) DESC
-            LIMIT 1
-        ''')
+        ultima_venta = query_db('SELECT numero_venta FROM ventas ORDER BY id DESC LIMIT 1')
         siguiente_numero = 'VENTA-001'
         
         if ultima_venta and len(ultima_venta) > 0:
