@@ -11294,6 +11294,73 @@ def pagos_cannon_guardar():
             return jsonify({'ok': True, 'fecha_pago': fecha_pago,
                             'importe_pp': imp_pp, 'descuento': descuento})
 
+        elif accion == 'editar_factura':
+            from datetime import datetime
+            factura_id = data['factura_id']
+            nro        = data['nro_comprobante']
+            fcomp      = data['fecha_comprobante']
+            frec       = data['fecha_recepcion']
+            importe    = float(data['importe_total'])
+            pct        = float(data.get('descuento_pp_pct', 5))
+
+            # Verificar duplicado de nro (excluyendo la propia factura)
+            existe = query_one(
+                "SELECT id FROM cannon_facturas WHERE nro_comprobante = %s AND id != %s",
+                (nro, factura_id)
+            )
+            if existe:
+                return jsonify({'ok': False, 'error': 'Ya existe otra factura con ese número'})
+
+            # Datos actuales (para conocer el pago_id viejo)
+            actual = query_one("SELECT pago_id FROM cannon_facturas WHERE id = %s", (factura_id,))
+            if not actual:
+                return jsonify({'ok': False, 'error': 'Factura no encontrada'})
+            pago_id_viejo = actual['pago_id']
+
+            # Recalcular fecha_pago (recepción + 6 días corridos), importe_pp y descuento
+            fecha_pago = (datetime.strptime(frec, '%Y-%m-%d').date() + timedelta(days=6)).isoformat()
+            imp_pp     = _calcular_importe_pp(importe, pct)
+            descuento  = round(importe) - imp_pp
+
+            # Buscar grupo abierto (NO pagado) para esa fecha.
+            # Si solo hay grupos pagados con esa fecha, se crea uno nuevo aparte.
+            pago_abierto = query_one("""
+                SELECT id FROM cannon_pagos
+                WHERE fecha_pago = %s AND monto_abonado IS NULL
+                ORDER BY id ASC
+                LIMIT 1
+            """, (fecha_pago,))
+            if pago_abierto:
+                pago_id_nuevo = pago_abierto['id']
+            else:
+                pago_id_nuevo = execute_db(
+                    "INSERT INTO cannon_pagos (fecha_pago) VALUES (%s)",
+                    (fecha_pago,)
+                )
+
+            # Actualizar la factura
+            execute_db("""
+                UPDATE cannon_facturas
+                SET nro_comprobante = %s, fecha_comprobante = %s, fecha_recepcion = %s,
+                    importe_total = %s, descuento_pp_pct = %s,
+                    importe_pp = %s, descuento_pp_monto = %s,
+                    fecha_pago = %s, pago_id = %s
+                WHERE id = %s
+            """, (nro, fcomp, frec, importe, pct, imp_pp, descuento,
+                  fecha_pago, pago_id_nuevo, factura_id))
+
+            # Si la factura cambió de grupo y el grupo viejo quedó vacío, borrarlo
+            if pago_id_viejo != pago_id_nuevo:
+                quedan = query_one(
+                    "SELECT COUNT(*) AS c FROM cannon_facturas WHERE pago_id = %s",
+                    (pago_id_viejo,)
+                )
+                if quedan and quedan['c'] == 0:
+                    execute_db("DELETE FROM cannon_pagos WHERE id = %s", (pago_id_viejo,))
+
+            return jsonify({'ok': True, 'fecha_pago': fecha_pago,
+                            'importe_pp': imp_pp, 'descuento': descuento})
+
         elif accion == 'eliminar_factura':
             execute_db("DELETE FROM cannon_facturas WHERE id = %s", (data['id'],))
 

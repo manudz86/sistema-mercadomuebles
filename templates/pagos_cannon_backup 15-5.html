@@ -120,17 +120,6 @@
               <td class="text-end text-success small">${{ "{:,.0f}".format(fc.descuento_pp_monto).replace(",", ".") }}</td>
               <td class="text-center">
                 <div class="d-flex gap-1 justify-content-center">
-                  <button class="btn btn-xs btn-outline-primary"
-                          data-fc-id="{{ fc.id }}"
-                          data-fc-nro="{{ fc.nro_comprobante }}"
-                          data-fc-fcomp="{{ fc.fecha_comprobante.isoformat() if fc.fecha_comprobante else '' }}"
-                          data-fc-frec="{{ fc.fecha_recepcion.isoformat() if fc.fecha_recepcion else '' }}"
-                          data-fc-imp="{{ fc.importe_total }}"
-                          data-fc-pct="{{ fc.descuento_pp_pct }}"
-                          onclick="abrirModalEditar(this)"
-                          title="Editar">
-                    <i class="bi bi-pencil"></i>
-                  </button>
                   {% if not fc.tiene_error %}
                   <button class="btn btn-xs btn-outline-warning"
                           onclick="abrirModalReclamo({{ fc.id }}, '{{ fc.nro_comprobante }}')"
@@ -282,77 +271,6 @@
   </div>
 </div>
 
-<!-- Modal Editar Factura -->
-<div class="modal fade" id="modalEditarFactura" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header py-2">
-        <h6 class="modal-title"><i class="bi bi-pencil me-1"></i>Editar Factura Cannon</h6>
-        <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <input type="hidden" id="edit_id">
-        <div class="row g-3">
-          <div class="col-12">
-            <label class="form-label small">Nro Comprobante</label>
-            <input type="text" class="form-control form-control-sm" id="edit_nro"
-                   placeholder="0075A00089648" style="font-family:monospace">
-          </div>
-          <div class="col-6">
-            <label class="form-label small">Fecha Comprobante</label>
-            <input type="date" class="form-control form-control-sm" id="edit_fecha_comprobante">
-          </div>
-          <div class="col-6">
-            <label class="form-label small">Fecha Recepción</label>
-            <input type="date" class="form-control form-control-sm" id="edit_fecha_recepcion"
-                   oninput="calcularPreviewEdit()">
-          </div>
-          <div class="col-6">
-            <label class="form-label small">Importe Total</label>
-            <div class="input-group input-group-sm">
-              <span class="input-group-text">$</span>
-              <input type="number" class="form-control" id="edit_importe" step="0.01"
-                     oninput="calcularPreviewEdit()">
-            </div>
-          </div>
-          <div class="col-6">
-            <label class="form-label small">% Pronto Pago</label>
-            <div class="input-group input-group-sm">
-              <input type="number" class="form-control" id="edit_pp_pct" step="0.01" min="0" max="100"
-                     oninput="calcularPreviewEdit()">
-              <span class="input-group-text">%</span>
-            </div>
-          </div>
-        </div>
-        <!-- Preview -->
-        <div class="mt-3 p-2 bg-light rounded border" id="edit_preview" style="display:none;font-size:.85rem">
-          <div class="row text-center">
-            <div class="col-4">
-              <div class="text-muted small">Fecha de pago</div>
-              <strong id="edit_prev_fecha_pago">—</strong>
-            </div>
-            <div class="col-4">
-              <div class="text-muted small">Importe con PP</div>
-              <strong class="text-success" id="edit_prev_importe_pp">—</strong>
-            </div>
-            <div class="col-4">
-              <div class="text-muted small">Descuento PP</div>
-              <strong class="text-primary" id="edit_prev_descuento">—</strong>
-            </div>
-          </div>
-        </div>
-        <div class="mt-2 small text-muted">
-          <i class="bi bi-info-circle me-1"></i>Si cambiás la fecha de recepción, la factura se moverá al grupo de pago correspondiente.
-        </div>
-      </div>
-      <div class="modal-footer py-2">
-        <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button class="btn btn-sm btn-primary" onclick="guardarFacturaEditada()">Guardar cambios</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <!-- Modal Marcar Pagado -->
 <div class="modal fade" id="modalPago" tabindex="-1">
   <div class="modal-dialog modal-sm">
@@ -495,58 +413,6 @@ async function guardarFactura() {
     importe_total:parseFloat(importe), descuento_pp_pct:parseFloat(pct), notas });
   if (!res.ok) { alert('Error: ' + res.error); return; }
   bootstrap.Modal.getInstance(document.getElementById('modalNuevaFactura')).hide();
-  location.reload();
-}
-
-// ── Editar factura ──────────────────────────────────────────────
-const _mEditar = new bootstrap.Modal(document.getElementById('modalEditarFactura'));
-function abrirModalEditar(btn) {
-  document.getElementById('edit_id').value                = btn.dataset.fcId;
-  document.getElementById('edit_nro').value               = btn.dataset.fcNro;
-  document.getElementById('edit_fecha_comprobante').value = btn.dataset.fcFcomp;
-  document.getElementById('edit_fecha_recepcion').value   = btn.dataset.fcFrec;
-  document.getElementById('edit_importe').value           = btn.dataset.fcImp;
-  document.getElementById('edit_pp_pct').value            = btn.dataset.fcPct;
-  calcularPreviewEdit();
-  _mEditar.show();
-}
-function calcularPreviewEdit() {
-  const importe = parseFloat(document.getElementById('edit_importe').value);
-  const pct     = parseFloat(document.getElementById('edit_pp_pct').value) || 5;
-  const recep   = document.getElementById('edit_fecha_recepcion').value;
-  const prev    = document.getElementById('edit_preview');
-
-  if (!importe || !recep) { prev.style.display = 'none'; return; }
-
-  const divisor  = 1 + pct / 100;
-  const imp_pp   = Math.round(importe / divisor);
-  const descuento = Math.round(importe) - imp_pp;
-
-  const d = new Date(recep + 'T00:00:00');
-  d.setDate(d.getDate() + 6);
-  const fecha_pago = d.toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit', year:'numeric'});
-
-  document.getElementById('edit_prev_fecha_pago').textContent = fecha_pago;
-  document.getElementById('edit_prev_importe_pp').textContent = '$' + imp_pp.toLocaleString('es-AR');
-  document.getElementById('edit_prev_descuento').textContent  = '$' + descuento.toLocaleString('es-AR');
-  prev.style.display = 'block';
-}
-async function guardarFacturaEditada() {
-  const id     = +document.getElementById('edit_id').value;
-  const nro    = document.getElementById('edit_nro').value.trim();
-  const fcomp  = document.getElementById('edit_fecha_comprobante').value;
-  const frecep = document.getElementById('edit_fecha_recepcion').value;
-  const importe= document.getElementById('edit_importe').value;
-  const pct    = document.getElementById('edit_pp_pct').value || 5;
-
-  if (!nro || !fcomp || !frecep || !importe) {
-    alert('Completá todos los campos obligatorios'); return;
-  }
-  const res = await api({ accion:'editar_factura', factura_id:id,
-    nro_comprobante:nro, fecha_comprobante:fcomp, fecha_recepcion:frecep,
-    importe_total:parseFloat(importe), descuento_pp_pct:parseFloat(pct) });
-  if (!res.ok) { alert('Error: ' + res.error); return; }
-  _mEditar.hide();
   location.reload();
 }
 
