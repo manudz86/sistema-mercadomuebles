@@ -11177,9 +11177,6 @@ def pagos_cannon():
     tab = request.args.get('tab', 'pendientes')
 
     # Facturas pendientes de pago (agrupadas por pago_id — varios grupos pueden compartir fecha)
-    # Orden:
-    #   1) NO abonados primero, ordenados por fecha_pago ASC (más próximo arriba)
-    #   2) Abonados después, ordenados por fecha_abono DESC (más reciente arriba)
     grupos_pendientes = query_db("""
         SELECT
             f.fecha_pago,
@@ -11196,11 +11193,7 @@ def pagos_cannon():
         FROM cannon_facturas f
         JOIN cannon_pagos p ON p.id = f.pago_id
         GROUP BY p.id, f.fecha_pago
-        ORDER BY
-            CASE WHEN (p.monto_abonado IS NULL OR p.monto_abonado = 0) THEN 0 ELSE 1 END ASC,
-            CASE WHEN (p.monto_abonado IS NULL OR p.monto_abonado = 0) THEN f.fecha_pago ELSE NULL END ASC,
-            CASE WHEN (p.monto_abonado IS NOT NULL AND p.monto_abonado > 0) THEN p.fecha_abono ELSE NULL END DESC,
-            p.id ASC
+        ORDER BY f.fecha_pago ASC, p.id ASC
     """)
 
     # Detalle de facturas por grupo (indexado por pago_id)
