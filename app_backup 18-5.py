@@ -1509,12 +1509,6 @@ metodo_pago, importe_total, importe_abonado,
             else:
                 venta['hora_venta_str'] = ''
         
-        # Total de productos (sin flete) de las ventas mostradas - respeta filtros activos
-        total_productos_sin_envio = sum(
-            float(v.get('importe_total') or 0) - float(v.get('costo_flete') or 0)
-            for v in ventas
-        )
-        
         # Leer estado auto-import
         try:
             row_ai = query_db("SELECT valor FROM configuracion WHERE clave = 'auto_import_activo' LIMIT 1")
@@ -1531,8 +1525,7 @@ metodo_pago, importe_total, importe_abonado,
                              filtro_canal=filtro_canal,
                              filtro_estado_pago=filtro_estado_pago,
                              hora_corte_colecta=session.get('hora_corte_colecta', '14:00'),
-                             auto_import_activo=auto_import_activo,
-                             total_productos_sin_envio=total_productos_sin_envio)
+                             auto_import_activo=auto_import_activo)
         
     except Exception as e:
         flash(f'Error al cargar ventas activas: {str(e)}', 'error')
