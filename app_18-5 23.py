@@ -15639,7 +15639,7 @@ def costos_importar():
             import io
             from openpyxl import load_workbook
             from datetime import date as _date
-            wb = load_workbook(io.BytesIO(archivo.read()), read_only=True, data_only=True)
+            wb = load_workbook(io.BytesIO(archivo.read()), read_only=True)
             ws = wb.active
             vigencia_str = request.form.get('vigencia', '')
             try:
@@ -15650,7 +15650,7 @@ def costos_importar():
             insertados = 0
             for row in ws.iter_rows(values_only=True):
                 codigo = row[0]
-                precio = row[4] if tipo == 'almohadas' else row[2]  # Almohadas: col E (Con PP) | Lista: col C (Importe)
+                precio = row[2]  # Columna C = Importe
                 if not codigo or not isinstance(codigo, (int, float)):
                     continue
                 if not precio or not isinstance(precio, (int, float)):
