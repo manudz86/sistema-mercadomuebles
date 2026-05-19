@@ -8847,68 +8847,6 @@ def cambiar_envio_flex(mla_id):
 
 
 # ============================================================================
-# RUTA: Cambiar tipo de envío a ME1 (Zippin)
-# ============================================================================
-@app.route('/ml/cambiar-envio-me1/<mla_id>', methods=['POST'])
-@login_required
-def cambiar_envio_me1(mla_id):
-    """
-    Cambia una publicación a ME1 (logistic_type default).
-    Solo funciona desde ME2 self_service (Flex). Desde cross_docking (Colecta) ML acepta el PUT
-    con HTTP 200 pero no aplica el cambio. Verificamos post-PUT y avisamos si quedó igual.
-    Devuelve JSON: { ok, envio_tipo, envio_bg, envio_fg, envio_mode, envio_logistic_type, warning?, error? }
-    """
-    access_token = cargar_ml_token()
-    if not access_token:
-        return jsonify({'ok': False, 'error': 'No hay token de ML configurado'}), 400
-
-    try:
-        r = ml_request('put',
-            f'https://api.mercadolibre.com/items/{mla_id}',
-            access_token,
-            json_data={'shipping': {'mode': 'me1', 'logistic_type': 'default'}})
-
-        if r.status_code != 200:
-            try:
-                err = r.json()
-                msg = err.get('message') or err.get('error') or str(err)
-            except Exception:
-                msg = (r.text or '')[:300]
-            return jsonify({
-                'ok': False,
-                'error': f'ML rechazó el cambio (HTTP {r.status_code}): {msg}'
-            }), 400
-
-        data = r.json()
-        shipping = data.get('shipping') or {}
-        envio_tipo, envio_bg, envio_fg = _envio_label(shipping)
-        tags = shipping.get('tags') or []
-
-        # Verificar que el cambio se haya aplicado efectivamente
-        # ML a veces devuelve 200 pero deja la publi en me2 (típicamente publis de catálogo o con Colecta)
-        if shipping.get('mode') != 'me1':
-            return jsonify({
-                'ok': False,
-                'error': f'ML aceptó el PUT pero NO aplicó el cambio. Sigue en {shipping.get("mode")}/{shipping.get("logistic_type")}. '
-                         f'Esto suele pasar en publis de catálogo o con Colecta activa simultáneamente. '
-                         f'Hay que cambiarlo desde el panel de ML.'
-            }), 400
-
-        return jsonify({
-            'ok': True,
-            'envio_tipo':          envio_tipo,
-            'envio_bg':            envio_bg,
-            'envio_fg':            envio_fg,
-            'envio_mode':          shipping.get('mode'),
-            'envio_logistic_type': shipping.get('logistic_type'),
-            'tags':                tags,
-            'warning':             None,
-        })
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
-
-
-# ============================================================================
 # RUTA: Faltantes de catálogo ML (colchones)
 # ============================================================================
 def _faltantes_catalogo_guardar_cache(resultados, total_skus, diag=None):

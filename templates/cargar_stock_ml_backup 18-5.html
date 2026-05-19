@@ -359,13 +359,6 @@
                                                     title="Pasar esta publicación a Flex (ME2 self_service)">
                                                 <i class="bi bi-arrow-right-circle"></i> FLEX
                                             </button>
-                                        {% elif pub.envio_mode == 'me2' and pub.envio_logistic_type == 'self_service' %}
-                                            <button type="button" class="btn btn-sm btn-outline-dark py-0 px-1 ms-1 btn-pasar-me1"
-                                                    style="font-size:.6rem; line-height:1.2;"
-                                                    data-mla="{{ pub.mla }}"
-                                                    title="Pasar esta publicación a ME1 (Zippin)">
-                                                <i class="bi bi-arrow-left-circle"></i> ME1
-                                            </button>
                                         {% endif %}
                                     </span>
                                 {% endif %}
@@ -1144,58 +1137,6 @@ document.addEventListener('click', async function(e) {
             badge.innerHTML = '<i class="bi bi-truck"></i> ' + (data.envio_tipo || 'FLEX');
         }
         // Sacar el botón (ya está en Flex)
-        btn.remove();
-
-        if (data.warning) {
-            alert('⚠️ ' + data.warning);
-        }
-    } catch (err) {
-        alert('❌ Error de red: ' + err.message);
-        btn.disabled = false;
-        btn.innerHTML = original;
-    }
-});
-
-// ── Botón "Pasar a ME1" (solo aparece en publis Flex) ────────────────────────
-document.addEventListener('click', async function(e) {
-    const btn = e.target.closest('.btn-pasar-me1');
-    if (!btn) return;
-
-    const mla = btn.dataset.mla;
-    if (!mla) return;
-
-    if (!confirm(`¿Pasar la publicación ${mla} a ME1 (Zippin)?\n\nEsto reemplaza el envío actual Flex. El cliente vuelve a pagar el envío y se desactiva el envío gratis obligatorio.\n\nNota: si la publi también tiene Colecta activa, ML puede ignorar el cambio.`)) {
-        return;
-    }
-
-    const wrap   = btn.closest('.envio-wrap');
-    const badge  = wrap ? wrap.querySelector('.envio-badge') : null;
-    const original = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem;"></span>';
-
-    try {
-        const res = await fetch(`/ml/cambiar-envio-me1/${mla}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        const data = await res.json();
-
-        if (!data.ok) {
-            alert('❌ No se pudo cambiar a ME1:\n\n' + (data.error || 'Error desconocido'));
-            btn.disabled = false;
-            btn.innerHTML = original;
-            return;
-        }
-
-        // Actualizar el badge in-place
-        if (badge) {
-            badge.style.background = data.envio_bg || '#343a40';
-            badge.style.color = data.envio_fg || '#ffffff';
-            badge.setAttribute('title', `mode: ${data.envio_mode} / logistic_type: ${data.envio_logistic_type}`);
-            badge.innerHTML = '<i class="bi bi-truck"></i> ' + (data.envio_tipo || 'ME1');
-        }
-        // Sacar el botón (ya está en ME1)
         btn.remove();
 
         if (data.warning) {
