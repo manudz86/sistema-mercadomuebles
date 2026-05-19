@@ -8866,7 +8866,7 @@ def cambiar_envio_me1(mla_id):
         r = ml_request('put',
             f'https://api.mercadolibre.com/items/{mla_id}',
             access_token,
-            json_data={'shipping': {'mode': 'me1', 'logistic_type': 'default'}})
+            json_data={'shipping': {'mode': 'me1', 'logistic_type': 'default', 'local_pick_up': True}})
 
         if r.status_code != 200:
             try:

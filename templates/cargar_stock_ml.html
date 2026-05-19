@@ -1164,7 +1164,7 @@ document.addEventListener('click', async function(e) {
     const mla = btn.dataset.mla;
     if (!mla) return;
 
-    if (!confirm(`¿Pasar la publicación ${mla} a ME1 (Zippin)?\n\nEsto reemplaza el envío actual Flex. El cliente vuelve a pagar el envío y se desactiva el envío gratis obligatorio.\n\nNota: si la publi también tiene Colecta activa, ML puede ignorar el cambio.`)) {
+    if (!confirm(`¿Pasar la publicación ${mla} a ME1 (Zippin)?\n\nEsto reemplaza el envío actual Flex. El cliente vuelve a pagar el envío, se desactiva el envío gratis obligatorio y se HABILITA el retiro por el local.\n\nNota: si la publi también tiene Colecta activa, ML puede ignorar el cambio.`)) {
         return;
     }
 
