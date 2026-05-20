@@ -5343,7 +5343,6 @@ def escanear_remito():
             json={
                 'model': 'claude-opus-4-7',
                 'max_tokens': 4000,
-                'temperature': 0,
                 'messages': [{'role': 'user', 'content': content}]
             },
             timeout=120
