@@ -5300,19 +5300,36 @@ def escanear_remito():
         content.append({
             "type": "text",
             "text": (
-                "Este es un remito de Cannon Colchones (puede tener varias hojas del mismo remito). "
-                "Extraé SOLO las líneas de productos reales de la sección 'Detalles de expedición'.\n\n"
-                "REGLA CLAVE: Cada posición tiene sub-líneas con distintos códigos de material:\n"
-                "- Código que empieza con '2': es el combo/posición general → IGNORAR\n"
-                "- Código que empieza con '1': es el producto real (colchón o sommier) → INCLUIR\n"
-                "- Código que empieza con '6': son patas o kits → IGNORAR\n\n"
-                "Para CADA línea válida (código empieza con '1'), extraé:\n"
-                "- codigo_material: el número completo de la columna Material\n"
-                "- descripcion: el texto de la columna Descripción de esa línea\n"
-                "- cantidad: el número entero de la columna 'Cantidad Total' de esa línea\n\n"
-                "Procesá TODAS las hojas si hay varias.\n"
-                "Respondé ÚNICAMENTE con un JSON array, sin texto adicional ni markdown:\n"
-                '[{"codigo_material":"11135980190080","descripcion":"COL EXCLUSIVE PTOP 190X080X29","cantidad":3}]'
+                "Sos un extractor de datos preciso. Analizá las imágenes adjuntas (pueden ser varias hojas del MISMO remito de Cannon Colchones).\n\n"
+                "ESTRUCTURA DEL REMITO:\n"
+                "La sección 'Detalles de expedición' tiene 5 columnas en este orden:\n"
+                "  1. Posición (ej: '000040')\n"
+                "  2. Material (código numérico de EXACTAMENTE 14 dígitos)\n"
+                "  3. Descripción (texto del producto)\n"
+                "  4. Cantidad Total (formato 'N UN', ej: '1 UN', '7 UN')\n"
+                "  5. Volumen (formato 'N,NNN M3', ej: '1,160 M3' o '0,000')\n\n"
+                "REGLA DE FILTRADO (mirá el código Material de cada línea):\n"
+                "- Empieza con '1' → INCLUIR (producto real: colchón o base de sommier)\n"
+                "- Empieza con '2' → IGNORAR (combo general)\n"
+                "- Empieza con '6' → IGNORAR (kit de patas)\n\n"
+                "CAMPOS A EXTRAER (por cada línea con código que empieza en '1'):\n"
+                "- codigo_material: código completo de 14 dígitos, exacto\n"
+                "- descripcion: texto EXACTO de la columna Descripción (NUNCA vacío)\n"
+                "- cantidad: número entero que aparece ANTES de 'UN' en la columna Cantidad Total\n\n"
+                "VERIFICACIONES CRÍTICAS - LEER CON ATENCIÓN:\n"
+                "* La cantidad SIEMPRE viene de la columna 'Cantidad Total' (sufijo 'UN').\n"
+                "  NUNCA tomes el valor de la columna 'Volumen' (sufijo 'M3').\n"
+                "* Si Cantidad Total dice '1 UN' → cantidad es 1 (NO 2, NO otro número).\n"
+                "* Si Cantidad Total dice '2 UN' → cantidad es 2.\n"
+                "* Si Cantidad Total dice '7 UN' → cantidad es 7.\n"
+                "* Distinguir bien dígitos parecidos: 1 vs 2, 0 vs 6, 8 vs 0.\n"
+                "* La descripción NUNCA debe quedar vacía. Si no la ves clara, releé.\n"
+                "* El código_material SIEMPRE debe tener 14 dígitos.\n\n"
+                "Procesá TODAS las hojas adjuntas en una sola respuesta.\n\n"
+                "RESPUESTA: SOLO JSON array. Sin markdown, sin explicaciones, sin texto adicional.\n"
+                "Ejemplo de formato exacto:\n"
+                '[{"codigo_material":"11135980200200","descripcion":"COL EXCLUSIVE PTOP 200X200X29","cantidad":1},'
+                '{"codigo_material":"11335080190140","descripcion":"SOM UNIF CHOCOLATE 190X140","cantidad":7}]'
             )
         })
 
@@ -5324,11 +5341,12 @@ def escanear_remito():
                 'content-type': 'application/json'
             },
             json={
-                'model': 'claude-sonnet-4-6',
-                'max_tokens': 3000,
+                'model': 'claude-opus-4-7',
+                'max_tokens': 4000,
+                'temperature': 0,
                 'messages': [{'role': 'user', 'content': content}]
             },
-            timeout=90
+            timeout=120
         )
 
         if not api_resp.ok:

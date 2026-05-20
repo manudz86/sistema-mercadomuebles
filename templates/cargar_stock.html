@@ -778,7 +778,7 @@ function mostrarResultadosRemito() {
         return '<tr id="filaRemito_' + idx + '" class="' + rowClass + '">' +
                '<td class="text-center">' + badgeHtml + '</td>' +
                '<td><code style="font-size:0.78rem">' + item.codigo_material + '</code></td>' +
-               '<td><small>' + item.descripcion_remito + '</small></td>' +
+               '<td><input type="text" class="form-control form-control-sm" id="descRemito_' + idx + '" value="' + (item.descripcion_remito || '').replace(/"/g, '&quot;') + '" style="font-size:0.8rem;"></td>' +
                '<td class="text-center"><input type="number" class="form-control form-control-sm text-center" ' +
                'id="cantRemito_' + idx + '" value="' + item.cantidad + '" min="1" style="width:70px;"></td>' +
                '<td>' + productoHtml + '</td>' +
@@ -802,6 +802,9 @@ async function guardarMapeoRemito(idx) {
     const sku = document.getElementById('skuAsignar_' + idx).value;
     if (!sku) return;
 
+    // Usar la descripción editada (puede haber sido corregida por el usuario)
+    const descripcionActual = (document.getElementById('descRemito_' + idx) || {}).value || item.descripcion_remito;
+
     const btn = document.getElementById('btnMapeo_' + idx);
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
@@ -810,7 +813,7 @@ async function guardarMapeoRemito(idx) {
         const resp = await fetch('/cargar-stock/registrar-mapeo-remito', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ codigo_material: item.codigo_material, sku: sku, descripcion: item.descripcion_remito })
+            body: JSON.stringify({ codigo_material: item.codigo_material, sku: sku, descripcion: descripcionActual })
         });
         const data = await resp.json();
 
