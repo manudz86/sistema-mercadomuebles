@@ -231,21 +231,34 @@
             <div class="modal-body">
                 <div id="escaneoUploadArea">
                     <p class="text-muted mb-3">
-                        Sacá fotos a cada hoja del remito y seleccionalas todas juntas.<br>
-                        La IA va a extraer automáticamente los productos y cantidades.
+                        Sacá una foto a cada hoja del remito usando el botón de cámara.
+                        Cuando estén todas, tocá <strong>Analizar con IA</strong>.
                     </p>
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">Imágenes del remito:</label>
-                        <input type="file" class="form-control" id="remitoImagenes"
-                               accept="image/*" multiple>
-                        <div class="form-text">Podés seleccionar varias fotos a la vez (ej: remito de 3 hojas = 3 fotos)</div>
+
+                    <!-- Inputs ocultos: uno para cámara (mobile), uno para galería (desktop/backup) -->
+                    <input type="file" id="remitoCaptura" accept="image/*" capture="environment" style="display:none;">
+                    <input type="file" id="remitoGaleria" accept="image/*" multiple style="display:none;">
+
+                    <!-- Botones de acción -->
+                    <div class="d-grid gap-2 mb-3">
+                        <button type="button" class="btn btn-outline-primary btn-lg" onclick="document.getElementById('remitoCaptura').click()">
+                            <i class="bi bi-camera-fill"></i> Sacar foto (cámara)
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('remitoGaleria').click()">
+                            <i class="bi bi-images"></i> Elegir desde galería
+                        </button>
                     </div>
-                    <div id="remitoPreviews" class="d-flex flex-wrap gap-2 mt-3"></div>
+
+                    <!-- Thumbnails de fotos acumuladas -->
+                    <div id="remitoPreviews" class="d-flex flex-wrap gap-2 mt-2" style="min-height:20px;"></div>
+                    <div id="remitoContador" class="text-muted mt-2" style="font-size:0.85rem;display:none;">
+                        <i class="bi bi-images"></i> <span id="remitoNumFotos">0</span> foto(s) lista(s)
+                    </div>
                 </div>
                 <div id="escaneoProcessing" style="display:none;" class="text-center py-5">
                     <div class="spinner-border text-primary mb-3" style="width:3rem;height:3rem;"></div>
                     <p class="fw-bold fs-5">Analizando remito con IA...</p>
-                    <small class="text-muted">Esto puede tardar unos segundos segun la cantidad de hojas</small>
+                    <small class="text-muted">Esto puede tardar unos segundos según la cantidad de hojas</small>
                 </div>
             </div>
             <div class="modal-footer" id="escaneoFooter">
@@ -630,44 +643,75 @@ function cerrarProgresoML() {
 // ============================================
 let resultadosRemito = [];
 
+// Array acumulativo de fotos del remito (mobile-friendly)
+let fotosRemito = [];
+
 function abrirEscaneoRemito() {
-    document.getElementById('remitoImagenes').value = '';
+    fotosRemito = [];
     document.getElementById('remitoPreviews').innerHTML = '';
+    document.getElementById('remitoContador').style.display = 'none';
     document.getElementById('btnProcesarRemito').disabled = true;
     document.getElementById('escaneoUploadArea').style.display = 'block';
     document.getElementById('escaneoProcessing').style.display = 'none';
     document.getElementById('escaneoFooter').style.display = 'flex';
+    // Limpiar inputs para que disparen change aunque se elija el mismo archivo
+    document.getElementById('remitoCaptura').value = '';
+    document.getElementById('remitoGaleria').value = '';
     new bootstrap.Modal(document.getElementById('modalEscanearRemito')).show();
 }
 
+function agregarFotosRemito(files) {
+    Array.from(files).forEach(function(f) {
+        const idx = fotosRemito.length;
+        fotosRemito.push(f);
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const div = document.createElement('div');
+            div.className = 'text-center position-relative';
+            div.id = 'thumbRemito_' + idx;
+            div.style.cssText = 'width:80px;';
+            div.innerHTML =
+                '<img src="' + e.target.result + '" style="height:100px;width:75px;object-fit:cover;' +
+                'border:2px solid #dee2e6;border-radius:6px;">' +
+                '<button type="button" onclick="quitarFotoRemito(' + idx + ')" ' +
+                'style="position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;' +
+                'border:none;background:#dc3545;color:white;font-size:12px;line-height:1;cursor:pointer;">✕</button>' +
+                '<br><small class="text-muted" style="font-size:0.7rem;">Hoja ' + (idx + 1) + '</small>';
+            document.getElementById('remitoPreviews').appendChild(div);
+        };
+        reader.readAsDataURL(f);
+    });
+    actualizarEstadoFotos();
+}
+
+function quitarFotoRemito(idx) {
+    fotosRemito.splice(idx, 1);
+    // Re-renderizar todos los thumbnails
+    const previews = document.getElementById('remitoPreviews');
+    previews.innerHTML = '';
+    const copiaFotos = fotosRemito.slice();
+    fotosRemito = [];
+    agregarFotosRemito(copiaFotos);
+}
+
+function actualizarEstadoFotos() {
+    const n = fotosRemito.length;
+    document.getElementById('btnProcesarRemito').disabled = n === 0;
+    document.getElementById('remitoContador').style.display = n > 0 ? 'block' : 'none';
+    document.getElementById('remitoNumFotos').textContent = n;
+}
+
 document.addEventListener('DOMContentLoaded', function() {
-    document.getElementById('remitoImagenes').addEventListener('change', function() {
-        const files = Array.from(this.files);
-        const previews = document.getElementById('remitoPreviews');
-        previews.innerHTML = '';
-        if (files.length > 0) {
-            document.getElementById('btnProcesarRemito').disabled = false;
-            files.forEach(function(f, i) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const div = document.createElement('div');
-                    div.className = 'text-center';
-                    div.innerHTML =
-                        '<img src="' + e.target.result + '" style="height:110px;width:85px;object-fit:cover;border:2px solid #dee2e6;border-radius:6px;">' +
-                        '<br><small class="text-muted">Hoja ' + (i + 1) + '</small>';
-                    previews.appendChild(div);
-                };
-                reader.readAsDataURL(f);
-            });
-        } else {
-            document.getElementById('btnProcesarRemito').disabled = true;
-        }
+    document.getElementById('remitoCaptura').addEventListener('change', function() {
+        if (this.files.length) { agregarFotosRemito(this.files); this.value = ''; }
+    });
+    document.getElementById('remitoGaleria').addEventListener('change', function() {
+        if (this.files.length) { agregarFotosRemito(this.files); this.value = ''; }
     });
 });
 
 async function procesarRemito() {
-    const input = document.getElementById('remitoImagenes');
-    if (!input.files.length) return;
+    if (!fotosRemito.length) return;
 
     document.getElementById('escaneoUploadArea').style.display = 'none';
     document.getElementById('escaneoProcessing').style.display = 'block';
@@ -675,7 +719,7 @@ async function procesarRemito() {
 
     try {
         const formData = new FormData();
-        Array.from(input.files).forEach(function(f) { formData.append('imagenes', f); });
+        fotosRemito.forEach(function(f) { formData.append('imagenes', f); });
 
         const resp = await fetch('/cargar-stock/escanear-remito', { method: 'POST', body: formData });
         const data = await resp.json();
