@@ -325,18 +325,7 @@
                             </td>
                             {% endif %}
                             <td class="text-center">
-                                {% if pub.promo_active %}
-                                    <div class="fw-bold" style="color:#dc3545; font-size:.95rem; line-height:1.1;">
-                                        ${{ "{:,.0f}".format(pub.promo_price) }}
-                                    </div>
-                                    <div style="text-decoration:line-through; color:#6c757d; font-size:.72rem; line-height:1;">
-                                        ${{ "{:,.0f}".format(pub.regular_price) }}
-                                    </div>
-                                    <span class="badge bg-danger mt-1" style="font-size:.55rem;"
-                                          title="Promo vigente hasta {{ pub.promo_end }}">
-                                        <i class="bi bi-tag-fill"></i> PROMO
-                                    </span>
-                                {% elif pub.precio %}
+                                {% if pub.precio %}
                                     <span class="fw-bold text-muted" style="font-size:.9rem">
                                         ${{ "{:,.0f}".format(pub.precio) }}
                                     </span>
@@ -520,28 +509,10 @@
                     </div>
                     <div class="card-body py-2 px-3">
                         <div class="mb-1" style="font-size:0.82rem;">{{ pub.titulo }}</div>
-                        <div class="d-flex gap-2 flex-wrap mb-2 align-items-center" style="font-size:0.8rem;">
+                        <div class="d-flex gap-3 mb-2" style="font-size:0.8rem;">
                             <span><strong>Stock:</strong> {{ pub.stock_actual }}</span>
-                            {% if pub.promo_active %}
-                                <span>
-                                    <strong>Precio:</strong>
-                                    <span style="color:#dc3545; font-weight:bold;">${{ "{:,.0f}".format(pub.promo_price) }}</span>
-                                    <span style="text-decoration:line-through; color:#6c757d; font-size:.7rem;">${{ "{:,.0f}".format(pub.regular_price) }}</span>
-                                    <span class="badge bg-danger" style="font-size:.55rem;" title="Promo hasta {{ pub.promo_end }}">PROMO</span>
-                                </span>
-                            {% elif pub.precio %}<span><strong>Precio:</strong> ${{ "{:,.0f}".format(pub.precio) }}</span>{% endif %}
-                            {% if pub.catalog_listing %}
-                                <span class="badge" style="font-size:0.63rem; background:#fff3cd; color:#856404; border:1px solid #ffc107;">
-                                    <i class="bi bi-bookmark-star-fill"></i> CATÁLOGO
-                                </span>
-                            {% endif %}
+                            {% if pub.precio %}<span><strong>Precio:</strong> ${{ "{:,.0f}".format(pub.precio) }}</span>{% endif %}
                             {% if pub.listing_type %}<span class="badge" style="background:#e8f0fe;color:#1a56db;font-size:0.7rem;">{{ pub.listing_type }}</span>{% endif %}
-                            {% if pub.envio_tipo %}
-                                <span class="badge" style="font-size:0.65rem; background:{{ pub.envio_bg }}; color:{{ pub.envio_fg }};"
-                                      title="mode: {{ pub.envio_mode }} / logistic_type: {{ pub.envio_logistic_type }}">
-                                    <i class="bi bi-truck"></i> {{ pub.envio_tipo }}
-                                </span>
-                            {% endif %}
                             {% if es_sku_con_z and pub.demora %}
                                 <span class="badge bg-warning text-dark"><i class="bi bi-clock"></i> {{ pub.demora }}</span>
                             {% endif %}

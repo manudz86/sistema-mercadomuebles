@@ -8503,59 +8503,6 @@ def _envio_label(shipping):
     return (str(mode or '—'), '#e9ecef', '#495057')
 
 
-def obtener_promos_ml(mla_ids, access_token, max_workers=5):
-    """
-    Consulta /items/{mla_id}/prices para cada MLA en paralelo y devuelve SOLO los
-    items que tengan promo de tipo 'promotion' vigente (validando start_time/end_time).
-    Devuelve dict: { mla_id: {promo_active, promo_price, regular_price, promo_end} }
-    Los items SIN promo activa no aparecen en el dict.
-    """
-    if not mla_ids:
-        return {}
-
-    from concurrent.futures import ThreadPoolExecutor
-    from datetime import datetime, timezone
-
-    now_iso = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-
-    def _fetch_one(mla_id):
-        try:
-            r = ml_request('get',
-                f'https://api.mercadolibre.com/items/{mla_id}/prices',
-                access_token)
-            if r.status_code != 200:
-                return mla_id, None
-            data = r.json()
-            for p in data.get('prices') or []:
-                if p.get('type') != 'promotion':
-                    continue
-                cond = p.get('conditions') or {}
-                start = cond.get('start_time')
-                end = cond.get('end_time')
-                # Validar vigencia
-                if start and now_iso < start:
-                    continue
-                if end and now_iso > end:
-                    continue
-                return mla_id, {
-                    'promo_active':  True,
-                    'promo_price':   p.get('amount'),
-                    'regular_price': p.get('regular_amount'),
-                    'promo_end':     end,
-                }
-            return mla_id, None
-        except Exception as e:
-            print(f"[obtener_promos_ml] Error con {mla_id}: {e}")
-            return mla_id, None
-
-    resultado = {}
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for mla_id, promo in executor.map(_fetch_one, mla_ids):
-            if promo:
-                resultado[mla_id] = promo
-    return resultado
-
-
 def obtener_datos_ml_batch(mla_ids, access_token):
     """
     Consulta datos de múltiples publicaciones ML en chunks de 20 (límite de la API).
@@ -8783,8 +8730,6 @@ def buscar_sku_ml():
 
     datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
     permalinks = obtener_permalinks_ml(mla_ids, access_token)
-    # Consultar promos vigentes en paralelo (solo devuelve los MLAs con promo activa)
-    promos_batch = obtener_promos_ml(mla_ids, access_token)
     publicaciones = []
     for mla_id in mla_ids:
         datos_ml = datos_batch.get(mla_id, {
@@ -8792,7 +8737,6 @@ def buscar_sku_ml():
             'demora': None, 'precio': None, 'listing_type': None, 'status_raw': 'unknown'
         })
         status_ml = datos_ml.get('status', 'unknown')
-        promo = promos_batch.get(mla_id, {})
         publicaciones.append({
             'mla':                 mla_id,
             'titulo':              datos_ml['titulo'],
@@ -8811,10 +8755,6 @@ def buscar_sku_ml():
             'envio_fg':            datos_ml.get('envio_fg'),
             'envio_mode':          datos_ml.get('envio_mode'),
             'envio_logistic_type': datos_ml.get('envio_logistic_type'),
-            'promo_active':        promo.get('promo_active', False),
-            'promo_price':         promo.get('promo_price'),
-            'regular_price':       promo.get('regular_price'),
-            'promo_end':           promo.get('promo_end'),
         })
 
     # Ordenar por tipo de publicación
