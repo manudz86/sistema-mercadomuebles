@@ -189,8 +189,12 @@ def render_table(cur, table):
             values = get_distinct_values(cur, table, c['Field'], MAX_DISTINCT_FOR_ENUM)
             if not values:
                 continue
-            # Si todos los valores aparecen solo 1 vez, no es un enum: son IDs únicos
-            if len(values) > 1 and all(v['c'] == 1 for v in values):
+            # Si todos los valores aparecen solo 1 vez, no es un enum: son IDs únicos.
+            # Excepción: si MySQL ya lo declaró como enum nativo, siempre se muestra.
+            is_native_enum = c['Type'].lower().startswith('enum(')
+            if (not is_native_enum
+                    and len(values) > 1
+                    and all(v['c'] == 1 for v in values)):
                 continue
             val_strs = [f"`{format_val(v['v'])}` ({v['c']:,})" for v in values]
             enum_lines.append(f"- **`{c['Field']}`** → {', '.join(val_strs)}")
