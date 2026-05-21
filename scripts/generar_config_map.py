@@ -62,7 +62,10 @@ def load_env_file(path='.env'):
             os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
-load_env_file()
+# Carga primero config/.env (donde lo guarda este proyecto), luego .env (raíz)
+# como fallback. setdefault hace que el primero gane.
+load_env_file('config/.env')
+load_env_file('.env')
 
 DB_HOST = os.environ.get('DB_HOST', DEFAULT_DB_HOST)
 DB_USER = os.environ.get('DB_USER', DEFAULT_DB_USER)
