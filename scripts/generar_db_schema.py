@@ -52,6 +52,9 @@ SKIP_COLUMN_KEYWORDS = (
     'email', 'telefono', 'direccion', 'domicilio',
     'nota', 'comentario', 'observacion', 'descripcion',
     'json', 'payload', 'response', 'url', 'link',
+    # IDs / identificadores únicos (no son enums reales)
+    'sku', 'nombre', 'cliente', 'filename', 'username',
+    'codigo', 'numero', 'nro', 'clave', 'titulo', 'permalink',
 )
 
 # Tipos de columna que NO se analizan (texto largo, blobs, números)
@@ -185,6 +188,9 @@ def render_table(cur, table):
                 continue
             values = get_distinct_values(cur, table, c['Field'], MAX_DISTINCT_FOR_ENUM)
             if not values:
+                continue
+            # Si todos los valores aparecen solo 1 vez, no es un enum: son IDs únicos
+            if len(values) > 1 and all(v['c'] == 1 for v in values):
                 continue
             val_strs = [f"`{format_val(v['v'])}` ({v['c']:,})" for v in values]
             enum_lines.append(f"- **`{c['Field']}`** → {', '.join(val_strs)}")
