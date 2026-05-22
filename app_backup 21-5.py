@@ -11413,7 +11413,7 @@ def _crear_tablas_pagos_cannon():
             fecha_comprobante   DATE NOT NULL,
             fecha_recepcion     DATE NOT NULL,
             importe_total       DECIMAL(14,2) NOT NULL,
-            descuento_pp_pct    DECIMAL(5,2) NOT NULL DEFAULT 4.00,
+            descuento_pp_pct    DECIMAL(5,2) NOT NULL DEFAULT 5.00,
             importe_pp          INT NOT NULL,
             descuento_pp_monto  INT NOT NULL,
             fecha_pago          DATE NOT NULL,
@@ -11560,7 +11560,7 @@ def pagos_cannon_guardar():
     try:
         if accion == 'nueva_factura':
             importe   = float(data['importe_total'])
-            pct       = float(data.get('descuento_pp_pct', 4))
+            pct       = float(data.get('descuento_pp_pct', 5))
             fecha_rec = data['fecha_recepcion']
             # fecha_pago = recepcion + 6 días corridos
             from datetime import datetime
@@ -11608,7 +11608,7 @@ def pagos_cannon_guardar():
             fcomp      = data['fecha_comprobante']
             frec       = data['fecha_recepcion']
             importe    = float(data['importe_total'])
-            pct        = float(data.get('descuento_pp_pct', 4))
+            pct        = float(data.get('descuento_pp_pct', 5))
 
             # Verificar duplicado de nro (excluyendo la propia factura)
             existe = query_one(
@@ -11706,118 +11706,6 @@ def pagos_cannon_guardar():
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
     return jsonify({'ok': True})
-
-
-@app.route('/pagos-cannon/escanear-factura', methods=['POST'])
-@login_required
-@admin_required
-def escanear_factura_cannon():
-    """Extrae nro de comprobante, fecha de emisión e importe total de un PDF de factura Cannon."""
-    import base64
-    from datetime import datetime
-
-    archivo = request.files.get('pdf')
-    if not archivo:
-        return jsonify({'ok': False, 'error': 'No se recibió ningún PDF'}), 400
-
-    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
-    if not ANTHROPIC_API_KEY:
-        return jsonify({'ok': False, 'error': 'ANTHROPIC_API_KEY no configurada en el servidor'}), 500
-
-    try:
-        pdf_bytes = archivo.read()
-        pdf_b64 = base64.b64encode(pdf_bytes).decode('utf-8')
-
-        content = [
-            {
-                "type": "document",
-                "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_b64}
-            },
-            {
-                "type": "text",
-                "text": (
-                    "Esta es una factura de Cannon (G.P.V S.A.). Extraé EXACTAMENTE estos 3 datos:\n\n"
-                    "1. nro_comprobante: el número de factura. Aparece en el encabezado como "
-                    "'N° 0075-00091472'. Devolvelo SIN el 'N°', SIN espacios, CON el guión. "
-                    "Formato: '0075-00091472'.\n\n"
-                    "2. fecha_comprobante: la fecha de emisión, aparece como 'FECHA: 20.05.2026' "
-                    "en el encabezado. Devolvela en formato ISO YYYY-MM-DD (ej: '2026-05-20').\n\n"
-                    "3. importe_total: el TOTAL FINAL de la factura. Es la ÚLTIMA línea del cuadro "
-                    "de totales/impuestos al final del documento. Ese cuadro tiene Subtotal, Descuentos, "
-                    "Descuento adicional, Base p/impuestos, IVA, Percepción IVA, Per.IIBB CABA, "
-                    "Per.IIBB Bs As, Per.IIBB Sta. Fe, y al final 'Total'. Tomá el monto de esa última línea "
-                    "'Total'. Si el cuadro está cortado entre páginas, está en la última hoja. "
-                    "Devolvelo como número decimal con PUNTO como separador decimal y SIN separador de miles. "
-                    "Ej: 26265986.67 (NO uses '26.265.986,67').\n\n"
-                    "RESPUESTA: SOLO JSON, sin markdown ni texto adicional.\n"
-                    'Formato exacto: {"nro_comprobante":"0075-00091472","fecha_comprobante":"2026-05-20","importe_total":26265986.67}'
-                )
-            }
-        ]
-
-        api_resp = requests.post(
-            'https://api.anthropic.com/v1/messages',
-            headers={
-                'x-api-key': ANTHROPIC_API_KEY,
-                'anthropic-version': '2023-06-01',
-                'content-type': 'application/json'
-            },
-            json={
-                'model': 'claude-opus-4-7',
-                'max_tokens': 500,
-                'messages': [{'role': 'user', 'content': content}]
-            },
-            timeout=90
-        )
-
-        if not api_resp.ok:
-            return jsonify({'ok': False, 'error': f'Error API Anthropic: {api_resp.status_code} - {api_resp.text[:200]}'}), 500
-
-        texto = api_resp.json()['content'][0]['text'].strip()
-
-        # Limpiar markdown fences si los trae
-        if '```' in texto:
-            for parte in texto.split('```'):
-                parte = parte.strip()
-                if parte.startswith('json'):
-                    parte = parte[4:].strip()
-                if parte.startswith('{'):
-                    texto = parte
-                    break
-
-        datos = json.loads(texto)
-
-        # Normalizar
-        nro = (datos.get('nro_comprobante') or '').strip()
-        fecha = (datos.get('fecha_comprobante') or '').strip()
-        importe = datos.get('importe_total')
-
-        # Validar formato fecha YYYY-MM-DD
-        try:
-            datetime.strptime(fecha, '%Y-%m-%d')
-        except (ValueError, TypeError):
-            fecha = ''
-
-        # Validar importe numérico
-        try:
-            importe = float(importe)
-            if importe <= 0:
-                importe = 0
-        except (ValueError, TypeError):
-            importe = 0
-
-        return jsonify({
-            'ok': True,
-            'nro_comprobante': nro,
-            'fecha_comprobante': fecha,
-            'importe_total': importe
-        })
-
-    except json.JSONDecodeError as e:
-        texto_preview = texto[:300] if 'texto' in dir() else '(sin respuesta)'
-        return jsonify({'ok': False, 'error': f'Error parseando IA: {str(e)}. Respuesta: {texto_preview}'}), 500
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/fletes', methods=['GET'])

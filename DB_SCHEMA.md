@@ -1,6 +1,6 @@
 # 🗄️ DB_SCHEMA — Schema completo de la BD
 
-Generado automáticamente por `scripts/generar_db_schema.py` el 2026-05-21 13:11. **No editar a mano.**
+Generado automáticamente por `scripts/generar_db_schema.py` el 2026-05-21 13:28. **No editar a mano.**
 
 Base de datos: `inventario_cannon` — 44 tablas
 
@@ -664,6 +664,10 @@ Cada tabla muestra: cantidad de filas, todas las columnas con tipo, y los **valo
 | `rol` | `enum('admin','vendedor','viewer','agencia')` | YES |  | `viewer` |  |
 | `activo` | `tinyint(1)` | YES |  | `1` |  |
 | `created_at` | `timestamp` | YES |  | `CURRENT_TIMESTAMP` |  |
+
+**Valores típicos (enums implícitos):**
+
+- **`rol`** → `admin` (1), `vendedor` (1), `viewer` (1), `agencia` (1)
 
 ---
 

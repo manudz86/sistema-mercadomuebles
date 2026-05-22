@@ -58,7 +58,7 @@
             <strong>${{ "{:,.0f}".format(g.total_bruto).replace(",", ".") }}</strong>
           </div>
           <div class="text-end">
-            <div class="small {% if pagado or vencido %}text-white-50{% else %}text-muted{% endif %}">Con PP ({{ fcs[0].descuento_pp_pct if fcs else 4 }}%)</div>
+            <div class="small {% if pagado or vencido %}text-white-50{% else %}text-muted{% endif %}">Con PP ({{ fcs[0].descuento_pp_pct if fcs else 5 }}%)</div>
             <strong>${{ "{:,.0f}".format(g.total_pp).replace(",", ".") }}</strong>
           </div>
           <div class="text-end">
@@ -220,20 +220,6 @@
         <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <!-- Auto-completar desde PDF -->
-        <div class="border rounded p-2 mb-3" style="background:#f8f9fc">
-          <label class="form-label small fw-bold mb-1">
-            <i class="bi bi-magic me-1"></i>Auto-completar desde PDF
-          </label>
-          <div class="input-group input-group-sm">
-            <input type="file" class="form-control" id="fc_pdf" accept="application/pdf">
-            <button class="btn btn-outline-primary" type="button"
-                    id="btnEscanearFactura" onclick="escanearFactura()" disabled>
-              <i class="bi bi-cpu me-1"></i>Escanear
-            </button>
-          </div>
-          <div id="fc_pdf_status" class="small mt-1" style="display:none"></div>
-        </div>
         <div class="row g-3">
           <div class="col-12">
             <label class="form-label small">Nro Comprobante</label>
@@ -260,7 +246,7 @@
           <div class="col-6">
             <label class="form-label small">% Pronto Pago</label>
             <div class="input-group input-group-sm">
-              <input type="number" class="form-control" id="fc_pp_pct" value="4" step="0.01" min="0" max="100"
+              <input type="number" class="form-control" id="fc_pp_pct" value="5" step="0.01" min="0" max="100"
                      oninput="calcularPreview()">
               <span class="input-group-text">%</span>
             </div>
@@ -470,94 +456,9 @@ async function api(data) {
 }
 
 // ── Preview cálculo ──────────────────────────────────────────────
-// ── Escanear PDF de factura con IA ──────────────────────────────
-document.addEventListener('DOMContentLoaded', function() {
-  const inputPdf = document.getElementById('fc_pdf');
-  if (inputPdf) {
-    inputPdf.addEventListener('change', function() {
-      document.getElementById('btnEscanearFactura').disabled = !this.files.length;
-      // Reset estado al elegir archivo nuevo
-      const status = document.getElementById('fc_pdf_status');
-      status.style.display = 'none';
-      status.textContent = '';
-      document.getElementById('btnEscanearFactura').innerHTML = '<i class="bi bi-cpu me-1"></i>Escanear';
-    });
-  }
-  // Resetear todo el modal al cerrarlo (para que la próxima vez salga limpio)
-  const modalNueva = document.getElementById('modalNuevaFactura');
-  if (modalNueva) {
-    modalNueva.addEventListener('hidden.bs.modal', function() {
-      ['fc_nro','fc_fecha_comprobante','fc_fecha_recepcion','fc_importe','fc_notas'].forEach(function(id) {
-        const el = document.getElementById(id);
-        if (el) el.value = '';
-      });
-      document.getElementById('fc_pp_pct').value = '4';
-      const pdf = document.getElementById('fc_pdf');
-      if (pdf) pdf.value = '';
-      const btn = document.getElementById('btnEscanearFactura');
-      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-cpu me-1"></i>Escanear'; }
-      const status = document.getElementById('fc_pdf_status');
-      if (status) { status.style.display = 'none'; status.textContent = ''; }
-      const prev = document.getElementById('fc_preview');
-      if (prev) prev.style.display = 'none';
-    });
-  }
-});
-
-async function escanearFactura() {
-  const input = document.getElementById('fc_pdf');
-  if (!input.files.length) return;
-
-  const btn = document.getElementById('btnEscanearFactura');
-  const status = document.getElementById('fc_pdf_status');
-
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Analizando...';
-  status.style.display = 'block';
-  status.className = 'small text-muted mt-1';
-  status.textContent = 'Procesando PDF con IA, puede tardar unos segundos...';
-
-  try {
-    const formData = new FormData();
-    formData.append('pdf', input.files[0]);
-
-    const resp = await fetch('/pagos-cannon/escanear-factura', { method: 'POST', body: formData });
-    const data = await resp.json();
-
-    if (!data.ok) {
-      status.className = 'small text-danger mt-1';
-      status.textContent = 'Error: ' + (data.error || 'No se pudo extraer');
-      btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-cpu me-1"></i>Reintentar';
-      return;
-    }
-
-    // Llenar los campos
-    if (data.nro_comprobante) document.getElementById('fc_nro').value = data.nro_comprobante;
-    if (data.fecha_comprobante) document.getElementById('fc_fecha_comprobante').value = data.fecha_comprobante;
-    if (data.importe_total) document.getElementById('fc_importe').value = data.importe_total;
-
-    status.className = 'small text-success mt-1';
-    status.innerHTML = '<i class="bi bi-check-circle me-1"></i>Datos extraídos. Completá <strong>fecha de recepción</strong> y revisá el % PP.';
-    btn.innerHTML = '<i class="bi bi-check2-circle me-1"></i>Listo';
-
-    calcularPreview();
-    setTimeout(function() {
-      const fr = document.getElementById('fc_fecha_recepcion');
-      if (fr) fr.focus();
-    }, 100);
-
-  } catch (e) {
-    status.className = 'small text-danger mt-1';
-    status.textContent = 'Error de conexión: ' + e.message;
-    btn.disabled = false;
-    btn.innerHTML = '<i class="bi bi-cpu me-1"></i>Reintentar';
-  }
-}
-
 function calcularPreview() {
   const importe = parseFloat(document.getElementById('fc_importe').value);
-  const pct     = parseFloat(document.getElementById('fc_pp_pct').value) || 4;
+  const pct     = parseFloat(document.getElementById('fc_pp_pct').value) || 5;
   const recep   = document.getElementById('fc_fecha_recepcion').value;
   const prev    = document.getElementById('fc_preview');
 
@@ -583,7 +484,7 @@ async function guardarFactura() {
   const fcomp  = document.getElementById('fc_fecha_comprobante').value;
   const frecep = document.getElementById('fc_fecha_recepcion').value;
   const importe= document.getElementById('fc_importe').value;
-  const pct    = document.getElementById('fc_pp_pct').value || 4;
+  const pct    = document.getElementById('fc_pp_pct').value || 5;
   const notas  = document.getElementById('fc_notas').value;
 
   if (!nro || !fcomp || !frecep || !importe) {
@@ -611,7 +512,7 @@ function abrirModalEditar(btn) {
 }
 function calcularPreviewEdit() {
   const importe = parseFloat(document.getElementById('edit_importe').value);
-  const pct     = parseFloat(document.getElementById('edit_pp_pct').value) || 4;
+  const pct     = parseFloat(document.getElementById('edit_pp_pct').value) || 5;
   const recep   = document.getElementById('edit_fecha_recepcion').value;
   const prev    = document.getElementById('edit_preview');
 
@@ -636,7 +537,7 @@ async function guardarFacturaEditada() {
   const fcomp  = document.getElementById('edit_fecha_comprobante').value;
   const frecep = document.getElementById('edit_fecha_recepcion').value;
   const importe= document.getElementById('edit_importe').value;
-  const pct    = document.getElementById('edit_pp_pct').value || 4;
+  const pct    = document.getElementById('edit_pp_pct').value || 5;
 
   if (!nro || !fcomp || !frecep || !importe) {
     alert('Completá todos los campos obligatorios'); return;
