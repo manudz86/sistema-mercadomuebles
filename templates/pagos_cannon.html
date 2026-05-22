@@ -253,8 +253,9 @@
             <label class="form-label small">Importe Total</label>
             <div class="input-group input-group-sm">
               <span class="input-group-text">$</span>
-              <input type="number" class="form-control" id="fc_importe" step="0.01"
-                     oninput="calcularPreview()">
+              <input type="text" class="form-control" id="fc_importe" inputmode="decimal"
+                     oninput="calcularPreview()" onblur="formatearImporteInput(this)"
+                     placeholder="0,00">
             </div>
           </div>
           <div class="col-6">
@@ -325,8 +326,9 @@
             <label class="form-label small">Importe Total</label>
             <div class="input-group input-group-sm">
               <span class="input-group-text">$</span>
-              <input type="number" class="form-control" id="edit_importe" step="0.01"
-                     oninput="calcularPreviewEdit()">
+              <input type="text" class="form-control" id="edit_importe" inputmode="decimal"
+                     oninput="calcularPreviewEdit()" onblur="formatearImporteInput(this)"
+                     placeholder="0,00">
             </div>
           </div>
           <div class="col-6">
@@ -470,6 +472,36 @@ async function api(data) {
 }
 
 // ── Preview cálculo ──────────────────────────────────────────────
+// ── Helpers de formato AR para importes ($XX.XXX,XX) ────────────
+function parseImporteAR(str) {
+  if (typeof str === 'number') return str;
+  if (!str) return 0;
+  str = String(str).trim().replace(/[\$\s]/g, '');
+  if (!str) return 0;
+  const lastDot = str.lastIndexOf('.');
+  const lastComma = str.lastIndexOf(',');
+  const lastSep = Math.max(lastDot, lastComma);
+  if (lastSep === -1) return parseFloat(str) || 0;
+  const afterSep = str.length - lastSep - 1;
+  // Si después del último separador hay más de 2 dígitos, no es decimal sino miles
+  if (afterSep > 2) {
+    return parseFloat(str.replace(/[.,]/g, '')) || 0;
+  }
+  const intPart = str.substring(0, lastSep).replace(/[.,]/g, '');
+  const decPart = str.substring(lastSep + 1);
+  return parseFloat(intPart + '.' + decPart) || 0;
+}
+
+function formatImporteAR(n) {
+  if (n === null || n === undefined || isNaN(n) || n === 0) return '';
+  return Number(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatearImporteInput(input) {
+  const val = parseImporteAR(input.value);
+  if (val > 0) input.value = formatImporteAR(val);
+}
+
 // ── Escanear PDF de factura con IA ──────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
   const inputPdf = document.getElementById('fc_pdf');
@@ -535,7 +567,7 @@ async function escanearFactura() {
     // Llenar los campos
     if (data.nro_comprobante) document.getElementById('fc_nro').value = data.nro_comprobante;
     if (data.fecha_comprobante) document.getElementById('fc_fecha_comprobante').value = data.fecha_comprobante;
-    if (data.importe_total) document.getElementById('fc_importe').value = data.importe_total;
+    if (data.importe_total) document.getElementById('fc_importe').value = formatImporteAR(data.importe_total);
 
     status.className = 'small text-success mt-1';
     status.innerHTML = '<i class="bi bi-check-circle me-1"></i>Datos extraídos. Completá <strong>fecha de recepción</strong> y revisá el % PP.';
@@ -556,7 +588,7 @@ async function escanearFactura() {
 }
 
 function calcularPreview() {
-  const importe = parseFloat(document.getElementById('fc_importe').value);
+  const importe = parseImporteAR(document.getElementById('fc_importe').value);
   const pct     = parseFloat(document.getElementById('fc_pp_pct').value) || 4;
   const recep   = document.getElementById('fc_fecha_recepcion').value;
   const prev    = document.getElementById('fc_preview');
@@ -582,7 +614,7 @@ async function guardarFactura() {
   const nro    = document.getElementById('fc_nro').value.trim();
   const fcomp  = document.getElementById('fc_fecha_comprobante').value;
   const frecep = document.getElementById('fc_fecha_recepcion').value;
-  const importe= document.getElementById('fc_importe').value;
+  const importe= parseImporteAR(document.getElementById('fc_importe').value);
   const pct    = document.getElementById('fc_pp_pct').value || 4;
   const notas  = document.getElementById('fc_notas').value;
 
@@ -591,7 +623,7 @@ async function guardarFactura() {
   }
   const res = await api({ accion:'nueva_factura', nro_comprobante:nro,
     fecha_comprobante:fcomp, fecha_recepcion:frecep,
-    importe_total:parseFloat(importe), descuento_pp_pct:parseFloat(pct), notas });
+    importe_total:importe, descuento_pp_pct:parseFloat(pct), notas });
   if (!res.ok) { alert('Error: ' + res.error); return; }
   bootstrap.Modal.getInstance(document.getElementById('modalNuevaFactura')).hide();
   location.reload();
@@ -604,13 +636,13 @@ function abrirModalEditar(btn) {
   document.getElementById('edit_nro').value               = btn.dataset.fcNro;
   document.getElementById('edit_fecha_comprobante').value = btn.dataset.fcFcomp;
   document.getElementById('edit_fecha_recepcion').value   = btn.dataset.fcFrec;
-  document.getElementById('edit_importe').value           = btn.dataset.fcImp;
+  document.getElementById('edit_importe').value           = formatImporteAR(parseFloat(btn.dataset.fcImp));
   document.getElementById('edit_pp_pct').value            = btn.dataset.fcPct;
   calcularPreviewEdit();
   _mEditar.show();
 }
 function calcularPreviewEdit() {
-  const importe = parseFloat(document.getElementById('edit_importe').value);
+  const importe = parseImporteAR(document.getElementById('edit_importe').value);
   const pct     = parseFloat(document.getElementById('edit_pp_pct').value) || 4;
   const recep   = document.getElementById('edit_fecha_recepcion').value;
   const prev    = document.getElementById('edit_preview');
@@ -635,7 +667,7 @@ async function guardarFacturaEditada() {
   const nro    = document.getElementById('edit_nro').value.trim();
   const fcomp  = document.getElementById('edit_fecha_comprobante').value;
   const frecep = document.getElementById('edit_fecha_recepcion').value;
-  const importe= document.getElementById('edit_importe').value;
+  const importe= parseImporteAR(document.getElementById('edit_importe').value);
   const pct    = document.getElementById('edit_pp_pct').value || 4;
 
   if (!nro || !fcomp || !frecep || !importe) {
@@ -643,7 +675,7 @@ async function guardarFacturaEditada() {
   }
   const res = await api({ accion:'editar_factura', factura_id:id,
     nro_comprobante:nro, fecha_comprobante:fcomp, fecha_recepcion:frecep,
-    importe_total:parseFloat(importe), descuento_pp_pct:parseFloat(pct) });
+    importe_total:importe, descuento_pp_pct:parseFloat(pct) });
   if (!res.ok) { alert('Error: ' + res.error); return; }
   _mEditar.hide();
   location.reload();
