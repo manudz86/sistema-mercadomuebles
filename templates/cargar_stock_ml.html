@@ -1044,9 +1044,8 @@ function getPubsJson() {
     const rows = document.querySelectorAll('tbody tr');
     const pubs = [];
     rows.forEach(row => {
-        const mlaLink = row.querySelector('td:first-child a');
-        if (!mlaLink) return;
-        const mla = mlaLink.textContent.replace(/\s+/g, '').split('\n')[0].trim();
+        const mla = row.dataset.mla;
+        if (!mla) return;
         const stockEl = row.querySelector('td:nth-child(3) strong');
         const precioInput = row.querySelector('input[id^="precio_"]');
         pubs.push({
