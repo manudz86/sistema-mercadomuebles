@@ -633,7 +633,6 @@
                         <form method="POST" action="{{ url_for('quitar_demora_masivo') }}"
                               onsubmit="return confirmarAccionMasiva('quitar la demora', {{ publicaciones|length }})">
                             <input type="hidden" name="sku" value="{{ sku_buscado }}">
-                            <input type="hidden" name="pubs_json" class="pubs-json-field">
                             <button type="submit" class="btn btn-warning w-100">
                                 <i class="bi bi-x-circle"></i> Quitar Demora
                             </button>
