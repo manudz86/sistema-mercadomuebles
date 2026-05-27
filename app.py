@@ -8863,6 +8863,7 @@ def obtener_datos_ml_batch(mla_ids, access_token):
                     'envio_fg':            envio_fg,
                     'envio_mode':          shipping_data.get('mode'),
                     'envio_logistic_type': shipping_data.get('logistic_type'),
+                    'tags':                data.get('tags', []),
                 }
 
         except Exception as e:
@@ -9028,6 +9029,7 @@ def buscar_sku_ml():
             'promo_price':         promo.get('promo_price'),
             'regular_price':       promo.get('regular_price'),
             'promo_end':           promo.get('promo_end'),
+            'tags':                datos_ml.get('tags', []),
         })
 
     # Ordenar por tipo de publicación
@@ -9038,7 +9040,7 @@ def buscar_sku_ml():
 
     # ── Catálogo: detectar cuotas faltantes ──────────────────────────────────
     TODOS_LOS_TIPOS = [
-        'Sin cuotas propias', 'Cuota Simple',
+        'Sin cuotas propias',
         '3 cuotas s/interés', '6 cuotas s/interés',
         '9 cuotas s/interés', '12 cuotas s/interés',
     ]
@@ -9052,6 +9054,22 @@ def buscar_sku_ml():
     )
     cuotas_faltantes = [t for t in TODOS_LOS_TIPOS if t not in tipos_catalogo_existentes] if catalog_meta else []
 
+    # Candidatos para usar como "hermana mayor" al publicar cuotas faltantes:
+    # publis del SKU que son de listado general (catalog_listing: false), activas
+    # y en modelo nuevo User Products (tag user_product_listing).
+    candidatos_hermana_mayor = [
+        {
+            'mla':          p['mla'],
+            'titulo':       p['titulo'],
+            'precio':       p.get('precio'),
+            'listing_type': p.get('listing_type'),
+        }
+        for p in publicaciones
+        if (not p.get('catalog_listing'))
+        and p.get('status_raw') == 'active'
+        and 'user_product_listing' in (p.get('tags') or [])
+    ]
+
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku_buscado,
                            publicaciones=publicaciones,
@@ -9061,7 +9079,8 @@ def buscar_sku_ml():
                            porcentajes=porcentajes,
                            precio_costos=precio_costos,
                            cuotas_faltantes=cuotas_faltantes,
-                           catalog_meta=catalog_meta)
+                           catalog_meta=catalog_meta,
+                           candidatos_hermana_mayor=candidatos_hermana_mayor)
 
 
 # ============================================================================
@@ -9370,13 +9389,93 @@ def faltantes_catalogo_refresh():
 # RUTA: Publicar nueva publicación de catálogo (cuota faltante)
 # ============================================================================
 TIPO_A_PARAMS_ML = {
-    'Sin cuotas propias':  {'listing_type_id': 'gold_special', 'campaign': None},
-    'Cuota Simple':        {'listing_type_id': 'gold_special', 'campaign': 'pcj-co-funded'},
-    '3 cuotas s/interés':  {'listing_type_id': 'gold_special', 'campaign': '3x_campaign'},
-    '6 cuotas s/interés':  {'listing_type_id': 'gold_pro',     'campaign': None},
-    '9 cuotas s/interés':  {'listing_type_id': 'gold_special', 'campaign': '9x_campaign'},
-    '12 cuotas s/interés': {'listing_type_id': 'gold_special', 'campaign': '12x_campaign'},
+    'Sin cuotas propias':  {'listing_type_id': 'gold_special', 'tag': None},
+    '3 cuotas s/interés':  {'listing_type_id': 'gold_pro',     'tag': '3x_campaign'},
+    '6 cuotas s/interés':  {'listing_type_id': 'gold_pro',     'tag': None},
+    '9 cuotas s/interés':  {'listing_type_id': 'gold_pro',     'tag': '9x_campaign'},
+    '12 cuotas s/interés': {'listing_type_id': 'gold_pro',     'tag': '12x_campaign'},
 }
+
+# Atributos del item que NO se deben copiar al clonar desde la hermana mayor:
+# son read-only, auto-generados por ML, o de scope FAMILY/ITEM no replicables.
+_ATTRS_NO_CLONAR_AL_PUBLICAR = {
+    'LINE',                  # read-only por familia
+    'PACKAGE_DATA_SOURCE',   # FAMILY-level, lo setea ML
+    'SYI_PYMES_ID',          # UUID auto-generado por ML
+    'GIFTABLE',              # auto-calculado por ML
+}
+
+def _construir_payload_desde_hermana(item_hermana, tipo, precio):
+    """
+    Dado el GET completo de la hermana mayor (publi de listado general activa
+    en modelo User Products) construye el payload para crear una nueva publi
+    en el mismo UP con distinta cuota/precio.
+
+    Mantiene: catalog_product_id, category_id, family_name, atributos del producto,
+    GTIN, PACKAGE_*, SELLER_PACKAGE_*, sale_terms, shipping, pictures.
+    Cambia:   listing_type_id, tags (cuota), price, available_quantity.
+    """
+    params = TIPO_A_PARAMS_ML.get(tipo)
+    if not params:
+        return None
+
+    # Clonar atributos relevantes (omitir los read-only/auto-generados)
+    attrs = []
+    for a in item_hermana.get('attributes', []) or []:
+        if a.get('id') in _ATTRS_NO_CLONAR_AL_PUBLICAR:
+            continue
+        if a.get('value_id'):
+            attrs.append({'id': a['id'], 'value_id': a['value_id']})
+        elif a.get('value_name') is not None:
+            attrs.append({'id': a['id'], 'value_name': a['value_name']})
+
+    # Clonar sale_terms (garantía). Filtrar INSTALLMENTS_CAMPAIGN si viniera, lo
+    # manejamos vía tags en gold_pro/gold_special.
+    sale_terms = []
+    for s in item_hermana.get('sale_terms', []) or []:
+        if s.get('id') in ('INSTALLMENTS_CAMPAIGN',):
+            continue
+        if s.get('value_id'):
+            sale_terms.append({'id': s['id'], 'value_id': s['value_id']})
+        elif s.get('value_name') is not None:
+            sale_terms.append({'id': s['id'], 'value_name': s['value_name']})
+
+    # Clonar pictures como sources
+    pictures = [{'source': p['url']} for p in (item_hermana.get('pictures') or []) if p.get('url')]
+
+    # Clonar shipping
+    shipping_src = item_hermana.get('shipping') or {}
+    shipping = {
+        'mode':           shipping_src.get('mode'),
+        'local_pick_up':  shipping_src.get('local_pick_up', False),
+        'free_shipping':  shipping_src.get('free_shipping', False),
+        'logistic_type':  shipping_src.get('logistic_type'),
+    }
+    if shipping_src.get('dimensions'):
+        shipping['dimensions'] = shipping_src['dimensions']
+    # Limpiar None
+    shipping = {k: v for k, v in shipping.items() if v is not None}
+
+    payload = {
+        'site_id':            'MLA',
+        'category_id':        item_hermana.get('category_id'),
+        'family_name':        item_hermana.get('family_name'),
+        'currency_id':        'ARS',
+        'buying_mode':        'buy_it_now',
+        'condition':          item_hermana.get('condition', 'new'),
+        'listing_type_id':    params['listing_type_id'],
+        'price':              int(precio),
+        'available_quantity': 1,
+        'catalog_product_id': item_hermana.get('catalog_product_id'),
+        'catalog_listing':    False,
+        'tags':               [params['tag']] if params['tag'] else [],
+        'attributes':         attrs,
+        'sale_terms':         sale_terms,
+        'shipping':           shipping,
+        'pictures':           pictures,
+    }
+    return payload
+
 
 @app.route('/debug-token-temp')
 @login_required
@@ -9388,24 +9487,36 @@ def debug_token_temp():
 @app.route('/publicar-catalogo-cuota', methods=['POST'])
 @login_required
 def publicar_catalogo_cuota():
+    """
+    Crea un par de publis (listado general + catálogo) con una nueva cuota,
+    asociado al mismo UP que la "hermana mayor" elegida por el usuario.
+
+    Flujo en 2 pasos:
+      A) POST /items con catalog_listing:false → publi de listado general en el UP
+      B) POST /items/catalog_listings con item_id de A → gemela de catálogo
+
+    Requisitos:
+      - La hermana mayor debe estar activa, ser de listado general (catalog_listing:false),
+        estar en modelo User Products (tag user_product_listing) y tener GTIN cargado.
+    """
     sku                = request.form.get('sku', '').strip().upper()
     tipo               = request.form.get('tipo', '').strip()
     precio_str         = request.form.get('precio', '').strip()
-    catalog_product_id = request.form.get('catalog_product_id', '').strip()
-    category_id        = request.form.get('category_id', '').strip()
+    mla_hermana_mayor  = request.form.get('mla_hermana_mayor', '').strip()
 
-    if not all([sku, tipo, precio_str, catalog_product_id, category_id]):
-        flash('❌ Faltan datos para publicar en catálogo', 'danger')
+    if not all([sku, tipo, precio_str, mla_hermana_mayor]):
+        flash('❌ Faltan datos para publicar (sku, tipo, precio o hermana mayor)', 'danger')
         return redirect(url_for('cargar_stock_ml'))
 
     try:
         precio = int(float(precio_str))
+        if precio <= 0:
+            raise ValueError()
     except ValueError:
         flash('❌ Precio inválido', 'danger')
         return redirect(url_for('cargar_stock_ml'))
 
-    params = TIPO_A_PARAMS_ML.get(tipo)
-    if not params:
+    if tipo not in TIPO_A_PARAMS_ML:
         flash(f'❌ Tipo de publicación desconocido: {tipo}', 'danger')
         return redirect(url_for('cargar_stock_ml'))
 
@@ -9414,35 +9525,93 @@ def publicar_catalogo_cuota():
         flash('❌ No hay token de ML configurado', 'warning')
         return redirect(url_for('cargar_stock_ml'))
 
-    payload = {
-        'site_id':             'MLA',
-        'category_id':         category_id,
-        'currency_id':         'ARS',
-        'buying_mode':         'buy_it_now',
-        'listing_type_id':     params['listing_type_id'],
-        'price':               precio,
-        'available_quantity':  1,
-        'catalog_product_id':  catalog_product_id,
-        'catalog_listing':     True,
-        'seller_custom_field': sku,
-    }
-    if params['campaign']:
-        payload['sale_terms'] = [{'id': 'INSTALLMENTS_CAMPAIGN', 'value_name': params['campaign']}]
+    session['ultimo_sku_ml'] = sku
+
+    # ── 1) GET completo de la hermana mayor ─────────────────────────────────
+    try:
+        r = ml_request('get', f'https://api.mercadolibre.com/items/{mla_hermana_mayor}', access_token)
+        if r.status_code != 200:
+            flash(f'❌ No se pudo leer la hermana mayor {mla_hermana_mayor} (HTTP {r.status_code})', 'danger')
+            return redirect(url_for('cargar_stock_ml'))
+        item_hermana = r.json()
+    except Exception as e:
+        flash(f'❌ Error al consultar la hermana mayor: {e}', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
+
+    # Validaciones sobre la hermana mayor
+    if item_hermana.get('status') != 'active':
+        flash(f'❌ La hermana mayor {mla_hermana_mayor} no está activa', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
+    if item_hermana.get('catalog_listing'):
+        flash(f'❌ La hermana mayor {mla_hermana_mayor} es de catálogo. Tiene que ser de listado general.', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
+    if 'user_product_listing' not in (item_hermana.get('tags') or []):
+        flash(f'❌ La hermana mayor {mla_hermana_mayor} no está en modelo User Products', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
+    if not item_hermana.get('catalog_product_id'):
+        flash(f'❌ La hermana mayor {mla_hermana_mayor} no tiene catalog_product_id', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
+
+    # Validar que tenga GTIN cargado (clave para que la nueva caiga en el mismo UP)
+    gtin_attr = next((a for a in (item_hermana.get('attributes') or []) if a.get('id') == 'GTIN'), None)
+    gtin_value = gtin_attr.get('value_name') if gtin_attr else None
+    if not gtin_value:
+        flash(f'❌ La hermana mayor {mla_hermana_mayor} no tiene GTIN cargado. '
+              f'Cargá el código de barras del producto en esa publi antes de crear nuevas cuotas.', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
+
+    # ── 2) Construir y enviar PASO A: listado general ───────────────────────
+    payload_a = _construir_payload_desde_hermana(item_hermana, tipo, precio)
+    if not payload_a:
+        flash(f'❌ No se pudo construir el payload para el tipo "{tipo}"', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
 
     try:
-        r = ml_request('post', 'https://api.mercadolibre.com/items', access_token, json_data=payload)
-        resp = r.json()
-        if r.status_code in (200, 201):
-            nuevo_mla = resp.get('id', '?')
-            flash(f'✅ Publicación creada: {nuevo_mla} — {tipo}', 'success')
-        else:
-            causa = resp.get('cause', [])
-            detalle = causa[0].get('message', str(resp)) if causa else str(resp)
-            flash(f'❌ Error ML: {detalle}', 'danger')
+        r_a = ml_request('post', 'https://api.mercadolibre.com/items', access_token, json_data=payload_a)
+        resp_a = r_a.json()
     except Exception as e:
-        flash(f'❌ Excepción: {e}', 'danger')
+        flash(f'❌ Excepción en POST listado general: {e}', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
 
-    session['ultimo_sku_ml'] = sku
+    if r_a.status_code not in (200, 201):
+        causa = resp_a.get('cause', [])
+        detalle = causa[0].get('message', str(resp_a)) if causa else str(resp_a)
+        flash(f'❌ Error creando publi de listado general: {detalle}', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
+
+    nueva_listado_general = resp_a.get('id')
+    nuevo_up = resp_a.get('user_product_id')
+    up_esperado = item_hermana.get('user_product_id')
+
+    if nuevo_up != up_esperado:
+        flash(f'⚠️ La nueva publi {nueva_listado_general} se creó pero quedó en UP {nuevo_up} '
+              f'(distinto al UP {up_esperado} de la hermana mayor). No comparten stock. '
+              f'Revisar atributos del producto en la hermana mayor.', 'warning')
+        return redirect(url_for('cargar_stock_ml'))
+
+    # ── 3) PASO B: crear gemela de catálogo ─────────────────────────────────
+    payload_b = {
+        'item_id':             nueva_listado_general,
+        'catalog_product_id':  item_hermana.get('catalog_product_id'),
+    }
+    try:
+        r_b = ml_request('post', 'https://api.mercadolibre.com/items/catalog_listings',
+                         access_token, json_data=payload_b)
+        resp_b = r_b.json()
+    except Exception as e:
+        flash(f'⚠️ Listado general creado ({nueva_listado_general}) pero falló POST de catálogo: {e}', 'warning')
+        return redirect(url_for('cargar_stock_ml'))
+
+    if r_b.status_code not in (200, 201):
+        causa = resp_b.get('cause', [])
+        detalle = causa[0].get('message', str(resp_b)) if causa else str(resp_b)
+        flash(f'⚠️ Listado general creado ({nueva_listado_general}) pero falló la gemela de catálogo: {detalle}', 'warning')
+        return redirect(url_for('cargar_stock_ml'))
+
+    nueva_catalogo = resp_b.get('id') or resp_b.get('item_id', '?')
+    flash(f'✅ Par creado en UP {nuevo_up} — {tipo}: '
+          f'listado general {nueva_listado_general} + catálogo {nueva_catalogo}', 'success')
+
     return redirect(url_for('cargar_stock_ml'))
 
 # ============================================================================
