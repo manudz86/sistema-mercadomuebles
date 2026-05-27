@@ -3764,41 +3764,6 @@ def pausar_publicacion_ml(mla_id, access_token):
         return False, f"Error: {str(e)}"
 
 
-def activar_publicacion_ml(mla_id, access_token):
-    """
-    Reactivar (activar) una publicación pausada en Mercado Libre.
-
-    Si la publicación tiene available_quantity = 0, ML la va a re-pausar
-    automáticamente con sub_status=out_of_stock. Para evitar eso, asegurate
-    de tener stock cargado antes.
-
-    Args:
-        mla_id: ID de la publicación
-        access_token: Token de ML
-
-    Returns:
-        (success: bool, message: str)
-    """
-    try:
-        r = ml_request(
-            'put',
-            f'https://api.mercadolibre.com/items/{mla_id}',
-            access_token,
-            json_data={"status": "active"}
-        )
-        if r.status_code == 200:
-            return True, "Publicación activada en ML"
-        else:
-            try:
-                err = r.json()
-                error_msg = err.get('message', 'Error desconocido')
-            except Exception:
-                error_msg = f'HTTP {r.status_code}'
-            return False, f"Error ML: {error_msg}"
-    except Exception as e:
-        return False, f"Error: {str(e)}"
-
-
 # ─── RUTA NUEVA: Sincronizar stock con ML desde alertas ───
 @app.route('/alertas/<int:alerta_id>/sincronizar-ml', methods=['POST'])
 @login_required
@@ -9651,32 +9616,6 @@ def _mlas_desde_pubs_json(pubs_json_str):
         return []
 
 
-def _mlas_pausadas_con_stock(pubs_json_str):
-    """
-    Devuelve los MLAs cuya publicación está en status 'paused' y tiene stock > 0
-    (pausa manual, no out_of_stock). Lee del pubs_json que manda el template.
-    """
-    if not pubs_json_str:
-        return []
-    try:
-        import json as _j
-        pubs = _j.loads(pubs_json_str)
-        out = []
-        for p in pubs:
-            mla = p.get('mla')
-            if not mla:
-                continue
-            try:
-                stock = int(p.get('stock_actual') or 0)
-            except (ValueError, TypeError):
-                stock = 0
-            if p.get('status_raw') == 'paused' and stock > 0:
-                out.append(mla)
-        return out
-    except Exception:
-        return []
-
-
 def _recargar_publicaciones(sku, access_token, pubs_actuales=None, actualizar_mla=None, campo=None, valor=None):
     """
     Helper: devuelve lista de publicaciones.
@@ -9782,40 +9721,6 @@ def bajar_stock_mla_cero():
                            es_sku_con_z=sku.endswith('Z'))
 
 
-# ─── Activar publicación pausada manualmente — INDIVIDUAL ────────────────────
-
-@app.route('/activar-mla', methods=['POST'])
-@login_required
-def activar_mla():
-    """Reactivar una publicación pausada manualmente (PUT status=active a ML)."""
-    mla = request.form.get('mla')
-    sku = request.form.get('sku')
-
-    if not mla or not sku:
-        flash('Faltan datos', 'danger')
-        return redirect(url_for('cargar_stock_ml'))
-
-    access_token = cargar_ml_token()
-    if not access_token:
-        flash('❌ No hay token de ML configurado', 'danger')
-        return redirect(url_for('cargar_stock_ml'))
-
-    success, message = activar_publicacion_ml(mla, access_token)
-
-    if success:
-        flash(f'✅ Publicación {mla} reactivada', 'success')
-    else:
-        flash(f'❌ {message}', 'danger')
-
-    return render_template('cargar_stock_ml.html',
-                           sku_buscado=sku,
-                           publicaciones=_recargar_publicaciones(sku, access_token,
-                               pubs_actuales=request.form.get('pubs_json'),
-                               actualizar_mla=mla, campo='status_raw',
-                               valor='active' if success else 'paused'),
-                           es_sku_con_z=sku.endswith('Z'))
-
-
 # ─── Bajar stock a 0 — MASIVO ────────────────────────────────────────────────
 
 @app.route('/bajar-stock-cero-masivo', methods=['POST'])
@@ -9855,64 +9760,6 @@ def bajar_stock_cero_masivo():
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku,
                            publicaciones=_recargar_publicaciones(sku, access_token, pubs_actuales=pubs_json),
-                           es_sku_con_z=sku.endswith('Z'))
-
-
-# ─── Activar pausadas manualmente — MASIVO ───────────────────────────────────
-
-@app.route('/activar-pausadas-masivo', methods=['POST'])
-@login_required
-def activar_pausadas_masivo():
-    """Reactivar todas las publicaciones pausadas manualmente (status=paused + stock>0)."""
-    sku = request.form.get('sku')
-    if not sku:
-        flash('Falta el SKU', 'danger')
-        return redirect(url_for('cargar_stock_ml'))
-
-    access_token = cargar_ml_token()
-    if not access_token:
-        flash('❌ No hay token de ML configurado', 'danger')
-        return redirect(url_for('cargar_stock_ml'))
-
-    pubs_json = request.form.get('pubs_json')
-    mla_ids = _mlas_pausadas_con_stock(pubs_json)
-    if not mla_ids:
-        flash('ℹ️ No hay publicaciones pausadas manualmente para reactivar', 'info')
-        return render_template('cargar_stock_ml.html',
-                               sku_buscado=sku,
-                               publicaciones=_recargar_publicaciones(sku, access_token, pubs_actuales=pubs_json),
-                               es_sku_con_z=sku.endswith('Z'))
-
-    activadas_ok = set()
-    errores = []
-    for mla_id in mla_ids:
-        ok, msg = activar_publicacion_ml(mla_id, access_token)
-        if ok:
-            activadas_ok.add(mla_id)
-        else:
-            errores.append(f"{mla_id}: {msg}")
-        time.sleep(2)
-
-    if activadas_ok:
-        flash(f'✅ {len(activadas_ok)} publicación{"es" if len(activadas_ok) > 1 else ""} reactivada{"s" if len(activadas_ok) > 1 else ""}', 'success')
-    for msg in errores[:3]:
-        flash(f'❌ {msg}', 'danger')
-
-    # Aplicar el cambio de status_raw a las que se activaron OK, en el JSON que viene del form
-    import json as _json
-    try:
-        pubs = _json.loads(pubs_json) if pubs_json else None
-        if pubs:
-            for p in pubs:
-                if p.get('mla') in activadas_ok:
-                    p['status_raw'] = 'active'
-                    p['estado'] = 'Activa'
-    except Exception:
-        pubs = pubs_json
-
-    return render_template('cargar_stock_ml.html',
-                           sku_buscado=sku,
-                           publicaciones=_recargar_publicaciones(sku, access_token, pubs_actuales=pubs),
                            es_sku_con_z=sku.endswith('Z'))
 
 

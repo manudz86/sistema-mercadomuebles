@@ -397,16 +397,6 @@
                                 {% endif %}
                             </td>
                             <td>
-                                {% set puede_activar = (pub.status_raw == 'paused' and pub.stock_actual and pub.stock_actual|int > 0) %}
-                                {% if puede_activar %}
-                                <div class="d-grid mb-1">
-                                    <button type="button" class="btn btn-sm btn-success"
-                                            onclick="confirmarActivarPub('{{ pub.mla }}', '{{ sku_buscado }}')"
-                                            title="Reactivar publicación pausada manualmente">
-                                        <i class="bi bi-play-circle"></i> Reactivar
-                                    </button>
-                                </div>
-                                {% endif %}
                                 {% if es_sku_con_z %}
                                 <div class="d-flex gap-2 flex-column">
                                     <div class="d-flex gap-1">
@@ -529,15 +519,6 @@
                         </div>
                     </div>
                     <div class="card-body py-2 px-3">
-                        {% set puede_activar = (pub.status_raw == 'paused' and pub.stock_actual and pub.stock_actual|int > 0) %}
-                        {% if puede_activar %}
-                        <div class="d-grid mb-2">
-                            <button type="button" class="btn btn-sm btn-success"
-                                    onclick="confirmarActivarPub('{{ pub.mla }}', '{{ sku_buscado }}')">
-                                <i class="bi bi-play-circle"></i> Reactivar publicación
-                            </button>
-                        </div>
-                        {% endif %}
                         <div class="mb-1" style="font-size:0.82rem;">{{ pub.titulo }}</div>
                         <div class="d-flex gap-2 flex-wrap mb-2 align-items-center" style="font-size:0.8rem;">
                             <span><strong>Stock:</strong> {{ pub.stock_actual }}</span>
@@ -616,98 +597,134 @@
                 {% endfor %}
             </div>
 
-            <!-- ACCIONES MASIVAS -->
+            <!-- ACCIÓN MASIVA -->
             <div class="mt-4 p-3 bg-light border rounded">
-                <h6 class="mb-3"><i class="bi bi-lightning"></i> Acciones masivas</h6>
+                <h6 class="mb-3"><i class="bi bi-lightning"></i> Acción Masiva</h6>
 
-                <!-- STOCK -->
-                <div class="mb-2">
-                    <div class="text-muted small fw-bold mb-1"><i class="bi bi-box-seam"></i> STOCK</div>
-                    <div class="row g-2">
-                        <div class="col-12 col-md-6 col-lg-4">
-                            <form method="POST" action="{{ url_for('cargar_stock_masivo') }}"
-                                  class="d-flex gap-1"
-                                  onsubmit="return confirmarCargaStockMasiva(event, {{ publicaciones|length }})">
-                                <input type="hidden" name="sku" value="{{ sku_buscado }}">
-                                <input type="hidden" name="pubs_json" class="pubs-json-field">
-                                <input type="number" name="stock_nuevo" class="form-control form-control-sm"
-                                       placeholder="Stock en todas" min="0" max="99" required style="min-width:0;">
-                                <button type="submit" class="btn btn-sm btn-primary text-nowrap">
-                                    <i class="bi bi-upload"></i> Cargar
-                                </button>
-                            </form>
-                        </div>
-                        <div class="col-12 col-md-6 col-lg-4">
-                            <form method="POST" action="{{ url_for('bajar_stock_cero_masivo') }}"
-                                  onsubmit="return confirmarAccionMasiva('bajar stock a 0', {{ publicaciones|length }})">
-                                <input type="hidden" name="sku" value="{{ sku_buscado }}">
-                                <input type="hidden" name="pubs_json" class="pubs-json-field">
-                                <button type="submit" class="btn btn-sm btn-danger w-100">
-                                    <i class="bi bi-arrow-down-circle"></i> Stock 0 en todas
-                                </button>
-                            </form>
-                        </div>
-                        <div class="col-12 col-md-6 col-lg-4">
-                            <button type="button" class="btn btn-sm btn-success w-100"
-                                    onclick="confirmarActivarPausadasMasivo('{{ sku_buscado }}')"
-                                    title="Reactivar pausadas manualmente (con stock > 0)">
-                                <i class="bi bi-play-circle"></i> Reactivar pausadas manualmente
+                {% if es_sku_con_z %}
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <form method="POST" action="{{ url_for('cargar_stock_masivo') }}"
+                              class="d-flex gap-2 align-items-end"
+                              onsubmit="return confirmarCargaStockMasiva(event, {{ publicaciones|length }})">
+                            <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <input type="hidden" name="pubs_json" class="pubs-json-field">
+                            <div class="flex-fill">
+                                <label class="form-label small mb-1">Cargar stock a todas:</label>
+                                <input type="number" name="stock_nuevo" class="form-control"
+                                       placeholder="Ej: 5" min="0" max="99" required>
+                            </div>
+                            <button type="submit" class="btn btn-primary"><i class="bi bi-upload"></i></button>
+                        </form>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Bajar stock a 0 en todas:</label>
+                        <form method="POST" action="{{ url_for('bajar_stock_cero_masivo') }}"
+                              onsubmit="return confirmarAccionMasiva('bajar stock a 0', {{ publicaciones|length }})">
+                            <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <input type="hidden" name="pubs_json" class="pubs-json-field">
+                            <button type="submit" class="btn btn-danger w-100">
+                                <i class="bi bi-arrow-down-circle"></i> Stock 0 en Todas
+                            </button>
+                        </form>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Demora en todas:</label>
+                        <form method="POST" action="{{ url_for('quitar_demora_masivo') }}"
+                              onsubmit="return confirmarAccionMasiva('quitar la demora', {{ publicaciones|length }})">
+                            <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <input type="hidden" name="pubs_json" class="pubs-json-field">
+                            <button type="submit" class="btn btn-warning w-100">
+                                <i class="bi bi-x-circle"></i> Quitar Demora
+                            </button>
+                        </form>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Poner demora en todas:</label>
+                        <div class="d-flex gap-1">
+                            <input type="number" id="dias_masivo" class="form-control"
+                                   placeholder="días" min="1" max="365" style="width:70px">
+                            <button type="button" class="btn btn-outline-warning flex-fill"
+                                    onclick="confirmarCargarDemoraMasivo('{{ sku_buscado }}')">
+                                <i class="bi bi-clock-history"></i> Poner Demora
                             </button>
                         </div>
                     </div>
                 </div>
-
-                {% if es_sku_con_z %}
-                <!-- DEMORA -->
-                <div class="mb-2">
-                    <div class="text-muted small fw-bold mb-1"><i class="bi bi-clock-history"></i> DEMORA</div>
-                    <div class="row g-2">
-                        <div class="col-12 col-md-6 col-lg-4">
-                            <form method="POST" action="{{ url_for('quitar_demora_masivo') }}"
-                                  onsubmit="return confirmarAccionMasiva('quitar la demora', {{ publicaciones|length }})">
-                                <input type="hidden" name="sku" value="{{ sku_buscado }}">
-                                <input type="hidden" name="pubs_json" class="pubs-json-field">
-                                <button type="submit" class="btn btn-sm btn-warning w-100">
-                                    <i class="bi bi-x-circle"></i> Quitar demora en todas
-                                </button>
-                            </form>
+                <div class="row g-3 mt-1">
+                    <div class="col-md-4">
+                        <label class="form-label small mb-1">Cambiar precio en todas:</label>
+                        <div class="d-flex gap-1">
+                            <input type="number" id="precio_masivo" class="form-control"
+                                   placeholder="Nuevo precio" min="0" step="1000">
+                            <button type="button" class="btn btn-outline-success"
+                                    onclick="confirmarCambiarPrecioMasivo('{{ sku_buscado }}')">
+                                <i class="bi bi-tag"></i> Cambiar
+                            </button>
                         </div>
-                        <div class="col-12 col-md-6 col-lg-4">
-                            <div class="d-flex gap-1">
-                                <input type="number" id="dias_masivo" class="form-control form-control-sm"
-                                       placeholder="días" min="1" max="365" style="max-width:80px;">
-                                <button type="button" class="btn btn-sm btn-outline-warning flex-fill text-nowrap"
-                                        onclick="confirmarCargarDemoraMasivo('{{ sku_buscado }}')">
-                                    <i class="bi bi-clock-history"></i> Poner demora
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small mb-1">Actualizar precios individuales:</label>
+                        <button type="button" class="btn btn-success w-100"
+                                onclick="confirmarActualizarTodosPrecios('{{ sku_buscado }}')">
+                            <i class="bi bi-tags"></i> Actualizar Todos los Precios
+                        </button>
+                    </div>
+                </div>
+
+                {% else %}
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-4">
+                        <form method="POST" action="{{ url_for('cargar_stock_masivo') }}"
+                              class="d-flex gap-2"
+                              onsubmit="return confirmarCargaStockMasiva(event, {{ publicaciones|length }})">
+                            <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <input type="hidden" name="pubs_json" class="pubs-json-field">
+                            {% for pub in publicaciones %}
+                            <input type="hidden" name="mla_ids" value="{{ pub.mla }}">
+                            {% endfor %}
+                            <div class="flex-fill">
+                                <label class="form-label">Stock a cargar en todas:</label>
+                                <input type="number" name="stock_nuevo" class="form-control"
+                                       placeholder="Ej: 5" min="0" max="99" required>
+                            </div>
+                            <div class="d-flex align-items-end">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-upload"></i> Cargar en Todas
                                 </button>
                             </div>
+                        </form>
+                    </div>
+                    <div class="col-md-3">
+                        <form method="POST" action="{{ url_for('bajar_stock_cero_masivo') }}"
+                              onsubmit="return confirmarAccionMasiva('bajar stock a 0', {{ publicaciones|length }})">
+                            <input type="hidden" name="sku" value="{{ sku_buscado }}">
+                            <input type="hidden" name="pubs_json" class="pubs-json-field">
+                            {% for pub in publicaciones %}
+                            <input type="hidden" name="mla_ids" value="{{ pub.mla }}">
+                            {% endfor %}
+                            <button type="submit" class="btn btn-danger w-100">
+                                <i class="bi bi-arrow-down-circle"></i> Bajar Stock a 0 en Todas
+                            </button>
+                        </form>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">Precios:</label>
+                        <div class="d-flex gap-1">
+                            <input type="number" id="precio_masivo" class="form-control"
+                                   placeholder="Mismo precio todas" min="0" step="1000">
+                            <button type="button" class="btn btn-outline-success"
+                                    onclick="confirmarCambiarPrecioMasivo('{{ sku_buscado }}')">
+                                <i class="bi bi-tag"></i>
+                            </button>
+                            <button type="button" class="btn btn-success"
+                                    onclick="confirmarActualizarTodosPrecios('{{ sku_buscado }}')">
+                                <i class="bi bi-tags"></i> Actualizar Todos
+                            </button>
                         </div>
                     </div>
                 </div>
                 {% endif %}
-
-                <!-- PRECIOS -->
-                <div>
-                    <div class="text-muted small fw-bold mb-1"><i class="bi bi-tags"></i> PRECIOS</div>
-                    <div class="row g-2">
-                        <div class="col-12 col-md-6 col-lg-4">
-                            <div class="d-flex gap-1">
-                                <input type="number" id="precio_masivo" class="form-control form-control-sm"
-                                       placeholder="Mismo precio en todas" min="0" step="1000" style="min-width:0;">
-                                <button type="button" class="btn btn-sm btn-outline-success text-nowrap"
-                                        onclick="confirmarCambiarPrecioMasivo('{{ sku_buscado }}')">
-                                    <i class="bi bi-tag"></i> Aplicar
-                                </button>
-                            </div>
-                        </div>
-                        <div class="col-12 col-md-6 col-lg-4">
-                            <button type="button" class="btn btn-sm btn-success w-100"
-                                    onclick="confirmarActualizarTodosPrecios('{{ sku_buscado }}')">
-                                <i class="bi bi-tags"></i> Actualizar precios individuales
-                            </button>
-                        </div>
-                    </div>
-                </div>
             </div>
 
             {% else %}
@@ -944,28 +961,6 @@ function confirmarReducirDemora(mla, sku) {
 function confirmarBajarCero(mla, sku) {
     if (confirm(`¿Bajar stock a 0 en la publicación ${mla}?`)) {
         submitForm('{{ url_for("bajar_stock_mla_cero") }}', { mla, sku });
-    }
-}
-function confirmarActivarPub(mla, sku) {
-    if (confirm(`¿Reactivar la publicación ${mla}?\n\n(asegurate de que ML tenga stock cargado en esta publi, sino la repausa por out_of_stock)`)) {
-        submitForm('{{ url_for("activar_mla") }}', { mla, sku });
-    }
-}
-function confirmarActivarPausadasMasivo(sku) {
-    // Contar pausadas con stock > 0 leyendo del DOM (rows visibles en tabla desktop o cards mobile)
-    let count = 0;
-    document.querySelectorAll('tbody tr').forEach(r => {
-        if (r.dataset.statusRaw !== 'paused') return;
-        const stockEl = r.querySelector('td:nth-child(3) strong');
-        const stock = stockEl ? parseInt(stockEl.textContent) || 0 : 0;
-        if (stock > 0) count++;
-    });
-    if (count === 0) {
-        alert('No hay publicaciones pausadas manualmente para reactivar.\n\n(Una publi se considera "pausada manualmente" cuando está pausada y tiene stock > 0 en ML)');
-        return;
-    }
-    if (confirm(`¿Reactivar ${count} publicación${count > 1 ? 'es' : ''} pausada${count > 1 ? 's' : ''} manualmente?`)) {
-        submitForm('{{ url_for("activar_pausadas_masivo") }}', { sku });
     }
 }
 function mostrarModalDemora(mla, sku) {
