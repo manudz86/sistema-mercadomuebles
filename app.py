@@ -9425,6 +9425,25 @@ _ATTRS_NO_CLONAR_AL_PUBLICAR = {
     'GIFTABLE',              # auto-calculado por ML
 }
 
+def _ids_no_modificables(resp):
+    """Extrae los IDs de atributos que ML marca como 'not modifiable'/'ignored'
+    en una respuesta de error, para poder sacarlos y reintentar."""
+    import re as _re_nm
+    if not isinstance(resp, dict):
+        return set()
+    ids = set()
+    causa = resp.get('cause', []) or []
+    for c in causa:
+        msg = str(c.get('message', '')) if isinstance(c, dict) else str(c)
+        if 'not modifiable' in msg.lower() or 'ignored' in msg.lower():
+            ids |= set(_re_nm.findall(r'\[([A-Z0-9_]+)\]', msg))
+    if not ids:
+        msg = str(resp.get('message', ''))
+        if 'not modifiable' in msg.lower() or 'ignored' in msg.lower():
+            ids |= set(_re_nm.findall(r'\[([A-Z0-9_]+)\]', msg))
+    return ids
+
+
 def _construir_payload_desde_hermana(item_hermana, tipo, precio):
     """
     Dado el GET completo de la hermana mayor (publi de listado general activa
@@ -9619,8 +9638,27 @@ def publicar_catalogo_cuota():
         flash(f'❌ Excepción en POST listado general: {e}', 'danger')
         return redirect(url_for('cargar_stock_ml'))
 
+    # Reintento: si ML rechaza atributos "not modifiable" (típicamente los PACKAGE_*
+    # que vienen heredados del producto de catálogo), los saca y reintenta el POST.
+    excluir_attrs = set()
+    for _intento in range(4):
+        if r_a.status_code in (200, 201):
+            break
+        nuevos = _ids_no_modificables(resp_a) - excluir_attrs
+        if not nuevos:
+            break  # el error no es por atributos no modificables, no tiene sentido reintentar
+        excluir_attrs |= nuevos
+        payload_a['attributes'] = [a for a in payload_a.get('attributes', [])
+                                   if a.get('id') not in excluir_attrs]
+        try:
+            r_a = ml_request('post', 'https://api.mercadolibre.com/items', access_token, json_data=payload_a)
+            resp_a = r_a.json()
+        except Exception as e:
+            flash(f'❌ Excepción en POST listado general (reintento): {e}', 'danger')
+            return redirect(url_for('cargar_stock_ml'))
+
     if r_a.status_code not in (200, 201):
-        causa = resp_a.get('cause', [])
+        causa = resp_a.get('cause', []) if isinstance(resp_a, dict) else []
         detalle = causa[0].get('message', str(resp_a)) if causa else str(resp_a)
         flash(f'❌ Error creando publi de listado general: {detalle}', 'danger')
         return redirect(url_for('cargar_stock_ml'))
