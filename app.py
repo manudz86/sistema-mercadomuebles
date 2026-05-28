@@ -15306,7 +15306,7 @@ def _reclamo_orden_info(access_token, order_id):
         'currency_id':  o.get('currency_id') or 'ARS',
         'buyer_nombre': nombre or buyer.get('nickname'),
         'buyer_nick':   buyer.get('nickname'),
-        'items':        items,
+        'productos':    items,
     }
 
 

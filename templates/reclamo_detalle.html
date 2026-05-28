@@ -110,7 +110,7 @@
                             <tr><th>Producto</th><th>SKU</th><th class="text-center">Cant.</th><th class="text-end">Precio unit.</th></tr>
                         </thead>
                         <tbody>
-                            {% for it in venta_info.items %}
+                            {% for it in venta_info.productos %}
                             <tr>
                                 <td>{{ it.titulo }}</td>
                                 <td><span class="badge bg-light text-dark border">{{ it.sku or '—' }}</span></td>
