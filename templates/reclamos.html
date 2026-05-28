@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}Reclamos ML{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row mb-3 align-items-center">
+        <div class="col">
+            <h2 class="mb-1"><i class="bi bi-exclamation-octagon"></i> Reclamos Mercado Libre</h2>
+            <p class="text-muted mb-0">Seguimiento de reclamos activos, en mediación e históricos</p>
+        </div>
+        <div class="col-auto">
+            <form method="POST" action="{{ url_for('reclamos_sync') }}" class="d-inline">
+                <button type="submit" class="btn btn-outline-primary">
+                    <i class="bi bi-arrow-clockwise"></i> Sincronizar ahora
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="btn-group mb-3" role="group">
+        {% set filtros = [('activos','Activos','bi-inbox'),
+                          ('mediacion','En mediación','bi-people'),
+                          ('reputacion','Afectan reputación','bi-star'),
+                          ('cerrados','Cerrados','bi-check-circle'),
+                          ('todos','Todos','bi-list')] %}
+        {% for key, label, icon in filtros %}
+        <a href="{{ url_for('reclamos', filtro=key) }}"
+           class="btn btn-sm {% if filtro == key %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+            <i class="bi {{ icon }}"></i> {{ label }}
+        </a>
+        {% endfor %}
+    </div>
+
+    {% if not reclamos %}
+    <div class="alert alert-light border text-center py-4">
+        <i class="bi bi-inbox fs-3 d-block mb-2 text-muted"></i>
+        No hay reclamos para este filtro.
+        <div class="small text-muted mt-1">Si esperabas ver alguno, probá "Sincronizar ahora".</div>
+    </div>
+    {% else %}
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>Reclamo</th>
+                    <th>Orden / Pack</th>
+                    <th>Tipo</th>
+                    <th>Etapa</th>
+                    <th>Estado</th>
+                    <th>Reputación</th>
+                    <th>Responsable</th>
+                    <th>Vence</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in reclamos %}
+                <tr {% if not r.visto %}class="fw-bold"{% endif %}>
+                    <td>
+                        {{ r.claim_id }}
+                        {% if r.reason_prefix == 'PNR' %}
+                            <span class="badge bg-info text-dark" title="Pagado no recibido">PNR</span>
+                        {% elif r.reason_prefix == 'PDD' %}
+                            <span class="badge bg-warning text-dark" title="Producto defectuoso">PDD</span>
+                        {% elif r.reason_prefix %}
+                            <span class="badge bg-secondary">{{ r.reason_prefix }}</span>
+                        {% endif %}
+                        {% if r.title %}<div class="small text-muted fw-normal">{{ r.title }}</div>{% endif %}
+                    </td>
+                    <td class="small">
+                        {% if r.order_id %}<div>Orden: {{ r.order_id }}</div>{% endif %}
+                        {% if r.pack_id %}<div class="text-muted">Pack: {{ r.pack_id }}</div>{% endif %}
+                    </td>
+                    <td class="small">{{ r.tipo or '—' }}</td>
+                    <td>
+                        {% if r.stage == 'dispute' %}
+                            <span class="badge bg-danger"><i class="bi bi-people"></i> Mediación</span>
+                        {% elif r.stage == 'claim' %}
+                            <span class="badge bg-primary">Reclamo</span>
+                        {% else %}
+                            <span class="badge bg-secondary">{{ r.stage or '—' }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if r.status == 'closed' %}
+                            <span class="badge bg-success">Cerrado</span>
+                        {% elif r.status == 'opened' %}
+                            <span class="badge bg-warning text-dark">Abierto</span>
+                        {% else %}
+                            <span class="badge bg-light text-dark border">{{ r.status or '—' }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if r.affects_reputation and r.affects_reputation not in ('', 'None', 'does_not_affect', 'no') %}
+                            <span class="badge bg-danger" title="{{ r.affects_reputation }}"><i class="bi bi-star-fill"></i> Afecta</span>
+                            {% if r.has_incentive %}<span class="badge bg-info text-dark" title="Si respondés en 48h no afecta">48h</span>{% endif %}
+                        {% else %}
+                            <span class="text-muted small">No afecta</span>
+                        {% endif %}
+                    </td>
+                    <td class="small">
+                        {% if r.action_responsible == 'seller' %}
+                            <span class="badge bg-danger">Vos</span>
+                        {% elif r.action_responsible == 'buyer' %}
+                            <span class="badge bg-secondary">Comprador</span>
+                        {% elif r.action_responsible == 'mediator' %}
+                            <span class="badge bg-dark">Mediador ML</span>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td class="small">{{ r.due_date.strftime('%d/%m %H:%M') if r.due_date else '—' }}</td>
+                    <td>
+                        <a href="{{ url_for('reclamo_detalle', claim_id=r.claim_id) }}" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-eye"></i> Ver
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="small text-muted">{{ reclamos|length }} reclamo(s) — filtro: {{ filtro }}</p>
+    {% endif %}
+</div>
+{% endblock %}

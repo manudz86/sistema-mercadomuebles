@@ -14960,6 +14960,374 @@ def agencia_dashboard():
     )
 
 
+# ============================================================================
+# RECLAMOS ML (Claims v2) — Panel de seguimiento
+# ============================================================================
+
+_ML_CLAIMS_BASE = 'https://api.mercadolibre.com/marketplace/v2/claims'
+
+
+def _crear_tabla_ml_reclamos():
+    """Crea la tabla de cabecera de reclamos ML si no existe."""
+    try:
+        execute_db('''
+            CREATE TABLE IF NOT EXISTS ml_reclamos (
+                claim_id            BIGINT PRIMARY KEY,
+                order_id            VARCHAR(40),
+                pack_id             VARCHAR(40),
+                resource            VARCHAR(30),
+                resource_id         VARCHAR(40),
+                stage               VARCHAR(20),
+                status              VARCHAR(30),
+                tipo                VARCHAR(40),
+                reason_id           VARCHAR(40),
+                reason_prefix       VARCHAR(10),
+                affects_reputation  VARCHAR(30),
+                has_incentive       TINYINT(1) DEFAULT 0,
+                due_date            DATETIME NULL,
+                action_responsible  VARCHAR(20),
+                title               VARCHAR(255),
+                description         TEXT,
+                problem             TEXT,
+                date_created        DATETIME NULL,
+                last_updated        DATETIME NULL,
+                nota_interna        TEXT,
+                visto               TINYINT(1) DEFAULT 0,
+                synced_at           DATETIME DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ''')
+    except Exception as e:
+        print(f"[RECLAMOS] Error creando tabla ml_reclamos: {e}")
+
+
+def _parse_ml_datetime(s):
+    """Convierte fecha ISO de ML (2024-09-11T22:39:00.000-04:00) a 'YYYY-MM-DD HH:MM:SS' o None."""
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s).strftime('%Y-%m-%d %H:%M:%S')
+    except Exception:
+        try:
+            return s.replace('T', ' ')[:19]
+        except Exception:
+            return None
+
+
+# ── Helpers de la API de claims (v2) ────────────────────────────────────────
+def _reclamos_search(access_token, status=None, stage=None, limit=50, offset=0):
+    params = {'user_id': ML_SELLER_ID, 'limit': limit, 'offset': offset}
+    if status:
+        params['status'] = status
+    if stage:
+        params['stage'] = stage
+    try:
+        r = ml_request('get', f'{_ML_CLAIMS_BASE}/search', access_token, params=params)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        if isinstance(data, dict):
+            return data.get('data') or data.get('results') or []
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        print(f"[RECLAMOS] Error en search: {e}")
+        return []
+
+
+def _reclamo_get(access_token, claim_id):
+    try:
+        r = ml_request('get', f'{_ML_CLAIMS_BASE}/{claim_id}', access_token)
+        return r.json() if r.status_code == 200 else None
+    except Exception:
+        return None
+
+
+def _reclamo_detail(access_token, claim_id):
+    try:
+        r = ml_request('get', f'{_ML_CLAIMS_BASE}/{claim_id}/detail', access_token)
+        return r.json() if r.status_code == 200 else None
+    except Exception:
+        return None
+
+
+def _reclamo_affects_reputation(access_token, claim_id):
+    try:
+        r = ml_request('get', f'{_ML_CLAIMS_BASE}/{claim_id}/affects-reputation', access_token)
+        return r.json() if r.status_code == 200 else None
+    except Exception:
+        return None
+
+
+def _reclamo_messages(access_token, claim_id):
+    try:
+        r = ml_request('get', f'{_ML_CLAIMS_BASE}/{claim_id}/messages', access_token)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        if isinstance(data, dict):
+            return data.get('messages') or data.get('data') or []
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _reclamo_status_history(access_token, claim_id):
+    try:
+        r = ml_request('get', f'{_ML_CLAIMS_BASE}/{claim_id}/status-history', access_token)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        if isinstance(data, list):
+            return data
+        return data.get('data', []) if isinstance(data, dict) else []
+    except Exception:
+        return []
+
+
+def _reclamo_send_message(access_token, claim_id, receiver_role, message, attachments=None):
+    payload = {'receiver_role': receiver_role, 'message': message}
+    if attachments:
+        payload['attachments'] = attachments
+    return ml_request('post', f'{_ML_CLAIMS_BASE}/{claim_id}/actions/send-message',
+                      access_token, json_data=payload)
+
+
+def _sync_reclamo_cabecera(claim_id, access_token=None):
+    """Consulta la API de ML y hace upsert de la cabecera del reclamo en ml_reclamos.
+    No pisa los campos propios (nota_interna, visto)."""
+    if access_token is None:
+        access_token = cargar_ml_token()
+    if not access_token:
+        return False
+
+    claim = _reclamo_get(access_token, claim_id)
+    if not claim:
+        return False
+
+    detail = _reclamo_detail(access_token, claim_id) or {}
+    reput  = _reclamo_affects_reputation(access_token, claim_id) or {}
+
+    resource    = claim.get('resource')
+    resource_id = str(claim.get('resource_id') or '')
+    order_id = resource_id if resource == 'order' else None
+
+    # pack_id puede venir en related_entities o en el propio claim
+    pack_id = claim.get('pack_id')
+    if not pack_id:
+        for ent in (claim.get('related_entities') or []):
+            if isinstance(ent, dict) and ent.get('type') == 'pack':
+                pack_id = ent.get('id')
+                break
+
+    reason_id = claim.get('reason_id') or ''
+    reason_prefix = reason_id[:3] if reason_id else ''
+
+    try:
+        execute_db('''
+            INSERT INTO ml_reclamos
+                (claim_id, order_id, pack_id, resource, resource_id, stage, status, tipo,
+                 reason_id, reason_prefix, affects_reputation, has_incentive, due_date,
+                 action_responsible, title, description, problem, date_created, last_updated, synced_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+            ON DUPLICATE KEY UPDATE
+                order_id=VALUES(order_id), pack_id=VALUES(pack_id), resource=VALUES(resource),
+                resource_id=VALUES(resource_id), stage=VALUES(stage), status=VALUES(status),
+                tipo=VALUES(tipo), reason_id=VALUES(reason_id), reason_prefix=VALUES(reason_prefix),
+                affects_reputation=VALUES(affects_reputation), has_incentive=VALUES(has_incentive),
+                due_date=VALUES(due_date), action_responsible=VALUES(action_responsible),
+                title=VALUES(title), description=VALUES(description), problem=VALUES(problem),
+                last_updated=VALUES(last_updated), synced_at=NOW()
+        ''', (
+            claim_id, order_id, pack_id, resource, resource_id,
+            claim.get('stage'), claim.get('status'), claim.get('type'),
+            reason_id, reason_prefix,
+            str(reput.get('affects_reputation') if reput.get('affects_reputation') is not None else ''),
+            1 if reput.get('has_incentive') else 0,
+            _parse_ml_datetime(detail.get('due_date') or reput.get('due_date')),
+            detail.get('action_responsible'),
+            (detail.get('title') or '')[:255],
+            detail.get('description'), detail.get('problem'),
+            _parse_ml_datetime(claim.get('date_created')),
+            _parse_ml_datetime(claim.get('last_updated')),
+        ))
+        return True
+    except Exception as e:
+        print(f"[RECLAMOS] Error upsert claim {claim_id}: {e}")
+        return False
+
+
+def job_sincronizar_reclamos():
+    """Job de respaldo (cada 10 min): sincroniza cabeceras de reclamos abiertos."""
+    try:
+        access_token = cargar_ml_token()
+        if not access_token:
+            return
+        vistos = set()
+        for st in ('opened',):
+            for c in _reclamos_search(access_token, status=st, limit=50):
+                cid = c.get('id') or c.get('claim_id') or c.get('resource_id')
+                if cid and cid not in vistos:
+                    vistos.add(cid)
+                    _sync_reclamo_cabecera(cid, access_token)
+        print(f"[RECLAMOS] Sync respaldo: {len(vistos)} reclamos")
+    except Exception as e:
+        print(f"[RECLAMOS] Error en job_sincronizar_reclamos: {e}")
+
+
+def _seller_puede_responder(claim):
+    """Devuelve (puede_responder, receiver_sugerido) según available_actions del seller."""
+    acciones = []
+    for player in (claim.get('players') or []):
+        es_seller = (str(player.get('user_id')) == str(ML_SELLER_ID)
+                     or player.get('role') in ('respondent', 'seller'))
+        if es_seller:
+            for a in (player.get('available_actions') or []):
+                code = a.get('action') if isinstance(a, dict) else a
+                if code:
+                    acciones.append(code)
+    puede = any('send_message' in (a or '') for a in acciones)
+    receiver = 'mediator' if claim.get('stage') == 'dispute' else 'complainant'
+    return puede, receiver, acciones
+
+
+@app.route('/reclamos')
+@login_required
+@vendedor_required
+def reclamos():
+    filtro = request.args.get('filtro', 'activos')
+    where = ''
+    if filtro == 'activos':
+        where = "WHERE status NOT IN ('closed')"
+    elif filtro == 'cerrados':
+        where = "WHERE status = 'closed'"
+    elif filtro == 'mediacion':
+        where = "WHERE stage = 'dispute'"
+    elif filtro == 'reputacion':
+        where = "WHERE affects_reputation NOT IN ('', 'None', 'does_not_affect', 'no')"
+    rows = query_db(
+        f"SELECT * FROM ml_reclamos {where} "
+        f"ORDER BY (due_date IS NULL), due_date ASC, last_updated DESC"
+    )
+    pend = query_one("SELECT COUNT(*) AS c FROM ml_reclamos WHERE status NOT IN ('closed')")
+    return render_template('reclamos.html',
+                           reclamos=rows,
+                           filtro=filtro,
+                           pendientes=(pend['c'] if pend else 0))
+
+
+@app.route('/reclamos/<claim_id>')
+@login_required
+@vendedor_required
+def reclamo_detalle(claim_id):
+    access_token = cargar_ml_token()
+    if not access_token:
+        flash('❌ No hay token de ML configurado', 'warning')
+        return redirect(url_for('reclamos'))
+
+    claim    = _reclamo_get(access_token, claim_id) or {}
+    detail   = _reclamo_detail(access_token, claim_id) or {}
+    reput    = _reclamo_affects_reputation(access_token, claim_id) or {}
+    mensajes = _reclamo_messages(access_token, claim_id)
+    historia = _reclamo_status_history(access_token, claim_id)
+
+    # Refrescar cabecera en BD y marcar visto, luego releer (cab fresca)
+    _sync_reclamo_cabecera(claim_id, access_token)
+    execute_db("UPDATE ml_reclamos SET visto=1 WHERE claim_id=%s", (claim_id,))
+    cab      = query_one("SELECT * FROM ml_reclamos WHERE claim_id=%s", (claim_id,))
+
+    puede_responder, receiver_sugerido, acciones_seller = _seller_puede_responder(claim)
+
+    return render_template('reclamo_detalle.html',
+                           claim=claim, detail=detail, reput=reput,
+                           mensajes=mensajes, historia=historia, cab=cab,
+                           claim_id=claim_id,
+                           puede_responder=puede_responder,
+                           receiver_sugerido=receiver_sugerido,
+                           acciones_seller=acciones_seller,
+                           ml_seller_id=ML_SELLER_ID)
+
+
+@app.route('/reclamos/<claim_id>/responder', methods=['POST'])
+@login_required
+@vendedor_required
+def reclamo_responder(claim_id):
+    mensaje       = request.form.get('mensaje', '').strip()
+    receiver_role = request.form.get('receiver_role', 'complainant').strip()
+    if not mensaje:
+        flash('❌ El mensaje no puede estar vacío', 'danger')
+        return redirect(url_for('reclamo_detalle', claim_id=claim_id))
+    if receiver_role not in ('complainant', 'mediator', 'respondent'):
+        receiver_role = 'complainant'
+
+    access_token = cargar_ml_token()
+    if not access_token:
+        flash('❌ No hay token de ML configurado', 'warning')
+        return redirect(url_for('reclamo_detalle', claim_id=claim_id))
+
+    try:
+        r = _reclamo_send_message(access_token, claim_id, receiver_role, mensaje)
+        if r.status_code in (200, 201):
+            flash('✅ Mensaje enviado', 'success')
+            _sync_reclamo_cabecera(claim_id, access_token)
+        else:
+            try:
+                resp = r.json()
+                causa = resp.get('cause') or resp.get('message') or str(resp)
+            except Exception:
+                causa = f'HTTP {r.status_code}'
+            flash(f'❌ No se pudo enviar el mensaje: {causa}', 'danger')
+    except Exception as e:
+        flash(f'❌ Error al enviar mensaje: {e}', 'danger')
+    return redirect(url_for('reclamo_detalle', claim_id=claim_id))
+
+
+@app.route('/reclamos/<claim_id>/nota', methods=['POST'])
+@login_required
+@vendedor_required
+def reclamo_nota(claim_id):
+    nota = request.form.get('nota_interna', '').strip()
+    try:
+        execute_db("UPDATE ml_reclamos SET nota_interna=%s WHERE claim_id=%s", (nota, claim_id))
+        flash('✅ Nota guardada', 'success')
+    except Exception as e:
+        flash(f'❌ Error al guardar nota: {e}', 'danger')
+    return redirect(url_for('reclamo_detalle', claim_id=claim_id))
+
+
+@app.route('/reclamos/sync', methods=['POST'])
+@login_required
+@vendedor_required
+def reclamos_sync():
+    try:
+        job_sincronizar_reclamos()
+        flash('✅ Reclamos sincronizados', 'success')
+    except Exception as e:
+        flash(f'❌ Error al sincronizar: {e}', 'danger')
+    return redirect(url_for('reclamos'))
+
+
+@app.route('/webhook/ml-claims', methods=['POST'])
+def webhook_ml_claims():
+    """Recibe notificaciones del topic marketplace_claims de ML.
+    Responde 200 de inmediato y sincroniza en segundo plano."""
+    import re as _re_wh
+    data = request.get_json(force=True, silent=True) or {}
+    resource = data.get('resource', '') or ''
+    claim_id = None
+    if resource:
+        tail = resource.rstrip('/').split('/')[-1]
+        m = _re_wh.search(r'(\d+)', tail)
+        if m:
+            claim_id = m.group(1)
+    if claim_id:
+        try:
+            threading.Thread(target=_sync_reclamo_cabecera, args=(claim_id,), daemon=True).start()
+        except Exception as e:
+            print(f"[RECLAMOS][webhook] Error lanzando sync {claim_id}: {e}")
+    return '', 200
+
+
+
+
 def iniciar_scheduler():
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
@@ -15002,6 +15370,14 @@ def iniciar_scheduler():
             'interval',
             minutes=20,
             id='faltantes_catalogo_ml',
+            replace_existing=True,
+            max_instances=1
+        )
+        scheduler.add_job(
+            job_sincronizar_reclamos,
+            'interval',
+            minutes=10,
+            id='sincronizar_reclamos',
             replace_existing=True,
             max_instances=1
         )
@@ -15079,6 +15455,9 @@ _scheduler = iniciar_scheduler()
 
 # Crear tabla de logs si no existe
 crear_tabla_sistema_logs()
+
+# Crear tabla de reclamos ML si no existe
+_crear_tabla_ml_reclamos()
 
 
 # ============================================================================

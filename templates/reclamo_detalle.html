@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+
+{% block title %}Reclamo {{ claim_id }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="mb-3">
+        <a href="{{ url_for('reclamos') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Volver a reclamos
+        </a>
+    </div>
+
+    <div class="row g-3">
+        <!-- Columna principal -->
+        <div class="col-lg-8">
+            <!-- Cabecera del reclamo -->
+            <div class="card mb-3 shadow-sm">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span class="fw-bold"><i class="bi bi-exclamation-octagon"></i> Reclamo {{ claim_id }}</span>
+                    <span>
+                        {% if claim.stage == 'dispute' %}
+                            <span class="badge bg-danger"><i class="bi bi-people"></i> Mediación</span>
+                        {% elif claim.stage == 'claim' %}
+                            <span class="badge bg-primary">Reclamo</span>
+                        {% endif %}
+                        {% if claim.status == 'closed' %}
+                            <span class="badge bg-success">Cerrado</span>
+                        {% elif claim.status == 'opened' %}
+                            <span class="badge bg-warning text-dark">Abierto</span>
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="card-body">
+                    {% if detail.title %}<h5 class="mb-2">{{ detail.title }}</h5>{% endif %}
+                    {% if detail.problem %}
+                        <p class="mb-2"><strong>Problema:</strong> {{ detail.problem }}</p>
+                    {% endif %}
+                    {% if detail.description %}
+                        <p class="text-muted mb-2">{{ detail.description }}</p>
+                    {% endif %}
+                    <div class="row g-2 small">
+                        <div class="col-sm-6">
+                            <span class="text-muted">Tipo:</span> {{ claim.type or '—' }}
+                        </div>
+                        <div class="col-sm-6">
+                            <span class="text-muted">Motivo (reason_id):</span> {{ claim.reason_id or '—' }}
+                        </div>
+                        <div class="col-sm-6">
+                            <span class="text-muted">Responsable de la acción:</span>
+                            {% if detail.action_responsible == 'seller' %}
+                                <span class="badge bg-danger">Vos</span>
+                            {% elif detail.action_responsible == 'buyer' %}
+                                <span class="badge bg-secondary">Comprador</span>
+                            {% elif detail.action_responsible == 'mediator' %}
+                                <span class="badge bg-dark">Mediador ML</span>
+                            {% else %}{{ detail.action_responsible or '—' }}{% endif %}
+                        </div>
+                        <div class="col-sm-6">
+                            <span class="text-muted">Vence:</span>
+                            {{ cab.due_date.strftime('%d/%m/%Y %H:%M') if cab and cab.due_date else '—' }}
+                        </div>
+                    </div>
+
+                    <!-- Reputación -->
+                    <div class="mt-3 p-2 rounded {% if reput.affects_reputation and reput.affects_reputation not in ('does_not_affect', None, '') %}bg-danger bg-opacity-10 border border-danger{% else %}bg-light{% endif %}">
+                        <i class="bi bi-star{% if reput.affects_reputation and reput.affects_reputation not in ('does_not_affect', None, '') %}-fill text-danger{% endif %}"></i>
+                        <strong>Reputación:</strong>
+                        {% if reput.affects_reputation and reput.affects_reputation not in ('does_not_affect', None, '') %}
+                            <span class="text-danger">Afecta ({{ reput.affects_reputation }})</span>
+                        {% else %}
+                            No afecta
+                        {% endif %}
+                        {% if reput.has_incentive %}
+                            <span class="badge bg-info text-dark ms-2">Respondé en 48h y no afecta</span>
+                        {% endif %}
+                    </div>
+
+                    <!-- Link a ML -->
+                    <div class="mt-3">
+                        {% if cab and cab.order_id %}
+                        <a href="https://www.mercadolibre.com.ar/ventas/{{ cab.order_id }}/detalle"
+                           target="_blank" class="btn btn-sm btn-outline-warning">
+                            <i class="bi bi-box-arrow-up-right"></i> Abrir la venta en ML
+                        </a>
+                        {% endif %}
+                        <a href="https://www.mercadolibre.com.ar/ventas" target="_blank"
+                           class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-box-arrow-up-right"></i> Gestión de ventas/reclamos en ML
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hilo de mensajes -->
+            <div class="card mb-3 shadow-sm">
+                <div class="card-header fw-bold"><i class="bi bi-chat-dots"></i> Mensajes</div>
+                <div class="card-body">
+                    {% if not mensajes %}
+                        <p class="text-muted mb-0">No hay mensajes en este reclamo.</p>
+                    {% else %}
+                        {% for m in mensajes %}
+                        {% set rol = m.get('sender_role') or (m.get('from') or {}).get('role') or '' %}
+                        <div class="mb-2 p-2 rounded {% if rol in ('respondent','seller') %}bg-primary bg-opacity-10 text-end{% elif rol == 'mediator' %}bg-warning bg-opacity-10{% else %}bg-light{% endif %}">
+                            <div class="small text-muted">
+                                {% if rol in ('respondent','seller') %}Vos (vendedor)
+                                {% elif rol == 'complainant' %}Comprador
+                                {% elif rol == 'mediator' %}Mediador ML
+                                {% else %}{{ rol or 'Sistema' }}{% endif %}
+                                {% if m.get('date_created') %} · {{ m.get('date_created')[:16].replace('T',' ') }}{% endif %}
+                            </div>
+                            <div>{{ m.get('message') or m.get('text') or '' }}</div>
+                            {% if m.get('attachments') %}
+                                <div class="small mt-1">
+                                    <i class="bi bi-paperclip"></i> {{ m.get('attachments')|length }} adjunto(s)
+                                </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Responder -->
+            <div class="card mb-3 shadow-sm">
+                <div class="card-header fw-bold"><i class="bi bi-reply"></i> Responder</div>
+                <div class="card-body">
+                    {% if puede_responder %}
+                    <form method="POST" action="{{ url_for('reclamo_responder', claim_id=claim_id) }}">
+                        <div class="mb-2">
+                            <label class="form-label small fw-bold">Destinatario</label>
+                            <select name="receiver_role" class="form-select form-select-sm" style="max-width:260px">
+                                <option value="complainant" {% if receiver_sugerido == 'complainant' %}selected{% endif %}>Comprador</option>
+                                <option value="mediator" {% if receiver_sugerido == 'mediator' %}selected{% endif %}>Mediador ML</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <textarea name="mensaje" class="form-control" rows="3"
+                                      placeholder="Escribí tu respuesta..." required></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            <i class="bi bi-send"></i> Enviar mensaje
+                        </button>
+                        <span class="small text-muted ms-2">Sugerido: {{ receiver_sugerido }}</span>
+                    </form>
+                    {% else %}
+                    <div class="alert alert-secondary small mb-0">
+                        <i class="bi bi-info-circle"></i> En este momento no hay una acción de envío de mensaje
+                        disponible para el vendedor (según <code>available_actions</code>).
+                        Si necesitás responder, hacelo desde
+                        <a href="https://www.mercadolibre.com.ar/ventas" target="_blank">la gestión en ML</a>.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Columna lateral -->
+        <div class="col-lg-4">
+            <!-- Timeline -->
+            <div class="card mb-3 shadow-sm">
+                <div class="card-header fw-bold"><i class="bi bi-clock-history"></i> Historial de estados</div>
+                <div class="card-body">
+                    {% if not historia %}
+                        <p class="text-muted small mb-0">Sin historial disponible.</p>
+                    {% else %}
+                    <ul class="list-unstyled mb-0">
+                        {% for h in historia %}
+                        <li class="mb-2 pb-2 border-bottom">
+                            <div class="small">
+                                <span class="badge {% if h.get('stage') == 'dispute' %}bg-danger{% else %}bg-primary{% endif %}">{{ h.get('stage') }}</span>
+                                <span class="badge bg-light text-dark border">{{ h.get('status') }}</span>
+                            </div>
+                            <div class="small text-muted">
+                                {{ (h.get('date') or '')[:16].replace('T',' ') }}
+                                {% if h.get('change_by') %} · por {{ h.get('change_by') }}{% endif %}
+                            </div>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Nota interna -->
+            <div class="card mb-3 shadow-sm">
+                <div class="card-header fw-bold"><i class="bi bi-pencil"></i> Nota interna</div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('reclamo_nota', claim_id=claim_id) }}">
+                        <textarea name="nota_interna" class="form-control mb-2" rows="4"
+                                  placeholder="Tus apuntes sobre este reclamo (privados)...">{{ cab.nota_interna if cab and cab.nota_interna else '' }}</textarea>
+                        <button type="submit" class="btn btn-outline-primary btn-sm">
+                            <i class="bi bi-save"></i> Guardar nota
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Acciones disponibles (debug/info) -->
+            {% if acciones_seller %}
+            <div class="card shadow-sm">
+                <div class="card-header fw-bold small"><i class="bi bi-list-check"></i> Acciones disponibles (vendedor)</div>
+                <div class="card-body">
+                    {% for a in acciones_seller %}
+                        <span class="badge bg-light text-dark border mb-1">{{ a }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
