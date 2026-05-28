@@ -9658,18 +9658,42 @@ def publicar_catalogo_cuota():
         flash(f'❌ Excepción en POST listado general: {e}', 'danger')
         return redirect(url_for('cargar_stock_ml'))
 
-    # Reintento: si ML rechaza atributos "not modifiable" (típicamente los PACKAGE_*
-    # que vienen heredados del producto de catálogo), los saca y reintenta el POST.
+    # Reintento inteligente ante status 400: ML devuelve 400 incluso cuando solo hay
+    # WARNINGS auto-corregibles (no errores reales). Aplicamos las correcciones conocidas
+    # y reintentamos: (a) sacar atributos "not modifiable" (PACKAGE_* heredados del
+    # catálogo), (b) forzar free_shipping=true si ML lo marca como obligatorio.
     excluir_attrs = set()
-    for _intento in range(4):
+    correcciones = set()
+    for _intento in range(5):
         if r_a.status_code in (200, 201):
             break
+
+        causa = resp_a.get('cause', []) if isinstance(resp_a, dict) else []
+        # Si hay algún error REAL (type='error'), no tiene sentido reintentar
+        hay_error_real = any(isinstance(c, dict) and c.get('type') == 'error' for c in causa)
+        if hay_error_real:
+            break
+
+        cambio = False
+
+        # (a) Atributos no modificables / ignorados -> sacarlos del payload
         nuevos = _ids_no_modificables(resp_a) - excluir_attrs
-        if not nuevos:
-            break  # el error no es por atributos no modificables, no tiene sentido reintentar
-        excluir_attrs |= nuevos
-        payload_a['attributes'] = [a for a in payload_a.get('attributes', [])
-                                   if a.get('id') not in excluir_attrs]
+        if nuevos:
+            excluir_attrs |= nuevos
+            payload_a['attributes'] = [a for a in payload_a.get('attributes', [])
+                                       if a.get('id') not in excluir_attrs]
+            cambio = True
+
+        # (b) Free shipping obligatorio -> forzar free_shipping=true
+        msgs = ' '.join(str(c.get('message', '')).lower() for c in causa if isinstance(c, dict))
+        if 'free shipping' in msgs and 'free_shipping' not in correcciones:
+            payload_a.setdefault('shipping', {})['free_shipping'] = True
+            correcciones.add('free_shipping')
+            cambio = True
+
+        if not cambio:
+            break  # no sabemos cómo corregir este warning/error: abortar
+
         try:
             r_a = ml_request('post', 'https://api.mercadolibre.com/items', access_token, json_data=payload_a)
             resp_a = r_a.json()
@@ -9679,7 +9703,14 @@ def publicar_catalogo_cuota():
 
     if r_a.status_code not in (200, 201):
         causa = resp_a.get('cause', []) if isinstance(resp_a, dict) else []
-        detalle = causa[0].get('message', str(resp_a)) if causa else str(resp_a)
+        # Mostrar el/los errores reales si los hay; si no, el primer mensaje
+        errs = [c.get('message') for c in causa if isinstance(c, dict) and c.get('type') == 'error']
+        if errs:
+            detalle = ' | '.join(m for m in errs if m)
+        elif causa:
+            detalle = causa[0].get('message', str(resp_a))
+        else:
+            detalle = str(resp_a)
         flash(f'❌ Error creando publi de listado general: {detalle}', 'danger')
         return redirect(url_for('cargar_stock_ml'))
 
