@@ -307,12 +307,6 @@
                         <i class="bi bi-search"></i> Auditoría ML
                     </a>
                 </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint in ['reclamos', 'reclamo_detalle'] %}active{% endif %}" href="/reclamos">
-                        <i class="bi bi-exclamation-octagon"></i> Reclamos ML
-                        {% if reclamos_pendientes_count and reclamos_pendientes_count > 0 %}<span class="badge bg-danger ms-1">{{ reclamos_pendientes_count }}</span>{% endif %}
-                    </a>
-                </li>
                 <div class="section-title">ANÁLISIS</div>
                 <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'estadisticas' %}active{% endif %}" href="/estadisticas">
@@ -533,12 +527,6 @@
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'auditoria_ml' %}active{% endif %}" href="/auditoria-ml">
                                 <i class="bi bi-search"></i> Auditoría ML
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint in ['reclamos', 'reclamo_detalle'] %}active{% endif %}" href="/reclamos">
-                                <i class="bi bi-exclamation-octagon"></i> Reclamos ML
-                                {% if reclamos_pendientes_count and reclamos_pendientes_count > 0 %}<span class="badge bg-danger ms-1">{{ reclamos_pendientes_count }}</span>{% endif %}
                             </a>
                         </li>
                         <div class="section-title">ANÁLISIS</div>
