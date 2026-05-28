@@ -57,9 +57,15 @@ login_manager.login_message_category = 'warning'
 @app.context_processor
 def inject_alertas_pendientes():
     """Inyecta el contador de alertas en todos los templates"""
+    reclamos_count = 0
     try:
         from flask_login import current_user
         if current_user.is_authenticated:
+            try:
+                rc = query_one("SELECT COUNT(*) AS c FROM ml_reclamos WHERE status NOT IN ('closed')")
+                reclamos_count = rc['c'] if rc else 0
+            except Exception:
+                reclamos_count = 0
             # Contar alertas que tienen al menos una fila visible en el template
             # (tipo_procesado != 'ambos' significa que alguna acción queda pendiente)
             result = query_one("""
@@ -72,10 +78,14 @@ def inject_alertas_pendientes():
                     AND m.activo = TRUE
                 )
             """)
-            return {'alertas_pendientes_count': result['total'] if result else 0, 'now': datetime.now()}
+            return {'alertas_pendientes_count': result['total'] if result else 0,
+                    'reclamos_pendientes_count': reclamos_count,
+                    'now': datetime.now()}
     except:
         pass
-    return {'alertas_pendientes_count': 0, 'now': datetime.now()}
+    return {'alertas_pendientes_count': 0,
+            'reclamos_pendientes_count': reclamos_count,
+            'now': datetime.now()}
 
 class User(UserMixin):
     def __init__(self, id, username, rol, activo):
@@ -15202,7 +15212,7 @@ def reclamos():
     elif filtro == 'mediacion':
         where = "WHERE stage = 'dispute'"
     elif filtro == 'reputacion':
-        where = "WHERE affects_reputation NOT IN ('', 'None', 'does_not_affect', 'no')"
+        where = "WHERE affects_reputation = 'affected'"
     rows = query_db(
         f"SELECT * FROM ml_reclamos {where} "
         f"ORDER BY (due_date IS NULL), due_date ASC, last_updated DESC"

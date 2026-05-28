@@ -62,11 +62,13 @@
                     </div>
 
                     <!-- Reputación -->
-                    <div class="mt-3 p-2 rounded {% if reput.affects_reputation and reput.affects_reputation not in ('does_not_affect', None, '') %}bg-danger bg-opacity-10 border border-danger{% else %}bg-light{% endif %}">
-                        <i class="bi bi-star{% if reput.affects_reputation and reput.affects_reputation not in ('does_not_affect', None, '') %}-fill text-danger{% endif %}"></i>
+                    <div class="mt-3 p-2 rounded {% if reput.affects_reputation == 'affected' %}bg-danger bg-opacity-10 border border-danger{% else %}bg-light{% endif %}">
+                        <i class="bi bi-star{% if reput.affects_reputation == 'affected' %}-fill text-danger{% endif %}"></i>
                         <strong>Reputación:</strong>
-                        {% if reput.affects_reputation and reput.affects_reputation not in ('does_not_affect', None, '') %}
-                            <span class="text-danger">Afecta ({{ reput.affects_reputation }})</span>
+                        {% if reput.affects_reputation == 'affected' %}
+                            <span class="text-danger">Afecta</span>
+                        {% elif reput.affects_reputation == 'not_applies' %}
+                            No aplica
                         {% else %}
                             No afecta
                         {% endif %}

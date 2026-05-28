@@ -93,7 +93,7 @@
                         {% endif %}
                     </td>
                     <td>
-                        {% if r.affects_reputation and r.affects_reputation not in ('', 'None', 'does_not_affect', 'no') %}
+                        {% if r.affects_reputation == 'affected' %}
                             <span class="badge bg-danger" title="{{ r.affects_reputation }}"><i class="bi bi-star-fill"></i> Afecta</span>
                             {% if r.has_incentive %}<span class="badge bg-info text-dark" title="Si respondés en 48h no afecta">48h</span>{% endif %}
                         {% else %}
