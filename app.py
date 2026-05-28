@@ -9458,15 +9458,35 @@ def _construir_payload_desde_hermana(item_hermana, tipo, precio):
     if not params:
         return None
 
-    # Clonar atributos relevantes (omitir los read-only/auto-generados)
+    # Clonar atributos relevantes (omitir los read-only/auto-generados).
+    # Cubre los distintos formatos de valor de ML: value_id (lista),
+    # value_struct (numérico con unidad, ej. densidad/medidas), value_name (texto),
+    # o el primer elemento de values[] como fallback.
     attrs = []
     for a in item_hermana.get('attributes', []) or []:
-        if a.get('id') in _ATTRS_NO_CLONAR_AL_PUBLICAR:
+        aid = a.get('id')
+        if not aid or aid in _ATTRS_NO_CLONAR_AL_PUBLICAR:
             continue
+        nuevo = {'id': aid}
         if a.get('value_id'):
-            attrs.append({'id': a['id'], 'value_id': a['value_id']})
+            nuevo['value_id'] = a['value_id']
+        elif a.get('value_struct') is not None:
+            nuevo['value_struct'] = a['value_struct']
         elif a.get('value_name') is not None:
-            attrs.append({'id': a['id'], 'value_name': a['value_name']})
+            nuevo['value_name'] = a['value_name']
+        elif a.get('values'):
+            v = a['values'][0]
+            if v.get('id'):
+                nuevo['value_id'] = v['id']
+            elif v.get('struct') is not None:
+                nuevo['value_struct'] = v['struct']
+            elif v.get('name') is not None:
+                nuevo['value_name'] = v['name']
+            else:
+                continue
+        else:
+            continue  # atributo sin valor: no clonar
+        attrs.append(nuevo)
 
     # Clonar sale_terms (garantía). Filtrar INSTALLMENTS_CAMPAIGN si viniera, lo
     # manejamos vía tags en gold_pro/gold_special.
