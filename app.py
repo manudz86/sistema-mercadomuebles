@@ -15199,6 +15199,71 @@ def _seller_puede_responder(claim):
     return puede, receiver, acciones
 
 
+def _limpiar_html_mensaje(texto):
+    """Convierte el HTML que mandan los mensajes de ML (sobre todo el mediador) en
+    texto plano legible, preservando saltos de párrafo."""
+    import re as _re_m
+    import html as _html_m
+    if not texto:
+        return ''
+    t = str(texto)
+    t = _re_m.sub(r'(?i)<br\s*/?>', '\n', t)
+    t = _re_m.sub(r'(?i)</p\s*>', '\n', t)
+    t = _re_m.sub(r'<[^>]+>', '', t)
+    t = _html_m.unescape(t)
+    t = _re_m.sub(r'[ \t]+', ' ', t)
+    t = _re_m.sub(r'\n[ \t]*\n[ \t]*\n+', '\n\n', t)
+    return t.strip()
+
+
+def _rol_label(rol):
+    if rol in ('respondent', 'seller'):
+        return 'Vos (vendedor)'
+    if rol == 'complainant':
+        return 'Comprador'
+    if rol == 'mediator':
+        return 'Mediador ML'
+    return rol or 'Sistema'
+
+
+def _normalizar_mensaje(m):
+    """Devuelve un dict uniforme {rol, rol_label, es_seller, fecha, texto, adjuntos, es_mediacion}."""
+    if not isinstance(m, dict):
+        return None
+    sender = (m.get('sender_role') or (m.get('from') or {}).get('role')
+              or m.get('role') or '')
+    receiver = (m.get('receiver_role') or (m.get('to') or {}).get('role') or '')
+    fecha = (m.get('date_created') or m.get('date') or m.get('message_date') or '')
+    if isinstance(fecha, str):
+        fecha = fecha[:16].replace('T', ' ')
+    texto = _limpiar_html_mensaje(m.get('message') or m.get('text') or '')
+    adjuntos = m.get('attachments') or []
+    es_mediacion = ('mediator' in str(sender).lower()) or ('mediator' in str(receiver).lower())
+    return {
+        'rol':          sender,
+        'rol_label':    _rol_label(sender),
+        'es_seller':    sender in ('respondent', 'seller'),
+        'fecha':        fecha,
+        'texto':        texto,
+        'adjuntos':     adjuntos,
+        'es_mediacion': es_mediacion,
+    }
+
+
+def _clasificar_mensajes(mensajes):
+    """Separa los mensajes en (con_comprador, con_mediacion)."""
+    con_comprador, con_mediacion = [], []
+    for m in (mensajes or []):
+        nm = _normalizar_mensaje(m)
+        if not nm:
+            continue
+        if nm['es_mediacion']:
+            con_mediacion.append(nm)
+        else:
+            con_comprador.append(nm)
+    return con_comprador, con_mediacion
+
+
 @app.route('/reclamos')
 @login_required
 @vendedor_required
@@ -15239,6 +15304,9 @@ def reclamo_detalle(claim_id):
     mensajes = _reclamo_messages(access_token, claim_id)
     historia = _reclamo_status_history(access_token, claim_id)
 
+    # Separar mensajes en dos hilos: con el comprador y con la mediación (ML)
+    msgs_comprador, msgs_mediacion = _clasificar_mensajes(mensajes)
+
     # Refrescar cabecera en BD y marcar visto, luego releer (cab fresca)
     _sync_reclamo_cabecera(claim_id, access_token)
     execute_db("UPDATE ml_reclamos SET visto=1 WHERE claim_id=%s", (claim_id,))
@@ -15249,6 +15317,8 @@ def reclamo_detalle(claim_id):
     return render_template('reclamo_detalle.html',
                            claim=claim, detail=detail, reput=reput,
                            mensajes=mensajes, historia=historia, cab=cab,
+                           msgs_comprador=msgs_comprador,
+                           msgs_mediacion=msgs_mediacion,
                            claim_id=claim_id,
                            puede_responder=puede_responder,
                            receiver_sugerido=receiver_sugerido,

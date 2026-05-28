@@ -97,27 +97,65 @@
             <div class="card mb-3 shadow-sm">
                 <div class="card-header fw-bold"><i class="bi bi-chat-dots"></i> Mensajes</div>
                 <div class="card-body">
-                    {% if not mensajes %}
+                    {% if not msgs_comprador and not msgs_mediacion %}
                         <p class="text-muted mb-0">No hay mensajes en este reclamo.</p>
                     {% else %}
-                        {% for m in mensajes %}
-                        {% set rol = m.get('sender_role') or (m.get('from') or {}).get('role') or '' %}
-                        <div class="mb-2 p-2 rounded {% if rol in ('respondent','seller') %}bg-primary bg-opacity-10 text-end{% elif rol == 'mediator' %}bg-warning bg-opacity-10{% else %}bg-light{% endif %}">
-                            <div class="small text-muted">
-                                {% if rol in ('respondent','seller') %}Vos (vendedor)
-                                {% elif rol == 'complainant' %}Comprador
-                                {% elif rol == 'mediator' %}Mediador ML
-                                {% else %}{{ rol or 'Sistema' }}{% endif %}
-                                {% if m.get('date_created') %} · {{ m.get('date_created')[:16].replace('T',' ') }}{% endif %}
-                            </div>
-                            <div>{{ m.get('message') or m.get('text') or '' }}</div>
-                            {% if m.get('attachments') %}
-                                <div class="small mt-1">
-                                    <i class="bi bi-paperclip"></i> {{ m.get('attachments')|length }} adjunto(s)
+                    <!-- Solapas -->
+                    <ul class="nav nav-tabs mb-3" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="tab-comprador-btn" data-bs-toggle="tab"
+                                    data-bs-target="#tab-comprador" type="button" role="tab">
+                                <i class="bi bi-person"></i> Con el comprador
+                                <span class="badge bg-secondary ms-1">{{ msgs_comprador|length }}</span>
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link {% if not msgs_comprador and msgs_mediacion %}active{% endif %}"
+                                    id="tab-mediacion-btn" data-bs-toggle="tab"
+                                    data-bs-target="#tab-mediacion" type="button" role="tab">
+                                <i class="bi bi-people"></i> Mediación (ML)
+                                <span class="badge bg-danger ms-1">{{ msgs_mediacion|length }}</span>
+                            </button>
+                        </li>
+                    </ul>
+                    <div class="tab-content">
+                        <!-- Hilo comprador -->
+                        <div class="tab-pane fade show active" id="tab-comprador" role="tabpanel">
+                            {% if not msgs_comprador %}
+                                <p class="text-muted small mb-0">Sin mensajes con el comprador.</p>
+                            {% else %}
+                                {% for m in msgs_comprador %}
+                                <div class="mb-2 p-2 rounded {% if m.es_seller %}bg-primary bg-opacity-10 text-end{% else %}bg-light{% endif %}">
+                                    <div class="small text-muted">
+                                        {{ m.rol_label }}{% if m.fecha %} · {{ m.fecha }}{% endif %}
+                                    </div>
+                                    <div style="white-space: pre-line">{{ m.texto }}</div>
+                                    {% if m.adjuntos %}
+                                        <div class="small mt-1"><i class="bi bi-paperclip"></i> {{ m.adjuntos|length }} adjunto(s)</div>
+                                    {% endif %}
                                 </div>
+                                {% endfor %}
                             {% endif %}
                         </div>
-                        {% endfor %}
+                        <!-- Hilo mediación -->
+                        <div class="tab-pane fade {% if not msgs_comprador and msgs_mediacion %}show active{% endif %}" id="tab-mediacion" role="tabpanel">
+                            {% if not msgs_mediacion %}
+                                <p class="text-muted small mb-0">Sin mensajes de mediación todavía.</p>
+                            {% else %}
+                                {% for m in msgs_mediacion %}
+                                <div class="mb-2 p-2 rounded {% if m.es_seller %}bg-primary bg-opacity-10 text-end{% elif m.rol == 'mediator' %}bg-warning bg-opacity-10{% else %}bg-light{% endif %}">
+                                    <div class="small text-muted">
+                                        {{ m.rol_label }}{% if m.fecha %} · {{ m.fecha }}{% endif %}
+                                    </div>
+                                    <div style="white-space: pre-line">{{ m.texto }}</div>
+                                    {% if m.adjuntos %}
+                                        <div class="small mt-1"><i class="bi bi-paperclip"></i> {{ m.adjuntos|length }} adjunto(s)</div>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            {% endif %}
+                        </div>
+                    </div>
                     {% endif %}
                 </div>
             </div>
