@@ -15264,6 +15264,42 @@ def _clasificar_mensajes(mensajes):
     return con_comprador, con_mediacion
 
 
+def _reclamo_orden_info(access_token, order_id):
+    """Trae datos de la venta asociada al reclamo: items, importe, comprador."""
+    if not order_id:
+        return None
+    try:
+        r = ml_request('get', f'https://api.mercadolibre.com/orders/{order_id}', access_token)
+        if r.status_code != 200:
+            return None
+        o = r.json()
+    except Exception:
+        return None
+
+    items = []
+    for it in (o.get('order_items') or []):
+        item = it.get('item') or {}
+        items.append({
+            'titulo':     item.get('title'),
+            'sku':        item.get('seller_sku') or item.get('seller_custom_field'),
+            'variacion':  item.get('variation_id'),
+            'cantidad':   it.get('quantity'),
+            'unit_price': it.get('unit_price'),
+        })
+    buyer = o.get('buyer') or {}
+    nombre = (f"{buyer.get('first_name','')} {buyer.get('last_name','')}").strip()
+    return {
+        'order_id':     o.get('id'),
+        'status':       o.get('status'),
+        'date_created': (o.get('date_created') or '')[:10],
+        'total_amount': o.get('total_amount'),
+        'currency_id':  o.get('currency_id') or 'ARS',
+        'buyer_nombre': nombre or buyer.get('nickname'),
+        'buyer_nick':   buyer.get('nickname'),
+        'items':        items,
+    }
+
+
 @app.route('/reclamos')
 @login_required
 @vendedor_required
@@ -15314,11 +15350,20 @@ def reclamo_detalle(claim_id):
 
     puede_responder, receiver_sugerido, acciones_seller = _seller_puede_responder(claim)
 
+    # Datos de la venta asociada (producto, importe, comprador)
+    order_id_lookup = None
+    if cab and cab.get('order_id'):
+        order_id_lookup = cab.get('order_id')
+    elif claim.get('resource') == 'order':
+        order_id_lookup = str(claim.get('resource_id') or '')
+    venta_info = _reclamo_orden_info(access_token, order_id_lookup)
+
     return render_template('reclamo_detalle.html',
                            claim=claim, detail=detail, reput=reput,
                            mensajes=mensajes, historia=historia, cab=cab,
                            msgs_comprador=msgs_comprador,
                            msgs_mediacion=msgs_mediacion,
+                           venta_info=venta_info,
                            claim_id=claim_id,
                            puede_responder=puede_responder,
                            receiver_sugerido=receiver_sugerido,

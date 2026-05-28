@@ -94,6 +94,40 @@
             </div>
 
             <!-- Hilo de mensajes -->
+            <!-- Detalle de la venta -->
+            {% if venta_info %}
+            <div class="card mb-3 shadow-sm">
+                <div class="card-header fw-bold"><i class="bi bi-cart-check"></i> Detalle de la venta</div>
+                <div class="card-body">
+                    <div class="row g-2 small mb-2">
+                        <div class="col-sm-4"><span class="text-muted">Orden:</span> {{ venta_info.order_id }}</div>
+                        <div class="col-sm-4"><span class="text-muted">Fecha:</span> {{ venta_info.date_created or '—' }}</div>
+                        <div class="col-sm-4"><span class="text-muted">Estado:</span> {{ venta_info.status or '—' }}</div>
+                        <div class="col-sm-8"><span class="text-muted">Comprador:</span> {{ venta_info.buyer_nombre or '—' }}{% if venta_info.buyer_nick %} ({{ venta_info.buyer_nick }}){% endif %}</div>
+                    </div>
+                    <table class="table table-sm mb-2">
+                        <thead class="table-light">
+                            <tr><th>Producto</th><th>SKU</th><th class="text-center">Cant.</th><th class="text-end">Precio unit.</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for it in venta_info.items %}
+                            <tr>
+                                <td>{{ it.titulo }}</td>
+                                <td><span class="badge bg-light text-dark border">{{ it.sku or '—' }}</span></td>
+                                <td class="text-center">{{ it.cantidad }}</td>
+                                <td class="text-end">${{ "{:,.0f}".format(it.unit_price).replace(",", ".") if it.unit_price is not none else '—' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    <div class="text-end fw-bold">
+                        Total: ${{ "{:,.0f}".format(venta_info.total_amount).replace(",", ".") if venta_info.total_amount is not none else '—' }}
+                        <span class="text-muted small">{{ venta_info.currency_id }}</span>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
             <div class="card mb-3 shadow-sm">
                 <div class="card-header fw-bold"><i class="bi bi-chat-dots"></i> Mensajes</div>
                 <div class="card-body">
