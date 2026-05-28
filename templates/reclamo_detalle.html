@@ -115,13 +115,13 @@
                                 <td>{{ it.titulo }}</td>
                                 <td><span class="badge bg-light text-dark border">{{ it.sku or '—' }}</span></td>
                                 <td class="text-center">{{ it.cantidad }}</td>
-                                <td class="text-end">${{ "{:,.0f}".format(it.unit_price).replace(",", ".") if it.unit_price is not none else '—' }}</td>
+                                <td class="text-end">{{ it.precio_fmt }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                     <div class="text-end fw-bold">
-                        Total: ${{ "{:,.0f}".format(venta_info.total_amount).replace(",", ".") if venta_info.total_amount is not none else '—' }}
+                        Total: {{ venta_info.total_fmt }}
                         <span class="text-muted small">{{ venta_info.currency_id }}</span>
                     </div>
                 </div>

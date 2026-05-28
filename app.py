@@ -15264,6 +15264,14 @@ def _clasificar_mensajes(mensajes):
     return con_comprador, con_mediacion
 
 
+def _fmt_money_ar(v):
+    """Formatea un número como $1.234.567 (estilo AR). Devuelve '—' si no es numérico."""
+    try:
+        return '$' + '{:,.0f}'.format(float(v)).replace(',', '.')
+    except Exception:
+        return '—'
+
+
 def _reclamo_orden_info(access_token, order_id):
     """Trae datos de la venta asociada al reclamo: items, importe, comprador."""
     if not order_id:
@@ -15285,6 +15293,7 @@ def _reclamo_orden_info(access_token, order_id):
             'variacion':  item.get('variation_id'),
             'cantidad':   it.get('quantity'),
             'unit_price': it.get('unit_price'),
+            'precio_fmt': _fmt_money_ar(it.get('unit_price')),
         })
     buyer = o.get('buyer') or {}
     nombre = (f"{buyer.get('first_name','')} {buyer.get('last_name','')}").strip()
@@ -15293,6 +15302,7 @@ def _reclamo_orden_info(access_token, order_id):
         'status':       o.get('status'),
         'date_created': (o.get('date_created') or '')[:10],
         'total_amount': o.get('total_amount'),
+        'total_fmt':    _fmt_money_ar(o.get('total_amount')),
         'currency_id':  o.get('currency_id') or 'ARS',
         'buyer_nombre': nombre or buyer.get('nickname'),
         'buyer_nick':   buyer.get('nickname'),
