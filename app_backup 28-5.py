@@ -8844,13 +8844,6 @@ def obtener_datos_ml_batch(mla_ids, access_token):
                 shipping_data = data.get('shipping') or {}
                 envio_tipo, envio_bg, envio_fg = _envio_label(shipping_data)
 
-                # Extraer GTIN de attributes (útil para flujo de publicar cuota faltante)
-                gtin_val = None
-                for attr in data.get('attributes', []):
-                    if attr.get('id') == 'GTIN':
-                        gtin_val = attr.get('value_name')
-                        break
-
                 resultado[mla_id] = {
                     'titulo':              data.get('title', mla_id),
                     'stock':               data.get('available_quantity', 0),
@@ -8871,7 +8864,6 @@ def obtener_datos_ml_batch(mla_ids, access_token):
                     'envio_mode':          shipping_data.get('mode'),
                     'envio_logistic_type': shipping_data.get('logistic_type'),
                     'tags':                data.get('tags', []),
-                    'gtin':                gtin_val,
                 }
 
         except Exception as e:
@@ -9038,7 +9030,6 @@ def buscar_sku_ml():
             'regular_price':       promo.get('regular_price'),
             'promo_end':           promo.get('promo_end'),
             'tags':                datos_ml.get('tags', []),
-            'gtin':                datos_ml.get('gtin'),
         })
 
     # Ordenar por tipo de publicación
@@ -9072,7 +9063,6 @@ def buscar_sku_ml():
             'titulo':       p['titulo'],
             'precio':       p.get('precio'),
             'listing_type': p.get('listing_type'),
-            'gtin':         p.get('gtin'),
         }
         for p in publicaciones
         if (not p.get('catalog_listing'))
@@ -9513,7 +9503,6 @@ def publicar_catalogo_cuota():
     tipo               = request.form.get('tipo', '').strip()
     precio_str         = request.form.get('precio', '').strip()
     mla_hermana_mayor  = request.form.get('mla_hermana_mayor', '').strip()
-    gtin_a_setear      = request.form.get('gtin_a_setear', '').strip()
 
     if not all([sku, tipo, precio_str, mla_hermana_mayor]):
         flash('❌ Faltan datos para publicar (sku, tipo, precio o hermana mayor)', 'danger')
@@ -9563,38 +9552,13 @@ def publicar_catalogo_cuota():
         flash(f'❌ La hermana mayor {mla_hermana_mayor} no tiene catalog_product_id', 'danger')
         return redirect(url_for('cargar_stock_ml'))
 
-    # ── 1.5) GTIN: si la hermana mayor no tiene y el form trae uno, hacer PUT ─
+    # Validar que tenga GTIN cargado (clave para que la nueva caiga en el mismo UP)
     gtin_attr = next((a for a in (item_hermana.get('attributes') or []) if a.get('id') == 'GTIN'), None)
-    gtin_actual = gtin_attr.get('value_name') if gtin_attr else None
-
-    if not gtin_actual:
-        if not gtin_a_setear:
-            flash(f'❌ La hermana mayor {mla_hermana_mayor} no tiene GTIN cargado. '
-                  f'Cargá el código de barras del producto en esa publi antes de crear nuevas cuotas.', 'danger')
-            return redirect(url_for('cargar_stock_ml'))
-
-        # PUT del GTIN sobre la hermana mayor
-        try:
-            r_put = ml_request('put', f'https://api.mercadolibre.com/items/{mla_hermana_mayor}', access_token,
-                               json_data={'attributes': [{'id': 'GTIN', 'value_name': gtin_a_setear}]})
-            resp_put = r_put.json()
-        except Exception as e:
-            flash(f'❌ Excepción al cargar GTIN en {mla_hermana_mayor}: {e}', 'danger')
-            return redirect(url_for('cargar_stock_ml'))
-
-        if r_put.status_code not in (200, 201):
-            causa = resp_put.get('cause', [])
-            detalle = causa[0].get('message', str(resp_put)) if causa else str(resp_put)
-            flash(f'❌ No se pudo cargar GTIN {gtin_a_setear} en {mla_hermana_mayor}: {detalle}', 'danger')
-            return redirect(url_for('cargar_stock_ml'))
-
-        # Releer la hermana mayor con el GTIN ya aplicado (para usar el nuevo valor en el clonado)
-        item_hermana = resp_put
-        gtin_attr = next((a for a in (item_hermana.get('attributes') or []) if a.get('id') == 'GTIN'), None)
-        gtin_actual = gtin_attr.get('value_name') if gtin_attr else None
-        if not gtin_actual:
-            flash(f'⚠️ Se aceptó el PUT pero el GTIN no figura en la hermana mayor. Reintentá en unos segundos.', 'warning')
-            return redirect(url_for('cargar_stock_ml'))
+    gtin_value = gtin_attr.get('value_name') if gtin_attr else None
+    if not gtin_value:
+        flash(f'❌ La hermana mayor {mla_hermana_mayor} no tiene GTIN cargado. '
+              f'Cargá el código de barras del producto en esa publi antes de crear nuevas cuotas.', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
 
     # ── 2) Construir y enviar PASO A: listado general ───────────────────────
     payload_a = _construir_payload_desde_hermana(item_hermana, tipo, precio)

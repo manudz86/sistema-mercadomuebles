@@ -255,8 +255,8 @@
                         </label>
                         <select id="hermana_mayor_select" class="form-select form-select-sm" style="max-width:600px">
                             {% for c in candidatos_hermana_mayor %}
-                            <option value="{{ c.mla }}">
-                                {{ c.mla }} — {{ c.listing_type or 'Sin cuotas propias' }} — ${{ "{:,}".format(c.precio|int) if c.precio else '?' }} — {{ c.titulo[:60] }}
+                            <option value="{{ c.mla }}" data-tiene-gtin="{{ '1' if c.gtin else '0' }}">
+                                {{ c.mla }} — {{ c.listing_type or 'Sin cuotas propias' }} — ${{ "{:,}".format(c.precio|int) if c.precio else '?' }} {% if not c.gtin %}— ⚠ sin GTIN{% endif %} — {{ c.titulo[:60] }}
                             </option>
                             {% endfor %}
                         </select>
@@ -1126,8 +1126,37 @@ function publicarCatalogoFaltante(tipo, precio) {
         return;
     }
     const mlaHermana = sel.value;
-    const resumen = `¿Crear par (listado general + catálogo)?\n\nTipo: ${tipo}\nPrecio: $${Number(precio).toLocaleString('es-AR')}\nHermana mayor: ${mlaHermana}\n\nSe va a crear en el mismo UP (comparten stock).`;
+    const tieneGtin  = sel.options[sel.selectedIndex].dataset.tieneGtin === '1';
+
+    // Si la hermana mayor no tiene GTIN, pedirlo al usuario
+    let gtinASetear = '';
+    if (!tieneGtin) {
+        gtinASetear = (prompt(
+            `La publi ${mlaHermana} no tiene GTIN cargado.\n\n` +
+            `Ingresá el código de barras (EAN/UPC) del producto.\n` +
+            `Se va a cargar en esa publi antes de crear las nuevas:`,
+            ''
+        ) || '').trim();
+        if (!gtinASetear) {
+            alert('Sin GTIN no se puede continuar. Cancelado.');
+            return;
+        }
+        // Validación básica: 8 a 14 dígitos
+        if (!/^\d{8,14}$/.test(gtinASetear)) {
+            alert('GTIN inválido. Debe ser un número de 8 a 14 dígitos.');
+            return;
+        }
+    }
+
+    const resumen =
+        `¿Crear par (listado general + catálogo)?\n\n` +
+        `Tipo: ${tipo}\n` +
+        `Precio: $${Number(precio).toLocaleString('es-AR')}\n` +
+        `Hermana mayor: ${mlaHermana}` +
+        (gtinASetear ? `\nGTIN a cargar primero: ${gtinASetear}` : '') +
+        `\n\nSe va a crear en el mismo UP (comparten stock).`;
     if (!confirm(resumen)) return;
+
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '{{ url_for("publicar_catalogo_cuota") }}';
@@ -1136,6 +1165,7 @@ function publicarCatalogoFaltante(tipo, precio) {
         ['tipo',              tipo],
         ['precio',            precio],
         ['mla_hermana_mayor', mlaHermana],
+        ['gtin_a_setear',     gtinASetear],
     ].forEach(([name, value]) => {
         const inp = document.createElement('input');
         inp.type = 'hidden'; inp.name = name; inp.value = value;
