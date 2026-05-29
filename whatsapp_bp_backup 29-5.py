@@ -236,15 +236,6 @@ def cotizar_envio_bot(sku, cp, ciudad, provincia, precio_producto):
         resultados = resp.json().get('all_results') or resp.json().get('results') or []
         if not resultados:
             return None
-        # Filtrar solo entrega a domicilio (excluir retiro en sucursal) — igual que la tienda web
-        CODIGOS_DOMICILIO = {'standard_delivery', 'express_delivery', 'same_day', 'next_day'}
-        resultados_domicilio = [
-            r for r in resultados
-            if (r.get('service_type') or {}).get('code', 'standard_delivery') in CODIGOS_DOMICILIO
-            or isinstance(r.get('service_type'), str) and 'pickup' not in r.get('service_type', '').lower()
-        ]
-        if resultados_domicilio:
-            resultados = resultados_domicilio
         # Tomar la opción más barata
         def _get_price(r):
             amounts = r.get('amounts', {})
@@ -266,8 +257,7 @@ def cotizar_envio_bot(sku, cp, ciudad, provincia, precio_producto):
         if not costo or costo == 0:
             print(f"[WA] Zipnova devolvió $0 para {sku} CP {cp}")
             return None
-        costo_final = int(costo) + 10000  # recargo fijo, igual que la tienda web
-        return f"envío a domicilio en {ciudad} (CP {cp}) te sale ${costo_final:,} por {carrier_name} y llega en aproximadamente {dias} días hábiles"
+        return f"envío a domicilio en {ciudad} (CP {cp}) te sale ${int(costo):,} por {carrier_name} y llega en aproximadamente {dias} días hábiles"
     except Exception as e:
         print(f"[WA] Error Zipnova: {e}")
         return None
@@ -683,12 +673,6 @@ Cuando derivés, usá EXACTAMENTE: [DERIVAR] seguido de tu mensaje.
 Ejemplo en horario: "[DERIVAR] Te conecto con un asesor ahora."
 Ejemplo fuera de horario: "[DERIVAR] Te paso con un asesor. Nuestro horario de atención personalizada es lunes a viernes de 8 a 17hs, así que te van a contactar en el próximo horario hábil."
 SIEMPRE indicá el horario de atención cuando derivés fuera del horario comercial (L-V 8-17hs).
-
-PLACAS Y TABLEROS (melamina, aglomerado, fenólico, MDF, paneles ranurados):
-- Mercado Muebles se dedica a colchones, sommiers y almohadas Cannon. Las placas y tableros (melamina, aglomerado, fenólico, MDF, paneles ranurados) las maneja el sector de placas de Cimater, la empresa dueña de Mercado Muebles.
-- Cuando el cliente pregunte o consulte por cualquiera de esos artículos, NO le digas que está equivocado ni que "solo vendemos colchones". Derivalo de forma amable al sector de placas de Cimater pasándole este teléfono tal cual: +54 9 11 5029-1777
-- NO uses [DERIVAR] en estos casos: ese sector lo atiende Cimater (no Mercado Muebles), así que no hay que avisar a un asesor nuestro. Solo pasale el teléfono como texto.
-- Ejemplo: "Las placas de melamina, MDF, fenólico y los paneles los maneja directamente el sector de placas de Cimater. Escribiles a este número y te asesoran: +54 9 11 5029-1777"
 
 REGLAS CRÍTICAS — INCUMPLIRLAS ES UN ERROR GRAVE:
 1. NUNCA preguntes algo que el cliente ya respondió en esta conversación
