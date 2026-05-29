@@ -262,29 +262,10 @@
                         </select>
                         <small class="text-muted">Se va a crear el par (listado general + catálogo) en el mismo UP que esta publi.</small>
                     </div>
-                    {% elif candidatos_hermana_catalogo %}
-                    <div class="mb-3 p-2 bg-white border rounded">
-                        <label class="form-label small fw-bold mb-1">
-                            <i class="bi bi-link-45deg"></i> Hermana <span class="badge bg-warning text-dark">semilla</span> (publi de catálogo base):
-                        </label>
-                        <select id="hermana_mayor_select" class="form-select form-select-sm" style="max-width:600px">
-                            {% for c in candidatos_hermana_catalogo %}
-                            <option value="{{ c.mla }}" data-tiene-gtin="{{ '1' if c.gtin else '0' }}">
-                                {{ c.mla }} — {{ c.listing_type or 'Sin cuotas propias' }} — ${{ "{:,}".format(c.precio|int) if c.precio else '?' }} {% if not c.gtin %}— ⚠ sin GTIN{% endif %} — {{ c.titulo[:60] }}
-                            </option>
-                            {% endfor %}
-                        </select>
-                        <div class="alert alert-warning small mt-2 mb-0 py-2">
-                            <i class="bi bi-info-circle"></i> <strong>Modo semilla:</strong> este SKU no tiene publi de listado general,
-                            así que la pareja que se cree quedará en un <strong>UP nuevo</strong> y <u>no compartirá stock</u> con las publis de catálogo viejas.
-                            A partir de esta pareja sí podés crear más cuotas que compartirán UP entre sí.
-                        </div>
-                    </div>
                     {% else %}
                     <div class="alert alert-warning small mb-2 py-2">
                         <i class="bi bi-exclamation-triangle"></i> No hay publis válidas como hermana mayor.
-                        Se necesita al menos una publi de listado general activa en modelo User Products (tag <code>user_product_listing</code>),
-                        o una publi de catálogo activa para usar como semilla.
+                        Se necesita al menos una publi de listado general activa en modelo User Products (tag <code>user_product_listing</code>).
                     </div>
                     {% endif %}
                     <div class="d-flex flex-wrap gap-2">
@@ -295,7 +276,7 @@
                                    id="precio_cat_faltante_{{ loop.index }}"
                                    placeholder="Precio $" min="0" step="1000" style="width:110px">
                             <button class="btn btn-sm btn-warning fw-bold"
-                                    {% if not candidatos_hermana_mayor and not candidatos_hermana_catalogo %}disabled title="Falta hermana mayor válida"{% endif %}
+                                    {% if not candidatos_hermana_mayor %}disabled title="Falta hermana mayor válida"{% endif %}
                                     onclick="publicarCatalogoFaltante(
                                         '{{ tipo }}',
                                         document.getElementById('precio_cat_faltante_{{ loop.index }}').value

@@ -9090,25 +9090,6 @@ def buscar_sku_ml():
         and 'user_product_listing' in (p.get('tags') or [])
     ]
 
-    # Fallback ("hermana semilla"): si no hay de listado general, ofrecer publis de
-    # catálogo del mismo SKU. La pareja resultante quedará en un UP nuevo (pareja
-    # huérfana). Sirve para iniciar la "familia" de cuotas a partir de cero cuando
-    # solo hay publis de catálogo.
-    candidatos_hermana_catalogo = []
-    if not candidatos_hermana_mayor:
-        candidatos_hermana_catalogo = [
-            {
-                'mla':          p['mla'],
-                'titulo':       p['titulo'],
-                'precio':       p.get('precio'),
-                'listing_type': p.get('listing_type'),
-                'gtin':         p.get('gtin'),
-            }
-            for p in publicaciones
-            if p.get('catalog_listing')
-            and p.get('status_raw') == 'active'
-        ]
-
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku_buscado,
                            publicaciones=publicaciones,
@@ -9119,8 +9100,7 @@ def buscar_sku_ml():
                            precio_costos=precio_costos,
                            cuotas_faltantes=cuotas_faltantes,
                            catalog_meta=catalog_meta,
-                           candidatos_hermana_mayor=candidatos_hermana_mayor,
-                           candidatos_hermana_catalogo=candidatos_hermana_catalogo)
+                           candidatos_hermana_mayor=candidatos_hermana_mayor)
 
 
 # ============================================================================
@@ -9445,31 +9425,6 @@ _ATTRS_NO_CLONAR_AL_PUBLICAR = {
     'GIFTABLE',              # auto-calculado por ML
 }
 
-def _acortar_family_name(family_name, max_len=60):
-    """ML rechaza family_name > 60 chars. Esta función acorta de forma inteligente:
-    1) si ya entra, devuelve tal cual;
-    2) saca ' De ' (conector redundante en español);
-    3) saca primera ocurrencia de palabras repetidas (típico: 'Resortes' aparece 2 veces);
-    4) último recurso: trunca."""
-    if not family_name or len(family_name) <= max_len:
-        return family_name
-    nombre = family_name.replace(' De ', ' ', 1)
-    if len(nombre) <= max_len:
-        return nombre
-    palabras = nombre.split()
-    vistos = {}
-    for i, p in enumerate(palabras):
-        clave = p.lower()
-        if clave in vistos:
-            candidato = ' '.join(palabras[:vistos[clave]] + palabras[vistos[clave] + 1:])
-            if len(candidato) <= max_len:
-                return candidato
-            nombre = candidato
-            break
-        vistos[clave] = i
-    return nombre[:max_len].rstrip()
-
-
 def _ids_no_modificables(resp):
     """Extrae los IDs de atributos que ML marca como 'not modifiable'/'ignored'
     en una respuesta de error, para poder sacarlos y reintentar."""
@@ -9571,7 +9526,7 @@ def _construir_payload_desde_hermana(item_hermana, tipo, precio):
     payload = {
         'site_id':            'MLA',
         'category_id':        item_hermana.get('category_id'),
-        'family_name':        _acortar_family_name(item_hermana.get('family_name')),
+        'family_name':        item_hermana.get('family_name'),
         'currency_id':        'ARS',
         'buying_mode':        'buy_it_now',
         'condition':          item_hermana.get('condition', 'new'),
@@ -9651,14 +9606,14 @@ def publicar_catalogo_cuota():
         flash(f'❌ Error al consultar la hermana mayor: {e}', 'danger')
         return redirect(url_for('cargar_stock_ml'))
 
-    # Validaciones sobre la hermana mayor.
-    # Modo "semilla": cuando la hermana es de catálogo (porque el SKU no tiene listado
-    # general), se acepta y la pareja resultante queda en UP nuevo (huérfana).
+    # Validaciones sobre la hermana mayor
     if item_hermana.get('status') != 'active':
         flash(f'❌ La hermana mayor {mla_hermana_mayor} no está activa', 'danger')
         return redirect(url_for('cargar_stock_ml'))
-    es_semilla = bool(item_hermana.get('catalog_listing'))
-    if not es_semilla and 'user_product_listing' not in (item_hermana.get('tags') or []):
+    if item_hermana.get('catalog_listing'):
+        flash(f'❌ La hermana mayor {mla_hermana_mayor} es de catálogo. Tiene que ser de listado general.', 'danger')
+        return redirect(url_for('cargar_stock_ml'))
+    if 'user_product_listing' not in (item_hermana.get('tags') or []):
         flash(f'❌ La hermana mayor {mla_hermana_mayor} no está en modelo User Products', 'danger')
         return redirect(url_for('cargar_stock_ml'))
     if not item_hermana.get('catalog_product_id'):
@@ -9771,10 +9726,7 @@ def publicar_catalogo_cuota():
     nuevo_up = resp_a.get('user_product_id')
     up_esperado = item_hermana.get('user_product_id')
 
-    # En modo normal (hermana de listado general), UP distinto es un error que aborta.
-    # En modo semilla (hermana de catálogo), es esperado: la pareja se crea igual y
-    # queda en UP nuevo (huérfana respecto de las publis de catálogo existentes).
-    if (not es_semilla) and nuevo_up != up_esperado:
+    if nuevo_up != up_esperado:
         flash(f'⚠️ La nueva publi {nueva_listado_general} se creó pero quedó en UP {nuevo_up} '
               f'(distinto al UP {up_esperado} de la hermana mayor). No comparten stock. '
               f'Revisar atributos del producto en la hermana mayor.', 'warning')
@@ -9800,14 +9752,8 @@ def publicar_catalogo_cuota():
         return redirect(url_for('cargar_stock_ml'))
 
     nueva_catalogo = resp_b.get('id') or resp_b.get('item_id', '?')
-    if es_semilla:
-        flash(f'✅ Pareja semilla creada en UP nuevo {nuevo_up} — {tipo}: '
-              f'listado general {nueva_listado_general} + catálogo {nueva_catalogo}. '
-              f'No comparte stock con las publis de catálogo viejas de este SKU. '
-              f'Próximas cuotas que crees a partir de esta pareja sí compartirán UP.', 'success')
-    else:
-        flash(f'✅ Par creado en UP {nuevo_up} — {tipo}: '
-              f'listado general {nueva_listado_general} + catálogo {nueva_catalogo}', 'success')
+    flash(f'✅ Par creado en UP {nuevo_up} — {tipo}: '
+          f'listado general {nueva_listado_general} + catálogo {nueva_catalogo}', 'success')
 
     return redirect(url_for('cargar_stock_ml'))
 
