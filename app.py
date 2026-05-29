@@ -9461,14 +9461,19 @@ def _construir_payload_desde_hermana(item_hermana, tipo, precio):
     # Clonar atributos relevantes (omitir los read-only/auto-generados).
     # Cubre los distintos formatos de valor de ML: value_id (lista),
     # value_struct (numérico con unidad, ej. densidad/medidas), value_name (texto),
-    # o el primer elemento de values[] como fallback.
+    # o el primer elemento de values[] como fallback. Cuando hay tanto value_id
+    # como value_name, mandamos ambos: si ML no puede resolver el id (ej. ids viejos
+    # o de otro set), el name le da el respaldo.
     attrs = []
     for a in item_hermana.get('attributes', []) or []:
         aid = a.get('id')
         if not aid or aid in _ATTRS_NO_CLONAR_AL_PUBLICAR:
             continue
         nuevo = {'id': aid}
-        if a.get('value_id'):
+        if a.get('value_id') and a.get('value_name') is not None:
+            nuevo['value_id'] = a['value_id']
+            nuevo['value_name'] = a['value_name']
+        elif a.get('value_id'):
             nuevo['value_id'] = a['value_id']
         elif a.get('value_struct') is not None:
             nuevo['value_struct'] = a['value_struct']
@@ -9476,7 +9481,10 @@ def _construir_payload_desde_hermana(item_hermana, tipo, precio):
             nuevo['value_name'] = a['value_name']
         elif a.get('values'):
             v = a['values'][0]
-            if v.get('id'):
+            if v.get('id') and v.get('name') is not None:
+                nuevo['value_id'] = v['id']
+                nuevo['value_name'] = v['name']
+            elif v.get('id'):
                 nuevo['value_id'] = v['id']
             elif v.get('struct') is not None:
                 nuevo['value_struct'] = v['struct']
@@ -13501,13 +13509,14 @@ def _es_compac(sku):
 def _es_almohada(sku):
     return sku.upper() in SKUS_ALMOHADA
 
-# ¿Aplica lógica Z a este SKU? Solo sommiers (S*) todas las medidas
-# y colchones (C* no CCO) a partir de 140
+# ¿Aplica lógica Z a este SKU? Sommiers (S*) todas las medidas,
+# y colchones (C* no CCO) en TODOS los anchos estándar (80, 90, 100, 140, 150, 160, 180, 200).
 def _aplica_logica_z(sku):
     """
     Determina si aplica lógica Z (demora) para un SKU.
     Sommiers (S*): siempre.
-    Colchones (C*, no CCO): solo si el ANCHO >= 140.
+    Colchones (C*, no CCO): si el ANCHO es uno de los estándar
+    (80, 90, 100, 140, 150, 160, 180, 200).
     El ancho está en los primeros dígitos del SKU antes del modelo.
     Ej: CPR8020 → ancho=80, CPR14020 → ancho=140, CEX140 → ancho=140
     """
@@ -13533,7 +13542,7 @@ def _aplica_logica_z(sku):
                     ancho = int(primer_num[:2])
             else:
                 ancho = int(primer_num)
-            return ancho >= 140
+            return ancho in (80, 90, 100, 140, 150, 160, 180, 200)
     return False
 
 
