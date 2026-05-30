@@ -38,6 +38,7 @@
 </head>
 <body>
 
+{% if not hot_event.activo %}
 <!-- TICKER -->
 <div style="background:#1a1a2e; overflow:hidden; padding:6px 0; position:relative; z-index:200;">
   <style>
@@ -61,6 +62,92 @@
     {% endfor %}
   </div>
 </div>
+{% endif %}
+
+{% if hot_event.activo %}
+<!-- HOT EVENT PROMO BAR -->
+<div class="hot-promo-bar">
+  <style>
+    .hot-promo-bar {
+      background: linear-gradient(90deg, #8b0e13 0%, #c1272d 25%, #e74c3c 50%, #c1272d 75%, #8b0e13 100%);
+      background-size: 200% 100%;
+      animation: hot-shimmer 6s linear infinite;
+      padding: 10px 16px;
+      text-align: center;
+      color: #fff;
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 800;
+      font-size: 0.82rem;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      position: relative;
+      z-index: 199;
+      box-shadow: 0 2px 8px rgba(193,39,45,0.3);
+    }
+    .hot-promo-bar .hpb-inner {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .hot-promo-bar .hpb-fire { font-size: 1.05rem; line-height: 1; }
+    .hot-promo-bar .hpb-sep {
+      opacity: 0.55;
+      font-weight: 400;
+    }
+    @keyframes hot-shimmer {
+      0% { background-position: 0% 50%; }
+      100% { background-position: 200% 50%; }
+    }
+    @media (max-width: 600px) {
+      .hot-promo-bar { font-size: 0.7rem; padding: 8px 12px; letter-spacing: 0.8px; }
+      .hot-promo-bar .hpb-inner { gap: 8px; }
+    }
+    .hot-promo-bar .hpb-countdown { font-variant-numeric: tabular-nums; }
+    .hot-promo-bar #hot-cd { display: inline-block; min-width: 110px; text-align: left; }
+  </style>
+  <div class="hpb-inner">
+    <span class="hpb-fire">🔥</span>
+    <span>{{ hot_event.titulo }}</span>
+    <span class="hpb-sep">·</span>
+    <span>Hasta {{ hot_event.descuento_max }}% OFF</span>
+    <span class="hpb-sep">·</span>
+    <span>3 y 6 cuotas</span>
+    {% if hot_event.fecha_fin_iso %}
+    <span class="hpb-sep">·</span>
+    <span class="hpb-countdown">Termina en <span id="hot-cd" data-end="{{ hot_event.fecha_fin_iso }}">--d --h --m --s</span></span>
+    {% endif %}
+    <span class="hpb-fire">🔥</span>
+  </div>
+  <script>
+  (function() {
+    var el = document.getElementById('hot-cd');
+    if (!el) return;
+    var endStr = el.getAttribute('data-end');
+    if (!endStr) return;
+    var end = new Date(endStr).getTime();
+    if (isNaN(end)) return;
+
+    function tick() {
+      var now = new Date().getTime();
+      var diff = end - now;
+      if (diff <= 0) {
+        el.textContent = '¡Última hora!';
+        return;
+      }
+      var d = Math.floor(diff / 86400000);
+      var h = Math.floor((diff % 86400000) / 3600000);
+      var m = Math.floor((diff % 3600000) / 60000);
+      var s = Math.floor((diff % 60000) / 1000);
+      el.textContent = d + 'd ' + (h<10?'0':'') + h + 'h ' + (m<10?'0':'') + m + 'm ' + (s<10?'0':'') + s + 's';
+    }
+    tick();
+    setInterval(tick, 1000);
+  })();
+  </script>
+</div>
+{% endif %}
 
 <!-- HEADER -->
 <header class="site-header">
@@ -315,6 +402,49 @@ document.querySelectorAll('a[href="#catalogo"]').forEach(a => {
 });
 </script>
 
+{% if hot_event.activo %}
+<!-- ── POPUP HOT EVENT ── -->
+<div id="hot-event-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9998;"></div>
+<div id="hot-event-popup" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+     z-index:9999;width:min(460px,92vw);background:#fff;border-radius:16px;overflow:hidden;
+     box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+  <div style="background:linear-gradient(135deg,#c1272d 0%,#e74c3c 55%,#ff6b35 100%);
+              padding:36px 28px 28px;text-align:center;position:relative;color:#fff;">
+    <button onclick="cerrarHotEvent()" style="position:absolute;top:12px;right:14px;background:none;
+            border:none;color:rgba(255,255,255,0.85);font-size:24px;cursor:pointer;line-height:1;">✕</button>
+    <div style="font-size:2.6rem;margin-bottom:6px;line-height:1;">🔥</div>
+    <div style="font-size:0.78rem;font-weight:700;letter-spacing:3px;opacity:0.95;margin-bottom:4px;">
+      {{ hot_event.fechas }}
+    </div>
+    <h2 style="color:#fff;margin:0 0 10px;font-size:1.7rem;font-weight:900;letter-spacing:-0.5px;">
+      {{ hot_event.titulo }}
+    </h2>
+    <p style="color:rgba(255,255,255,0.95);margin:0;font-size:1rem;font-weight:600;">
+      Hasta {{ hot_event.descuento_max }}% OFF · 3 y 6 cuotas
+    </p>
+  </div>
+  <div style="padding:26px 28px 28px;text-align:center;">
+    <p style="color:#444;font-size:0.95rem;margin:0 0 18px;line-height:1.5;">
+      Aprovechá precios especiales en colchones, sommiers y almohadas Cannon.
+      <br><strong style="color:#c1272d;">No te pierdas las ofertas.</strong>
+    </p>
+    <a href="/tienda/#catalogo" onclick="cerrarHotEvent()"
+       style="display:inline-block;width:100%;padding:14px;background:#1a1a2e;color:#fff;
+              border:none;border-radius:8px;font-size:1rem;font-weight:700;text-decoration:none;
+              box-sizing:border-box;">
+      Ver ofertas →
+    </a>
+  </div>
+</div>
+<script>
+function cerrarHotEvent() {
+  document.getElementById('hot-event-overlay').style.display = 'none';
+  document.getElementById('hot-event-popup').style.display = 'none';
+  localStorage.setItem('hot_event_cerrado', Date.now().toString());
+}
+</script>
+{% endif %}
+
 <!-- ── POPUP NEWSLETTER ───────────────────────────────────────────────────── -->
 <div id="newsletter-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9998;"></div>
 <div id="newsletter-popup" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
@@ -374,22 +504,30 @@ document.querySelectorAll('a[href="#catalogo"]').forEach(a => {
 <script>
 // ── Newsletter popup ──────────────────────────────────────────────────────────
 (function() {
-  // No mostrar si ya se suscribió o cerró recientemente
+  {% if hot_event.activo %}
+  // Durante HOT MERCADOMUEBLES: mostrar popup del evento, NO el de newsletter
+  const hotVisto = localStorage.getItem('hot_event_cerrado');
+  const ahora = Date.now();
+  // Si lo cerró hace menos de 24hs, no volver a mostrar
+  if (hotVisto && (ahora - parseInt(hotVisto)) < 24 * 60 * 60 * 1000) return;
+  setTimeout(function() {
+    document.getElementById('hot-event-overlay').style.display = 'block';
+    document.getElementById('hot-event-popup').style.display = 'block';
+  }, 6000);
+  document.getElementById('hot-event-overlay').addEventListener('click', cerrarHotEvent);
+  {% else %}
+  // Newsletter habitual
   const yaVisto = localStorage.getItem('nl_cerrado');
   const yaSuscripto = localStorage.getItem('nl_suscripto');
   if (yaSuscripto) return;
-
-  // Mostrar después de 8 segundos si no lo cerró en las últimas 3 días
   const ahora = Date.now();
   if (yaVisto && (ahora - parseInt(yaVisto)) < 3 * 24 * 60 * 60 * 1000) return;
-
   setTimeout(function() {
     document.getElementById('newsletter-overlay').style.display = 'block';
     document.getElementById('newsletter-popup').style.display = 'block';
   }, 8000);
-
-  // Cerrar al clickear el overlay
   document.getElementById('newsletter-overlay').addEventListener('click', cerrarNewsletter);
+  {% endif %}
 })();
 
 function cerrarNewsletter() {

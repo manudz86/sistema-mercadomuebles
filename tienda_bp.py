@@ -53,6 +53,11 @@ def inject_nl_popup_desc():
     return {'nl_popup_desc': texto}
 
 
+@tienda_bp.context_processor
+def inject_hot_event():
+    return {'hot_event': get_hot_event()}
+
+
 def slugify(text):
     """Convierte 'Colchón Cannon Tropical 80x190cm' → 'colchon-cannon-tropical-80x190cm'"""
     text = unicodedata.normalize('NFKD', str(text))
@@ -2139,6 +2144,126 @@ def get_demora_sin_stock():
         return int(row['valor']) if row and row['valor'] else 0
     except Exception:
         return 0
+
+
+def get_hot_event():
+    """
+    Lee el flag del evento promocional desde la tabla configuracion.
+    Valores soportados para 'hot_event_activo':
+      - '1'    → forzado activo (override manual)
+      - '0'    → forzado inactivo (override manual)
+      - 'auto' → activo si datetime.now() en hora ARG está entre
+                 'hot_event_fecha_inicio' y 'hot_event_fecha_fin'
+    Las fechas se interpretan en zona horaria America/Argentina/Buenos_Aires
+    sin importar el timezone del servidor.
+    """
+    from datetime import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        TZ_AR = ZoneInfo('America/Argentina/Buenos_Aires')
+    except Exception:
+        TZ_AR = None
+
+    activo = False
+    try:
+        db = get_db()
+        cur = db.cursor()
+        cur.execute("""
+            SELECT clave, valor FROM configuracion
+            WHERE clave IN ('hot_event_activo', 'hot_event_fecha_inicio', 'hot_event_fecha_fin')
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        db.close()
+        config = {r['clave']: (str(r.get('valor') or '')).strip() for r in rows}
+
+        flag = config.get('hot_event_activo', '0').lower()
+
+        if flag == '1':
+            activo = True
+        elif flag == 'auto':
+            inicio_str = config.get('hot_event_fecha_inicio', '')
+            fin_str    = config.get('hot_event_fecha_fin', '')
+            if inicio_str and fin_str:
+                try:
+                    inicio = datetime.strptime(inicio_str, '%Y-%m-%d %H:%M:%S')
+                    fin    = datetime.strptime(fin_str,    '%Y-%m-%d %H:%M:%S')
+                    if TZ_AR is not None:
+                        inicio = inicio.replace(tzinfo=TZ_AR)
+                        fin    = fin.replace(tzinfo=TZ_AR)
+                        ahora  = datetime.now(TZ_AR)
+                    else:
+                        ahora = datetime.now()
+                    activo = inicio <= ahora <= fin
+                except ValueError:
+                    activo = False
+    except Exception:
+        activo = False
+
+    fecha_fin_iso = ''
+    if activo:
+        fin_str = config.get('hot_event_fecha_fin', '')
+        if fin_str:
+            try:
+                fin_dt = datetime.strptime(fin_str, '%Y-%m-%d %H:%M:%S')
+                if TZ_AR is not None:
+                    fin_dt = fin_dt.replace(tzinfo=TZ_AR)
+                fecha_fin_iso = fin_dt.isoformat()
+            except (ValueError, NameError):
+                fecha_fin_iso = ''
+
+    return {
+        'activo': activo,
+        'titulo': 'HOT MERCADOMUEBLES',
+        'fechas': '11 AL 18 DE MAYO',
+        'descuento_max': 15,
+        'fecha_fin_iso': fecha_fin_iso,
+        'descuento_extra_catalogo': 2 if activo else 0,
+        'descuento_extra_oferta': 3 if activo else 0,
+    }
+
+
+def _aplicar_extra_hot(desc_cat, desc_oferta=0):
+    """
+    Calcula el descuento efectivo aplicando el extra del evento HOT:
+    - Toma el máximo entre desc_cat (descuento_catalogo) y desc_oferta (ofertas_home).
+    - Si gana oferta (do >= dc y do > 0): suma extra_oferta (+3).
+    - Si gana catálogo (dc > do y dc > 0): suma extra_catalogo (+2).
+    - Si ambos son 0 o NULL: retorna 0 (sin cambio).
+
+    Cachea los extras por request usando flask.g para no consultar la BD
+    múltiples veces durante el mismo render de página.
+
+    Retorna float con el descuento final a aplicar al precio.
+    """
+    from flask import g
+    dc = float(desc_cat or 0)
+    do = float(desc_oferta or 0)
+    desc_base = max(dc, do)
+    if desc_base <= 0:
+        return desc_base
+
+    if not hasattr(g, '_hot_extras_cached'):
+        try:
+            he = get_hot_event()
+            if he.get('activo'):
+                g._hot_extras_cached = (
+                    int(he.get('descuento_extra_catalogo', 0)),
+                    int(he.get('descuento_extra_oferta', 0)),
+                )
+            else:
+                g._hot_extras_cached = (0, 0)
+        except Exception:
+            g._hot_extras_cached = (0, 0)
+    extra_cat, extra_oferta = g._hot_extras_cached
+
+    # Gana oferta (incluye empate)
+    if do > 0 and do >= dc:
+        return desc_base + extra_oferta
+    # Gana catálogo
+    return desc_base + extra_cat
+
+
 def _get_stock_real(cursor, sku):
     """Stock real para cualquier SKU — maneja sommiers (busca colchon+base)."""
     sku_col = ('C' + sku.split('+')[0][1:]) if (sku.startswith('S') and len(sku) > 1 and sku[1].isalpha()) else None
@@ -2338,7 +2463,7 @@ def home():
         stock_colchon  = get_stock_disponible_sku(cursor, sku)
 
         desc_cat = float(col.get('descuento_catalogo') or 0)
-        desc_efectivo = max(desc_cat, ofertas_map.get(sku, 0.0))
+        desc_efectivo = _aplicar_extra_hot(desc_cat, ofertas_map.get(sku, 0.0))
 
         # Solo colchón
         if (not tipos_sel or 'colchon' in tipos_sel) and precio_colchon > 0:
@@ -2367,7 +2492,7 @@ def home():
 
         # Conjunto — SKU real desde mapa exacto (CEX100->SEXP100, no SEXP100+1)
         sku_conj = colchon_a_compuesto.get(sku, sku_colchon_a_conjunto(sku))
-        desc_efectivo_conj = max(desc_cat, ofertas_map.get(sku_conj, 0.0))
+        desc_efectivo_conj = _aplicar_extra_hot(desc_cat, ofertas_map.get(sku_conj, 0.0))
         if (not tipos_sel or 'conjunto' in tipos_sel) and sku in colchon_a_compuesto:
             cfg        = conjuntos_cfg[sku]
             base_sku   = cfg['base_sku_default']
@@ -2411,7 +2536,7 @@ def home():
         alm_sql += " ORDER BY nombre"
         cursor.execute(alm_sql, alm_params)
         for alm in cursor.fetchall():
-            desc_alm = float(alm.get('descuento_catalogo') or 0)
+            desc_alm = _aplicar_extra_hot(float(alm.get('descuento_catalogo') or 0), 0)
             precio_bruto = float(alm['precio_base'] or 0)
             precio_final = precio_bruto * (1 - desc_alm / 100) if desc_alm else precio_bruto
             productos.append({
@@ -2481,8 +2606,7 @@ def home():
                 s_col  = get_stock_disponible_sku(cursor, sku_col_c)
                 s_bas  = get_stock_disponible_sku(cursor, bsku_c) if pb_bas else 0
                 stock  = min(s_col, s_bas)
-                desc   = float(pb_col.get('descuento_catalogo') or 0)
-                desc   = max(desc, ofertas_map.get(sku_c, 0.0))
+                desc   = _aplicar_extra_hot(float(pb_col.get('descuento_catalogo') or 0), ofertas_map.get(sku_c, 0.0))
                 p_ven  = p_conj * (1 - desc/100) if desc else p_conj
                 med    = pb_col.get('medida') or ''
                 nom    = comp['nombre'] or f"Sommier y Colchón Cannon {pb_col.get('modelo','')} {med}cm"
@@ -2563,6 +2687,7 @@ def home():
             desc_pct = float(p.get('descuento_catalogo') or desc_pct_oferta)
             factor = 1 - desc_pct / 100
             precio_base_real = p.get('precio_base_real', p['precio'])
+            p['precio_original']     = precio_base_real
             p['precio_original_fmt'] = format_price(precio_base_real)
             p['precio_oferta']       = precio_base_real * factor
             p['precio_oferta_fmt']   = format_price(precio_base_real * factor)
@@ -2783,7 +2908,7 @@ def detalle(sku_url):
     prod_simple = cursor.fetchone()
     if prod_simple:
         stock_simple = get_stock_disponible_sku(cursor, prod_simple['sku'])
-        desc_s = float(prod_simple.get('descuento_catalogo') or 0)
+        desc_s = _aplicar_extra_hot(float(prod_simple.get('descuento_catalogo') or 0), 0)
         precio_s = float(prod_simple['precio_base'] or 0)
         precio_venta_s = precio_s * (1 - desc_s/100) if desc_s else precio_s
         cursor.close()
@@ -2852,7 +2977,7 @@ def detalle(sku_url):
         desc_oferta = float(row_of['descuento_pct']) if row_of else 0.0
     except Exception:
         desc_oferta = 0.0
-    desc_efectivo = max(desc_cat, desc_oferta)
+    desc_efectivo = _aplicar_extra_hot(desc_cat, desc_oferta)
 
     producto = {
         'sku':        sku_url,
@@ -3002,11 +3127,31 @@ def detalle(sku_url):
 
 SKUS_ALMOHADA = {'CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE'}
 
+
+def _shipping_unificado():
+    """Lee el flag global 'shipping_unificado_zipnova' de configuracion.
+    Cuando vale '1' todo el carrito (incluidas almohadas y Compac) cotiza Zipnova.
+    Default False — si el flag no existe o falla la lectura, comportamiento ME2 actual."""
+    try:
+        db = get_db()
+        cur = db.cursor()
+        cur.execute("SELECT valor FROM configuracion WHERE clave = 'shipping_unificado_zipnova'")
+        row = cur.fetchone()
+        cur.close()
+        db.close()
+        return bool(row and row['valor'] == '1')
+    except Exception:
+        return False
+
+
 def _tipo_envio_sku(sku):
     """
     Devuelve 'almohada', 'me2' o 'zipnova' según el SKU.
     Debe coincidir con la lógica de get_shipping_info.
+    Con flag shipping_unificado_zipnova='1', todo devuelve 'zipnova'.
     """
+    if _shipping_unificado():
+        return 'zipnova'
     if sku in SKUS_ALMOHADA:
         return 'almohada'
     sku_base = sku.split('_')[0]
@@ -3028,25 +3173,33 @@ def agregar_carrito():
 
     carrito = session.get('carrito', [])
     tipo_nuevo = _tipo_envio_sku(sku)
+    flag_unificado = _shipping_unificado()
 
     # ── Validaciones ──────────────────────────────────────────────────────────
-    tipos_en_carrito = {_tipo_envio_sku(i['sku']) for i in carrito}
-    total_almohadas  = sum(i['cantidad'] for i in carrito if _tipo_envio_sku(i['sku']) == 'almohada')
+    if flag_unificado:
+        # Todo cotiza Zipnova: no hay conflictos por tipo. Único límite: 20 unidades del mismo SKU.
+        cant_actual_sku = sum(i['cantidad'] for i in carrito if i['sku'] == sku)
+        if cant_actual_sku + cantidad > 20:
+            return jsonify({'ok': False, 'error': 'sku_max',
+                'msg': f'Podés agregar hasta 20 unidades del mismo producto por compra. Ya tenés {cant_actual_sku}.'})
+    else:
+        tipos_en_carrito = {_tipo_envio_sku(i['sku']) for i in carrito}
+        total_almohadas  = sum(i['cantidad'] for i in carrito if _tipo_envio_sku(i['sku']) == 'almohada')
 
-    if tipo_nuevo == 'almohada':
-        if 'me2' in tipos_en_carrito:
-            return jsonify({'ok': False, 'error': 'me2_conflict',
-                'msg': 'Las almohadas y los colchones deben comprarse por separado.'})
-        if total_almohadas + cantidad > 6:
-            return jsonify({'ok': False, 'error': 'almohada_max',
-                'msg': f'Podés agregar hasta 6 almohadas por compra. Ya tenés {total_almohadas}.'})
-    elif tipo_nuevo == 'me2':
-        if 'almohada' in tipos_en_carrito:
-            return jsonify({'ok': False, 'error': 'me2_conflict',
-                'msg': 'Los colchones Compac y las almohadas deben comprarse por separado.'})
-        if any(_tipo_envio_sku(i['sku']) == 'me2' for i in carrito):
-            return jsonify({'ok': False, 'error': 'me2_max',
-                'msg': 'Solo podés comprar un colchón Compac por vez con envío incluido. Para más unidades hacé otra compra.'})
+        if tipo_nuevo == 'almohada':
+            if 'me2' in tipos_en_carrito:
+                return jsonify({'ok': False, 'error': 'me2_conflict',
+                    'msg': 'Las almohadas y los colchones deben comprarse por separado.'})
+            if total_almohadas + cantidad > 6:
+                return jsonify({'ok': False, 'error': 'almohada_max',
+                    'msg': f'Podés agregar hasta 6 almohadas por compra. Ya tenés {total_almohadas}.'})
+        elif tipo_nuevo == 'me2':
+            if 'almohada' in tipos_en_carrito:
+                return jsonify({'ok': False, 'error': 'me2_conflict',
+                    'msg': 'Los colchones Compac y las almohadas deben comprarse por separado.'})
+            if any(_tipo_envio_sku(i['sku']) == 'me2' for i in carrito):
+                return jsonify({'ok': False, 'error': 'me2_max',
+                    'msg': 'Solo podés comprar un colchón Compac por vez con envío incluido. Para más unidades hacé otra compra.'})
 
     # ── Validar que el producto esté activo ──────────────────────────────────
     try:
@@ -3167,6 +3320,7 @@ def actualizar_carrito():
     delta   = int(data.get('delta', 0))
     carrito = session.get('carrito', [])
 
+    flag_unificado = _shipping_unificado()
     total_almohadas = sum(i['cantidad'] for i in carrito if _tipo_envio_sku(i['sku']) == 'almohada')
 
     for item in carrito:
@@ -3174,7 +3328,9 @@ def actualizar_carrito():
             nueva = item['cantidad'] + delta
             if nueva <= 0:
                 carrito = [i for i in carrito if i['sku'] != sku]
-            elif _tipo_envio_sku(sku) == 'almohada' and total_almohadas + delta > 6:
+            elif flag_unificado and nueva > 20:
+                return jsonify({'ok': False, 'msg': 'Máximo 20 unidades del mismo producto por compra.'})
+            elif (not flag_unificado) and _tipo_envio_sku(sku) == 'almohada' and total_almohadas + delta > 6:
                 return jsonify({'ok': False, 'msg': 'Máximo 6 almohadas por compra.'})
             else:
                 # Validar stock antes de sumar
@@ -3536,7 +3692,7 @@ DESCRIPCIONES_MODELO = {
             'Tela tejido de punto elástico y transpirable',
             'Sensación de apoyo firme y adaptable',
             'Soporte recomendado hasta 100 kg',
-            'Altura 25 cm — se despliega en pocas horas',
+            'Altura 21 cm — se despliega en pocas horas',
             'Garantía oficial Cannon: 6 meses + 5 años',
         ],
     },
@@ -3612,7 +3768,7 @@ SPECS_MODELO = {
     'exclusive pillow':     {'material': 'Espuma', 'densidad': '30 kg/m³', 'sistema': 'Flip', 'altura_col': 29},
     'renovation':           {'material': 'Espuma', 'densidad': '35 kg/m³', 'sistema': 'Flip', 'altura_col': 26},
     'renovation europillow':{'material': 'Espuma', 'densidad': '35 kg/m³', 'sistema': 'Flip doble', 'altura_col': 33},
-    'compac':               {'material': 'Espuma multicapa', 'densidad': '30 kg/m³', 'sistema': 'No flip', 'altura_col': 25},
+    'compac':               {'material': 'Espuma multicapa', 'densidad': '30 kg/m³', 'sistema': 'No flip', 'altura_col': 21},
     'soñar':                {'material': 'Resortes Bonnell', 'densidad': '—', 'sistema': 'Flip', 'altura_col': 23},
     'doral':                {'material': 'Resortes Ultracoil', 'densidad': '—', 'sistema': 'Flip', 'altura_col': 27},
     'doral pillow':         {'material': 'Resortes Ultracoil', 'densidad': '—', 'sistema': 'Flip doble', 'altura_col': 33},
@@ -3669,7 +3825,11 @@ def get_shipping_info(carrito):
       - 'zipnova':  cualquier colchon/sommier, o mezcla colchon+almohadas
                     (las almohadas viajan junto con el colchon via Zipnova)
       - 'mixed':    mezcla invalida (ej: almohadas + compac, no deberia ocurrir)
+
+    Con flag shipping_unificado_zipnova='1', todo carrito devuelve 'zipnova'.
     """
+    if _shipping_unificado():
+        return 'zipnova', None
     tipos = set()
     for item in carrito:
         sku = item['sku']
@@ -3712,7 +3872,11 @@ def armar_bultos_zipnova(carrito, db):
           Las almohadas del combo van dentro del bulto patas.
       - Colchon simple: 1 bulto con sus dimensiones
       - Almohadas sueltas: se ignoran (van por ME2)
+      - Con flag shipping_unificado_zipnova='1': almohadas sueltas se agrupan
+          en 1 (1-10 u) ó 2 (11-20 u) bultos, y los Compac CC[OP]* se procesan
+          como colchones simples (1 bulto por unidad).
     """
+    flag_unificado = _shipping_unificado()
     cur = db.cursor(pymysql.cursors.DictCursor)
     bultos = []
 
@@ -3724,17 +3888,33 @@ def armar_bultos_zipnova(carrito, db):
     )
     compuestos_map = {row['sku']: row['id'] for row in cur.fetchall()}
 
+    # Detector de almohadas que no depende de _tipo_envio_sku (con flag activo
+    # ese helper devuelve 'zipnova' para todo, así que detectamos por SKU directo).
+    def _es_almohada_sku(s):
+        return s in SKUS_ALMOHADA
+
     # Pre-calcular almohadas sueltas del carrito
     hay_sommier = any(item['sku'] in compuestos_map for item in carrito)
     peso_almohadas_sueltas = 0
     desc_almohadas_sueltas = []
+    info_almohadas = []  # detalle por item — usado para agrupar en bultos cuando flag activo
     for item in carrito:
-        if _tipo_envio_sku(item['sku']) == 'almohada':
+        if _es_almohada_sku(item['sku']):
             cur.execute("SELECT nombre, peso_gramos, alto_cm, ancho_cm, largo_cm FROM productos_base WHERE activo = 1 AND sku = %s", (item['sku'],))
             pb_alm = cur.fetchone()
             if pb_alm:
-                peso_almohadas_sueltas += (pb_alm['peso_gramos'] or 1000) * item['cantidad']
+                peso_unit = pb_alm['peso_gramos'] or 1000
+                peso_almohadas_sueltas += peso_unit * item['cantidad']
                 desc_almohadas_sueltas.append(f"{item['cantidad']}x {pb_alm['nombre']}")
+                info_almohadas.append({
+                    'sku':       item['sku'],
+                    'cantidad':  item['cantidad'],
+                    'peso_unit': peso_unit,
+                    'nombre':    pb_alm['nombre'],
+                    'alto':      pb_alm.get('alto_cm')  or 12,
+                    'ancho':     pb_alm.get('ancho_cm') or 40,
+                    'largo':     pb_alm.get('largo_cm') or 70,
+                })
 
     # Acumulador único de patas para todos los sommiers del carrito
     peso_patas_acum = 0  # se llena durante el loop, se agrega al final
@@ -3744,6 +3924,12 @@ def armar_bultos_zipnova(carrito, db):
         sku      = item['sku']
         cantidad = item.get('cantidad', 1)
         tipo_env = _tipo_envio_sku(sku)
+
+        # Flag activo: las almohadas se procesan en el bloque agrupado de abajo
+        # (o se fusionan en PATAS si hay sommier). No generamos bulto por unidad.
+        if flag_unificado and _es_almohada_sku(sku):
+            continue
+
         if tipo_env == 'me2':
             continue
         if tipo_env == 'almohada':
@@ -3842,6 +4028,32 @@ def armar_bultos_zipnova(carrito, db):
             'width':       20,
             'length':      10,
         })
+
+    # ── Almohadas sueltas agrupadas (flag activo, sin sommier) ──────────────
+    # Regla: 1-10 unidades → 1 bulto; 11-20 unidades → 2 bultos iguales.
+    # Las almohadas pueden ser de varios modelos en el mismo carrito.
+    if flag_unificado and info_almohadas and not hay_sommier:
+        cantidad_total_almohadas = sum(a['cantidad'] for a in info_almohadas)
+        partes = 1 if cantidad_total_almohadas <= 10 else 2
+        peso_total_g = sum(a['peso_unit'] * a['cantidad'] for a in info_almohadas)
+        # Dimensiones del bulto = de la almohada más grande del lote
+        max_alto  = max(a['alto']  for a in info_almohadas)
+        max_ancho = max(a['ancho'] for a in info_almohadas)
+        max_largo = max(a['largo'] for a in info_almohadas)
+        desc_lote = ', '.join(f"{a['cantidad']}x {a['nombre']}" for a in info_almohadas)
+        # Repartir peso en partes iguales (el resto va en el primer bulto)
+        peso_por_parte = peso_total_g // partes
+        peso_resto     = peso_total_g - peso_por_parte * partes
+        for idx in range(partes):
+            peso_parte = peso_por_parte + (peso_resto if idx == 0 else 0)
+            bultos.append({
+                'sku':         'ALMOHADAS' if partes == 1 else f'ALMOHADAS_{idx+1}',
+                'description': desc_lote if partes == 1 else f'{desc_lote} (lote {idx+1}/{partes})',
+                'weight':      max(10, int(peso_parte)),
+                'height':      max_alto,
+                'width':       max_ancho,
+                'length':      max_largo,
+            })
 
     cur.close()
     return bultos
@@ -4066,6 +4278,15 @@ def datos_envio():
     shipping_tipo, _ = get_shipping_info(carrito)
     zipnova_quote  = session.get('zipnova_quote')
 
+    # Cupón aplicado en carrito: mantenerlo visible en datos-envio
+    cupon = session.get('cupon')
+    descuento_monto = 0
+    if cupon:
+        if cupon['tipo'] == 'pct':
+            descuento_monto = round(total * float(cupon['valor']) / 100)
+        else:
+            descuento_monto = min(float(cupon['valor']), total)
+
     # Para zipnova: precargar localidades desde georef server-side
     localidades_precargadas = []
     if shipping_tipo == 'zipnova' and zipnova_quote and zipnova_quote.get('cp_destino'):
@@ -4101,6 +4322,8 @@ def datos_envio():
         carrito                = carrito,
         carrito_count          = carrito_count,
         total                  = total,
+        cupon                  = cupon,
+        descuento_monto        = descuento_monto,
         shipping_tipo          = shipping_tipo,
         zipnova_quote          = zipnova_quote,
         localidades_precargadas = localidades_precargadas,
@@ -4228,9 +4451,18 @@ def checkout():
         })
 
     shipping_tipo, _ = get_shipping_info(carrito)
+    flag_unificado_ckt = _shipping_unificado()
+
+    # ── Defensa upstream: flag activo + envío sin cotización Zipnova ─────────
+    # Sin zipnova_quote la venta entraría con costo_flete=0. Los endpoints de
+    # pago ya validan esto, pero acá redirigimos a datos-envio para mejor UX.
+    if flag_unificado_ckt and tipo_entrega == 'envio' and not session.get('zipnova_quote'):
+        return redirect(url_for('tienda.datos_envio'))
 
     shipments      = None
     dimensions_str = calculate_package_dimensions(carrito)
+    # Con flag activo, get_shipping_info nunca devuelve 'me2_paid'/'me2_free',
+    # así que este bloque queda inactivo. Lo dejamos para flag='0' (rollback).
     if tipo_entrega == 'envio' and shipping_tipo in ('me2_paid', 'me2_free') and dimensions_str:
         shipments = {
             'mode':          'me2',
@@ -4374,6 +4606,21 @@ def checkout():
         except Exception:
             pass  # si falla la lectura, queda la card oculta
 
+        # Feature flag Payway 6 cuotas (default off). Asegura la fila en configuracion.
+        payway_6_enabled = False
+        try:
+            _db_p6  = get_db()
+            _cur_p6 = _db_p6.cursor()
+            _cur_p6.execute("INSERT IGNORE INTO configuracion (clave, valor) VALUES ('payway_6_enabled', '0')")
+            _db_p6.commit()
+            _cur_p6.execute("SELECT valor FROM configuracion WHERE clave = 'payway_6_enabled'")
+            _row_p6 = _cur_p6.fetchone()
+            payway_6_enabled = bool(_row_p6 and _row_p6['valor'] == '1')
+            _cur_p6.close()
+            _db_p6.close()
+        except Exception:
+            pass  # si falla la lectura, queda la card oculta
+
         return render_template(
             'tienda/checkout_bricks.html',
             preference_id    = preference['id'],
@@ -4392,6 +4639,7 @@ def checkout():
             total_pw_3       = total_pw_3,
             total_pw_6       = total_pw_6,
             getnet_enabled   = getnet_enabled,
+            payway_6_enabled = payway_6_enabled,
         )
 
     return redirect(preference['init_point'])
@@ -4412,6 +4660,29 @@ def pago_ejecutar():
 
     # external_reference para que el webhook encuentre el pedido_pendiente
     pedido_ref = session.get('pedido_ref_bricks', '')
+
+    # ── Defensa: no permitir cobrar si falta la cotización de envío ──────────
+    # Sin zipnova_quote la venta entraría con metodo_envio=None (panel la
+    # mostraría como "Retiro") y costo_flete=0 (cliente no paga el envío).
+    if pedido_ref:
+        _db_chk  = get_db()
+        _cur_chk = _db_chk.cursor()
+        _cur_chk.execute(
+            "SELECT cliente_json FROM pedidos_pendientes WHERE ref = %s",
+            (pedido_ref,)
+        )
+        _row_chk = _cur_chk.fetchone()
+        _cur_chk.close()
+        _db_chk.close()
+        if _row_chk:
+            _cli_chk = json.loads(_row_chk['cliente_json'])
+            if _cli_chk.get('tipo_entrega', 'envio') == 'envio' and not _cli_chk.get('zipnova_quote'):
+                return jsonify({
+                    'ok': False,
+                    'error': 'No se encontró la cotización de envío. Volvé al paso '
+                             'de datos y cotizá el envío antes de pagar.',
+                    'redirect': '/datos-envio'
+                }), 400
 
     payment_data = {
         'transaction_amount': float(data.get('transaction_amount', 0)),
@@ -4535,20 +4806,44 @@ def pago_payway():
     cart_items = json.loads(row['carrito_json'])
     cli        = json.loads(row['cliente_json'])
 
-    # ── Calcular monto con coeficiente de cuotas ─────────────────────────────
+    # ── Defensa: no permitir cobrar si falta la cotización de envío ──────────
+    # Sin zipnova_quote la venta entraría con metodo_envio=None (panel la
+    # mostraría como "Retiro") y costo_flete=0 (cliente no paga el envío).
+    if cli.get('tipo_entrega', 'envio') == 'envio' and not cli.get('zipnova_quote'):
+        db.close()
+        return jsonify({
+            'ok': False,
+            'error': 'No se encontró la cotización de envío. Volvé al paso '
+                     'de datos y cotizá el envío antes de pagar.',
+            'redirect': '/datos-envio'
+        }), 400
+
+    # ── Calcular monto con coeficiente de cuotas y cupón ─────────────────────
     coef_3, coef_6    = get_coeficientes_cuotas()
     coef              = coef_3 if installments == 3 else coef_6
     total_productos   = sum(float(it['precio']) * int(it['cantidad']) for it in cart_items)
+
+    # Cupón aplica solo a productos (no al flete)
+    cupon = cli.get('cupon')
+    if cupon:
+        if cupon['tipo'] == 'pct':
+            factor_cupon = 1 - float(cupon['valor']) / 100
+        else:
+            descuento_fijo = min(float(cupon['valor']), total_productos)
+            factor_cupon = (total_productos - descuento_fijo) / total_productos if total_productos else 1
+    else:
+        factor_cupon = 1
+
     zipnova_quote     = cli.get('zipnova_quote')
     costo_flete       = float(zipnova_quote.get('precio', 0)) if zipnova_quote else 0.0
-    total_base        = total_productos + costo_flete
+    total_base        = (total_productos * factor_cupon) + costo_flete
     total_con_coef    = round(total_base * coef)
     amount_centavos   = int(total_con_coef * 100)  # Payway espera centavos
 
-    # Items con precio ajustado por coeficiente (proporcional al total)
+    # Items con precio ajustado por cupón + coeficiente
     # Se usan para guardar en la DB y en los emails — el cliente ve el precio real pagado
     cart_items_adj = [
-        dict(it, precio=round(float(it['precio']) * coef))
+        dict(it, precio=round(float(it['precio']) * factor_cupon * coef))
         for it in cart_items
     ]
     costo_flete_adj = round(costo_flete * coef) if costo_flete else 0.0
@@ -4741,6 +5036,12 @@ def pago_payway():
         notas_extra, fecha_now, fecha_now,
     ))
     venta_id = cur2.lastrowid
+
+    # ── Costo comisión Payway (6.91%) ─────────────────────────────────────────
+    cur2.execute(
+        "UPDATE ventas SET costo_comision = ROUND(importe_total * 0.0691, 2), costo_envio_vendedor = 0 WHERE id = %s",
+        (venta_id,)
+    )
 
     # ── Items + stock (precios con coeficiente embebido) ─────────────────────
     for it in cart_items_adj:
@@ -4938,12 +5239,81 @@ def pago_getnet_crear():
     cart_items = json.loads(row['carrito_json'])
     cli        = json.loads(row['cliente_json'])
 
+    # ── Defensa: no permitir cobrar si falta la cotización de envío ──────────
+    # Sin zipnova_quote la venta entraría con metodo_envio=None (panel la
+    # mostraría como "Retiro") y costo_flete=0 (cliente no paga el envío).
+    if cli.get('tipo_entrega', 'envio') == 'envio' and not cli.get('zipnova_quote'):
+        return jsonify({
+            'ok': False,
+            'error': 'No se encontró la cotización de envío. Volvé al paso '
+                     'de datos y cotizá el envío antes de pagar.',
+            'redirect': '/datos-envio'
+        }), 400
+
     # Mismo coef que Payway 6c (también usado por la card de checkout)
     _, coef_6 = get_coeficientes_cuotas()
     total_productos = sum(float(it['precio']) * int(it['cantidad']) for it in cart_items)
+
+    # Cupón aplica solo a productos (no al flete)
+    cupon = cli.get('cupon')
+    if cupon:
+        if cupon['tipo'] == 'pct':
+            factor_cupon = 1 - float(cupon['valor']) / 100
+        else:
+            descuento_fijo = min(float(cupon['valor']), total_productos)
+            factor_cupon = (total_productos - descuento_fijo) / total_productos if total_productos else 1
+    else:
+        factor_cupon = 1
+
     zipnova_quote   = cli.get('zipnova_quote')
     costo_flete     = float(zipnova_quote.get('precio', 0)) if zipnova_quote else 0.0
-    total_con_coef  = round((total_productos + costo_flete) * coef_6)
+    total_con_coef  = round(((total_productos * factor_cupon) + costo_flete) * coef_6)
+    costo_flete_adj = round(costo_flete * coef_6) if costo_flete else 0
+
+    # Derivar metodo_envio para el snapshot (mismo criterio que webhook_getnet)
+    tipo_entrega_val = cli.get('tipo_entrega', 'envio')
+    if tipo_entrega_val == 'retiro':
+        metodo_envio_snap = None
+    elif zipnova_quote:
+        carrier_name      = zipnova_quote.get('carrier_name', '')
+        metodo_envio_snap = 'Flete Propio' if 'propio' in carrier_name.lower() else 'Zippin'
+    else:
+        metodo_envio_snap = None
+
+    # Snapshot del pedido en pedidos_pendientes_getnet (antes del POST a GetNet).
+    # La venta NO se registra acá; eso lo hace /webhook/getnet con status APPROVED.
+    try:
+        db_pp  = get_db()
+        cur_pp = db_pp.cursor()
+        cur_pp.execute("""
+            INSERT INTO pedidos_pendientes_getnet
+                (pedido_ref, datos_cliente, datos_carrito, total, costo_flete,
+                 metodo_envio, direccion, fecha_expiracion)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, DATE_ADD(NOW(), INTERVAL 24 HOUR))
+            ON DUPLICATE KEY UPDATE
+                datos_cliente    = VALUES(datos_cliente),
+                datos_carrito    = VALUES(datos_carrito),
+                total            = VALUES(total),
+                costo_flete      = VALUES(costo_flete),
+                metodo_envio     = VALUES(metodo_envio),
+                direccion        = VALUES(direccion),
+                fecha_creacion   = NOW(),
+                fecha_expiracion = DATE_ADD(NOW(), INTERVAL 24 HOUR),
+                estado           = 'pendiente'
+        """, (
+            pedido_ref,
+            json.dumps(cli, ensure_ascii=False, default=str),
+            json.dumps(cart_items, ensure_ascii=False, default=str),
+            total_con_coef,
+            costo_flete_adj,
+            metodo_envio_snap or '',
+            cli.get('direccion', '') or '',
+        ))
+        db_pp.commit()
+        cur_pp.close()
+        db_pp.close()
+    except Exception as e_pp:
+        logger.warning(f'[getnet_crear] Error guardando pedido pendiente: {e_pp}')
 
     use_uat  = not os.getenv('GETNET_CLIENT_ID', '').strip()
     base_url = os.getenv('GETNET_BASE_URL_UAT' if use_uat else 'GETNET_BASE_URL')
@@ -4953,12 +5323,12 @@ def pago_getnet_crear():
         nombre       = cli.get('nombre', 'Cliente Web') or 'Cliente Web'
         nombre_split = nombre.split(' ', 1)
 
-        # product[]: aplicar mismo coef a cada ítem; flete como ítem extra si aplica
+        # product[]: aplicar cupón + coef a cada ítem; flete como ítem extra si aplica
         product = []
         for it in cart_items:
             product.append({
                 'title':    (it.get('nombre') or it.get('sku') or 'Producto')[:50],
-                'value':    int(round(float(it['precio']) * coef_6) * 100),
+                'value':    int(round(float(it['precio']) * factor_cupon * coef_6) * 100),
                 'quantity': int(it['cantidad']),
             })
         if costo_flete > 0:
@@ -4971,7 +5341,8 @@ def pago_getnet_crear():
         body = {
             'order_id': pedido_ref,
             'redirect_urls': {
-                'success': url_for('tienda.pago_exito', _external=True) + f"?canal=getnet&payment_id={pedido_ref}",
+                # GetNet strippea query params al redirigir → usar pedido_ref en el path
+                'success': url_for('tienda.pago_exito_getnet', pedido_ref=pedido_ref, _external=True),
                 'failed':  url_for('tienda.pago_error', _external=True) + "?canal=getnet",
             },
             'payment': {
@@ -4985,11 +5356,13 @@ def pago_getnet_crear():
                 'last_name':       nombre_split[1] if len(nombre_split) > 1 else nombre_split[0],
                 'name':            nombre,
                 'email':           cli.get('email', '') or 'sin_email@mercadomuebles.com.ar',
-                'document_type':   'DNI',
+                'document_type':   'dni',
                 'document_number': cli.get('dni', '') or '00000000',
                 'phone_number':    cli.get('telefono', '') or '0',
             },
         }
+
+        logger.info(f"[getnet_crear] REQUEST body: {json.dumps(body, ensure_ascii=False, default=str)}")
 
         resp = req_lib.post(
             f"{base_url}/digital-checkout/v1/payment-intent",
@@ -5000,14 +5373,32 @@ def pago_getnet_crear():
             },
             timeout=15,
         )
+        logger.info(f"[getnet_crear] RESPONSE status={resp.status_code} body={resp.text[:1000]}")
         resp.raise_for_status()
         data = resp.json()
         session['getnet_payment_intent_id'] = data.get('payment_intent_id')
+        session['getnet_pedido_ref']        = pedido_ref
         logger.info(f"[getnet_crear] payment_intent_id={data.get('payment_intent_id')} pedido={pedido_ref}")
+
+        # Guardar payment_intent_id en pedidos_pendientes_getnet
+        try:
+            db_pi  = get_db()
+            cur_pi = db_pi.cursor()
+            cur_pi.execute(
+                "UPDATE pedidos_pendientes_getnet SET payment_intent_id = %s WHERE pedido_ref = %s",
+                (data.get('payment_intent_id'), pedido_ref)
+            )
+            db_pi.commit()
+            cur_pi.close()
+            db_pi.close()
+        except Exception as e_pi:
+            logger.warning(f'[getnet_crear] Error guardando payment_intent_id: {e_pi}')
+
         return jsonify(redirect_url=data['redirect_url'])
 
     except Exception as e:
         logger.error(f"[getnet_crear] Error: {e}")
+        logger.error(f"[getnet_crear] ERROR response: status={getattr(getattr(e, 'response', None), 'status_code', '?')} body={getattr(getattr(e, 'response', None), 'text', str(e))[:1000]}")
         return jsonify(error='No se pudo iniciar el pago con GetNet. Intentá con otro método.'), 500
 
 
@@ -5017,6 +5408,22 @@ def getnet_webhook():
     data = request.get_json(silent=True) or {}
     logger.info(f"[getnet_webhook] PROVISORIO payload: {data}")
     return jsonify(ok=True), 200
+
+
+@tienda_bp.route('/pago/exito-getnet/<pedido_ref>', methods=['GET'])
+def pago_exito_getnet(pedido_ref):
+    """Página de éxito específica para GetNet con pedido_ref en el path.
+    Esto evita que GetNet strippee query params al hacer el redirect."""
+    numero_pedido = f"GN-{pedido_ref}" if pedido_ref else ""
+    print(f"[pago_exito_getnet] pedido_ref={pedido_ref}", flush=True)
+    # Limpiar carrito (mismo comportamiento que /pago/exito)
+    session.pop('carrito', None)
+    session.pop('mp_preference_id', None)
+    return render_template(
+        'tienda/pago_exito_getnet.html',
+        payment_id=pedido_ref,
+        numero_pedido=numero_pedido,
+    )
 
 
 @tienda_bp.route('/pago/exito')
@@ -5030,11 +5437,47 @@ def pago_exito():
     session.pop('carrito', None)
     session.pop('mp_preference_id', None)
 
-    # PROVISORIO: GetNet redirige a una página propia "en proceso" — no registra
-    # venta hasta que el webhook esté implementado en producción.
+    # GetNet: la venta la registra el webhook (POST /webhook/getnet) cuando llega
+    # APPROVED. Esta página es solo confirmación visual con el número de pedido.
     if canal == 'getnet':
-        logger.info(f"[getnet_exito] PROVISORIO redirect, payment_id={payment_id}")
-        return render_template('tienda/pago_exito_getnet.html', payment_id=payment_id or '')
+        # GetNet a veces strippea el query param payment_id al redirigir.
+        # Fallback 1: leer pedido_ref guardado en sesión por /pago/getnet/crear
+        if not payment_id:
+            payment_id = session.get('getnet_pedido_ref', '')
+
+        # Fallback 2: buscar la última venta GetNet del cliente (nombre+telefono
+        # de session['cliente_checkout']) registrada en los últimos 30 minutos
+        numero_pedido = f"GN-{payment_id}" if payment_id else ''
+        if not numero_pedido:
+            cli_chk = session.get('cliente_checkout', {}) or {}
+            nombre  = cli_chk.get('nombre', '')
+            tel     = cli_chk.get('telefono', '')
+            if nombre and tel:
+                try:
+                    db_chk  = get_db()
+                    cur_chk = db_chk.cursor()
+                    cur_chk.execute("""
+                        SELECT numero_venta FROM ventas
+                        WHERE metodo_pago='GetNet'
+                          AND nombre_cliente=%s AND telefono_cliente=%s
+                          AND fecha_venta > DATE_SUB(NOW(), INTERVAL 30 MINUTE)
+                        ORDER BY id DESC LIMIT 1
+                    """, (nombre, tel))
+                    row_chk = cur_chk.fetchone()
+                    cur_chk.close()
+                    db_chk.close()
+                    if row_chk:
+                        numero_pedido = row_chk['numero_venta']
+                        payment_id    = numero_pedido.replace('GN-', '')
+                except Exception as e_chk:
+                    logger.warning(f"[getnet_exito] fallback DB falló: {e_chk}")
+
+        print(f"[getnet_exito] payment_id={payment_id} numero={numero_pedido}", flush=True)
+        return render_template(
+            'tienda/pago_exito_getnet.html',
+            payment_id=payment_id or '',
+            numero_pedido=numero_pedido,
+        )
 
     # Numero de venta segun canal
     if canal == 'payway':
@@ -5635,7 +6078,12 @@ def webhook_mp():
                 logger.warning(f"[webhook] merchant_order no corresponde al pago {payment_id} — payments: {payment_ids_order}. Ignorando shipment.")
                 order = None  # No usar este merchant_order
 
-        if order:
+        # Con flag shipping_unificado_zipnova='1' no se mandan shipments al
+        # preference de MP, así que cualquier shipment_id en el webhook es
+        # residual o de otro flujo: lo ignoramos y caemos al path zipnova.
+        flag_unificado_wh = _shipping_unificado()
+
+        if order and not flag_unificado_wh:
             shipments = order.get('shipments', [])
             if shipments:
                 sh          = shipments[0]
@@ -5656,6 +6104,8 @@ def webhook_mp():
                 est = sh.get('shipping_option', {}).get('estimated_delivery', {})
                 if est.get('date'):
                     fecha_entrega = est['date'][:10]
+        elif order and flag_unificado_wh and order.get('shipments'):
+            logger.warning(f"[webhook] flag shipping_unificado_zipnova activo — ignorando shipment_id en pedido {pedido_ref}")
 
         importe_producto  = float(payment.get('transaction_amount', 0))
         total_paid        = float(payment.get('total_paid_amount', 0))
@@ -5693,7 +6143,12 @@ def webhook_mp():
                 metodo_envio_val = 'Zippin'
         else:
             tipo_entrega_val  = 'envio'
-            metodo_envio_val  = None
+            # Defensa en profundidad: si llega un webhook con envio pero sin
+            # shipment ME2 ni zipnova_quote (edge case, pedidos pre-fix), no
+            # registrar la venta con metodo_envio=None — el panel la mostraría
+            # como "Retiro". Default a 'Flete Propio' + marcar para revisión.
+            metodo_envio_val  = 'Flete Propio'
+            notas_extra       = (notas_extra + "\nFLETE_SIN_COTIZAR") if notas_extra else "FLETE_SIN_COTIZAR"
 
         # numero_venta como variable para usarlo en Zipnova y emails
         numero_venta = f"MP-{payment_id}"
@@ -5738,6 +6193,12 @@ def webhook_mp():
             fecha_now, fecha_now,
         ))
         venta_id = cursor.lastrowid
+
+        # ── Costo comisión MercadoPago (1.5%) ─────────────────────────────────
+        cursor.execute(
+            "UPDATE ventas SET costo_comision = ROUND(importe_total * 0.015, 2), costo_envio_vendedor = 0 WHERE id = %s",
+            (venta_id,)
+        )
 
         # ── INSERT items_venta + descontar stock ──────────────────────────────
         if cart_items:
@@ -5908,27 +6369,64 @@ def webhook_getnet():
     Registra la venta en DB siguiendo el mismo patrón que webhook_mp.
     Prefijo de venta: GN-{pedido_ref} (usando merchant_reference como ID).
     """
+    import base64
+
+    # Validación Basic Auth — GetNet envía credenciales configuradas en su portal
+    expected_user = os.getenv('GETNET_WEBHOOK_USER', '').strip()
+    expected_pass = os.getenv('GETNET_WEBHOOK_PASS', '').strip()
+
+    if expected_user and expected_pass:
+        auth_header = request.headers.get('Authorization', '')
+
+        if not auth_header.startswith('Basic '):
+            print(f'[webhook_getnet] AUTH FAIL: header missing or invalid format', flush=True)
+            return jsonify(ok=False, error='unauthorized'), 401
+
+        try:
+            encoded_creds = auth_header.split(' ', 1)[1]
+            decoded = base64.b64decode(encoded_creds).decode('utf-8')
+            recv_user, recv_pass = decoded.split(':', 1)
+        except Exception as e:
+            print(f'[webhook_getnet] AUTH FAIL: cannot decode credentials: {e}', flush=True)
+            return jsonify(ok=False, error='unauthorized'), 401
+
+        if recv_user != expected_user or recv_pass != expected_pass:
+            print(f'[webhook_getnet] AUTH FAIL: credentials mismatch (recv_user={recv_user})', flush=True)
+            return jsonify(ok=False, error='unauthorized'), 401
+
+        print(f'[webhook_getnet] AUTH OK: user={recv_user}', flush=True)
+    else:
+        # Si las vars no están configuradas, loggear warning pero permitir
+        # (modo desarrollo / UAT donde no se configuró Basic Auth)
+        print(f'[webhook_getnet] WARNING: GETNET_WEBHOOK_USER/PASS no configurados — sin validación de auth', flush=True)
+
     data = request.get_json() or {}
-    logger.error(f'[webhook_getnet] Payload completo: {json.dumps(data, ensure_ascii=False)[:800]}')
+    print(f'[webhook_getnet] Payload completo: {json.dumps(data, ensure_ascii=False, default=str)}', flush=True)
 
-    # Estructura real del webhook GetNet: { "data": { "order": {...}, "payment": {...} } }
-    inner      = data.get('data') or {}
-    order_info = inner.get('order') or {}
-    pay_info   = inner.get('payment') or {}
+    # Estructura real del webhook GetNet:
+    # { "order_id": "...", "payment": { "brand": ..., "last_four_digits": ...,
+    #   "installment": {...}, "result": { "payment_id": ..., "status": "Authorized",
+    #   "authorization_code": ..., ... } }, ... }
+    pay_info    = data.get('payment') or {}
+    pay_result  = pay_info.get('result') or {}
+    installment = pay_info.get('installment') or {}
 
-    # Estado del pago — viene en payment.status como "APPROVED", "REJECTED", etc.
-    status = (pay_info.get('status') or order_info.get('status') or '').upper()
+    status = pay_result.get('status', '')
 
-    if status != 'APPROVED':
-        logger.error(f'[webhook_getnet] Status "{status}" — no se registra venta.')
-        return jsonify({'ok': True}), 200
+    if status != 'Authorized':
+        print(f'[webhook_getnet] Status "{status}" — no se registra venta.', flush=True)
+        return jsonify(ok=True), 200
 
-    # pedido_ref: lo enviamos en "source" al crear la orden; GN lo devuelve en order.source
-    pedido_ref  = order_info.get('source') or order_info.get('merchant_reference') or ''
-    gn_order_id = str(order_info.get('uuid') or order_info.get('id') or '')
+    # Datos del pago para guardar en notas
+    pedido_ref    = data.get('order_id', '')
+    gn_payment_id = pay_result.get('payment_id', '')
+    auth_code     = pay_result.get('authorization_code', '')
+    brand         = pay_info.get('brand', '')
+    last_four     = pay_info.get('last_four_digits', '')
+    cuotas_gn     = installment.get('number', '')
 
     if not pedido_ref:
-        logger.error(f'[webhook_getnet] Sin pedido_ref (source) en payload: {data}')
+        print(f'[webhook_getnet] Sin order_id en payload: {data}', flush=True)
         return jsonify({'error': 'Sin referencia de pedido'}), 400
 
     db     = None
@@ -5944,48 +6442,78 @@ def webhook_getnet():
             logger.info(f'[webhook_getnet] Venta ya registrada: {numero_venta}')
             return jsonify({'ok': True}), 200
 
-        # Recuperar carrito y cliente desde pedidos_pendientes
-        cursor.execute(
-            "SELECT carrito_json, cliente_json FROM pedidos_pendientes WHERE ref = %s",
-            (pedido_ref,)
-        )
+        # Recuperar pedido desde pedidos_pendientes_getnet (snapshot creado por
+        # /pago/getnet/crear). NO usamos la tabla legacy pedidos_pendientes.
+        cursor.execute("""
+            SELECT pedido_ref, payment_intent_id, datos_cliente, datos_carrito,
+                   total, costo_flete, metodo_envio, direccion, estado
+            FROM pedidos_pendientes_getnet
+            WHERE pedido_ref = %s
+        """, (pedido_ref,))
         row = cursor.fetchone()
         if not row:
-            logger.error(f'[webhook_getnet] Pedido pendiente no encontrado: {pedido_ref}')
-            return jsonify({'error': 'Pedido no encontrado'}), 404
+            logger.warning(f'[webhook_getnet] Pedido pendiente no encontrado: {pedido_ref} — webhook ignorado.')
+            return jsonify({'ok': False, 'error': 'pedido_not_found'}), 404
+        if row['estado'] == 'procesado':
+            logger.info(f'[webhook_getnet] Pedido ya procesado: {pedido_ref}')
+            return jsonify({'ok': True}), 200
 
-        cart_items = json.loads(row['carrito_json'])
-        cli        = json.loads(row['cliente_json'])
+        cart_items       = json.loads(row['datos_carrito'])
+        cli              = json.loads(row['datos_cliente'])
+        total_con_coef   = float(row['total'])
+        costo_flete_adj  = float(row['costo_flete'] or 0)
+        metodo_envio_val = row['metodo_envio'] or None
+        direccion        = row['direccion'] or cli.get('direccion', '') or ''
 
-        # Calcular totales (mismo criterio que pago_payway: sin cupon en el monto)
-        coef_3, _       = get_coeficientes_cuotas()
-        nombre_cliente  = cli.get('nombre', 'Comprador web')
-        telefono_cliente= cli.get('telefono', '')
-        dni_cliente     = cli.get('dni', '')
-        email_cliente   = cli.get('email', '')
-        direccion       = cli.get('direccion', '')
-        provincia       = cli.get('provincia', 'Capital Federal')
-        tipo_entrega_val= cli.get('tipo_entrega', 'envio')
-        zipnova_quote   = cli.get('zipnova_quote')
-        costo_flete     = float(zipnova_quote.get('precio', 0)) if zipnova_quote else 0.0
-        total_productos = sum(float(it['precio']) * int(it['cantidad']) for it in cart_items)
-        total_con_coef  = round((total_productos + costo_flete) * coef_3)
-        costo_flete_adj = round(costo_flete * coef_3) if costo_flete else 0
+        # Datos derivados del cliente (solo lectura)
+        nombre_cliente   = cli.get('nombre', 'Comprador web')
+        telefono_cliente = cli.get('telefono', '')
+        dni_cliente      = cli.get('dni', '')
+        email_cliente    = cli.get('email', '')
+        provincia        = cli.get('provincia', 'Capital Federal')
+        tipo_entrega_val = cli.get('tipo_entrega', 'envio')
 
-        if tipo_entrega_val == 'retiro':
-            metodo_envio_val = None
-        elif zipnova_quote:
-            carrier_name     = zipnova_quote.get('carrier_name', '')
-            metodo_envio_val = 'Flete Propio' if 'propio' in carrier_name.lower() else 'Zippin'
+        # Defensa en profundidad: si llega un webhook con envio pero sin
+        # metodo_envio en el snapshot (edge case, pedidos pre-fix), no registrar
+        # la venta como "Retiro". Default a 'Flete Propio' + marcar para revisión.
+        _flete_sin_cotizar_flag = False
+        if tipo_entrega_val == 'envio' and not metodo_envio_val:
+            metodo_envio_val = 'Flete Propio'
+            _flete_sin_cotizar_flag = True
+
+        _, coef_6 = get_coeficientes_cuotas()  # solo para la nota informativa
+
+        # Recalcular factor_cupon para que items_venta coincida con el total guardado
+        cupon_cli = cli.get('cupon')
+        subtotal_carrito = sum(float(it['precio']) * int(it['cantidad']) for it in cart_items)
+        if cupon_cli:
+            if cupon_cli['tipo'] == 'pct':
+                factor_cupon = 1 - float(cupon_cli['valor']) / 100
+            else:
+                desc_fijo = min(float(cupon_cli['valor']), subtotal_carrito)
+                factor_cupon = (subtotal_carrito - desc_fijo) / subtotal_carrito if subtotal_carrito else 1
         else:
-            metodo_envio_val = None
+            factor_cupon = 1
 
         tz_ar     = timezone(timedelta(hours=-3))
         fecha_now = datetime.now(tz_ar).replace(tzinfo=None)
 
-        notas_parts = [f"GN_ORDER: {gn_order_id}", "Cuotas: 3 (MiPyme)", f"Coef: {coef_3}"]
+        # importe_total = solo productos (sin flete), igual que ventas ML/MP
+        importe_solo_productos = total_con_coef - costo_flete_adj
+        # importe_abonado = monto real cobrado por GetNet (productos + flete) → flete verde
+        importe_abonado_real = float(pay_info.get('amount', 0)) / 100
+
+        notas_parts = [
+            f"GN_PID: {gn_payment_id}",
+            f"AUTH: {auth_code}",
+            f"Tarjeta: {brand} ****{last_four}",
+            f"Cuotas: {cuotas_gn} (MiPyme)",
+            f"Coef: {coef_6}",
+        ]
         if cli.get('demora_dias'):
             notas_parts.append(f"DEMORA: {cli['demora_dias']} dias ({cli.get('fecha_disponible','')})")
+        if _flete_sin_cotizar_flag:
+            notas_parts.append("FLETE_SIN_COTIZAR")
         notas_extra = "\n".join(notas_parts)
 
         # INSERT ventas
@@ -6009,7 +6537,7 @@ def webhook_getnet():
             numero_venta,
             nombre_cliente, telefono_cliente,
             dni_cliente, provincia,
-            total_con_coef, total_con_coef,
+            importe_solo_productos, importe_abonado_real,
             tipo_entrega_val, metodo_envio_val,
             direccion,
             costo_flete_adj,
@@ -6017,12 +6545,22 @@ def webhook_getnet():
         ))
         venta_id = cursor.lastrowid
 
-        # Items con precio ajustado por coeficiente
-        for it in cart_items:
-            precio_con_coef = round(float(it['precio']) * coef_3)
+        # ── Costo comisión GetNet (13.82%) ────────────────────────────────────
+        cursor.execute(
+            "UPDATE ventas SET costo_comision = ROUND(importe_total * 0.1382, 2), costo_envio_vendedor = 0 WHERE id = %s",
+            (venta_id,)
+        )
+
+        # Items con precio ajustado por cupón + coeficiente
+        # cart_items_adj se reutiliza más abajo para los emails (mismo patrón que Payway)
+        cart_items_adj = [
+            dict(it, precio=round(float(it['precio']) * factor_cupon * coef_6))
+            for it in cart_items
+        ]
+        for it in cart_items_adj:
             cursor.execute(
                 "INSERT INTO items_venta (venta_id, sku, cantidad, precio_unitario) VALUES (%s, %s, %s, %s)",
-                (venta_id, it['sku'], int(it['cantidad']), precio_con_coef)
+                (venta_id, it['sku'], int(it['cantidad']), it['precio'])
             )
 
         db.commit()
@@ -6067,22 +6605,25 @@ def webhook_getnet():
             except Exception as e:
                 logger.warning(f'[webhook_getnet] Error cupon: {e}')
 
-        # Limpiar pedido pendiente
+        # Marcar pedido pendiente como procesado (no eliminar — se mantiene para auditoría)
         try:
             cur_clean = db.cursor()
-            cur_clean.execute("DELETE FROM pedidos_pendientes WHERE ref = %s", (pedido_ref,))
+            cur_clean.execute(
+                "UPDATE pedidos_pendientes_getnet SET estado = 'procesado' WHERE pedido_ref = %s",
+                (pedido_ref,)
+            )
             db.commit()
             cur_clean.close()
-        except Exception:
-            pass
+        except Exception as e_clean:
+            logger.warning(f'[webhook_getnet] Error marcando pedido procesado: {e_clean}')
 
-        # Emails
+        # Emails — usar cart_items_adj (precios con cupón + coef ya aplicados)
         try:
             enviar_email_confirmacion(
                 payment_id       = pedido_ref,
                 nombre_cliente   = nombre_cliente,
                 email_cliente    = email_cliente,
-                items            = cart_items,
+                items            = cart_items_adj,
                 tipo_entrega     = tipo_entrega_val,
                 direccion        = direccion,
                 fecha_entrega    = None,
@@ -6101,7 +6642,7 @@ def webhook_getnet():
                 nombre_cliente   = nombre_cliente,
                 email_cliente    = email_cliente,
                 telefono         = telefono_cliente,
-                items            = cart_items,
+                items            = cart_items_adj,
                 tipo_entrega     = tipo_entrega_val,
                 direccion        = direccion,
                 importe_total    = total_con_coef,
@@ -6266,14 +6807,20 @@ def seguimiento():
     error  = None
     mpid   = None
     trid   = None
+    estado_especial = None
+    fecha_pendiente = None
+    demora_dias_seg      = 0
+    fecha_disponible_seg = ''
 
     if numero:
         db     = get_db()
         cursor = db.cursor()
         try:
-            # Buscar por numero_venta (ej: MP-149228510813) o por payment_id en notas
-            # Normalizar: si es solo dígitos, asumimos payment_id
-            busqueda = numero if numero.startswith('MP-') else f"MP-{numero}"
+            # Buscar por numero_venta (MP-/GN-/PW-...) o por payment_id si son solo dígitos
+            if numero.startswith('MP-') or numero.startswith('GN-') or numero.startswith('PW-'):
+                busqueda = numero
+            else:
+                busqueda = f"MP-{numero}"
             cursor.execute("""
                 SELECT v.*, GROUP_CONCAT(CONCAT(i.cantidad,'x ',i.sku) SEPARATOR ', ') AS productos_str
                 FROM ventas v
@@ -6354,7 +6901,23 @@ def seguimiento():
                         'tipo':        'zipnova',
                     }
             else:
-                error = 'No encontramos ningún pedido con ese número.'
+                # Si es un GN-, todavía puede estar en pedidos_pendientes_getnet
+                # (pago iniciado pero webhook todavía no llegó / no aprobado).
+                if busqueda.startswith('GN-'):
+                    pedido_ref_seg = busqueda[3:]
+                    cursor.execute("""
+                        SELECT pedido_ref, fecha_creacion, estado
+                        FROM pedidos_pendientes_getnet
+                        WHERE pedido_ref = %s
+                    """, (pedido_ref_seg,))
+                    pendiente = cursor.fetchone()
+                    if pendiente and pendiente['estado'] == 'pendiente':
+                        estado_especial = 'verificando_pago'
+                        fecha_pendiente = pendiente['fecha_creacion']
+                    else:
+                        error = 'No encontramos ningún pedido con ese número.'
+                else:
+                    error = 'No encontramos ningún pedido con ese número.'
 
         except Exception as e:
             logger.error(f"Error seguimiento: {e}")
@@ -6374,6 +6937,8 @@ def seguimiento():
         mpid=mpid,
         demora_dias=demora_dias_seg if numero else 0,
         fecha_disponible=fecha_disponible_seg if numero else '',
+        estado_especial=estado_especial,
+        fecha_pendiente=fecha_pendiente,
     )
 
 @tienda_bp.route('/privacidad')
@@ -6385,3 +6950,92 @@ def privacidad():
 def devoluciones():
     from flask import render_template
     return render_template('tienda/devoluciones.html', carrito_count=len(session.get('carrito', [])))
+
+
+@tienda_bp.route('/test-getnet', methods=['GET', 'POST'])
+def test_getnet():
+    """Página de prueba del iframe GetNet — sin auth (URL no publicada). No registra venta."""
+    import time
+
+    db  = get_db()
+    cur = db.cursor()
+    cur.execute("""
+        SELECT sku, nombre, precio_base AS precio
+        FROM productos_base
+        WHERE activo = 1 AND precio_base > 0
+        ORDER BY nombre
+        LIMIT 50
+    """)
+    productos = cur.fetchall()
+    cur.close()
+    db.close()
+
+    iframe_url        = None
+    payment_intent_id = None
+    error             = None
+    producto_sel      = None
+
+    if request.method == 'POST':
+        sku    = request.form.get('sku')
+        nombre = request.form.get('nombre') or ''
+        precio = float(request.form.get('precio', 0) or 0)
+        cuotas = int(request.form.get('cuotas', 6) or 6)
+
+        coef_3, coef_6 = get_coeficientes_cuotas()
+        coef  = coef_3 if cuotas == 3 else coef_6
+        total = round(precio * coef)
+
+        producto_sel = {'sku': sku, 'nombre': nombre, 'precio': precio, 'total': total, 'cuotas': cuotas}
+
+        try:
+            import requests as req_lib
+            use_uat  = not os.getenv('GETNET_CLIENT_ID', '').strip()
+            base_url = os.getenv('GETNET_BASE_URL_UAT' if use_uat else 'GETNET_BASE_URL')
+            token    = _getnet_get_token()
+
+            test_ref = f"TEST-{sku}-{int(time.time())}"
+            body = {
+                "order_id": test_ref,
+                "redirect_urls": {
+                    # GetNet strippea query params al redirigir → usar pedido_ref en el path
+                    "success": url_for('tienda.pago_exito_getnet', pedido_ref=test_ref, _external=True),
+                    "failed":  url_for('tienda.pago_error', _external=True) + "?canal=getnet"
+                },
+                "payment": {"amount": int(total * 100), "currency": "ARS"},
+                "product": [{"title": (nombre or sku or 'Producto')[:50], "value": int(total * 100), "quantity": 1}],
+                "customer": {
+                    "customer_id":     "test-admin",
+                    "first_name":      "Admin",
+                    "last_name":       "Test",
+                    "name":            "Admin Test",
+                    "email":           "admin@mercadomuebles.com.ar",
+                    "document_type":   "dni",
+                    "document_number": "00000000",
+                    "phone_number":    "5491100000000"
+                }
+            }
+
+            resp = req_lib.post(
+                f"{base_url}/digital-checkout/v1/payment-intent",
+                json=body,
+                headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            iframe_url        = data['redirect_url']
+            payment_intent_id = data.get('payment_intent_id')
+            print(f"[test_getnet] payment_intent_id={payment_intent_id} total={total} cuotas={cuotas}", flush=True)
+
+        except Exception as e:
+            error = str(e)
+            print(f"[test_getnet] ERROR: {e}", flush=True)
+
+    return render_template(
+        'tienda/test_getnet.html',
+        productos=productos,
+        iframe_url=iframe_url,
+        payment_intent_id=payment_intent_id,
+        producto_sel=producto_sel,
+        error=error,
+    )

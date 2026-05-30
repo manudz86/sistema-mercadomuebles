@@ -24,7 +24,25 @@
     </button>
   </form>
 
-  {% if error %}
+  {% if estado_especial == 'verificando_pago' %}
+  <div style="background:#fff; border:1px solid #e8e8e8; border-radius:12px; padding:40px 20px; text-align:center;">
+    <div style="font-size:3rem; margin-bottom:16px;">⏳</div>
+    <h2 style="font-size:1.2rem; font-weight:700; color:#1a1a2e; margin:0 0 12px;">Verificando pago</h2>
+    <p style="font-size:0.95rem; color:#444; margin:0 0 8px;">
+      Estamos confirmando el pago de tu pedido <strong>{{ numero }}</strong>.
+    </p>
+    {% if fecha_pendiente %}
+    <p style="font-size:0.82rem; color:#888; margin:0 0 12px;">
+      Iniciado el {{ fecha_pendiente.strftime('%d/%m/%Y %H:%M') }}.
+    </p>
+    {% endif %}
+    <p style="color:#888; font-size:0.9rem; margin:0;">
+      Esto suele tardar unos minutos. Si pasaron más de 30 minutos sin novedades,
+      consultanos por WhatsApp con tu número de pedido.
+    </p>
+  </div>
+
+  {% elif error %}
   <div style="background:#fff0f0; border:1px solid #ffcccc; border-radius:10px; padding:20px; color:#c0392b; text-align:center;">
     {{ error }}
   </div>

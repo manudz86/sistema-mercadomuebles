@@ -76,6 +76,7 @@
         </div>
       </label>
 
+      {% if payway_6_enabled %}
       <!-- Opcion Payway 6 cuotas -->
       <label id="opt-pw6" onclick="seleccionarMetodo('pw6')"
         style="display:flex; align-items:center; gap:14px; border:2px solid #ddd; border-radius:10px; padding:14px 16px; cursor:pointer; background:#fff; color:#333; transition:all 0.2s;">
@@ -86,16 +87,17 @@
           <div class="card-sub" style="font-size:0.78rem; color:#888;">Total {{ total_6_fmt }} · Visa, Mastercard, Amex, Cabal (bancarias)</div>
         </div>
       </label>
+      {% endif %}
 
       {% if getnet_enabled %}
       <!-- Opcion GetNet 6 cuotas Santander MiPyme -->
       <label id="opt-getnet" onclick="seleccionarMetodo('getnet')"
         style="display:flex; align-items:center; gap:14px; border:2px solid #ddd; border-radius:10px; padding:14px 16px; cursor:pointer; background:#fff; color:#333; transition:all 0.2s;">
         <input type="radio" name="metodo_pago" value="getnet" style="display:none;">
-        <div class="card-icon" style="font-size:1.2rem; font-weight:800; color:#EC0000;">S</div>
+        <span class="card-icon" style="font-size:1.4rem; font-weight:800; color:#EC0000; display:inline-block; width:1.4em; text-align:center; line-height:1;">G</span>
         <div>
           <div style="font-weight:700; font-size:0.95rem;">
-            6 cuotas de {{ cuota_6_fmt }} — Santander GetNet
+            6 cuotas de {{ cuota_6_fmt }}
           </div>
           <div class="card-sub" style="font-size:0.78rem; color:#888;">
             Total {{ total_6_fmt }} · Cuota Simple MiPyme · Visa, Mastercard, Amex bancarias
@@ -211,13 +213,21 @@
 
   {% if getnet_enabled %}
   <!-- Sección GetNet (oculta por defecto) -->
-  <div id="getnet-section" style="display:none; text-align:center; padding:24px 0;">
-    <div id="getnet-loader" style="color:#888; font-size:0.95rem;">
+  <div id="getnet-section" style="display:none; padding:24px 0;">
+    <div id="getnet-loader" style="text-align:center; color:#888; font-size:0.95rem;">
       <div style="font-size:1.5rem; margin-bottom:8px;">⏳</div>
-      Preparando pago seguro con Santander GetNet...
+      Preparando pago seguro...
     </div>
     <div id="getnet-error" style="display:none; color:#dc2626; background:#fef2f2;
          border:1px solid #fecaca; border-radius:8px; padding:12px; margin-top:12px;"></div>
+    <div id="getnet-iframe-container" style="display:none; border:2px solid #EC0000;
+         border-radius:8px; overflow:hidden; margin-top:12px;">
+      <div style="background:#fff5f5; padding:8px 12px; font-size:0.85rem;
+           color:#666; border-bottom:1px solid #fecaca; text-align:center;">
+        Completá el pago con tu tarjeta
+      </div>
+      <!-- el iframe se inyecta aquí desde iniciarGetNet() -->
+    </div>
   </div>
   {% endif %}
 
@@ -337,30 +347,64 @@ function seleccionarMetodo(metodo) {
   }
 }
 
-// ── GetNet: pedir payment-intent y redirigir ──────────────────────────────────
+// ── GetNet: desktop embebe iframe inline; mobile redirige ────────────────────
 function iniciarGetNet() {
-  var section = document.getElementById('getnet-section');
-  var loader  = document.getElementById('getnet-loader');
-  var errDiv  = document.getElementById('getnet-error');
+  var section  = document.getElementById('getnet-section');
+  var loader   = document.getElementById('getnet-loader');
+  var errDiv   = document.getElementById('getnet-error');
+  var gnFrame  = document.getElementById('getnet-iframe-container');
   if (!section) return;
+
+  // Mostrar siempre la sección al seleccionar GetNet
   section.style.display = 'block';
+
+  // Si ya se inició (en curso o iframe ya creado), reutilizar — no pedir un nuevo
+  // payment-intent porque cada uno dura 10 min y crear varios genera huérfanos.
+  if (getnetCreando) {
+    if (errDiv) { errDiv.style.display = 'none'; errDiv.textContent = ''; }
+    return;
+  }
+  getnetCreando = true;
+
   if (loader) loader.style.display = 'block';
   if (errDiv) { errDiv.style.display = 'none'; errDiv.textContent = ''; }
-
-  if (getnetCreando) return;  // evitar dobles fetches si re-clickean
-  getnetCreando = true;
+  if (gnFrame) gnFrame.style.display = 'none';
 
   fetch('/tienda/pago/getnet/crear', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' }
   })
-  .then(function(res) { return res.json().then(function(d) { return { ok: res.ok, data: d }; }); })
+  .then(function(res) { return res.json().then(function(d) { return { ok: res.ok, status: res.status, data: d }; }); })
   .then(function(r) {
-    if (r.ok && r.data.redirect_url) {
-      window.location.href = r.data.redirect_url;
-    } else {
+    // Backend devuelve 400 + redirect cuando falta cotización de envío
+    if (r.status === 400 && r.data && r.data.redirect) {
+      alert(r.data.error || 'No se encontró la cotización de envío. Volvé a cotizar el envío.');
+      window.location = r.data.redirect;
+      return;
+    }
+    if (!r.ok || !r.data.redirect_url) {
       throw new Error((r.data && r.data.error) || 'No se pudo iniciar el pago.');
     }
+    if (window.innerWidth < 768) {
+      // Mobile: iframe no funciona bien (viewport chico, teclado virtual) → redirect
+      window.location.href = r.data.redirect_url;
+      return;
+    }
+    // Desktop: embeber iframe inline en getnet-iframe-container
+    if (loader) loader.style.display = 'none';
+    var iframe = document.getElementById('getnet-iframe');
+    if (!iframe) {
+      iframe = document.createElement('iframe');
+      iframe.id = 'getnet-iframe';
+      iframe.style.width   = '100%';
+      iframe.style.height  = '700px';
+      iframe.style.border  = 'none';
+      iframe.style.display = 'block';
+      iframe.setAttribute('allow', 'payment');
+      gnFrame.appendChild(iframe);
+    }
+    iframe.src = r.data.redirect_url;
+    gnFrame.style.display = 'block';
   })
   .catch(function(err) {
     console.error('[GetNet]', err);
@@ -408,8 +452,15 @@ async function initBrick() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(formData)
           })
-          .then(function(res) { return res.json().then(function(d) { return { ok: res.ok, data: d }; }); })
+          .then(function(res) { return res.json().then(function(d) { return { ok: res.ok, status: res.status, data: d }; }); })
           .then(function(r) {
+            // Backend devuelve 400 + redirect cuando falta cotización de envío
+            if (r.status === 400 && r.data && r.data.redirect) {
+              alert(r.data.error || 'No se encontró la cotización de envío. Volvé a cotizar el envío.');
+              window.location = r.data.redirect;
+              resolve();
+              return;
+            }
             if (r.data.redirect_url) { window.location.href = r.data.redirect_url; resolve(); }
             else { reject(r.data); }
           })
@@ -533,6 +584,12 @@ document.getElementById('pw-btn').addEventListener('click', function(e) {
     }).then(function(res2) { return res2.json().then(function(d) { return { status: res2.status, data: d }; }); });
   })
   .then(function(r) {
+    // Backend devuelve 400 + redirect cuando falta cotización de envío
+    if (r.status === 400 && r.data && r.data.redirect) {
+      alert(r.data.error || 'No se encontró la cotización de envío. Volvé a cotizar el envío.');
+      window.location = r.data.redirect;
+      return;
+    }
     if (r.data.redirect_url) {
       window.location.href = r.data.redirect_url;
     } else {

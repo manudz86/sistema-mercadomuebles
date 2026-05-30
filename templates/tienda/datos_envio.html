@@ -26,6 +26,13 @@
       <span>${{ "{:,.0f}".format(total | int).replace(',', '.') }}</span>
     </div>
 
+    {% if cupon and descuento_monto %}
+    <div style="display:flex; justify-content:space-between; margin-top:8px; color:#1f7a3a; font-weight:600;">
+      <span style="font-size:0.9rem;">🏷️ Descuento ({{ cupon.codigo }})</span>
+      <span style="font-size:0.9rem;">−${{ "{:,.0f}".format(descuento_monto | int).replace(',', '.') }}</span>
+    </div>
+    {% endif %}
+
     {% if shipping_tipo == 'zipnova' %}
       {% if zipnova_quote %}
         <div id="linea-flete" style="display:flex; justify-content:space-between; margin-top:8px; color:#444;">
@@ -36,7 +43,7 @@
         </div>
         <div id="bloque-total-envio" style="display:flex; justify-content:space-between; margin-top:8px; font-weight:700; font-size:1.05rem; border-top:1px solid #ddd; padding-top:8px;">
           <span>Total con envío</span>
-          <span>$ {{ "{:,.0f}".format(total + zipnova_quote.precio).replace(',', '.') }}</span>
+          <span>$ {{ "{:,.0f}".format(total + zipnova_quote.precio - descuento_monto).replace(',', '.') }}</span>
         </div>
         <p style="font-size:0.78rem; color:#888; margin-top:6px;" id="nota-envio">
           📦 {{ zipnova_quote.bultos_count }} bulto{{ 's' if zipnova_quote.bultos_count > 1 else '' }}

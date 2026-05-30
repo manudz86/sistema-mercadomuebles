@@ -99,6 +99,96 @@
   display:flex; align-items:center; gap:16px; }
 .catalogo-header h2 { font-size:1.2rem; font-weight:800; color:#1a1a2e; margin:0; }
 .catalogo-header-line { flex:1; height:1px; background:#e8e8e8; }
+
+/* ── BADGE HOT EVENT ── */
+.offer-badge.offer-badge--hot {
+  background: #0a0a0f;
+  color: #fff;
+  font-size: 0.74rem;
+  padding: 5px 11px 5px 9px;
+  box-shadow: 0 0 0 1px rgba(255,107,53,0.35), 0 4px 14px rgba(231,76,60,0.45);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  letter-spacing: 0.6px;
+  font-weight: 800;
+}
+.offer-badge.offer-badge--hot::before {
+  content: "";
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3ClinearGradient id='f' x1='50%25' y1='0%25' x2='50%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23FFE066'/%3E%3Cstop offset='50%25' stop-color='%23FF8A00'/%3E%3Cstop offset='100%25' stop-color='%23E63946'/%3E%3C/linearGradient%3E%3Cpath fill='url(%23f)' d='M16 2c.8 4 3.2 6.4 5.4 8.6 2 2 3.2 4.2 3.2 7.4 0 5-4 8.5-8.6 8.5s-8.6-3.5-8.6-8.5c0-2 .8-3.6 2-4.7.6 1 1.6 1.8 2.8 1.8-1-2-.8-4.4.4-6.4C14 6 15.4 4.2 16 2z'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  filter: drop-shadow(0 0 5px rgba(255,138,0,0.85));
+}
+
+/* ── OFERTAS WRAP HOT EVENT ── */
+.ofertas-wrap.ofertas-wrap--hot {
+  background: linear-gradient(180deg, #1a1a2e 0%, #2a1518 60%, #fff 100%);
+  position: relative;
+  padding: 8px 0 0;
+}
+.ofertas-wrap.ofertas-wrap--hot::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 4px;
+  background: linear-gradient(90deg, #c1272d 0%, #ff6b35 50%, #c1272d 100%);
+}
+.ofertas-wrap.ofertas-wrap--hot .home-section-title {
+  color: #fff;
+}
+.ofertas-wrap.ofertas-wrap--hot .home-section-sub {
+  color: rgba(255,255,255,0.7);
+}
+.ofertas-wrap.ofertas-wrap--hot .home-section-link {
+  color: #ff8a5b;
+}
+
+/* ── OFERTAS GRID HOT EVENT ── */
+.ofertas-grid-wrap { padding: 4px 4px 12px; }
+.ofertas-track-hot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+}
+.ofertas-track-hot .product-card {
+  flex: 0 0 calc(25% - 12px);
+  max-width: calc(25% - 12px);
+}
+@media (max-width: 1100px) {
+  .ofertas-track-hot .product-card {
+    flex: 0 0 calc(33.333% - 11px);
+    max-width: calc(33.333% - 11px);
+  }
+}
+@media (max-width: 768px) {
+  .ofertas-track-hot .product-card {
+    flex: 0 0 calc(50% - 8px);
+    max-width: calc(50% - 8px);
+  }
+}
+
+/* ── AHORRO HOT EVENT ── */
+.price-ahorro {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #c1272d;
+  background: #fff3f3;
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+}
+.ofertas-wrap--hot .price-ahorro {
+  color: #ffd166;
+  background: rgba(255,209,102,0.12);
+  border: 1px solid rgba(255,209,102,0.35);
+}
 </style>
 
 <!-- ── LIGHTBOX ── -->
@@ -112,37 +202,57 @@
 
 <!-- ── SLIDER ── -->
 <style>
-.slider { max-height: none; }
-.slider-track, .slide { height: auto; max-height: none; }
+.slider { max-height: none; position: relative; overflow: hidden; }
+.slider .slider-track { display: flex; width: 100%; transition: transform 0.7s cubic-bezier(0.45, 0, 0.15, 1); height: auto; max-height: none; }
+.slider .slide { flex: 0 0 100%; width: 100%; min-width: 100%; height: auto; max-height: none; display: block !important; opacity: 1 !important; }
 .slide img { width: 100%; height: auto; display: block; }
 </style>
+{% if hot_event.activo %}
+<section class="slider hot-event-banner">
+  <a href="/tienda/#catalogo" style="display:block;">
+    <picture>
+      <source media="(max-width: 700px)" srcset="/static/img/banners/banner_hot_mobile.png">
+      <img src="/static/img/banners/banner_hot.png"
+           alt="{{ hot_event.titulo }} - Hasta {{ hot_event.descuento_max }}% OFF"
+           style="width:100%; height:auto; display:block;">
+    </picture>
+  </a>
+</section>
+{% else %}
 <section class="slider">
   <div class="slider-track">
     <div class="slide active">
       <img src="/static/img/banners/banner3.png" alt="Colchones Cannon">
     </div>
+    <div class="slide">
+      <img src="/static/img/banners/banner4.png" alt="Colchones Cannon">
+    </div>
   </div>
   <div class="slider-dots">
     <button class="dot active" onclick="goToSlide(0)"></button>
+    <button class="dot" onclick="goToSlide(1)"></button>
   </div>
 </section>
+{% endif %}
 
 <!-- ── OFERTAS ── -->
 {% if productos_oferta %}
-<div class="ofertas-wrap">
+<div class="ofertas-wrap {% if hot_event.activo %}ofertas-wrap--hot{% endif %}">
   <div class="home-section">
     <div class="home-section-hdr">
       <h2 class="home-section-title">🔥 Ofertas especiales</h2>
       <a href="/tienda/#catalogo" class="home-section-link">Ver todo el catálogo →</a>
     </div>
-    <p class="home-section-sub">Precios exclusivos por tiempo limitado · 8% de descuento</p>
+    <p class="home-section-sub">Precios exclusivos por tiempo limitado</p>
     <div class="carousel-wrap" style="margin-bottom:36px;">
+      {% if not hot_event.activo %}
       <button class="carousel-btn prev" onclick="carouselMove('ofertas',-1)" id="btn-ofertas-prev" disabled>&#8249;</button>
-      <div class="carousel-track-outer">
-        <div class="carousel-track" id="track-ofertas">
+      {% endif %}
+      <div class="{% if hot_event.activo %}ofertas-grid-wrap{% else %}carousel-track-outer{% endif %}">
+        <div class="{% if hot_event.activo %}ofertas-track-hot{% else %}carousel-track{% endif %}" id="track-ofertas">
           {% for p in productos_oferta %}
           <div class="product-card {% if p.stock == 0 and not (demora_dias and p.demora_aplica) %}sin-stock{% endif %}" style="position:relative;">
-            <span class="offer-badge">-{{ p.descuento_pct }}%</span>
+            <span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_pct }}%</span>
             {% if p.tipo == 'conjunto' %}<span class="badge badge-conjunto">Con Sommier</span>{% endif %}
             <div class="product-img" data-sku="{{ p.sku_url }}" data-fotos='{{ p.fotos | tojson }}' data-idx="0">
               <a href="/tienda/producto/{{ p.slug or p.sku_url }}" class="product-img-link">
@@ -164,6 +274,14 @@
                     <span class="price-original">{{ p.precio_original_fmt }}</span>
                     <span class="price-oferta">{{ p.precio_oferta_fmt }}</span>
                   </div>
+                  {% if hot_event.activo and p.precio_original and p.precio_oferta %}
+                  {% set ahorro = (p.precio_original - p.precio_oferta) | int %}
+                  {% if ahorro > 0 %}
+                  <div style="margin-top:4px;">
+                    <span class="price-ahorro">Ahorrás ${{ "{:,}".format(ahorro).replace(",", ".") }}</span>
+                  </div>
+                  {% endif %}
+                  {% endif %}
                   <div class="stock-indicator">
                     <span class="stock-dot {% if p.stock > 3 %}ok{% elif p.stock > 0 %}low{% elif demora_dias and p.demora_aplica %}low{% else %}out{% endif %}"></span>
                     {% if p.stock > 0 %}{{ p.stock }} en stock{% elif demora_dias and p.demora_aplica %}Disponible en {{ demora_dias }} días{% else %}Sin stock{% endif %}
@@ -191,14 +309,16 @@
           {% endfor %}
         </div>
       </div>
+      {% if not hot_event.activo %}
       <button class="carousel-btn next" onclick="carouselMove('ofertas',1)" id="btn-ofertas-next">&#8250;</button>
+      {% endif %}
     </div>
   </div>
 </div>
 {% endif %}
 
 <!-- ── MÁS VENDIDOS ── -->
-{% if mas_vendidos %}
+{% if mas_vendidos and not hot_event.activo %}
 <div style="background:#fff;">
   <div class="home-section" style="padding-bottom:32px;">
     <div class="home-section-hdr">
@@ -212,7 +332,7 @@
         <div class="carousel-track" id="track-masvendidos">
           {% for p in mas_vendidos %}
           <div class="product-card {% if p.stock == 0 and not (demora_dias and p.demora_aplica) %}sin-stock{% endif %}">
-            {% if p.descuento_catalogo %}<span class="offer-badge">-{{ p.descuento_catalogo | int }}%</span>{% endif %}
+            {% if p.descuento_catalogo %}<span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_catalogo | int }}%</span>{% endif %}
             {% if p.tipo == 'conjunto' %}<span class="badge badge-conjunto">Con Sommier</span>{% endif %}
             <div class="product-img" data-sku="{{ p.sku_url }}" data-fotos='{{ p.fotos | tojson }}' data-idx="0">
               <a href="/tienda/producto/{{ p.slug or p.sku_url }}" class="product-img-link">
@@ -428,7 +548,7 @@
     <div class="products-grid">
       {% for p in productos %}
       <div class="product-card {% if p.stock == 0 and not (demora_dias and p.demora_aplica) %}sin-stock{% endif %}">
-        {% if p.descuento_catalogo %}<span class="offer-badge">-{{ p.descuento_catalogo | int }}%</span>{% endif %}
+        {% if p.descuento_catalogo %}<span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_catalogo | int }}%</span>{% endif %}
         {% if p.tipo == 'conjunto' %}
           <span class="badge badge-conjunto">Con Sommier</span>
         {% endif %}
@@ -650,6 +770,22 @@ function carouselUpdate(id) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+  // ── Slider: efecto slide horizontal (sigue al .active que setea base.html) ──
+  const sliderTrack = document.querySelector('.slider .slider-track');
+  if (sliderTrack) {
+    const sliderSlides = sliderTrack.querySelectorAll('.slide');
+    const aplicarSlide = () => {
+      sliderSlides.forEach((s, i) => {
+        if (s.classList.contains('active')) {
+          sliderTrack.style.transform = `translateX(-${i * 100}%)`;
+        }
+      });
+    };
+    aplicarSlide();
+    const sliderObs = new MutationObserver(aplicarSlide);
+    sliderSlides.forEach(s => sliderObs.observe(s, { attributes: true, attributeFilter: ['class'] }));
+  }
+
   carouselInit('ofertas');
   carouselInit('masvendidos');
   document.querySelectorAll('.product-img').forEach(box => {
