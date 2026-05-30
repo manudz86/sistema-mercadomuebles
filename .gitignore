@@ -1,8 +1,27 @@
+# Secrets / config
 config/.env
+config/ga4_service_account.json
+config/ml_token.json
+
+# Python
 __pycache__/
 *.pyc
 venv/
 .venv/
-config/.env
-config/ga4_service_account.json 
-config/ga4_service_account.json
+
+# Datos del scraper (CSV)
+data/
+
+# Backups SQL de la raíz (NO toca migrations/ ni sqls/)
+/*.sql
+
+# Backups de la app
+app_backup*.py
+app_[0-9]*.py
+
+# Carpeta scratch de cambios
+py de cambios/
+
+# Imágenes subidas
+static/img/banners/
+static/img/productos/
