@@ -15,6 +15,7 @@ Aplicación Flask/Python con MySQL (`inventario_cannon`), servida por **un solo 
 - `DB_SCHEMA.md` — esquema de la base
 - `CONFIG_MAP.md` — keys de la tabla `configuracion`
 - `GLOSSARY.md` — prefijos, estados y reglas del dominio (manual, no autogenerado)
+- `INTEGRATIONS.md` — integraciones externas (Mercado Libre, MP, Payway, GetNet, Zipnova, WhatsApp)
 
 (Todos los mapas salvo `GLOSSARY.md` se autogeneran con `scripts/generar_mapas.py` — no editarlos a mano.)
 
