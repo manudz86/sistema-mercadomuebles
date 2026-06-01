@@ -10,6 +10,18 @@ if (window.self !== window.top) {
 }
 </script>
 
+{% if numero_pedido %}
+<script>
+  window.dataLayer = window.dataLayer || [];
+  window.dataLayer.push({
+    event: 'purchase',
+    value: {{ ga_value | default(0) | int }},
+    currency: 'ARS',
+    transaction_id: '{{ numero_pedido }}'
+  });
+</script>
+{% endif %}
+
 <div class="pago-container">
   <div class="pago-card pago-exito">
     <div class="pago-icon">⏳</div>

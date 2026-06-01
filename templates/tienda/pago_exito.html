@@ -20,6 +20,15 @@
     ]
   });
 </script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  window.dataLayer.push({
+    event: 'purchase',
+    value: {{ ga_value | int }},
+    currency: 'ARS',
+    transaction_id: 'MP-{{ payment_id }}'
+  });
+</script>
 {% endif %}
 <div class="pago-container">
   <div class="pago-card pago-exito">

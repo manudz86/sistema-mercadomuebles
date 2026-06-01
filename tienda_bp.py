@@ -4358,6 +4358,20 @@ def _factura_fields(cli):
     return (None, None, None)
 
 
+def _importe_total_venta(numero_venta):
+    """Total numérico de una venta por numero_venta (para el evento purchase del dataLayer). 0 si no existe."""
+    if not numero_venta:
+        return 0
+    try:
+        _db = get_db(); _cur = _db.cursor()
+        _cur.execute("SELECT importe_total FROM ventas WHERE numero_venta=%s LIMIT 1", (numero_venta,))
+        _r = _cur.fetchone()
+        _cur.close(); _db.close()
+        return float(_r['importe_total'] or 0) if _r else 0
+    except Exception:
+        return 0
+
+
 @tienda_bp.route('/checkout', methods=['POST'])
 def checkout():
     carrito = session.get('carrito', [])
@@ -5458,10 +5472,12 @@ def pago_exito_getnet(pedido_ref):
     # Limpiar carrito (mismo comportamiento que /pago/exito)
     session.pop('carrito', None)
     session.pop('mp_preference_id', None)
+    ga_value = _importe_total_venta(numero_pedido)
     return render_template(
         'tienda/pago_exito_getnet.html',
         payment_id=pedido_ref,
         numero_pedido=numero_pedido,
+        ga_value=ga_value,
     )
 
 
@@ -5512,10 +5528,12 @@ def pago_exito():
                     logger.warning(f"[getnet_exito] fallback DB falló: {e_chk}")
 
         print(f"[getnet_exito] payment_id={payment_id} numero={numero_pedido}", flush=True)
+        ga_value = _importe_total_venta(numero_pedido)
         return render_template(
             'tienda/pago_exito_getnet.html',
             payment_id=payment_id or '',
             numero_pedido=numero_pedido,
+            ga_value=ga_value,
         )
 
     # Numero de venta segun canal
