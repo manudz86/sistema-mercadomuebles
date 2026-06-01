@@ -4334,6 +4334,30 @@ def datos_envio():
     )
 
 
+def _validar_cuit(cuit):
+    """Valida un CUIT/CUIL argentino: 11 dígitos + dígito verificador (módulo 11)."""
+    c = ''.join(ch for ch in str(cuit or '') if ch.isdigit())
+    if len(c) != 11:
+        return False
+    mult = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2]
+    suma = sum(int(c[i]) * mult[i] for i in range(10))
+    dv = 11 - (suma % 11)
+    if dv == 11:
+        dv = 0
+    if dv == 10:
+        return False
+    return dv == int(c[10])
+
+
+def _factura_fields(cli):
+    """(doc_type, doc_number, taxpayer_type) para las columnas factura_* de ventas.
+    Factura A -> CUIT + Responsable Inscripto; Consumidor Final -> None (sin cambios)."""
+    if (cli.get('tipo_factura') or '').upper() == 'A' and cli.get('cuit'):
+        cuit_limpio = ''.join(ch for ch in str(cli.get('cuit')) if ch.isdigit())
+        return ('CUIT', cuit_limpio, 'IVA Responsable Inscripto')
+    return (None, None, None)
+
+
 @tienda_bp.route('/checkout', methods=['POST'])
 def checkout():
     carrito = session.get('carrito', [])
@@ -4346,6 +4370,8 @@ def checkout():
     altura      = request.form.get('altura', '').strip()
     piso_depto  = request.form.get('piso_depto', '').strip()
     cp          = request.form.get('cp', '').strip()
+    tipo_factura = request.form.get('tipo_factura', 'consumidor_final').strip().lower()
+    cuit_form    = ''.join(ch for ch in request.form.get('cuit', '') if ch.isdigit())
     # Armar dirección completa con ciudad y provincia
     ciudad_form   = request.form.get('ciudad', '').strip()
     provincia_form = (request.form.get('provincia_hidden') or request.form.get('provincia', 'Capital Federal')).strip()
@@ -4373,8 +4399,13 @@ def checkout():
         'ciudad':       request.form.get('ciudad', '').strip(),
         'provincia':    request.form.get('provincia_hidden') or request.form.get('provincia', 'Capital Federal').strip(),
         'tipo_entrega': tipo_entrega,
+        'tipo_factura': 'A' if tipo_factura == 'factura_a' else 'CF',
+        'cuit':         cuit_form if tipo_factura == 'factura_a' else '',
     }
     if not cliente['nombre'] or not cliente['telefono']:
+        return redirect(url_for('tienda.datos_envio'))
+    # Factura A requiere CUIT válido (dígito verificador, módulo 11)
+    if tipo_factura == 'factura_a' and not _validar_cuit(cuit_form):
         return redirect(url_for('tienda.datos_envio'))
 
     session['cliente_checkout'] = cliente
@@ -5036,6 +5067,14 @@ def pago_payway():
         notas_extra, fecha_now, fecha_now,
     ))
     venta_id = cur2.lastrowid
+
+    # ── Datos de factura (Factura A) ──────────────────────────────────────────
+    _fdt, _fdn, _ftt = _factura_fields(cli)
+    if _fdt:
+        cur2.execute(
+            "UPDATE ventas SET factura_doc_type=%s, factura_doc_number=%s, factura_taxpayer_type=%s WHERE id=%s",
+            (_fdt, _fdn, _ftt, venta_id)
+        )
 
     # ── Costo comisión Payway (6.91%) ─────────────────────────────────────────
     cur2.execute(
@@ -6194,6 +6233,14 @@ def webhook_mp():
         ))
         venta_id = cursor.lastrowid
 
+        # ── Datos de factura (Factura A) ──────────────────────────────────────
+        _fdt, _fdn, _ftt = _factura_fields(cli)
+        if _fdt:
+            cursor.execute(
+                "UPDATE ventas SET factura_doc_type=%s, factura_doc_number=%s, factura_taxpayer_type=%s WHERE id=%s",
+                (_fdt, _fdn, _ftt, venta_id)
+            )
+
         # ── Costo comisión MercadoPago (1.5%) ─────────────────────────────────
         cursor.execute(
             "UPDATE ventas SET costo_comision = ROUND(importe_total * 0.015, 2), costo_envio_vendedor = 0 WHERE id = %s",
@@ -6544,6 +6591,14 @@ def webhook_getnet():
             notas_extra, fecha_now, fecha_now,
         ))
         venta_id = cursor.lastrowid
+
+        # ── Datos de factura (Factura A) ──────────────────────────────────────
+        _fdt, _fdn, _ftt = _factura_fields(cli)
+        if _fdt:
+            cursor.execute(
+                "UPDATE ventas SET factura_doc_type=%s, factura_doc_number=%s, factura_taxpayer_type=%s WHERE id=%s",
+                (_fdt, _fdn, _ftt, venta_id)
+            )
 
         # ── Costo comisión GetNet (13.82%) ────────────────────────────────────
         cursor.execute(

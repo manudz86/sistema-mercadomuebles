@@ -138,6 +138,28 @@
       <p style="font-size:0.78rem; color:#888; margin-top:4px;">Te enviamos la confirmación del pedido.</p>
     </div>
 
+    <!-- Tipo de factura -->
+    <div style="margin-bottom:16px;">
+      <label style="display:block; font-size:0.88rem; font-weight:600; color:#444; margin-bottom:5px;">
+        Tipo de factura
+      </label>
+      <select name="tipo_factura" id="select-tipo-factura" onchange="toggleFacturaA()"
+        style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box; background:#fff;">
+        <option value="consumidor_final" selected>Consumidor Final</option>
+        <option value="factura_a">Factura A (Responsable Inscripto)</option>
+      </select>
+    </div>
+
+    <!-- CUIT (solo Factura A) -->
+    <div id="bloque-cuit" style="display:none; margin-bottom:16px;">
+      <label style="display:block; font-size:0.88rem; font-weight:600; color:#444; margin-bottom:5px;">
+        CUIT *
+      </label>
+      <input type="text" name="cuit" id="input-cuit" inputmode="numeric" placeholder="30123456789"
+        style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+      <p id="cuit-error" style="display:none; font-size:0.78rem; color:#c0392b; margin-top:4px;">CUIT inválido — revisá el número (11 dígitos).</p>
+    </div>
+
     <!-- Dirección (solo envío) -->
     <div id="bloque-direccion">
       <div style="display:grid; grid-template-columns:2fr 1fr; gap:12px; margin-bottom:16px;">
@@ -397,5 +419,40 @@ function setEntrega(tipo) {
     inputCp.required     = false;
   }
 }
+
+// ── Tipo de factura / CUIT ─────────────────────────────────────────
+function cuitValido(cuit) {
+  const c = (cuit || '').replace(/\D/g, '');
+  if (c.length !== 11) return false;
+  const mult = [5,4,3,2,7,6,5,4,3,2];
+  let suma = 0;
+  for (let i = 0; i < 10; i++) suma += parseInt(c[i], 10) * mult[i];
+  let dv = 11 - (suma % 11);
+  if (dv === 11) dv = 0;
+  if (dv === 10) return false;
+  return dv === parseInt(c[10], 10);
+}
+
+function toggleFacturaA() {
+  const sel    = document.getElementById('select-tipo-factura');
+  const bloque = document.getElementById('bloque-cuit');
+  const input  = document.getElementById('input-cuit');
+  const esA = sel.value === 'factura_a';
+  bloque.style.display = esA ? 'block' : 'none';
+  input.required = esA;
+  if (!esA) document.getElementById('cuit-error').style.display = 'none';
+}
+
+document.getElementById('form-datos').addEventListener('submit', function(e) {
+  const sel = document.getElementById('select-tipo-factura');
+  if (sel && sel.value === 'factura_a') {
+    const input = document.getElementById('input-cuit');
+    if (!cuitValido(input.value)) {
+      e.preventDefault();
+      document.getElementById('cuit-error').style.display = 'block';
+      input.focus();
+    }
+  }
+});
 </script>
 {% endblock %}
