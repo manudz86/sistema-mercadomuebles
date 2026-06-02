@@ -15318,7 +15318,10 @@ def _sync_reclamo_cabecera(claim_id, access_token=None):
 
 
 def job_sincronizar_reclamos():
-    """Job de respaldo (cada 10 min): sincroniza cabeceras de reclamos abiertos."""
+    """Job de respaldo (cada 10 min) + botón Sincronizar.
+    1) Trae los reclamos abiertos de ML (capta nuevos).
+    2) Reconcilia contra ML los que localmente siguen activos, para detectar
+       los que ya cerraron (ML deja de devolverlos en el search status='opened')."""
     try:
         access_token = cargar_ml_token()
         if not access_token:
@@ -15330,6 +15333,14 @@ def job_sincronizar_reclamos():
                 if cid and cid not in vistos:
                     vistos.add(cid)
                     _sync_reclamo_cabecera(cid, access_token)
+        # Reconciliar los activos locales: re-chequear su estado en vivo para
+        # detectar cierres que ya no aparecen en el search de 'opened'.
+        activos_locales = query_db("SELECT claim_id FROM ml_reclamos WHERE status NOT IN ('closed')") or []
+        for r in activos_locales:
+            cid = r.get('claim_id')
+            if cid and cid not in vistos:
+                vistos.add(cid)
+                _sync_reclamo_cabecera(cid, access_token)
         print(f"[RECLAMOS] Sync respaldo: {len(vistos)} reclamos")
     except Exception as e:
         print(f"[RECLAMOS] Error en job_sincronizar_reclamos: {e}")
