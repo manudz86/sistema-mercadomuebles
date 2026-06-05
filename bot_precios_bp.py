@@ -266,6 +266,25 @@ def tool_calcular(skus_recargos):
         i.get('recargo_almohada_unit', 0)
     ) for i in skus_recargos]}
 
+def _buscar_mlas_por_sku(sku):
+    """Busca en vivo en ML todas las publicaciones del seller para un seller_sku
+    (igual que 'cargar stock ML'). Reemplaza la lectura de sku_mla_mapeo, que
+    quedaba desactualizada. Devuelve lista de MLA ids."""
+    from app import ML_SELLER_ID   # import lazy: evita import circular
+    token = _ml_token()
+    if not token:
+        return []
+    try:
+        r = requests.get(
+            f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/items/search',
+            headers={'Authorization': f'Bearer {token}'},
+            params={'seller_sku': sku},
+            timeout=10
+        )
+        return r.json().get('results', []) if r.status_code == 200 else []
+    except Exception:
+        return []
+
 def _fetch_mla(mla_id):
     """Fetch un MLA de ML y devuelve dict procesado. Thread-safe."""
     data = _ml_get(mla_id)
@@ -283,6 +302,7 @@ def _fetch_mla(mla_id):
         'mla_id':          mla_id,
         'titulo':          titulo,
         'precio_actual':   data.get('price'),
+        'stock':           data.get('available_quantity'),
         'status':          data.get('status', 'unknown'),
         'sub_status':      sub_status if isinstance(sub_status, list) else [sub_status],
         'listing_type':    _listing_type_from_ml(data),
@@ -296,8 +316,7 @@ def tool_obtener_publis(skus):
     """Trae MLAs + datos de ML en paralelo. Deduplica pares por item_relations."""
     resultado = {}
     for sku in skus:
-        rows = _query("SELECT mla_id FROM sku_mla_mapeo WHERE sku=%s AND activo=1", (sku,))
-        mla_ids = [row['mla_id'] for row in rows]
+        mla_ids = _buscar_mlas_por_sku(sku)
 
         # Consultas en paralelo — 10 threads simultáneos
         publis_raw = {}
@@ -307,47 +326,24 @@ def tool_obtener_publis(skus):
                 mla_id, pub = future.result()
                 publis_raw[mla_id] = pub
 
-        # Deduplicar pares A<->B
-        # Regla: catálogo activa > catálogo pausada (usar la otra) > activa > cualquiera
-        procesados = set()
+        # Dedup de publis linkeadas: ML sincroniza precio y stock entre la publi de
+        # catálogo y su espejo. Si hay 2+ con igual (stock, precio), actualizar solo
+        # la de Catálogo (skip al resto) para no tocar dos veces el mismo precio.
+        grupos = {}
         for mla_id, pub in publis_raw.items():
-            if pub is None or mla_id in procesados:
+            if pub is None:
                 continue
-            for rel_id in pub.get('item_relations', []):
-                if rel_id not in publis_raw or publis_raw[rel_id] is None:
-                    continue
-                rel = publis_raw[rel_id]
-                procesados.update([mla_id, rel_id])
-                a_act = pub['status'] == 'active'
-                b_act = rel['status'] == 'active'
-                a_cat = pub['catalog_listing']
-                b_cat = rel['catalog_listing']
-                a_oos = 'out_of_stock' in pub.get('sub_status', [])
-                b_oos = 'out_of_stock' in rel.get('sub_status', [])
-
-                if a_cat and a_act:
-                    # A catálogo activa → skipear B
-                    rel['skip'] = True
-                elif b_cat and b_act:
-                    # B catálogo activa → skipear A
-                    pub['skip'] = True
-                elif a_oos and b_oos:
-                    # Ambas pausadas por stock 0 → actualizar solo la catálogo
-                    if a_cat:
-                        rel['skip'] = True
-                    elif b_cat:
-                        pub['skip'] = True
-                    # Si ninguna es catálogo, dejar ambas (independientes)
-                elif a_cat and not a_act and b_act:
-                    # A catálogo pausada (no por stock), B activa → skipear A
-                    pub['skip'] = True
-                elif b_cat and not b_act and a_act:
-                    # B catálogo pausada (no por stock), A activa → skipear B
-                    rel['skip'] = True
-                elif a_act and not b_act:
-                    rel['skip'] = True
-                elif b_act and not a_act:
-                    pub['skip'] = True
+            grupos.setdefault((pub.get('stock'), pub.get('precio_actual')), []).append(pub)
+        for grupo in grupos.values():
+            if len(grupo) < 2:
+                continue
+            catalogo = [p for p in grupo if p.get('catalog_listing')]
+            if not catalogo:
+                continue   # ninguna de catálogo → no deduplicar (no arriesgar)
+            mantener = catalogo[0]
+            for p in grupo:
+                if p is not mantener:
+                    p['skip'] = True
 
         publis = []
         for mla_id, pub in publis_raw.items():
