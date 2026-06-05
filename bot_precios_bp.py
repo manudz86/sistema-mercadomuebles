@@ -557,6 +557,7 @@ NUNCA calcules un precio a mano ni inventes factores (multiplicador, pronto pago
 4. obtener_publicaciones para saber MLAs, precios actuales y tipos de cuota
 5. Mostrar tabla de preview SOLO con publis donde skip=False. Las que tienen skip=True son secundarias sincronizadas automáticamente por ML — NO incluirlas en el preview ni en los CAMBIOS.
    Columnas: SKU | MLA | Título | Cuotas | Precio actual | Precio nuevo | Δ
+   En Δ mostrá el cambio absoluto Y el porcentaje, con signo. Ej: "+$30.000 (+13,3%)" o "-$12.000 (-5,2%)". El % = (precio_nuevo − precio_actual) / precio_actual × 100, redondeado a 1 decimal.
    Si hay publis skipeadas, indicar al final cuántas se omitieron y por qué (ej: "3 publis omitidas — se sincronizan automáticamente con su par de catálogo").
 6. Al final del mensaje de preview, incluir EXACTAMENTE este marcador (sin espacios extra):
    <!--CAMBIOS:[{"mla_id":"MLA...","sku":"...","precio_nuevo":000000,"precio_anterior":000000}]-->
