@@ -15957,16 +15957,15 @@ def _get_precio_costos_sku(sku, porcentajes_ml=None, recargo_flex=0, recargo_alm
                     precio_lista = round((precio_lista + precio_base_calc * cant) / 1000) * 1000
                     sommier_info = {'base_sku': base_sku, 'cantidad_bases': cant, 'precio_base_unit': precio_base_calc}
 
-        # Costo envío
+        # Costo envío. Colecta dado de baja: todo colchón/sommier no-Z y no-Compac
+        # lleva Flex (cualquier ancho); Compac, Z, bases y almohadas no llevan envío.
         es_z = sku.endswith('Z')
         sku_base_num = sku_buscar[:-1] if sku_buscar.endswith('Z') else sku_buscar
         ancho = int(sku_base_num[-3:]) if sku_base_num[-3:].isdigit() else 0
-        if es_z or clave in ('bases', 'almohadas'):
+        if es_z or clave in ('bases', 'almohadas', 'compac'):
             costo_envio = 0
         elif float(recargo_flex) > 0:
             costo_envio = float(recargo_flex)   # override del chat (Bot de Precios)
-        elif ancho <= 100:
-            costo_envio = float(cp['costo_colecta'] or 0)
         else:
             costo_envio = float(cp['costo_flex'] or 0)
 

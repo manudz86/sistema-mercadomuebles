@@ -137,13 +137,14 @@ def _sku_width(sku):
     return 0
 
 def _needs_flex(sku):
-    """True si el SKU necesita recargo por envío Flex"""
+    """True si el SKU lleva recargo Flex. Colecta dado de baja: todo colchón o
+    sommier sin Z lleva flex (cualquier ancho), salvo Compac (CCO80/100/140/160)."""
     s = sku.upper()
     if s.endswith('Z'):
         return False          # con Z: siempre sin recargo
-    if s.startswith('S'):
-        return True           # sommiers sin Z: siempre con recargo
-    return _sku_width(sku) > 100  # colchones: solo si ancho > 100cm
+    if s in ('CCO80', 'CCO100', 'CCO140', 'CCO160'):
+        return False          # Compac: sin flex
+    return s.startswith('C') or s.startswith('S')  # colchones y sommiers
 
 CAMPAÑAS_CUOTAS = {
     'pcj-co-funded': 'Cuota Simple',
@@ -525,9 +526,9 @@ SYSTEM = """Sos el Bot de Precios ML de Mercadomuebles. Tu función es ayudar a 
 
 ═══ REGLAS DE NEGOCIO ═══
 1. SKU termina en Z → sin recargo de envío (entra por stock de depósito)
-2. SKU sin Z, colchón (empieza con C), ancho ≤ 100cm → sin recargo (Colecta lo cubre)
-3. SKU sin Z, colchón (empieza con C), ancho > 100cm → recargo Flex (Manu lo indica)
-4. SKU sin Z, sommier (empieza con S) → SIEMPRE recargo Flex (Manu lo indica)
+2. Colecta está DADO DE BAJA: ya NO existe la excepción de "ancho ≤ 100cm sin recargo".
+3. Todo colchón (empieza con C) o sommier (empieza con S), SIN Z y que NO sea Compac → lleva recargo Flex SIN IMPORTAR el ancho (mismo criterio que un colchón de 140 o más grande). Cuando Manu indica un monto de flex, aplicalo a TODOS esos SKUs (colchones y sommiers), no solo a los sommiers.
+4. Compac (CCO80, CCO100, CCO140, CCO160) → SIN recargo Flex.
 5. Publis con "almohada" en el título → recargo SOLO para esas publis, no para todas las del SKU:
    - SKU con ancho ≤ 100cm → 1 almohada → recargo = recargo_almohada_unit × 1
    - SKU con ancho > 100cm → 2 almohadas → recargo = recargo_almohada_unit × 2
