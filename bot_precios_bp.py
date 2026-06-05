@@ -214,109 +214,31 @@ def _precio_lista_formula(precio_cannon, desc_linea, desc_cliente, desc_adi, pro
     return round(c * mult)
 
 def _calc_prices(sku, recargo_flex=0, recargo_almohada_unit=0):
-    # Strip Z para buscar en cannon_productos
-    sku_buscar = sku[:-1] if sku.upper().endswith('Z') else sku
-    es_sommier = sku_buscar.upper().startswith('S') and len(sku_buscar) > 1 and sku_buscar[1].isalpha()
-    sku_col = ('C' + sku_buscar[1:]) if es_sommier else sku_buscar
-
-    prod = _query("""
-        SELECT cp.sku, cp.descripcion, clp.precio_lista,
-               cd_adi.valor as desc_adicional,
-               ce_col.costo as costo_colecta,
-               ce_flex.costo as costo_flex
-        FROM cannon_productos cp
-        JOIN cannon_lista_precios clp ON clp.codigo_material = cp.codigo_material
-        LEFT JOIN cannon_descuentos cd_adi ON cd_adi.clave = CONCAT('adicional_', cp.sku)
-        LEFT JOIN cannon_costos_envio ce_col ON ce_col.sku = %s AND ce_col.tipo = 'colecta'
-        LEFT JOIN cannon_costos_envio ce_flex ON ce_flex.sku = %s AND ce_flex.tipo = 'flex'
-        WHERE cp.sku = %s
-    """, (sku_buscar, sku_buscar, sku_col), fetchall=False)
-
-    if not prod:
-        return {"error": f"SKU {sku} no encontrado en la BD (buscado como {sku_col})"}
-
-    descs = {r['clave']: {'valor': float(r['valor']), 'desc_adicional': float(r['desc_adicional'] or 0)}
-             for r in _query("SELECT clave, valor, desc_adicional FROM cannon_descuentos WHERE tipo='descuento_linea'")}
-    cfg_row = _query("SELECT clave, valor FROM cannon_descuentos", fetchall=True)
-    cfg = {r['clave']: float(r['valor']) for r in cfg_row}
-
-    mult        = cfg.get('multiplicador', 1.85)
-    desc_cliente= cfg.get('cliente', 0.0)
-    prontopago  = cfg.get('prontopago', 5.0)
-
-    clave = _detectar_clave(prod['descripcion'], sku_col)
-    entry = descs.get(clave, {'valor': 0, 'desc_adicional': 0}) if clave else {'valor': 0, 'desc_adicional': 0}
-    desc_linea = entry['valor']
-    desc_adi   = entry['desc_adicional'] + float(prod['desc_adicional'] or 0)
-
-    precio_base = round(_precio_lista_formula(
-        float(prod['precio_lista']), desc_linea, desc_cliente, desc_adi, prontopago, mult
-    ) / 1000) * 1000
-
-    # Sommiers: sumar base
-    if es_sommier:
-        cfg_conj = _query(
-            "SELECT base_sku_default, cantidad_bases FROM conjunto_configuracion WHERE colchon_sku=%s AND activo=1",
-            (sku_col,), fetchall=False
-        )
-        if cfg_conj:
-            base_sku = cfg_conj['base_sku_default']
-            cant = int(cfg_conj['cantidad_bases'] or 1)
-            cp_base = _query("""
-                SELECT clp.precio_lista FROM cannon_productos cp
-                JOIN cannon_lista_precios clp ON clp.codigo_material = cp.codigo_material
-                WHERE cp.sku = %s
-            """, (base_sku,), fetchall=False)
-            if cp_base:
-                desc_base = descs.get('bases', {'valor': 40})['valor']
-                precio_base_calc = round(_precio_lista_formula(
-                    float(cp_base['precio_lista']), desc_base, desc_cliente, 0, prontopago, mult
-                ) / 1000) * 1000
-                precio_base = round((precio_base + precio_base_calc * cant) / 1000) * 1000
-
-    # Costo envío: usar recargo_flex del chat si se pasó, si no usar tabla
-    es_z = sku.upper().endswith('Z')
-    ancho = _sku_width(sku_buscar)
-    if es_z or clave in ('bases', 'almohadas'):
-        costo_envio = 0
-    elif float(recargo_flex) > 0:
-        costo_envio = float(recargo_flex)   # override por chat
-    elif ancho <= 100:
-        costo_envio = float(prod['costo_colecta'] or 0)
-    else:
-        costo_envio = float(prod['costo_flex'] or 0)
-
-    # Recargo almohadas: 1 almohada si ancho <= 100cm, 2 si > 100cm
-    cant_alm = 0
-    if float(recargo_almohada_unit) > 0:
-        cant_alm = 1 if ancho <= 100 else 2
-    costo_almohadas = float(recargo_almohada_unit) * cant_alm
-
-    precio_sc = round((precio_base + costo_envio + costo_almohadas) / 1000) * 1000
-
-    pcts_row = _query("SELECT valor FROM configuracion WHERE clave='porcentajes_ml'", fetchall=False)
-    pcts = json.loads(pcts_row['valor']) if pcts_row else {
-        'cuota_simple': 5, 'cuotas_3': 8.8, 'cuotas_6': 13.3, 'cuotas_9': 18.9, 'cuotas_12': 21.3
-    }
-
-    def _pc(base, pct):
-        return round(base * 0.76 / (0.76 - pct / 100) / 1000) * 1000
-
+    """Wrapper sobre la función canónica de app.py (_get_precio_costos_sku) para
+    que el Bot de Precios calcule EXACTAMENTE igual que 'cargar stock ML'
+    (mismos parámetros, casos especiales CTR80/Compac/Almohadas y neteo de envío).
+    Import lazy para evitar el import circular (app importa este blueprint)."""
+    from app import _get_precio_costos_sku
+    r = _get_precio_costos_sku(sku, recargo_flex=recargo_flex, recargo_almohada_unit=recargo_almohada_unit)
+    if not r:
+        return {"error": f"SKU {sku} no encontrado en la BD"}
+    d = r.get('desglose', {}) or {}
     return {
         "sku": sku,
-        "descripcion": prod['descripcion'],
-        "precio_lista_cannon": float(prod['precio_lista']),
-        "modelo_key": clave,
-        "desc_linea_pct": desc_linea,
-        "costo_envio": costo_envio,
-        "costo_almohadas": costo_almohadas,
-        "cant_almohadas": cant_alm,
-        "sin_cuotas":   precio_sc,
-        "cuota_simple": _pc(precio_sc, pcts['cuota_simple']),
-        "c3":           _pc(precio_sc, pcts['cuotas_3']),
-        "c6":           _pc(precio_sc, pcts['cuotas_6']),
-        "c9":           _pc(precio_sc, pcts['cuotas_9']),
-        "c12":          _pc(precio_sc, pcts['cuotas_12']),
+        "descripcion": d.get('descripcion'),
+        "precio_lista_cannon": d.get('precio_cannon'),
+        "modelo_key": d.get('clave'),
+        "desc_linea_pct": d.get('desc_linea_pct'),
+        "costo_envio": d.get('costo_envio'),
+        "costo_almohadas": d.get('costo_almohadas'),
+        "cant_almohadas": d.get('cant_almohadas'),
+        "sin_cuotas":   r['precio_sin_cuotas'],
+        "cuota_simple": r['precio_1c'],
+        "c3":           r['precio_3c'],
+        "c6":           r['precio_6c'],
+        "c9":           r['precio_9c'],
+        "c12":          r['precio_12c'],
+        "desglose":     d,
     }
 
 # ── TOOLS ─────────────────────────────────────────────────────────
@@ -625,10 +547,11 @@ El ancho está en el SKU: CDOP140 → 140cm, CDOP80 → 80cm, CTR90 → 90cm
 - Para buscar publicaciones de un SKU con Z, usá obtener_publicaciones — también lo maneja solo
 - Si Manu pide "CDOP160Z", no busques en cannon_productos, andá directo a calcular_precios y obtener_publicaciones
 
-═══ FÓRMULA ═══
-base = precio_lista × mult × (1−desc_linea%) × (1−desc_adicional%) × 0.90 ÷ 1.05 + recargo_flex
-→ redondeado a miles
-precio con cuotas = round(0.76/(0.76−pct/100) × base / 1000) × 1000
+═══ PRECIOS — REGLA DE ORO ═══
+NUNCA calcules un precio a mano ni inventes factores (multiplicador, pronto pago, descuentos, recargos). Los precios SIEMPRE salen de la tool calcular_precios, que usa la MISMA fórmula y la MISMA config en vivo que "cargar stock ML".
+- Para explicar el cálculo, usá EXACTAMENTE los valores del objeto "desglose" que devuelve calcular_precios: precio_cannon, multiplicador, prontopago_pct, desc_cliente_pct, desc_linea_pct, desc_adicional_pct, costo_envio. Si un factor no viene en el desglose, NO lo menciones ni lo inventes (no asumas 1.85, 5%, etc.).
+- Sommiers (SKU empieza con S): el precio = colchón base + (precio de la base × cantidad_bases). Eso ya lo calcula la tool y lo reporta en desglose.sommier (base_sku, cantidad_bases, precio_base_unit). NO inventes ningún factor (NO existe ningún "×1.44") ni asumas que el sommier cuesta lo mismo que el colchón.
+- Cuotas: mostrá SIEMPRE todas las que devuelve la tool: sin cuotas, 1 cuota (cuota simple), 3, 6, 9 y 12 cuotas. No omitas ninguna.
 
 ═══ FLUJO OBLIGATORIO ═══
 1. Buscar SKUs con sql_select

@@ -15829,11 +15829,18 @@ if __name__ == '__main__':
 # MÓDULO COSTOS — CALCULADORA DE PRECIOS CANNON
 # ============================================================================
 
-def _get_precio_costos_sku(sku, porcentajes_ml=None):
+def _get_precio_costos_sku(sku, porcentajes_ml=None, recargo_flex=0, recargo_almohada_unit=0):
     """
     Retorna el precio calculado por costos para un SKU dado.
     Útil para mostrar en cargar_stock_ml.
     Retorna dict con precio_sin_cuotas, 1c, 3c, 6c, 9c, 12c o None si no hay datos.
+
+    Params opcionales (usados por el Bot de Precios; default 0 = comportamiento
+    de cargar stock sin cambios):
+      - recargo_flex: override del costo de envío informado por chat.
+      - recargo_almohada_unit: recargo por almohada (1 si ancho<=100, 2 si >100).
+    El dict incluye además 'desglose' con los factores reales usados, para poder
+    explicar el precio sin hardcodear ni inventar valores.
     """
     try:
         if porcentajes_ml is None:
@@ -15931,6 +15938,7 @@ def _get_precio_costos_sku(sku, porcentajes_ml=None):
 
         # Si es sommier, sumar base
         es_sommier = sku_buscar.startswith('S') and len(sku_buscar) > 1 and sku_buscar[1].isalpha()
+        sommier_info = None
         if es_sommier:
             cfg_conj = query_one("SELECT base_sku_default, cantidad_bases FROM conjunto_configuracion WHERE colchon_sku = %s AND activo=1", (sku_col,))
             if cfg_conj:
@@ -15947,21 +15955,29 @@ def _get_precio_costos_sku(sku, porcentajes_ml=None):
                         float(cp_base['precio_lista']), desc_base, desc_cliente_pct, 0, prontopago_pct, multiplicador
                     ) / 1000) * 1000
                     precio_lista = round((precio_lista + precio_base_calc * cant) / 1000) * 1000
+                    sommier_info = {'base_sku': base_sku, 'cantidad_bases': cant, 'precio_base_unit': precio_base_calc}
 
         # Costo envío
         es_z = sku.endswith('Z')
         sku_base_num = sku_buscar[:-1] if sku_buscar.endswith('Z') else sku_buscar
         ancho = int(sku_base_num[-3:]) if sku_base_num[-3:].isdigit() else 0
-        if not es_z and clave not in ('bases', 'almohadas'):
-            if ancho <= 100:
-                costo_envio = float(cp['costo_colecta'] or 0)
-            else:
-                costo_envio = float(cp['costo_flex'] or 0)
-        else:
+        if es_z or clave in ('bases', 'almohadas'):
             costo_envio = 0
+        elif float(recargo_flex) > 0:
+            costo_envio = float(recargo_flex)   # override del chat (Bot de Precios)
+        elif ancho <= 100:
+            costo_envio = float(cp['costo_colecta'] or 0)
+        else:
+            costo_envio = float(cp['costo_flex'] or 0)
 
-        # Netear envío por comisión ML (~14%) antes de sumar al precio_lista
-        precio_sc = round((precio_lista + costo_envio / 0.86) / 1000) * 1000
+        # Recargo almohadas (override del chat): 1 si ancho<=100, 2 si >100
+        cant_almohadas = 0
+        if float(recargo_almohada_unit) > 0:
+            cant_almohadas = 1 if ancho <= 100 else 2
+        costo_almohadas = float(recargo_almohada_unit) * cant_almohadas
+
+        # Netear envío y almohadas por comisión ML (~14%) antes de sumar al precio_lista
+        precio_sc = round((precio_lista + (costo_envio + costo_almohadas) / 0.86) / 1000) * 1000
 
         def _pc(base, pct):
             return round(base * 0.76 / (0.76 - pct / 100) / 1000) * 1000
@@ -15974,6 +15990,21 @@ def _get_precio_costos_sku(sku, porcentajes_ml=None):
             'precio_6c':  _pc(precio_sc, porcentajes_ml.get('cuotas_6', 15.1)),
             'precio_9c':  _pc(precio_sc, porcentajes_ml.get('cuotas_9', 20.7)),
             'precio_12c': _pc(precio_sc, porcentajes_ml.get('cuotas_12', 25.9)),
+            'desglose': {
+                'descripcion':        cp['descripcion'],
+                'clave':              clave,
+                'precio_cannon':      precio_cannon,
+                'multiplicador':      multiplicador,
+                'prontopago_pct':     prontopago_pct,
+                'desc_cliente_pct':   desc_cliente_aplicar,
+                'desc_linea_pct':     desc_linea_aplicar,
+                'desc_adicional_pct': desc_adi_aplicar,
+                'costo_envio':        costo_envio,
+                'costo_almohadas':    costo_almohadas,
+                'cant_almohadas':     cant_almohadas,
+                'es_sommier':         es_sommier,
+                'sommier':            sommier_info,
+            },
         }
     except Exception as e:
         print(f"[_get_precio_costos_sku] Error: {e}")
