@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Preguntas ML{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+  <div class="row mb-3 align-items-center">
+    <div class="col">
+      <h4 class="mb-0"><i class="bi bi-chat-left-dots"></i> Preguntas ML
+        {% if pendientes > 0 %}<span class="badge bg-danger ms-1">{{ pendientes }}</span>{% endif %}
+      </h4>
+      <small class="text-muted">Respondé a mano por ahora. El bot sugerirá respuestas en la próxima etapa.</small>
+    </div>
+    <div class="col-auto">
+      <form method="POST" action="{{ url_for('preguntas_sync') }}" class="d-inline">
+        <button type="submit" class="btn btn-outline-primary btn-sm">
+          <i class="bi bi-arrow-clockwise"></i> Sincronizar
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Filtros -->
+  <ul class="nav nav-pills mb-3">
+    <li class="nav-item">
+      <a class="nav-link {% if filtro == 'pendientes' %}active{% endif %}" href="{{ url_for('preguntas', filtro='pendientes') }}">Sin responder</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if filtro == 'respondidas' %}active{% endif %}" href="{{ url_for('preguntas', filtro='respondidas') }}">Respondidas</a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if filtro == 'todas' %}active{% endif %}" href="{{ url_for('preguntas', filtro='todas') }}">Todas</a>
+    </li>
+  </ul>
+
+  {% if not preguntas %}
+    <div class="alert alert-light border text-center text-muted py-4">
+      No hay preguntas {% if filtro == 'pendientes' %}sin responder{% endif %} 🎉
+    </div>
+  {% endif %}
+
+  {% for p in preguntas %}
+  <div class="card mb-3 shadow-sm">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <div>
+          <div class="fw-semibold">{{ p.item_titulo or p.item_id }}</div>
+          <div class="small text-muted">
+            {% if p.sku %}<span class="badge bg-secondary">{{ p.sku }}</span>{% endif %}
+            {% if p.precio is not none %}<span class="ms-1">💲{{ "{:,.0f}".format(p.precio|float).replace(',', '.') }}</span>{% endif %}
+            {% if p.stock is not none %}<span class="ms-2">📦 stock: {{ p.stock }}</span>{% endif %}
+            <a class="ms-2" href="https://articulo.mercadolibre.com.ar/{{ p.item_id }}" target="_blank" rel="noopener">ver publicación ↗</a>
+          </div>
+        </div>
+        <div class="text-end small text-muted">
+          {% if p.fecha_pregunta %}{{ p.fecha_pregunta.strftime('%d/%m/%Y %H:%M') if p.fecha_pregunta.strftime is defined else p.fecha_pregunta }}{% endif %}
+          {% if p.status == 'ANSWERED' %}<span class="badge bg-success ms-1">Respondida</span>{% else %}<span class="badge bg-warning text-dark ms-1">Pendiente</span>{% endif %}
+        </div>
+      </div>
+
+      <div class="mt-2 p-2 bg-light rounded">
+        <i class="bi bi-question-circle text-primary"></i> {{ p.texto }}
+      </div>
+
+      {% if p.status == 'ANSWERED' and p.respuesta_final %}
+        <div class="mt-2 p-2 border-start border-success border-3 ps-2">
+          <span class="text-success"><i class="bi bi-check2"></i> Tu respuesta:</span> {{ p.respuesta_final }}
+        </div>
+      {% elif p.status != 'ANSWERED' %}
+        <form method="POST" action="{{ url_for('preguntas_responder', question_id=p.question_id) }}" class="mt-2">
+          <textarea name="texto" class="form-control" rows="2" maxlength="2000" required
+                    placeholder="Escribí tu respuesta..."></textarea>
+          <div class="text-end mt-2">
+            <button type="submit" class="btn btn-primary btn-sm">
+              <i class="bi bi-send"></i> Responder en ML
+            </button>
+          </div>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+
+</div>
+{% endblock %}

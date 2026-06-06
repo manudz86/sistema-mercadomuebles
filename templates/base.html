@@ -313,6 +313,12 @@
                         {% if reclamos_pendientes_count and reclamos_pendientes_count > 0 %}<span class="badge bg-danger ms-1">{{ reclamos_pendientes_count }}</span>{% endif %}
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'preguntas' %}active{% endif %}" href="/preguntas">
+                        <i class="bi bi-chat-left-dots"></i> Preguntas ML
+                        {% if preguntas_pendientes_count and preguntas_pendientes_count > 0 %}<span class="badge bg-danger ms-1">{{ preguntas_pendientes_count }}</span>{% endif %}
+                    </a>
+                </li>
                 <div class="section-title">ANÁLISIS</div>
                 <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'estadisticas' %}active{% endif %}" href="/estadisticas">
@@ -539,6 +545,12 @@
                             <a class="nav-link {% if request.endpoint in ['reclamos', 'reclamo_detalle'] %}active{% endif %}" href="/reclamos">
                                 <i class="bi bi-exclamation-octagon"></i> Reclamos ML
                                 {% if reclamos_pendientes_count and reclamos_pendientes_count > 0 %}<span class="badge bg-danger ms-1">{{ reclamos_pendientes_count }}</span>{% endif %}
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'preguntas' %}active{% endif %}" href="/preguntas">
+                                <i class="bi bi-chat-left-dots"></i> Preguntas ML
+                                {% if preguntas_pendientes_count and preguntas_pendientes_count > 0 %}<span class="badge bg-danger ms-1">{{ preguntas_pendientes_count }}</span>{% endif %}
                             </a>
                         </li>
                         <div class="section-title">ANÁLISIS</div>

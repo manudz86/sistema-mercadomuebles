@@ -58,6 +58,7 @@ login_manager.login_message_category = 'warning'
 def inject_alertas_pendientes():
     """Inyecta el contador de alertas en todos los templates"""
     reclamos_count = 0
+    preguntas_count = 0
     try:
         from flask_login import current_user
         if current_user.is_authenticated:
@@ -66,6 +67,11 @@ def inject_alertas_pendientes():
                 reclamos_count = rc['c'] if rc else 0
             except Exception:
                 reclamos_count = 0
+            try:
+                pc = query_one("SELECT COUNT(*) AS c FROM ml_preguntas WHERE status='UNANSWERED'")
+                preguntas_count = pc['c'] if pc else 0
+            except Exception:
+                preguntas_count = 0
             # Contar alertas que tienen al menos una fila visible en el template
             # (tipo_procesado != 'ambos' significa que alguna acción queda pendiente)
             result = query_one("""
@@ -80,11 +86,13 @@ def inject_alertas_pendientes():
             """)
             return {'alertas_pendientes_count': result['total'] if result else 0,
                     'reclamos_pendientes_count': reclamos_count,
+                    'preguntas_pendientes_count': preguntas_count,
                     'now': datetime.now()}
     except:
         pass
     return {'alertas_pendientes_count': 0,
             'reclamos_pendientes_count': reclamos_count,
+            'preguntas_pendientes_count': preguntas_count,
             'now': datetime.now()}
 
 class User(UserMixin):
@@ -15626,6 +15634,149 @@ def webhook_ml_claims():
 
 
 
+# ============================================================================
+# PREGUNTAS ML — Fase 1a (MVP: traer, mostrar, responder a mano)
+# ============================================================================
+def _preguntas_search(access_token, status='UNANSWERED', limit=50):
+    """Trae preguntas del seller desde ML."""
+    try:
+        r = ml_request('get', 'https://api.mercadolibre.com/questions/search', access_token,
+                       params={'seller_id': ML_SELLER_ID, 'status': status,
+                               'api_version': 4, 'limit': limit, 'sort_fields': 'date_created', 'sort_types': 'DESC'})
+        if r.status_code != 200:
+            return []
+        return r.json().get('questions', []) or []
+    except Exception as e:
+        print(f"[PREGUNTAS] Error search: {e}")
+        return []
+
+
+def _pregunta_item_ctx(item_id, access_token=None):
+    """(titulo, sku, precio, stock) para mostrar contexto de la pregunta."""
+    titulo, precio, sku, stock = '', None, None, None
+    try:
+        r = ml_request('get', f'https://api.mercadolibre.com/items/{item_id}',
+                       access_token or cargar_ml_token(), params={'attributes': 'title,price'})
+        if r.status_code == 200:
+            d = r.json(); titulo = d.get('title') or ''; precio = d.get('price')
+    except Exception:
+        pass
+    try:
+        row = query_one("SELECT sku FROM sku_mla_mapeo WHERE mla_id=%s AND activo=1 LIMIT 1", (item_id,))
+        if row:
+            sku = row['sku']
+            sb = query_one("SELECT stock_actual FROM productos_base WHERE sku=%s", (sku,))
+            if sb:
+                stock = sb['stock_actual']
+    except Exception:
+        pass
+    return titulo, sku, precio, stock
+
+
+def _sync_preguntas(access_token=None):
+    """Upsert de preguntas sin responder; marca como ANSWERED las que ya no figuran."""
+    if access_token is None:
+        access_token = cargar_ml_token()
+    if not access_token:
+        return
+    qs = _preguntas_search(access_token, 'UNANSWERED')
+    vistos = set()
+    for q in qs:
+        qid = q.get('id')
+        if not qid:
+            continue
+        vistos.add(qid)
+        existe = query_one("SELECT question_id FROM ml_preguntas WHERE question_id=%s", (qid,))
+        if existe:
+            execute_db("UPDATE ml_preguntas SET status='UNANSWERED', synced_at=NOW() WHERE question_id=%s", (qid,))
+            continue
+        item_id = q.get('item_id')
+        titulo, sku, precio, stock = _pregunta_item_ctx(item_id, access_token)
+        execute_db("""
+            INSERT INTO ml_preguntas
+                (question_id, item_id, item_titulo, sku, precio, stock, texto,
+                 comprador_id, fecha_pregunta, status, synced_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'UNANSWERED',NOW())
+            ON DUPLICATE KEY UPDATE status='UNANSWERED', synced_at=NOW()
+        """, (qid, item_id, (titulo or '')[:255], sku, precio, stock, q.get('text', ''),
+              str(q.get('from', {}).get('id') or ''), _parse_ml_datetime(q.get('date_created'))))
+    # Las que estaban pendientes en DB y ya no vienen sin responder -> respondidas/cerradas
+    pend = query_db("SELECT question_id FROM ml_preguntas WHERE status='UNANSWERED'") or []
+    for r in pend:
+        if r['question_id'] not in vistos:
+            execute_db("UPDATE ml_preguntas SET status='ANSWERED' WHERE question_id=%s", (r['question_id'],))
+
+
+def _responder_pregunta_ml(access_token, question_id, texto):
+    """POST de la respuesta a ML. Devuelve (ok, response)."""
+    r = ml_request('post', 'https://api.mercadolibre.com/answers', access_token,
+                   json_data={'question_id': int(question_id), 'text': texto})
+    return r.status_code in (200, 201), r
+
+
+def job_sincronizar_preguntas():
+    """Job (cada ~3 min): refresca las preguntas sin responder."""
+    try:
+        _sync_preguntas()
+    except Exception as e:
+        print(f"[PREGUNTAS] Error en job_sincronizar_preguntas: {e}")
+
+
+@app.route('/preguntas')
+@login_required
+@vendedor_required
+def preguntas():
+    filtro = request.args.get('filtro', 'pendientes')
+    if filtro == 'respondidas':
+        where = "WHERE status='ANSWERED'"
+    elif filtro == 'todas':
+        where = ""
+    else:
+        where = "WHERE status='UNANSWERED'"
+    rows = query_db(f"SELECT * FROM ml_preguntas {where} ORDER BY fecha_pregunta DESC LIMIT 200")
+    pend = query_one("SELECT COUNT(*) AS c FROM ml_preguntas WHERE status='UNANSWERED'")
+    return render_template('preguntas.html', preguntas=rows, filtro=filtro,
+                           pendientes=(pend['c'] if pend else 0))
+
+
+@app.route('/preguntas/<question_id>/responder', methods=['POST'])
+@login_required
+@vendedor_required
+def preguntas_responder(question_id):
+    texto = (request.form.get('texto') or '').strip()
+    if not texto:
+        flash('La respuesta no puede estar vacía', 'warning')
+        return redirect(url_for('preguntas'))
+    access_token = cargar_ml_token()
+    if not access_token:
+        flash('No hay token de ML configurado', 'warning')
+        return redirect(url_for('preguntas'))
+    ok, r = _responder_pregunta_ml(access_token, question_id, texto)
+    if ok:
+        execute_db("UPDATE ml_preguntas SET status='ANSWERED', respuesta_final=%s, respondida_at=NOW() WHERE question_id=%s",
+                   (texto, question_id))
+        flash('✅ Respuesta enviada a ML', 'success')
+    else:
+        try:
+            msg = r.json().get('message') or (r.text or '')[:200]
+        except Exception:
+            msg = 'error desconocido'
+        flash(f'❌ ML rechazó la respuesta: {msg}', 'danger')
+    return redirect(url_for('preguntas'))
+
+
+@app.route('/preguntas/sync', methods=['POST'])
+@login_required
+@vendedor_required
+def preguntas_sync():
+    try:
+        job_sincronizar_preguntas()
+        flash('✅ Preguntas sincronizadas', 'success')
+    except Exception as e:
+        flash(f'❌ Error al sincronizar: {e}', 'danger')
+    return redirect(url_for('preguntas'))
+
+
 def iniciar_scheduler():
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
@@ -15676,6 +15827,14 @@ def iniciar_scheduler():
             'interval',
             minutes=10,
             id='sincronizar_reclamos',
+            replace_existing=True,
+            max_instances=1
+        )
+        scheduler.add_job(
+            job_sincronizar_preguntas,
+            'interval',
+            minutes=3,
+            id='sincronizar_preguntas',
             replace_existing=True,
             max_instances=1
         )
