@@ -15786,6 +15786,7 @@ REGLAS:
 - Terminá SIEMPRE con: "{reglas['cierre']}"
 - Tono: {reglas['tono']}
 - Respondé SOLO la pregunta concreta, con la info disponible. No inventes medidas, stock ni plazos.
+- Si con la información disponible NO podés responder con certeza la pregunta (te falta el dato), NO inventes ni escribas que no sabés: devolvé EXACTAMENTE el texto "[SIN_RESPUESTA]" y nada más (sin saludo ni cierre).
 - NUNCA incluyas (penaliza Mercado Libre):
 {prohibido}
 
@@ -15811,7 +15812,11 @@ Escribí solo el texto de la respuesta (sin comillas)."""
         client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
         resp = client.messages.create(model='claude-sonnet-4-5', max_tokens=700,
                                        system=system, messages=[{'role': 'user', 'content': ctx}])
-        return ''.join(b.text for b in resp.content if getattr(b, 'type', '') == 'text').strip()
+        texto = ''.join(b.text for b in resp.content if getattr(b, 'type', '') == 'text').strip()
+        # Si el bot no sabe, deja la sugerencia en blanco (para aprender de tu respuesta)
+        if not texto or 'SIN_RESPUESTA' in texto.upper():
+            return None
+        return texto
     except Exception as e:
         print(f"[PREGUNTAS] Error sugerencia: {e}")
         return None
