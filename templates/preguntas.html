@@ -48,12 +48,15 @@
           <div class="fw-semibold">{{ p.item_titulo or p.item_id }}</div>
           <div class="small text-muted">
             {% if p.sku %}<span class="badge bg-secondary">{{ p.sku }}</span>{% endif %}
+            {% if p.tipo_publi %}<span class="badge {{ 'bg-info text-dark' if p.tipo_publi == 'Catálogo' else 'bg-light text-dark border' }}">{{ p.tipo_publi }}</span>{% endif %}
+            {% if p.cuotas %}<span class="badge bg-light text-dark border">{{ p.cuotas }}</span>{% endif %}
             {% if p.precio is not none %}<span class="ms-1">💲{{ "{:,.0f}".format(p.precio|float).replace(',', '.') }}</span>{% endif %}
-            {% if p.stock is not none %}<span class="ms-2">📦 stock: {{ p.stock }}</span>{% endif %}
+            {% if p.stock is not none %}<span class="ms-2">📦 {{ p.stock }} en publi</span>{% endif %}
             <a class="ms-2" href="https://articulo.mercadolibre.com.ar/{{ p.item_id }}" target="_blank" rel="noopener">ver publicación ↗</a>
           </div>
         </div>
         <div class="text-end small text-muted">
+          {% if p.atraso and p.status != 'ANSWERED' %}<span class="badge bg-danger">⏱ {{ p.atraso }}</span><br>{% endif %}
           {% if p.fecha_pregunta %}{{ p.fecha_pregunta.strftime('%d/%m/%Y %H:%M') if p.fecha_pregunta.strftime is defined else p.fecha_pregunta }}{% endif %}
           {% if p.status == 'ANSWERED' %}<span class="badge bg-success ms-1">Respondida</span>{% else %}<span class="badge bg-warning text-dark ms-1">Pendiente</span>{% endif %}
         </div>
@@ -62,6 +65,20 @@
       <div class="mt-2 p-2 bg-light rounded">
         <i class="bi bi-question-circle text-primary"></i> {{ p.texto }}
       </div>
+
+      {% if p.historial_list %}
+      <details class="mt-2 small">
+        <summary class="text-muted" style="cursor:pointer;">📜 Este comprador ya preguntó {{ p.historial_list|length }} vez/veces en esta publicación</summary>
+        <div class="mt-1 ps-2 border-start">
+          {% for h in p.historial_list %}
+          <div class="mb-1">
+            <div><span class="text-muted">{{ h.fecha }}</span> — <i class="bi bi-question-circle"></i> {{ h.pregunta }}</div>
+            {% if h.respuesta %}<div class="text-success">↳ {{ h.respuesta }}</div>{% else %}<div class="text-muted fst-italic">↳ (sin responder)</div>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
 
       {% if p.status == 'ANSWERED' and p.respuesta_final %}
         <div class="mt-2 p-2 border-start border-success border-3 ps-2">

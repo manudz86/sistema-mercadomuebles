@@ -15651,26 +15651,89 @@ def _preguntas_search(access_token, status='UNANSWERED', limit=50):
         return []
 
 
+_CAMPANAS_CUOTAS_PREG = {
+    'pcj-co-funded': 'Cuota Simple',
+    '3x_campaign':   '3 cuotas s/interés',
+    '6x_campaign':   '6 cuotas s/interés',
+    '9x_campaign':   '9 cuotas s/interés',
+    '12x_campaign':  '12 cuotas s/interés',
+}
+
+
 def _pregunta_item_ctx(item_id, access_token=None):
-    """(titulo, sku, precio, stock) para mostrar contexto de la pregunta."""
-    titulo, precio, sku, stock = '', None, None, None
+    """Contexto de la PUBLICACIÓN (todo desde ML, nada de la BD):
+    titulo, sku (SELLER_SKU), precio, stock (available_quantity), tipo_publi, cuotas."""
+    ctx = {'titulo': '', 'sku': None, 'precio': None, 'stock': None,
+           'tipo_publi': None, 'cuotas': None}
     try:
         r = ml_request('get', f'https://api.mercadolibre.com/items/{item_id}',
-                       access_token or cargar_ml_token(), params={'attributes': 'title,price'})
-        if r.status_code == 200:
-            d = r.json(); titulo = d.get('title') or ''; precio = d.get('price')
-    except Exception:
-        pass
+                       access_token or cargar_ml_token(),
+                       params={'attributes': 'title,price,available_quantity,catalog_listing,'
+                                             'listing_type_id,sale_terms,seller_custom_field,attributes'})
+        if r.status_code != 200:
+            return ctx
+        d = r.json()
+        ctx['titulo'] = d.get('title') or ''
+        ctx['precio'] = d.get('price')
+        ctx['stock']  = d.get('available_quantity')
+        ctx['tipo_publi'] = 'Catálogo' if d.get('catalog_listing') else 'Listado general'
+        # SKU desde la propia publicación
+        sku = d.get('seller_custom_field')
+        if not sku:
+            for a in (d.get('attributes') or []):
+                if a.get('id') == 'SELLER_SKU':
+                    sku = a.get('value_name'); break
+        ctx['sku'] = sku
+        # Cuotas (misma lógica que obtener_datos_ml)
+        campaign = None
+        for term in (d.get('sale_terms') or []):
+            if term.get('id') == 'INSTALLMENTS_CAMPAIGN':
+                campaign = (term.get('value_name') or '').split('|')[0].strip()
+        lt = d.get('listing_type_id', '')
+        if lt == 'gold_special':
+            ctx['cuotas'] = _CAMPANAS_CUOTAS_PREG.get(campaign, 'Sin cuotas propias') if campaign else 'Sin cuotas propias'
+        elif lt == 'gold_pro':
+            ctx['cuotas'] = _CAMPANAS_CUOTAS_PREG.get(campaign, '6 cuotas s/interés')
+        else:
+            ctx['cuotas'] = lt or '-'
+    except Exception as e:
+        print(f"[PREGUNTAS] ctx error {item_id}: {e}")
+    return ctx
+
+
+def _pregunta_historial(item_id, comprador_id, access_token, excluir_qid=None):
+    """P/R previas del MISMO comprador sobre la MISMA publicación (JSON string o None)."""
     try:
-        row = query_one("SELECT sku FROM sku_mla_mapeo WHERE mla_id=%s AND activo=1 LIMIT 1", (item_id,))
-        if row:
-            sku = row['sku']
-            sb = query_one("SELECT stock_actual FROM productos_base WHERE sku=%s", (sku,))
-            if sb:
-                stock = sb['stock_actual']
+        r = ml_request('get', 'https://api.mercadolibre.com/questions/search', access_token,
+                       params={'item': item_id, 'api_version': 4, 'limit': 50})
+        if r.status_code != 200:
+            return None
+        prev = []
+        for q in (r.json().get('questions') or []):
+            if str(q.get('from', {}).get('id') or '') != str(comprador_id):
+                continue
+            if excluir_qid and str(q.get('id')) == str(excluir_qid):
+                continue
+            ans = q.get('answer') or {}
+            prev.append({'fecha': (q.get('date_created') or '')[:16].replace('T', ' '),
+                         'pregunta': q.get('text') or '',
+                         'respuesta': ans.get('text')})
+        return json.dumps(prev, ensure_ascii=False) if prev else None
     except Exception:
-        pass
-    return titulo, sku, precio, stock
+        return None
+
+
+def _humanizar_atraso(delta):
+    """Devuelve 'hace 2d 3h' / 'hace 5h 10m' / 'hace 12m'."""
+    secs = int(delta.total_seconds())
+    if secs < 0:
+        secs = 0
+    d = secs // 86400; h = (secs % 86400) // 3600; m = (secs % 3600) // 60
+    if d > 0:
+        return f"hace {d}d {h}h"
+    if h > 0:
+        return f"hace {h}h {m}m"
+    return f"hace {m}m"
 
 
 def _sync_preguntas(access_token=None):
@@ -15691,15 +15754,21 @@ def _sync_preguntas(access_token=None):
             execute_db("UPDATE ml_preguntas SET status='UNANSWERED', synced_at=NOW() WHERE question_id=%s", (qid,))
             continue
         item_id = q.get('item_id')
-        titulo, sku, precio, stock = _pregunta_item_ctx(item_id, access_token)
+        comprador = str(q.get('from', {}).get('id') or '')
+        ctx = _pregunta_item_ctx(item_id, access_token)
+        historial = _pregunta_historial(item_id, comprador, access_token, excluir_qid=qid)
         execute_db("""
             INSERT INTO ml_preguntas
-                (question_id, item_id, item_titulo, sku, precio, stock, texto,
-                 comprador_id, fecha_pregunta, status, synced_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'UNANSWERED',NOW())
-            ON DUPLICATE KEY UPDATE status='UNANSWERED', synced_at=NOW()
-        """, (qid, item_id, (titulo or '')[:255], sku, precio, stock, q.get('text', ''),
-              str(q.get('from', {}).get('id') or ''), _parse_ml_datetime(q.get('date_created'))))
+                (question_id, item_id, item_titulo, sku, precio, stock, tipo_publi, cuotas,
+                 texto, comprador_id, fecha_pregunta, historial, status, synced_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'UNANSWERED',NOW())
+            ON DUPLICATE KEY UPDATE status='UNANSWERED', synced_at=NOW(),
+                item_titulo=VALUES(item_titulo), sku=VALUES(sku), precio=VALUES(precio),
+                stock=VALUES(stock), tipo_publi=VALUES(tipo_publi), cuotas=VALUES(cuotas),
+                historial=VALUES(historial)
+        """, (qid, item_id, (ctx['titulo'] or '')[:255], ctx['sku'], ctx['precio'], ctx['stock'],
+              ctx['tipo_publi'], ctx['cuotas'], q.get('text', ''), comprador,
+              _parse_ml_datetime(q.get('date_created')), historial))
     # Las que estaban pendientes en DB y ya no vienen sin responder -> respondidas/cerradas
     pend = query_db("SELECT question_id FROM ml_preguntas WHERE status='UNANSWERED'") or []
     for r in pend:
@@ -15734,6 +15803,14 @@ def preguntas():
     else:
         where = "WHERE status='UNANSWERED'"
     rows = query_db(f"SELECT * FROM ml_preguntas {where} ORDER BY fecha_pregunta DESC LIMIT 200")
+    ahora = datetime.now()
+    for r in rows:
+        fp = r.get('fecha_pregunta')
+        r['atraso'] = _humanizar_atraso(ahora - fp) if fp else None
+        try:
+            r['historial_list'] = json.loads(r['historial']) if r.get('historial') else []
+        except Exception:
+            r['historial_list'] = []
     pend = query_one("SELECT COUNT(*) AS c FROM ml_preguntas WHERE status='UNANSWERED'")
     return render_template('preguntas.html', preguntas=rows, filtro=filtro,
                            pendientes=(pend['c'] if pend else 0))
