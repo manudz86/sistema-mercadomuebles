@@ -15736,6 +15736,87 @@ def _humanizar_atraso(delta):
     return f"hace {m}m"
 
 
+def _preguntas_reglas():
+    """Reglas del bot de preguntas (desde configuracion.preguntas_reglas, con defaults)."""
+    reglas = {
+        'saludo': 'Hola, gracias por contactarnos.',
+        'cierre': 'Cualquier consulta, estamos a tu disposición, Matías de MercadoMuebles.',
+        'tono': 'Cordial, claro, rioplatense y conciso. Si no podés responder con la info disponible, decí que lo verificás; nunca inventes datos.',
+        'prohibido': [], 'envio_me1': '', 'envio_flex': '',
+    }
+    try:
+        row = query_one("SELECT valor FROM configuracion WHERE clave='preguntas_reglas'")
+        if row and row.get('valor'):
+            data = json.loads(row['valor'])
+            for k in reglas:
+                if k in data:
+                    reglas[k] = data[k]
+    except Exception:
+        pass
+    return reglas
+
+
+def _sugerir_respuesta(pregunta_texto, sku=None, titulo=None, precio=None, stock=None,
+                       tipo_publi=None, cuotas=None):
+    """Respuesta sugerida con Claude: reglas + envío (Flex/ME1 según Z) + conocimiento de
+    producto (CATALOGO_INFO del bot de WhatsApp) + contexto de la publi + ejemplos aprendidos."""
+    try:
+        import anthropic
+        from whatsapp_bp import CATALOGO_INFO
+    except Exception as e:
+        print(f"[PREGUNTAS] import error: {e}")
+        return None
+    reglas = _preguntas_reglas()
+    con_z = bool(sku) and str(sku).upper().endswith('Z')
+    envio = reglas['envio_me1'] if con_z else reglas['envio_flex']
+    tipo_envio = 'Mercado Envíos 1 (ME1)' if con_z else 'Flex'
+    ejemplos = ''
+    try:
+        ex = query_db("SELECT pregunta, respuesta FROM preguntas_ejemplos ORDER BY id DESC LIMIT 15") or []
+        if ex:
+            ejemplos = "\n\nEJEMPLOS DE RESPUESTAS ANTERIORES (imitá este estilo y criterio):\n" + \
+                "\n".join(f"P: {e['pregunta']}\nR: {e['respuesta']}" for e in reversed(ex))
+    except Exception:
+        pass
+    prohibido = "\n".join(f"- {x}" for x in (reglas.get('prohibido') or []))
+    system = f"""Sos el asistente de respuestas de preguntas de Mercado Libre de MercadoMuebles (colchones y sommiers Cannon). Generás UNA respuesta lista para que Matías la revise y envíe al comprador.
+
+REGLAS:
+- Empezá SIEMPRE con: "{reglas['saludo']}"
+- Terminá SIEMPRE con: "{reglas['cierre']}"
+- Tono: {reglas['tono']}
+- Respondé SOLO la pregunta concreta, con la info disponible. No inventes medidas, stock ni plazos.
+- NUNCA incluyas (penaliza Mercado Libre):
+{prohibido}
+
+ENVÍO DE ESTA PUBLICACIÓN ({tipo_envio}):
+{envio}
+
+CONOCIMIENTO DE PRODUCTO (Cannon):
+{CATALOGO_INFO}
+{ejemplos}"""
+    ctx = f"""DATOS DE LA PUBLICACIÓN:
+- SKU: {sku or '-'}
+- Título: {titulo or '-'}
+- Precio: {precio if precio is not None else '-'}
+- Stock: {stock if stock is not None else '-'}
+- Tipo: {tipo_publi or '-'}
+- Cuotas: {cuotas or '-'}
+
+PREGUNTA DEL COMPRADOR:
+{pregunta_texto}
+
+Escribí solo el texto de la respuesta (sin comillas)."""
+    try:
+        client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+        resp = client.messages.create(model='claude-sonnet-4-5', max_tokens=700,
+                                       system=system, messages=[{'role': 'user', 'content': ctx}])
+        return ''.join(b.text for b in resp.content if getattr(b, 'type', '') == 'text').strip()
+    except Exception as e:
+        print(f"[PREGUNTAS] Error sugerencia: {e}")
+        return None
+
+
 def _sync_preguntas(access_token=None):
     """Upsert de preguntas sin responder; marca como ANSWERED las que ya no figuran."""
     if access_token is None:
@@ -15769,6 +15850,10 @@ def _sync_preguntas(access_token=None):
         """, (qid, item_id, (ctx['titulo'] or '')[:255], ctx['sku'], ctx['precio'], ctx['stock'],
               ctx['tipo_publi'], ctx['cuotas'], q.get('text', ''), comprador,
               _parse_ml_datetime(q.get('date_created')), historial))
+        sugerida = _sugerir_respuesta(q.get('text', ''), ctx['sku'], ctx['titulo'], ctx['precio'],
+                                      ctx['stock'], ctx['tipo_publi'], ctx['cuotas'])
+        if sugerida:
+            execute_db("UPDATE ml_preguntas SET respuesta_sugerida=%s WHERE question_id=%s", (sugerida, qid))
     # Las que estaban pendientes en DB y ya no vienen sin responder -> respondidas/cerradas
     pend = query_db("SELECT question_id FROM ml_preguntas WHERE status='UNANSWERED'") or []
     for r in pend:
@@ -15832,6 +15917,13 @@ def preguntas_responder(question_id):
     if ok:
         execute_db("UPDATE ml_preguntas SET status='ANSWERED', respuesta_final=%s, respondida_at=NOW() WHERE question_id=%s",
                    (texto, question_id))
+        try:
+            prow = query_one("SELECT texto, sku FROM ml_preguntas WHERE question_id=%s", (question_id,))
+            if prow:
+                execute_db("INSERT INTO preguntas_ejemplos (pregunta, respuesta, sku) VALUES (%s,%s,%s)",
+                           (prow['texto'], texto, prow.get('sku')))
+        except Exception:
+            pass
         flash('✅ Respuesta enviada a ML', 'success')
     else:
         try:
@@ -15852,6 +15944,43 @@ def preguntas_sync():
     except Exception as e:
         flash(f'❌ Error al sincronizar: {e}', 'danger')
     return redirect(url_for('preguntas'))
+
+
+@app.route('/preguntas/<question_id>/regenerar', methods=['POST'])
+@login_required
+@vendedor_required
+def preguntas_regenerar(question_id):
+    p = query_one("SELECT * FROM ml_preguntas WHERE question_id=%s", (question_id,))
+    if p:
+        sug = _sugerir_respuesta(p['texto'], p.get('sku'), p.get('item_titulo'), p.get('precio'),
+                                 p.get('stock'), p.get('tipo_publi'), p.get('cuotas'))
+        if sug:
+            execute_db("UPDATE ml_preguntas SET respuesta_sugerida=%s WHERE question_id=%s", (sug, question_id))
+            flash('✅ Sugerencia regenerada', 'success')
+        else:
+            flash('No se pudo generar la sugerencia', 'warning')
+    return redirect(url_for('preguntas'))
+
+
+@app.route('/preguntas/reglas', methods=['GET', 'POST'])
+@login_required
+@vendedor_required
+def preguntas_reglas():
+    if request.method == 'POST':
+        reglas = {
+            'saludo': request.form.get('saludo', '').strip(),
+            'cierre': request.form.get('cierre', '').strip(),
+            'tono': request.form.get('tono', '').strip(),
+            'prohibido': [x.strip() for x in (request.form.get('prohibido', '') or '').splitlines() if x.strip()],
+            'envio_me1': request.form.get('envio_me1', '').strip(),
+            'envio_flex': request.form.get('envio_flex', '').strip(),
+        }
+        execute_db("INSERT INTO configuracion (clave,valor) VALUES ('preguntas_reglas',%s) "
+                   "ON DUPLICATE KEY UPDATE valor=VALUES(valor)",
+                   (json.dumps(reglas, ensure_ascii=False),))
+        flash('✅ Reglas guardadas', 'success')
+        return redirect(url_for('preguntas_reglas'))
+    return render_template('preguntas_reglas.html', reglas=_preguntas_reglas())
 
 
 def iniciar_scheduler():

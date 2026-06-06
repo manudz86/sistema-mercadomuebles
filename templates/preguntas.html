@@ -13,6 +13,9 @@
       <small class="text-muted">Respondé a mano por ahora. El bot sugerirá respuestas en la próxima etapa.</small>
     </div>
     <div class="col-auto">
+      <a href="{{ url_for('preguntas_reglas') }}" class="btn btn-outline-secondary btn-sm me-1">
+        <i class="bi bi-gear"></i> Reglas del bot
+      </a>
       <form method="POST" action="{{ url_for('preguntas_sync') }}" class="d-inline">
         <button type="submit" class="btn btn-outline-primary btn-sm">
           <i class="bi bi-arrow-clockwise"></i> Sincronizar
@@ -85,15 +88,25 @@
           <span class="text-success"><i class="bi bi-check2"></i> Tu respuesta:</span> {{ p.respuesta_final }}
         </div>
       {% elif p.status != 'ANSWERED' %}
-        <form method="POST" action="{{ url_for('preguntas_responder', question_id=p.question_id) }}" class="mt-2">
-          <textarea name="texto" class="form-control" rows="2" maxlength="2000" required
-                    placeholder="Escribí tu respuesta..."></textarea>
-          <div class="text-end mt-2">
+        {% if p.respuesta_sugerida %}
+          <div class="small text-muted mt-2"><i class="bi bi-robot"></i> Sugerida por el bot — revisá y editá antes de enviar:</div>
+        {% else %}
+          <div class="small text-muted mt-2"><i class="bi bi-robot"></i> Sin sugerencia todavía — tocá "Regenerar".</div>
+        {% endif %}
+        <form method="POST" action="{{ url_for('preguntas_responder', question_id=p.question_id) }}" class="mt-1">
+          <textarea name="texto" class="form-control" rows="5" maxlength="2000" required
+                    placeholder="Escribí tu respuesta...">{{ p.respuesta_sugerida or '' }}</textarea>
+          <div class="d-flex justify-content-between mt-2">
+            <button type="submit" form="regen-{{ p.question_id }}" class="btn btn-outline-secondary btn-sm">
+              <i class="bi bi-arrow-repeat"></i> Regenerar sugerencia
+            </button>
             <button type="submit" class="btn btn-primary btn-sm">
               <i class="bi bi-send"></i> Responder en ML
             </button>
           </div>
         </form>
+        <form id="regen-{{ p.question_id }}" method="POST"
+              action="{{ url_for('preguntas_regenerar', question_id=p.question_id) }}" class="d-none"></form>
       {% endif %}
     </div>
   </div>

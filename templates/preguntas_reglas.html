@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Reglas del bot de Preguntas{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4" style="max-width:900px;">
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-gear"></i> Reglas del bot de Preguntas</h4>
+    <a href="{{ url_for('preguntas') }}" class="btn btn-outline-secondary btn-sm">← Volver a Preguntas</a>
+  </div>
+  <p class="text-muted small">Estas reglas guían las respuestas sugeridas. El bot siempre empieza con el saludo y termina con el cierre, respeta el tono y nunca incluye lo prohibido.</p>
+
+  <form method="POST" action="{{ url_for('preguntas_reglas') }}">
+
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Saludo inicial</label>
+      <input type="text" name="saludo" class="form-control" value="{{ reglas.saludo }}">
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Cierre / despedida</label>
+      <input type="text" name="cierre" class="form-control" value="{{ reglas.cierre }}">
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Tono</label>
+      <textarea name="tono" class="form-control" rows="2">{{ reglas.tono }}</textarea>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label fw-semibold text-danger">🚫 Prohibido (uno por línea)</label>
+      <textarea name="prohibido" class="form-control" rows="6">{{ reglas.prohibido | join('\n') }}</textarea>
+      <div class="form-text">Cosas que el bot NUNCA debe poner (para evitar penalidades de ML).</div>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label fw-semibold">🚚 Envío ME1 (publicaciones con SKU con Z)</label>
+      <textarea name="envio_me1" class="form-control" rows="4">{{ reglas.envio_me1 }}</textarea>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label fw-semibold">🚚 Envío Flex (publicaciones con SKU sin Z)</label>
+      <textarea name="envio_flex" class="form-control" rows="4">{{ reglas.envio_flex }}</textarea>
+    </div>
+
+    <div class="text-end">
+      <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> Guardar reglas</button>
+    </div>
+  </form>
+
+</div>
+{% endblock %}
