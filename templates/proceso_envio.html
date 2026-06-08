@@ -513,6 +513,12 @@
 <!-- CARDS MOBILE (solo visible en mobile) -->
 <!-- ═══════════════════════════════════════ -->
 <div class="d-md-none">
+    {% if ventas %}
+    <div class="d-flex align-items-center gap-2 mb-2 px-1">
+      <input type="checkbox" id="selectAllMobile" class="form-check-input mt-0" autocomplete="off" onchange="toggleSelectAll(this)">
+      <label for="selectAllMobile" class="mb-0 fw-semibold" style="cursor:pointer;">Seleccionar todas</label>
+    </div>
+    {% endif %}
     {% for venta in ventas %}
     <div class="card mb-2 shadow-sm" data-venta-id="{{ venta.id }}">
         <!-- HEADER -->
