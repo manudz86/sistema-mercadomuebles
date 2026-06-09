@@ -5236,14 +5236,18 @@ def pago_payway():
 _getnet_token_cache = {'token': None, 'expires_at': 0}
 
 
-def _getnet_get_token():
-    """Obtiene access_token de GetNet (OAuth2 client_credentials) con cache."""
+def _getnet_get_token(force_uat=False):
+    """Obtiene access_token de GetNet (OAuth2 client_credentials) con cache.
+
+    force_uat=True fuerza el ambiente sandbox (UAT) y NO usa el cache de prod
+    (lo usa solo la página de prueba /test-getnet). El camino de producción
+    (force_uat=False) queda idéntico al original."""
     import time
     cache = _getnet_token_cache
-    if cache['token'] and time.time() < cache['expires_at']:
+    if not force_uat and cache['token'] and time.time() < cache['expires_at']:
         return cache['token']
 
-    use_uat       = not os.getenv('GETNET_CLIENT_ID', '').strip()
+    use_uat       = force_uat or not os.getenv('GETNET_CLIENT_ID', '').strip()
     client_id     = os.getenv('GETNET_CLIENT_ID_UAT' if use_uat else 'GETNET_CLIENT_ID')
     client_secret = os.getenv('GETNET_CLIENT_SECRET_UAT' if use_uat else 'GETNET_CLIENT_SECRET')
     base_url      = os.getenv('GETNET_BASE_URL_UAT' if use_uat else 'GETNET_BASE_URL')
@@ -5261,6 +5265,9 @@ def _getnet_get_token():
     )
     resp.raise_for_status()
     data = resp.json()
+    # En modo sandbox forzado no contaminamos el cache de producción.
+    if force_uat:
+        return data['access_token']
     cache['token']      = data['access_token']
     cache['expires_at'] = time.time() + data.get('expires_in', 3600) - 50
     return cache['token']
@@ -7062,9 +7069,10 @@ def test_getnet():
 
         try:
             import requests as req_lib
-            use_uat  = not os.getenv('GETNET_CLIENT_ID', '').strip()
-            base_url = os.getenv('GETNET_BASE_URL_UAT' if use_uat else 'GETNET_BASE_URL')
-            token    = _getnet_get_token()
+            # /test-getnet SIEMPRE pega al sandbox (UAT), nunca a producción,
+            # aunque las credenciales de prod estén cargadas.
+            base_url = os.getenv('GETNET_BASE_URL_UAT')
+            token    = _getnet_get_token(force_uat=True)
 
             test_ref = f"TEST-{sku}-{int(time.time())}"
             body = {
@@ -7111,4 +7119,6 @@ def test_getnet():
         payment_intent_id=payment_intent_id,
         producto_sel=producto_sel,
         error=error,
+        getnet_env='UAT (sandbox)',
+        getnet_base_url=os.getenv('GETNET_BASE_URL_UAT'),
     )
