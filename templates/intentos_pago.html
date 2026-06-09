@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Intentos de pago — Payway{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+  <div class="row mb-3 align-items-center">
+    <div class="col">
+      <h4 class="mb-0"><i class="bi bi-credit-card-2-front"></i> Intentos de pago — Payway</h4>
+      <small class="text-muted">
+        Todas las operaciones (acreditadas, rechazadas, anuladas) por fecha.
+        {% if ultima_sync %}Última actualización: {{ ultima_sync.strftime('%d/%m/%Y %H:%M') }}{% endif %}
+      </small>
+    </div>
+    <div class="col-auto">
+      <form method="POST" action="{{ url_for('intentos_pago_sync') }}" class="d-inline">
+        <button type="submit" class="btn btn-sm btn-outline-primary">
+          <i class="bi bi-arrow-clockwise"></i> Actualizar ahora
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <form method="GET" class="row g-2 mb-3">
+    <div class="col-md-5">
+      <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm"
+             placeholder="Buscar por nombre, DNI, dirección, email, tarjeta, ref o motivo…">
+    </div>
+    <div class="col-md-3">
+      <select name="estado" class="form-select form-select-sm">
+        <option value="">Todos los estados</option>
+        {% for e in estados_disp %}
+        <option value="{{ e }}" {% if e == estado %}selected{% endif %}>{{ e }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <button type="submit" class="btn btn-sm btn-primary">Filtrar</button>
+      <a href="{{ url_for('intentos_pago') }}" class="btn btn-sm btn-link">Limpiar</a>
+    </div>
+    <div class="col-auto ms-auto">
+      <span class="badge bg-secondary align-middle">{{ total }} operaciones</span>
+    </div>
+  </form>
+
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle small">
+      <thead class="table-light">
+        <tr>
+          <th>Fecha</th>
+          <th>Estado</th>
+          <th>Motivo</th>
+          <th>Nombre</th>
+          <th>DNI</th>
+          <th>Dirección</th>
+          <th>Tel</th>
+          <th>Email</th>
+          <th>Tarjeta</th>
+          <th class="text-end">Monto</th>
+          <th class="text-center">Cuotas</th>
+          <th>Coincidencias</th>
+          <th>Ref</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in intentos %}
+        {% set st = r.status_es or r.status %}
+        <tr {% if r.coincidencias %}class="table-warning"{% endif %}>
+          <td class="text-nowrap">{{ r.fecha.strftime('%d/%m/%y %H:%M') if r.fecha else '—' }}</td>
+          <td>
+            {% if st == 'Acreditada' %}<span class="badge bg-success">{{ st }}</span>
+            {% elif st == 'Autorizada' %}<span class="badge bg-info text-dark">{{ st }}</span>
+            {% elif st == 'Rechazada' %}<span class="badge bg-danger">{{ st }}</span>
+            {% elif st == 'Anulada' %}<span class="badge bg-secondary">{{ st }}</span>
+            {% elif st == 'Devuelta' %}<span class="badge bg-dark">{{ st }}</span>
+            {% else %}<span class="badge bg-light text-dark border">{{ st }}</span>{% endif %}
+          </td>
+          <td class="text-danger">{{ r.motivo or '' }}</td>
+          <td class="text-nowrap">{{ r.cli_nombre or '—' }}</td>
+          <td>{{ r.cli_dni or '' }}</td>
+          <td style="max-width:280px;">{{ r.cli_direccion or '' }}</td>
+          <td>{{ r.cli_telefono or '' }}</td>
+          <td>{{ r.cli_email or '' }}</td>
+          <td class="text-nowrap">
+            {{ r.card_brand or '' }}{% if r.last4 %} ••{{ r.last4 }}{% endif %}
+          </td>
+          <td class="text-end text-nowrap">${{ "{:,.0f}".format(r.amount) if r.amount is not none else '' }}</td>
+          <td class="text-center">{{ r.installments or '' }}</td>
+          <td>
+            {% for f in r.coincidencias %}
+            <span class="badge bg-warning text-dark">{{ f }}</span>
+            {% endfor %}
+          </td>
+          <td class="text-nowrap text-muted" style="font-size:.8em;">{{ r.site_transaction_id or ('PW-' ~ r.payment_id) }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="13" class="text-center text-muted py-4">
+          No hay operaciones. Probá <strong>Actualizar ahora</strong> para traerlas de Payway.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="text-muted small mt-2">
+    <i class="bi bi-info-circle"></i>
+    Las filas <span class="badge bg-warning text-dark">resaltadas</span> comparten DNI, email,
+    dirección o tarjeta con otra operación — útil para detectar intentos repetidos.
+  </p>
+
+</div>
+{% endblock %}

@@ -331,6 +331,11 @@
                         <i class="bi bi-receipt"></i> Pagos Cannon
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'intentos_pago' %}active{% endif %}" href="/intentos-pago">
+                        <i class="bi bi-credit-card-2-front"></i> Intentos pago
+                    </a>
+                </li>
                 {% endif %}
                 <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'fletes' %}active{% endif %}" href="/fletes">
@@ -563,6 +568,11 @@
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'pagos_cannon' %}active{% endif %}" href="/pagos-cannon">
                                 <i class="bi bi-receipt"></i> Pagos Cannon
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'intentos_pago' %}active{% endif %}" href="/intentos-pago">
+                                <i class="bi bi-credit-card-2-front"></i> Intentos pago
                             </a>
                         </li>
                         {% endif %}

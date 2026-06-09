@@ -15988,6 +15988,206 @@ def preguntas_reglas():
     return render_template('preguntas_reglas.html', reglas=_preguntas_reglas())
 
 
+# ── PAGOS PAYWAY: monitoreo de intentos (solo lectura sobre la API de Payway) ──
+# Lee GET /payments de Payway/Decidir y vuelca cada operación (acreditada,
+# autorizada, rechazada, anulada) en payway_intentos. NO toca el flujo de cobro.
+
+_PAYWAY_STATUS_ES = {
+    'accredited': 'Acreditada', 'approved': 'Acreditada',
+    'authorized': 'Autorizada', 'pre_approved': 'Pre-aprobada',
+    'rejected': 'Rechazada', 'annulled': 'Anulada', 'refunded': 'Devuelta',
+    'review': 'En revisión', 'pending': 'Pendiente',
+}
+
+
+def _payway_api_listar(offset=0, page_size=50, date_from=None, date_to=None):
+    """GET /payments de Payway/Decidir (solo lectura). Devuelve dict o None.
+    Sin dateFrom/dateTo la API sólo devuelve una ventana reciente chica; con
+    rango de fechas devuelve toda la historia del período."""
+    import requests as _rq
+    base = os.getenv('PAYWAY_API_URL', 'https://live.decidir.com/api/v2')
+    pk   = os.getenv('PAYWAY_PRIVATE_KEY', '')
+    if not pk:
+        return None
+    params = {'offset': offset, 'pageSize': page_size}
+    if date_from:
+        params['dateFrom'] = date_from
+    if date_to:
+        params['dateTo'] = date_to
+    r = _rq.get(f"{base}/payments", params=params, headers={'apikey': pk}, timeout=25)
+    r.raise_for_status()
+    return r.json()
+
+
+def _payway_upsert_intento(op):
+    """Inserta/actualiza una operación de Payway en payway_intentos."""
+    pid = op.get('id')
+    if not pid:
+        return
+    stx = op.get('site_transaction_id') or ''
+    ref = stx[3:] if stx.startswith('PW-') else stx
+    status = op.get('status') or ''
+    sd = op.get('status_details') or {}
+    err = (sd.get('error') or {}) if isinstance(sd, dict) else {}
+    reason = (err.get('reason') or {}) if isinstance(err, dict) else {}
+    motivo = (reason.get('description') or '').strip() if isinstance(reason, dict) else ''
+    motivo_id = reason.get('id') if isinstance(reason, dict) else None
+    fdt = None
+    fecha = op.get('date')
+    if fecha:
+        try:
+            fdt = datetime.strptime(str(fecha)[:16], '%Y-%m-%dT%H:%M')
+        except Exception:
+            fdt = None
+    amount = op.get('amount')
+    monto = round(float(amount) / 100.0, 2) if amount is not None else None
+    last4 = None
+    pan = op.get('pan')
+    if pan and len(str(pan)) >= 4 and str(pan)[-4:].isdigit():
+        last4 = str(pan)[-4:]
+    execute_db("""
+        INSERT INTO payway_intentos
+            (payment_id, site_transaction_id, ref, fecha, amount, installments,
+             status, status_es, motivo, motivo_id, card_brand, bin, last4, tid,
+             payment_method_id, raw_json)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON DUPLICATE KEY UPDATE
+            status=VALUES(status), status_es=VALUES(status_es),
+            motivo=VALUES(motivo), motivo_id=VALUES(motivo_id),
+            amount=VALUES(amount), installments=VALUES(installments),
+            card_brand=VALUES(card_brand), bin=VALUES(bin), last4=VALUES(last4),
+            tid=VALUES(tid), raw_json=VALUES(raw_json)
+    """, (
+        pid, stx, ref, fdt, monto, op.get('installments'),
+        status, _PAYWAY_STATUS_ES.get(status, status), motivo, motivo_id,
+        op.get('card_brand'), op.get('bin'), last4, op.get('tid'),
+        op.get('payment_method_id'),
+        json.dumps(op, ensure_ascii=False, default=str),
+    ))
+
+
+def sync_payway_intentos(full=False):
+    """Trae operaciones de Payway y las upsertea en payway_intentos.
+    full=True pagina desde el arranque de Payway; full=False, los últimos 30 días."""
+    from datetime import timedelta
+    page_size = 50
+    hoy = datetime.now()
+    date_to   = (hoy + timedelta(days=1)).strftime('%Y-%m-%d')
+    date_from = '2026-04-01' if full else (hoy - timedelta(days=30)).strftime('%Y-%m-%d')
+    offset = 0
+    procesadas = 0
+    while True:
+        data = _payway_api_listar(offset=offset, page_size=page_size,
+                                  date_from=date_from, date_to=date_to)
+        if not data:
+            break
+        for op in (data.get('results') or []):
+            try:
+                _payway_upsert_intento(op)
+                procesadas += 1
+            except Exception as e:
+                print(f"[PAYWAY] upsert error op {op.get('id')}: {e}")
+        if not data.get('hasMore'):
+            break
+        offset += page_size
+    return procesadas
+
+
+def job_sincronizar_payway():
+    """Job (cada 5 min): refresca los intentos de pago Payway (liviano)."""
+    try:
+        sync_payway_intentos(full=False)
+    except Exception as e:
+        print(f"[PAYWAY] Error en job_sincronizar_payway: {e}")
+
+
+@app.route('/intentos-pago')
+@login_required
+@vendedor_required
+def intentos_pago():
+    """Timeline de intentos de pago Payway (acreditados + rechazados + anulados),
+    cruzado con los datos de envío del cliente. Solo lectura."""
+    q      = (request.args.get('q') or '').strip()
+    estado = (request.args.get('estado') or '').strip()
+
+    rows = query_db("SELECT * FROM payway_intentos ORDER BY fecha DESC, payment_id DESC LIMIT 1000")
+
+    # Datos del cliente: ventas (acreditadas) + pedidos_pendientes (rechazadas/pendientes)
+    ventas = query_db("SELECT numero_venta, nombre_cliente, dni_cliente, telefono_cliente, "
+                      "direccion_entrega, provincia_cliente FROM ventas WHERE numero_venta LIKE 'PW-%%'")
+    vmap = {v['numero_venta']: v for v in ventas}
+    pmap = {}
+    for p in query_db("SELECT ref, cliente_json FROM pedidos_pendientes"):
+        try:
+            pmap[p['ref']] = json.loads(p['cliente_json'])
+        except Exception:
+            pmap[p['ref']] = {}
+
+    for r in rows:
+        v = vmap.get(f"PW-{r['payment_id']}")
+        c = pmap.get(r.get('ref'), {})
+        if v:
+            r['cli_nombre']    = v.get('nombre_cliente')
+            r['cli_dni']       = v.get('dni_cliente')
+            r['cli_telefono']  = v.get('telefono_cliente')
+            r['cli_direccion'] = v.get('direccion_entrega')
+            r['cli_provincia'] = v.get('provincia_cliente')
+            r['cli_email']     = None
+        else:
+            r['cli_nombre']    = c.get('nombre')
+            r['cli_dni']       = c.get('dni')
+            r['cli_telefono']  = c.get('telefono')
+            r['cli_direccion'] = c.get('direccion')
+            r['cli_provincia'] = c.get('provincia')
+            r['cli_email']     = c.get('email')
+
+    # Coincidencias (para cazar repeticiones): se calculan sobre TODO el set, antes de filtrar
+    from collections import Counter
+    def _norm(x): return (str(x).strip().lower() if x else '')
+    cnt_dni   = Counter(_norm(r['cli_dni'])       for r in rows if _norm(r['cli_dni']))
+    cnt_mail  = Counter(_norm(r['cli_email'])     for r in rows if _norm(r['cli_email']))
+    cnt_dir   = Counter(_norm(r['cli_direccion']) for r in rows if _norm(r['cli_direccion']))
+    cnt_last4 = Counter(r['last4']                for r in rows if r.get('last4'))
+    for r in rows:
+        flags = []
+        if _norm(r['cli_dni'])       and cnt_dni[_norm(r['cli_dni'])]       > 1: flags.append('DNI')
+        if _norm(r['cli_email'])     and cnt_mail[_norm(r['cli_email'])]     > 1: flags.append('email')
+        if _norm(r['cli_direccion']) and cnt_dir[_norm(r['cli_direccion'])] > 1: flags.append('dirección')
+        if r.get('last4')            and cnt_last4[r['last4']]              > 1: flags.append('tarjeta')
+        r['coincidencias'] = flags
+
+    # Filtros
+    if estado:
+        rows = [r for r in rows if (r.get('status_es') or '') == estado]
+    if q:
+        ql = q.lower()
+        def _match(r):
+            campos = [r.get('cli_nombre'), r.get('cli_dni'), r.get('cli_direccion'),
+                      r.get('cli_email'), r.get('last4'), r.get('site_transaction_id'),
+                      str(r.get('payment_id')), r.get('motivo')]
+            return any(ql in str(c).lower() for c in campos if c)
+        rows = [r for r in rows if _match(r)]
+
+    estados_disp = sorted({(r.get('status_es') or '') for r in
+                           query_db("SELECT DISTINCT status_es FROM payway_intentos")} - {''})
+    ultima = query_one("SELECT MAX(fecha_sync) AS u FROM payway_intentos")
+    return render_template('intentos_pago.html', intentos=rows, q=q, estado=estado,
+                           total=len(rows), estados_disp=estados_disp,
+                           ultima_sync=(ultima['u'] if ultima else None))
+
+
+@app.route('/intentos-pago/sync', methods=['POST'])
+@login_required
+@vendedor_required
+def intentos_pago_sync():
+    try:
+        n = sync_payway_intentos(full=True)
+        flash(f'✅ Sincronizadas {n} operaciones de Payway', 'success')
+    except Exception as e:
+        flash(f'Error al sincronizar con Payway: {e}', 'warning')
+    return redirect(url_for('intentos_pago'))
+
+
 def iniciar_scheduler():
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
@@ -16046,6 +16246,14 @@ def iniciar_scheduler():
             'interval',
             minutes=3,
             id='sincronizar_preguntas',
+            replace_existing=True,
+            max_instances=1
+        )
+        scheduler.add_job(
+            job_sincronizar_payway,
+            'interval',
+            minutes=5,
+            id='sincronizar_payway',
             replace_existing=True,
             max_instances=1
         )
