@@ -4790,6 +4790,91 @@ def pago_ejecutar():
         }), 500
 
 
+# ── GATE ANTIFRAUDE PROPIO (blocklist + velocidad) ─────────────────────────────
+# Chequeos previos al cobro en Payway y a la creación del intent en GetNet.
+# FAIL-OPEN: cualquier excepción en el gate deja pasar el pago (nunca puede
+# bloquear una venta legítima por un error técnico). Se gestiona desde
+# /intentos-pago (solapa Blocklist) en el sistema.
+
+def _fraude_norm(s):
+    """Normaliza para comparar: minúsculas, sin tildes, espacios colapsados."""
+    import unicodedata
+    s = str(s or '').strip().lower()
+    s = unicodedata.normalize('NFKD', s)
+    s = ''.join(ch for ch in s if not unicodedata.combining(ch))
+    return ' '.join(s.split())
+
+
+def _fraude_gate(cli, bin_num='', last4=''):
+    """Devuelve (bloqueado, motivo). Reglas:
+    1) blocklist (direccion/dni/email/telefono/nombre/tarjeta)
+    2) velocidad por tarjeta: bin+last4 con >=2 rechazos en 24h
+    3) velocidad por datos de envío: misma direccion/email/dni con >=3 rechazos en 48h
+    El caller debe envolver la llamada en try/except (fail-open)."""
+    db  = get_db()
+    cur = db.cursor()
+    try:
+        nd = {
+            'direccion': _fraude_norm(cli.get('direccion')),
+            'dni':       _fraude_norm(cli.get('dni')),
+            'email':     _fraude_norm(cli.get('email')),
+            'telefono':  _fraude_norm(cli.get('telefono')),
+            'nombre':    _fraude_norm(cli.get('nombre')),
+        }
+
+        # 1) Blocklist
+        cur.execute("SELECT tipo, valor FROM fraude_blocklist WHERE activo = 1")
+        for e in cur.fetchall():
+            t, v = e['tipo'], _fraude_norm(e['valor'])
+            if not v:
+                continue
+            if t == 'tarjeta':
+                if last4 and v in (str(last4), f"{bin_num}{last4}"):
+                    return True, 'blocklist:tarjeta'
+            elif t in ('direccion', 'nombre'):
+                if nd.get(t) and v in nd[t]:
+                    return True, f'blocklist:{t}'
+            else:
+                if nd.get(t) and v == nd[t]:
+                    return True, f'blocklist:{t}'
+
+        # 2) Velocidad por tarjeta (necesita bin Y last4 para evitar falsos positivos)
+        if bin_num and last4:
+            cur.execute("""SELECT COUNT(*) AS c FROM payway_intentos
+                           WHERE bin = %s AND last4 = %s AND status = 'rejected'
+                             AND fecha > DATE_SUB(NOW(), INTERVAL 24 HOUR)""",
+                        (str(bin_num), str(last4)))
+            r = cur.fetchone()
+            if r and int(r['c'] or 0) >= 2:
+                return True, 'velocidad_tarjeta'
+
+        # 3) Velocidad por datos de envío (cruza rechazos recientes con pedidos)
+        cur.execute("""SELECT ref FROM payway_intentos
+                       WHERE status = 'rejected' AND ref IS NOT NULL AND ref != ''
+                         AND fecha > DATE_SUB(NOW(), INTERVAL 48 HOUR)""")
+        refs = [r['ref'] for r in cur.fetchall()]
+        if refs:
+            fmt = ','.join(['%s'] * len(refs))
+            cur.execute(f"SELECT cliente_json FROM pedidos_pendientes WHERE ref IN ({fmt})", refs)
+            hits = 0
+            for row in cur.fetchall():
+                try:
+                    c2 = json.loads(row['cliente_json'])
+                except Exception:
+                    continue
+                if ((nd['direccion'] and _fraude_norm(c2.get('direccion')) == nd['direccion'])
+                        or (nd['email'] and _fraude_norm(c2.get('email')) == nd['email'])
+                        or (nd['dni'] and _fraude_norm(c2.get('dni')) == nd['dni'])):
+                    hits += 1
+            if hits >= 3:
+                return True, 'velocidad_envio'
+
+        return False, ''
+    finally:
+        cur.close()
+        db.close()
+
+
 @tienda_bp.route('/pago/payway/token', methods=['POST'])
 def payway_token():
     """
@@ -4812,7 +4897,15 @@ def payway_token():
             },
             timeout=15
         )
-        return jsonify(resp.json()), resp.status_code
+        tok_data = resp.json()
+        # Guardar bin/last4 en sesión para el gate antifraude (no es PAN completo)
+        try:
+            if resp.status_code in (200, 201):
+                session['pw_bin']   = str(tok_data.get('bin') or '')
+                session['pw_last4'] = str(tok_data.get('last_four_digits') or '')
+        except Exception:
+            pass
+        return jsonify(tok_data), resp.status_code
     except Exception as e:
         logger.error(f"[payway_token] Error: {e}")
         return jsonify({'error_type': 'proxy_error', 'message': str(e)}), 500
@@ -4862,6 +4955,20 @@ def pago_payway():
                      'de datos y cotizá el envío antes de pagar.',
             'redirect': '/datos-envio'
         }), 400
+
+    # ── Gate antifraude propio (blocklist + velocidad) — FAIL-OPEN ───────────
+    try:
+        _blk, _blk_motivo = _fraude_gate(cli, bin_numero, session.get('pw_last4', ''))
+    except Exception as e_gate:
+        _blk, _blk_motivo = False, ''
+        logger.warning(f"[FRAUDE] gate error (fail-open): {e_gate}")
+    if _blk:
+        db.close()
+        logger.warning(f"[FRAUDE] Pago Payway BLOQUEADO ref={pedido_ref} motivo={_blk_motivo} "
+                       f"dni={cli.get('dni')} dir={str(cli.get('direccion'))[:60]!r}")
+        _base_url = os.getenv('APP_BASE_URL', 'https://sistema.mercadomuebles.com.ar')
+        # Misma respuesta que un rechazo del banco (indistinguible para el atacante)
+        return jsonify({'status': 'rejected', 'redirect_url': f"{_base_url}/tienda/pago/error"}), 400
 
     # ── Calcular monto con coeficiente de cuotas y cupón ─────────────────────
     coef_3, coef_6    = get_coeficientes_cuotas()
@@ -5012,6 +5119,19 @@ def pago_payway():
     base_url  = os.getenv('APP_BASE_URL', 'https://sistema.mercadomuebles.com.ar')
 
     logger.info(f"[pago_payway] status={pw_status} id={pw_id} ref={pedido_ref}")
+
+    # ── Log del intento en payway_intentos (tiempo real, para gate/monitoreo) ──
+    # Fail-silent: un error acá jamás afecta el resultado del pago.
+    try:
+        if pw_data.get('id'):
+            op_log = dict(pw_data)
+            # completar last4 desde la sesión si la API no lo devuelve
+            if not op_log.get('pan') and session.get('pw_last4'):
+                op_log['pan'] = session.get('pw_last4')
+            from app import _payway_upsert_intento
+            _payway_upsert_intento(op_log)
+    except Exception as e_log:
+        logger.warning(f"[FRAUDE] log intento error (ignorado): {e_log}")
 
     if pw_status != 'approved':
         logger.warning(f"[pago_payway] No aprobado: {pw_data}")
@@ -5309,6 +5429,18 @@ def pago_getnet_crear():
                      'de datos y cotizá el envío antes de pagar.',
             'redirect': '/datos-envio'
         }), 400
+
+    # ── Gate antifraude propio (blocklist + velocidad envío) — FAIL-OPEN ─────
+    try:
+        _blk, _blk_motivo = _fraude_gate(cli)
+    except Exception as e_gate:
+        _blk, _blk_motivo = False, ''
+        logger.warning(f"[FRAUDE] gate getnet error (fail-open): {e_gate}")
+    if _blk:
+        logger.warning(f"[FRAUDE] Intent GetNet BLOQUEADO ref={pedido_ref} motivo={_blk_motivo} "
+                       f"dni={cli.get('dni')} dir={str(cli.get('direccion'))[:60]!r}")
+        # Mismo mensaje que un error genérico de GetNet (indistinguible)
+        return jsonify(error='No se pudo iniciar el pago con GetNet. Intentá con otro método.'), 500
 
     # Mismo coef que Payway 6c (también usado por la card de checkout)
     _, coef_6 = get_coeficientes_cuotas()

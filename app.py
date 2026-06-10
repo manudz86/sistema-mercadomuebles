@@ -16427,9 +16427,12 @@ def intentos_pago():
     estados_disp = sorted({(r.get('status_es') or '') for r in
                            query_db("SELECT DISTINCT status_es FROM payway_intentos")} - {''})
     ultima = query_one("SELECT MAX(fecha_sync) AS u FROM payway_intentos")
+    blocklist = query_db("SELECT * FROM fraude_blocklist ORDER BY activo DESC, fecha_alta DESC")
     return render_template('intentos_pago.html', intentos=rows, q=q, estado=estado,
                            total=len(rows), estados_disp=estados_disp,
-                           ultima_sync=(ultima['u'] if ultima else None))
+                           ultima_sync=(ultima['u'] if ultima else None),
+                           blocklist=blocklist,
+                           tab=request.args.get('tab', 'intentos'))
 
 
 @app.route('/intentos-pago/sync', methods=['POST'])
@@ -16442,6 +16445,82 @@ def intentos_pago_sync():
     except Exception as e:
         flash(f'Error al sincronizar con Payway: {e}', 'warning')
     return redirect(url_for('intentos_pago'))
+
+
+@app.route('/intentos-pago/blocklist', methods=['POST'])
+@login_required
+@vendedor_required
+def intentos_pago_blocklist_add():
+    """Alta en la blocklist: manual (tipo+valor) o desde una operación (payment_id,
+    bloquea dirección+DNI+email+teléfono+tarjeta de esa op de un saque)."""
+    from tienda_bp import _fraude_norm
+    payment_id = (request.form.get('payment_id') or '').strip()
+    agregados = 0
+    if payment_id:
+        intento = query_one("SELECT * FROM payway_intentos WHERE payment_id = %s", (payment_id,))
+        if not intento:
+            flash('Operación no encontrada', 'warning')
+            return redirect(url_for('intentos_pago'))
+        motivo = f"Bloqueado desde intentos-pago (op {payment_id}, {intento.get('status_es') or ''})"
+        # Datos del cliente: venta o pedido pendiente
+        cli = {}
+        v = query_one("SELECT nombre_cliente, dni_cliente, telefono_cliente, direccion_entrega "
+                      "FROM ventas WHERE numero_venta = %s", (f"PW-{payment_id}",))
+        if v:
+            cli = {'direccion': v.get('direccion_entrega'), 'dni': v.get('dni_cliente'),
+                   'telefono': v.get('telefono_cliente'), 'email': None}
+        elif intento.get('ref'):
+            p = query_one("SELECT cliente_json FROM pedidos_pendientes WHERE ref = %s", (intento['ref'],))
+            if p:
+                try:
+                    cj = json.loads(p['cliente_json'])
+                    cli = {'direccion': cj.get('direccion'), 'dni': cj.get('dni'),
+                           'telefono': cj.get('telefono'), 'email': cj.get('email')}
+                except Exception:
+                    cli = {}
+        entradas = []
+        if cli.get('direccion'):
+            entradas.append(('direccion', _fraude_norm(cli['direccion'])))
+        if cli.get('dni'):
+            entradas.append(('dni', _fraude_norm(cli['dni'])))
+        if cli.get('email'):
+            entradas.append(('email', _fraude_norm(cli['email'])))
+        if cli.get('telefono'):
+            entradas.append(('telefono', _fraude_norm(cli['telefono'])))
+        if intento.get('last4'):
+            valor_tarj = f"{intento.get('bin') or ''}{intento['last4']}"
+            entradas.append(('tarjeta', valor_tarj))
+        for tipo, valor in entradas:
+            if valor:
+                execute_db("INSERT IGNORE INTO fraude_blocklist (tipo, valor, motivo) VALUES (%s,%s,%s)",
+                           (tipo, valor, motivo))
+                agregados += 1
+        flash(f'🚫 Bloqueados {agregados} datos de la operación {payment_id}', 'success')
+    else:
+        tipo   = (request.form.get('tipo') or '').strip()
+        valor  = _fraude_norm(request.form.get('valor') or '')
+        motivo = (request.form.get('motivo') or '').strip() or 'Alta manual'
+        if tipo in ('direccion', 'dni', 'email', 'telefono', 'nombre', 'tarjeta') and valor:
+            execute_db("INSERT IGNORE INTO fraude_blocklist (tipo, valor, motivo) VALUES (%s,%s,%s)",
+                       (tipo, valor, motivo))
+            flash(f'🚫 Agregado a blocklist: {tipo} = {valor}', 'success')
+        else:
+            flash('Tipo o valor inválido', 'warning')
+    return redirect(url_for('intentos_pago', tab='blocklist'))
+
+
+@app.route('/intentos-pago/blocklist/<int:bl_id>/toggle', methods=['POST'])
+@login_required
+@vendedor_required
+def intentos_pago_blocklist_toggle(bl_id):
+    row = query_one("SELECT id, activo, tipo, valor FROM fraude_blocklist WHERE id = %s", (bl_id,))
+    if not row:
+        flash('Entrada no encontrada', 'warning')
+    else:
+        nuevo = 0 if row['activo'] else 1
+        execute_db("UPDATE fraude_blocklist SET activo = %s WHERE id = %s", (nuevo, bl_id))
+        flash(f"{'✅ Desbloqueado' if nuevo == 0 else '🚫 Re-bloqueado'}: {row['tipo']} = {row['valor']}", 'success')
+    return redirect(url_for('intentos_pago', tab='blocklist'))
 
 
 def iniciar_scheduler():
