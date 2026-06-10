@@ -5008,73 +5008,76 @@ def pago_payway():
     # ── Datos para CyberSource (antifraude — obligatorio en produccion) ─────────
     ip_cliente     = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
     nombre_split   = cli.get('nombre', 'Comprador Web').split(' ', 1)
-    cs_first_name  = nombre_split[0]
-    cs_last_name   = nombre_split[1] if len(nombre_split) > 1 else cs_first_name
+    def _cs_clean(s, fallback='NA'):
+        # CyberSource exige first_name/last_name sin caracteres especiales ni tildes
+        import unicodedata, re as _re_cs
+        s = unicodedata.normalize('NFKD', str(s or '')).encode('ascii', 'ignore').decode('ascii')
+        s = _re_cs.sub(r'[^A-Za-z ]', '', s).strip()
+        return s or fallback
+    cs_first_name  = _cs_clean(nombre_split[0], 'Cliente')
+    cs_last_name   = _cs_clean(nombre_split[1] if len(nombre_split) > 1 else nombre_split[0], 'Web')
     cs_email       = cli.get('email', '') or 'sin_email@mercadomuebles.com.ar'
 
+    # Dirección normalizada (street1 = calle, street2 = barrio/complemento opcional)
+    cs_street1 = (cli.get('calle') or cli.get('direccion') or 'Sin direccion')[:60]
+    cs_city    = (cli.get('ciudad') or 'Buenos Aires') or 'Buenos Aires'
+    cs_cp      = str(cli.get('cp') or '1000')[:10]
+    cs_phone   = str(cli.get('telefono') or '0')[:15]
+    cs_dni     = str(cli.get('dni') or '00000000')
+
+    # Estructura RETAIL de CyberSource (spec oficial Payway, requiere template_id=2)
     fraud_detection = {
-        "send_to_cs": False,
+        "send_to_cs": True,
         "channel": "Web",
-        "device_unique_identifier": device_fingerprint_id or ip_cliente,
+        "device_unique_id": device_fingerprint_id or ip_cliente,
         "bill_to": {
-            "city":           cli.get('ciudad', 'Buenos Aires') or 'Buenos Aires',
-            "country":        "AR",
-            "customer_id":    cli.get('dni', '00000000') or '00000000',
-            "email":          cs_email,
-            "first_name":     cs_first_name,
-            "last_name":      cs_last_name,
-            "phone_number":   cli.get('telefono', '0') or '0',
-            "postal_code":    cli.get('cp', '1000') or '1000',
-            "state":          "BA",
-            "street1":        cli.get('calle', 'Sin direccion') or 'Sin direccion',
-            "street2":        cli.get('altura', '0') or '0',
+            "city":         cs_city,
+            "country":      "AR",
+            "customer_id":  cs_dni,
+            "email":        cs_email,
+            "first_name":   cs_first_name,
+            "last_name":    cs_last_name,
+            "phone_number": cs_phone,
+            "postal_code":  cs_cp,
+            "state":        "BA",
+            "street1":      cs_street1,
         },
         "ship_to": {
-            "city":           cli.get('ciudad', 'Buenos Aires') or 'Buenos Aires',
-            "country":        "AR",
-            "customer_id":    cli.get('dni', '00000000') or '00000000',
-            "email":          cs_email,
-            "first_name":     cs_first_name,
-            "last_name":      cs_last_name,
-            "phone_number":   cli.get('telefono', '0') or '0',
-            "postal_code":    cli.get('cp', '1000') or '1000',
-            "state":          "BA",
-            "street1":        cli.get('calle', 'Bahia Blanca') or 'Bahia Blanca',
-            "street2":        cli.get('altura', '1777') or '1777',
+            "city":         cs_city,
+            "country":      "AR",
+            "email":        cs_email,
+            "first_name":   cs_first_name,
+            "last_name":    cs_last_name,
+            "phone_number": cs_phone,
+            "postal_code":  cs_cp,
+            "state":        "BA",
+            "street1":      cs_street1,
         },
         "purchase_totals": {
-            "currency":       "ARS",
-            "amount":         amount_centavos,
+            "currency":         "ARS",
+            "grandTotalAmount": amount_centavos,
         },
         "customer_in_site": {
-            "days_in_site":       0,
-            "is_guest":           True,
-            "password":           "",
-            "num_of_transactions": 1,
-            "cellphone_number":   cli.get('telefono', '0') or '0',
-            "date_of_birth":      "01011980",
-            "street":             cli.get('calle', 'Sin direccion') or 'Sin direccion',
+            "days_in_site":        "0",
+            "is_guest":            True,
+            "num_of_transactions": "1",
+            "cellphone_number":    cs_phone,
+            "street":              cs_street1,
         },
-        "retail_transaction_data": {
-            "ship_method":    "E" if cli.get('tipo_entrega') == 'envio' else "P",
-            "days_to_delivery": "2",
-            "tax_amount":     0,
-            "customer_hostname": request.host or 'mercadomuebles.com.ar',
-            "customer_browser": request.headers.get('User-Agent', '')[:150],
-            "customer_ip":    ip_cliente,
-            "items": [
-                {
-                    "code":        it.get('sku', 'PROD'),
-                    "description": it.get('nombre', it.get('sku', 'Producto'))[:100],
-                    "name":        it.get('nombre', it.get('sku', 'Producto'))[:50],
-                    "sku":         it.get('sku', 'PROD'),
-                    "total_amount": int(float(it.get('precio', 0)) * int(it.get('cantidad', 1)) * 100),
-                    "quantity":    int(it.get('cantidad', 1)),
-                    "unit_price":  int(float(it.get('precio', 0)) * 100),
-                }
-                for it in cart_items
-            ]
-        }
+        "days_to_delivery": "2",
+        "dispatch_method":  "delivery" if cli.get('tipo_entrega') == 'envio' else "storepickup",
+        "items": [
+            {
+                "code":         it.get('sku', 'PROD'),
+                "description":  (it.get('nombre') or it.get('sku') or 'Producto')[:100],
+                "name":         (it.get('nombre') or it.get('sku') or 'Producto')[:50],
+                "sku":          it.get('sku', 'PROD'),
+                "total_amount": int(float(it.get('precio', 0)) * int(it.get('cantidad', 1)) * 100),
+                "quantity":     int(it.get('cantidad', 1)),
+                "unit_price":   int(float(it.get('precio', 0)) * 100),
+            }
+            for it in cart_items
+        ],
     }
 
     payment_body = {
@@ -5089,6 +5092,7 @@ def pago_payway():
         "establishment_name":  "MERCADOMUEBLES",
         "plan_gobierno":        False,
         "sub_payments":        [],
+        "template_id":         2,
         "fraud_detection":     fraud_detection,
     }
 
