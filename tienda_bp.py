@@ -4805,7 +4805,7 @@ def _fraude_norm(s):
     return ' '.join(s.split())
 
 
-_FRAUDE_VELOCIDAD_ACTIVA = False  # TEMP: desactivado durante debug de CyberSource (reactivar a True)
+_FRAUDE_VELOCIDAD_ACTIVA = True  # kill-switch de las reglas de velocidad (blocklist siempre activa)
 
 
 def _fraude_gate(cli, bin_num='', last4=''):
@@ -4841,9 +4841,7 @@ def _fraude_gate(cli, bin_num='', last4=''):
                 if nd.get(t) and v == nd[t]:
                     return True, f'blocklist:{t}'
 
-        # TEMP — debug CyberSource: reglas de velocidad desactivadas para no
-        # bloquear las pruebas repetidas con la misma tarjeta/DNI. La blocklist
-        # sigue activa. Volver _FRAUDE_VELOCIDAD_ACTIVA a True al terminar.
+        # Kill-switch de las reglas de velocidad (la blocklist sigue activa arriba).
         if not _FRAUDE_VELOCIDAD_ACTIVA:
             return False, ''
 
@@ -5121,7 +5119,7 @@ def pago_payway():
         "fraud_detection":     fraud_detection,
     }
 
-    logger.warning(f"[pago_payway][CSDBG] device_fp_in={device_fingerprint_id!r} ip={ip_cliente!r} device_unique_id={(device_fingerprint_id or ip_cliente)!r}")
+    logger.info(f"[pago_payway] device_fp={device_fingerprint_id!r} ship_street={cli.get('calle')!r} ship_city={cli.get('ciudad')!r}")
 
     try:
         headers = {
