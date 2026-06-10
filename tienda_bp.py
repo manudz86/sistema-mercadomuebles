@@ -5098,7 +5098,7 @@ def pago_payway():
         "fraud_detection":     fraud_detection,
     }
 
-    logger.info(f"[pago_payway] device_fp={device_fingerprint_id!r} ship_street={cli.get('calle')!r} ship_city={cli.get('ciudad')!r}")
+    logger.warning(f"[pago_payway][CSDBG] device_fp_in={device_fingerprint_id!r} ip={ip_cliente!r} device_unique_id={(device_fingerprint_id or ip_cliente)!r}")
 
     try:
         headers = {
