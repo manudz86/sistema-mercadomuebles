@@ -20,6 +20,12 @@ if (window.self !== window.top) {
     transaction_id: '{{ numero_pedido }}'
   });
 </script>
+<script>
+  fbq('track', 'Purchase', {
+    value: {{ importe_abonado | default(0) | round(2) }},
+    currency: 'ARS'
+  }, { eventID: '{{ numero_pedido }}' });
+</script>
 {% endif %}
 
 <div class="pago-container">

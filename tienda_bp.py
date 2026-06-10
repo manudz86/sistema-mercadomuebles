@@ -5795,11 +5795,22 @@ def pago_exito_getnet(pedido_ref):
     session.pop('carrito', None)
     session.pop('mp_preference_id', None)
     ga_value = _importe_total_venta(numero_pedido)
+    importe_abonado = 0
+    try:
+        _db = get_db(); _cur = _db.cursor()
+        _cur.execute("SELECT importe_abonado FROM ventas WHERE numero_venta=%s LIMIT 1", (numero_pedido,))
+        _r = _cur.fetchone()
+        _cur.close(); _db.close()
+        if _r:
+            importe_abonado = float(_r['importe_abonado'] or 0)
+    except Exception:
+        pass
     return render_template(
         'tienda/pago_exito_getnet.html',
         payment_id=pedido_ref,
         numero_pedido=numero_pedido,
         ga_value=ga_value,
+        importe_abonado=importe_abonado,
     )
 
 
@@ -5851,11 +5862,22 @@ def pago_exito():
 
         print(f"[getnet_exito] payment_id={payment_id} numero={numero_pedido}", flush=True)
         ga_value = _importe_total_venta(numero_pedido)
+        importe_abonado_gn = 0
+        try:
+            _db = get_db(); _cur = _db.cursor()
+            _cur.execute("SELECT importe_abonado FROM ventas WHERE numero_venta=%s LIMIT 1", (numero_pedido,))
+            _r = _cur.fetchone()
+            _cur.close(); _db.close()
+            if _r:
+                importe_abonado_gn = float(_r['importe_abonado'] or 0)
+        except Exception:
+            pass
         return render_template(
             'tienda/pago_exito_getnet.html',
             payment_id=payment_id or '',
             numero_pedido=numero_pedido,
             ga_value=ga_value,
+            importe_abonado=importe_abonado_gn,
         )
 
     # Numero de venta segun canal
@@ -5868,11 +5890,12 @@ def pago_exito():
     # Obtener datos de la venta para GA4
     ga_items  = []
     ga_value  = 0
+    importe_abonado = 0
     try:
         db = get_db()
         cur = db.cursor()
         cur.execute("""
-            SELECT v.importe_total, iv.sku, iv.cantidad, iv.precio_unitario,
+            SELECT v.importe_total, v.importe_abonado, iv.sku, iv.cantidad, iv.precio_unitario,
                    COALESCE(pb.nombre, pc.nombre, iv.sku) as nombre
             FROM ventas v
             JOIN items_venta iv ON iv.venta_id = v.id
@@ -5883,6 +5906,7 @@ def pago_exito():
         rows = cur.fetchall()
         if rows:
             ga_value = float(rows[0]['importe_total'] or 0)
+            importe_abonado = float(rows[0]['importe_abonado'] or 0)
             for r in rows:
                 ga_items.append({
                     'item_id':   r['sku'],
@@ -5900,6 +5924,8 @@ def pago_exito():
         carrito_count = 0,
         ga_value      = ga_value,
         ga_items      = ga_items,
+        importe_abonado = importe_abonado,
+        numero_venta  = numero_venta,
     )
 
 

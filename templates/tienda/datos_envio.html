@@ -3,6 +3,9 @@
 {% block titulo %}Datos de entrega — Mercadomuebles{% endblock %}
 
 {% block contenido %}
+<script>
+  fbq('track', 'InitiateCheckout', { currency: 'ARS', value: {{ (total - descuento_monto) | round(2) }} });
+</script>
 <div style="max-width:600px; margin:40px auto; padding:0 16px;">
 
   <h2 style="font-size:1.4rem; font-weight:700; color:#1a1a2e; margin-bottom:8px;">

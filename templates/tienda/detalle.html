@@ -208,7 +208,7 @@
           <button onclick="cambiarQty(1)">+</button>
         </div>
         <button class="btn-agregar-grande"
-          onclick="agregarCarrito('{{ producto.sku }}', '{{ producto.nombre | replace("'", "\\'") }}', {{ producto.precio }}, parseInt(document.getElementById('qty').textContent)); gtag('event', 'add_to_cart', {currency: 'ARS', value: {{ producto.precio }} * parseInt(document.getElementById('qty').textContent), items: [{item_id: '{{ producto.sku }}', item_name: '{{ producto.nombre | replace("'", "\\'") }}', price: {{ producto.precio }}, quantity: parseInt(document.getElementById('qty').textContent)}]});">
+          onclick="agregarCarrito('{{ producto.sku }}', '{{ producto.nombre | replace("'", "\\'") }}', {{ producto.precio }}, parseInt(document.getElementById('qty').textContent)); gtag('event', 'add_to_cart', {currency: 'ARS', value: {{ producto.precio }} * parseInt(document.getElementById('qty').textContent), items: [{item_id: '{{ producto.sku }}', item_name: '{{ producto.nombre | replace("'", "\\'") }}', price: {{ producto.precio }}, quantity: parseInt(document.getElementById('qty').textContent)}]}); fbq('track','AddToCart',{currency:'ARS', value:{{ producto.precio }}*parseInt(document.getElementById('qty').textContent), content_type:'product', content_ids:['{{ producto.sku }}'], contents:[{id:'{{ producto.sku }}',quantity:parseInt(document.getElementById('qty').textContent),item_price:{{ producto.precio }}}]});">
           🛒 Agregar al carrito
         </button>
       </div>
