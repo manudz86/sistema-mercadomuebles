@@ -26,6 +26,9 @@ from datetime import datetime, timezone, timedelta
 import uuid
 import smtplib
 import requests as http_requests
+import hashlib
+import time
+import threading
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import unicodedata
@@ -4446,6 +4449,15 @@ def checkout():
     sdk      = get_mp_sdk()
     base_url = os.getenv('APP_BASE_URL', 'https://sistema.mercadomuebles.com.ar')
 
+    # ── Señales del navegador para Meta CAPI (las usa webhook_mp al disparar) ──
+    try:
+        cliente['_fbp'] = request.cookies.get('_fbp')
+        cliente['_fbc'] = request.cookies.get('_fbc')
+        cliente['_capi_ip'] = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
+        cliente['_capi_ua'] = request.headers.get('User-Agent')
+    except Exception:
+        pass
+
     # ── Guardar pedido pendiente en DB con ID corto ──────────────────────────
     pedido_ref = str(uuid.uuid4())[:16].replace('-', '')  # ID corto único
     db_tmp = get_db()
@@ -4803,6 +4815,102 @@ def _fraude_norm(s):
     s = unicodedata.normalize('NFKD', s)
     s = ''.join(ch for ch in s if not unicodedata.combining(ch))
     return ' '.join(s.split())
+
+
+# ── Meta Conversions API (CAPI) ───────────────────────────────────────────
+META_DATASET_ID = '5994867780529728'
+META_GRAPH_VER  = 'v25.0'
+
+def _capi_sha256(v):
+    if not v:
+        return None
+    return hashlib.sha256(str(v).strip().lower().encode('utf-8')).hexdigest()
+
+def _capi_phone(tel):
+    if not tel:
+        return None
+    d = ''.join(ch for ch in str(tel) if ch.isdigit())
+    if not d:
+        return None
+    if not d.startswith('54'):
+        d = '54' + d
+    return hashlib.sha256(d.encode('utf-8')).hexdigest()
+
+def enviar_capi_purchase(*, numero_venta, email='', telefono='', nombre='',
+                         dni='', ciudad='', provincia='', cp='', total=0,
+                         items=None, client_ip=None, user_agent=None,
+                         fbp=None, fbc=None, source_url=None):
+    """Envía Purchase a la Meta CAPI. No bloquea ni lanza: corre en thread daemon."""
+    token = os.getenv('CAPI', '')
+    if not token:
+        return
+    test_code = os.getenv('CAPI_TEST_CODE', '')
+    items = items or []
+    fn = ln = None
+    if nombre:
+        partes = str(nombre).strip().split()
+        if partes:
+            fn = _capi_sha256(partes[0])
+            if len(partes) > 1:
+                ln = _capi_sha256(' '.join(partes[1:]))
+    user_data = {}
+    if email:     user_data['em'] = [_capi_sha256(email)]
+    ph = _capi_phone(telefono)
+    if ph:        user_data['ph'] = [ph]
+    if fn:        user_data['fn'] = [fn]
+    if ln:        user_data['ln'] = [ln]
+    if ciudad:    user_data['ct'] = [_capi_sha256(ciudad)]
+    if provincia: user_data['st'] = [_capi_sha256(provincia)]
+    if cp:        user_data['zp'] = [_capi_sha256(cp)]
+    user_data['country'] = [_capi_sha256('ar')]
+    ext = email or dni
+    if ext:        user_data['external_id'] = [_capi_sha256(ext)]
+    if client_ip:  user_data['client_ip_address'] = client_ip
+    if user_agent: user_data['client_user_agent'] = user_agent
+    if fbp:        user_data['fbp'] = fbp
+    if fbc:        user_data['fbc'] = fbc
+
+    contents, content_ids, num_items = [], [], 0
+    for it in items:
+        sku = it.get('sku') or it.get('item_id')
+        qty = int(it.get('cantidad') or it.get('quantity') or 1)
+        pr  = float(it.get('precio') or it.get('price') or 0)
+        if sku:
+            contents.append({'id': sku, 'quantity': qty, 'item_price': pr})
+            content_ids.append(sku)
+            num_items += qty
+
+    custom_data = {'currency': 'ARS', 'value': float(total or 0),
+                   'content_type': 'product', 'order_id': numero_venta}
+    if contents:
+        custom_data['contents'] = contents
+        custom_data['content_ids'] = content_ids
+        custom_data['num_items'] = num_items
+
+    event = {'event_name': 'Purchase', 'event_time': int(time.time()),
+             'event_id': numero_venta, 'action_source': 'website',
+             'user_data': user_data, 'custom_data': custom_data}
+    if source_url:
+        event['event_source_url'] = source_url
+
+    payload = {'data': [event]}
+    if test_code:
+        payload['test_event_code'] = test_code
+
+    url = (f'https://graph.facebook.com/{META_GRAPH_VER}/'
+           f'{META_DATASET_ID}/events?access_token={token}')
+
+    def _post():
+        try:
+            r = http_requests.post(url, json=payload, timeout=6)
+            if r.status_code != 200:
+                print(f"[CAPI] {numero_venta} status={r.status_code} {r.text[:300]}")
+            else:
+                print(f"[CAPI] {numero_venta} OK")
+        except Exception as e:
+            print(f"[CAPI] {numero_venta} ERROR {e}")
+
+    threading.Thread(target=_post, daemon=True).start()
 
 
 _FRAUDE_VELOCIDAD_ACTIVA = True  # kill-switch de las reglas de velocidad (blocklist siempre activa)
@@ -5306,6 +5414,20 @@ def pago_payway():
     log_evento('INFO', 'webhook', 'nueva_venta_payway',
         f"Venta tienda web registrada por webhook Payway. Número: {numero_venta}. Cliente: {nombre_cliente}. Total: ${total_con_coef}.",
         venta_id=venta_id)
+
+    # ── Meta CAPI Purchase (server-side) ──────────────────────────────────────
+    try:
+        _ip = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
+        enviar_capi_purchase(
+            numero_venta=numero_venta, email=email_cliente, telefono=telefono_cliente,
+            nombre=nombre_cliente, dni=dni_cliente,
+            provincia=cli.get('provincia',''), ciudad=cli.get('ciudad',''), cp=cli.get('cp',''),
+            total=total_con_coef, items=cart_items_adj,
+            client_ip=_ip, user_agent=request.headers.get('User-Agent'),
+            fbp=request.cookies.get('_fbp'), fbc=request.cookies.get('_fbc'),
+            source_url=request.url)
+    except Exception as _e:
+        print(f"[CAPI] payway: {_e}")
 
     # ── Cupón ─────────────────────────────────────────────────────────────────
     cupon_session = cli.get('cupon')
@@ -6413,8 +6535,15 @@ def webhook_mp():
         # importe_total = solo productos (sin flete), igual que ventas ML
         importe_solo_productos = sum(float(it.get('precio', 0)) * int(it.get('cantidad', 1)) for it in cart_items) if cart_items else importe_producto
 
-        # importe_abonado = total real cobrado por MP (productos + flete) → flete verde
-        importe_abonado_real = total_paid if total_paid > 0 else importe_solo_productos + costo_flete
+        # Monto realmente cobrado por MP, neto de cupón. transaction_amount incluye el flete.
+        _mp_charged = float(payment.get('transaction_amount', 0) or 0)
+        if _mp_charged > 0:
+            importe_abonado_real = _mp_charged
+            importe_total_mp     = max(0.0, round(_mp_charged - costo_flete, 2))
+        else:
+            # Fallback al comportamiento previo si MP no devolviera transaction_amount
+            importe_abonado_real = importe_solo_productos + costo_flete
+            importe_total_mp     = importe_solo_productos
 
         # ── INSERT ventas ─────────────────────────────────────────────────────
         # Fecha en zona horaria Argentina (UTC-3)
@@ -6442,7 +6571,7 @@ def webhook_mp():
         """, (
             numero_venta,
             nombre_cliente, telefono_cliente,
-            dni_cliente, provincia, importe_solo_productos, importe_abonado_real,
+            dni_cliente, provincia, importe_total_mp, importe_abonado_real,
             tipo_entrega_val, metodo_envio_val,
             direccion,
             costo_flete, importe_abonado_real,
@@ -6473,6 +6602,18 @@ def webhook_mp():
                     VALUES (%s, %s, %s, %s)
                 """, (venta_id, it['sku'], it['cantidad'], it['precio']))
         db.commit()
+        # ── Meta CAPI Purchase (server-side) ──────────────────────────────────
+        try:
+            enviar_capi_purchase(
+                numero_venta=numero_venta, email=email_cliente, telefono=telefono_cliente,
+                nombre=nombre_cliente, dni=dni_cliente,
+                provincia=cli.get('provincia',''), ciudad=cli.get('ciudad',''), cp=cli.get('cp',''),
+                total=importe_abonado_real, items=cart_items,
+                client_ip=cli.get('_capi_ip'), user_agent=cli.get('_capi_ua'),
+                fbp=cli.get('_fbp'), fbc=cli.get('_fbc'),
+                source_url=(os.getenv('APP_BASE_URL','') + '/pago/exito'))
+        except Exception as _e:
+            print(f"[CAPI] webhook_mp: {_e}")
         try:
             from app import enviar_whatsapp
             tel = (telefono_cliente or '').strip().replace('+','').replace(' ','').replace('-','')
@@ -6837,6 +6978,18 @@ def webhook_getnet():
             )
 
         db.commit()
+        # ── Meta CAPI Purchase (server-side) ──────────────────────────────────
+        try:
+            enviar_capi_purchase(
+                numero_venta=numero_venta, email=email_cliente, telefono=telefono_cliente,
+                nombre=nombre_cliente, dni=dni_cliente,
+                provincia=cli.get('provincia',''), ciudad=cli.get('ciudad',''), cp=cli.get('cp',''),
+                total=importe_abonado_real, items=cart_items_adj,
+                client_ip=cli.get('_capi_ip'), user_agent=cli.get('_capi_ua'),
+                fbp=cli.get('_fbp'), fbc=cli.get('_fbc'),
+                source_url=(os.getenv('APP_BASE_URL','') + '/pago/exito'))
+        except Exception as _e:
+            print(f"[CAPI] webhook_getnet: {_e}")
         try:
             from app import enviar_whatsapp
             tel = (telefono_cliente or '').strip().replace('+','').replace(' ','').replace('-','')
