@@ -5029,7 +5029,7 @@ def pago_payway():
     fraud_detection = {
         "send_to_cs": True,
         "channel": "Web",
-        "device_unique_id": device_fingerprint_id or ip_cliente,
+        "device_unique_identifier": device_fingerprint_id or ip_cliente,
         "bill_to": {
             "city":         cs_city,
             "country":      "AR",
@@ -5043,8 +5043,8 @@ def pago_payway():
             "street1":      cs_street1,
         },
         "purchase_totals": {
-            "currency":         "ARS",
-            "grandTotalAmount": amount_centavos,
+            "currency": "ARS",
+            "amount":   amount_centavos,
         },
         "customer_in_site": {
             "days_in_site":        1,
@@ -5083,6 +5083,12 @@ def pago_payway():
     }
 
     payment_body = {
+        "user_id":             cs_dni,
+        "customer": {
+            "id":         cs_dni,
+            "email":      cs_email,
+            "ip_address": ip_cliente,
+        },
         "site_transaction_id": site_tx_id,
         "token":               token,
         "payment_method_id":   payment_method_id,
