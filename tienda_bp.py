@@ -4825,8 +4825,8 @@ def _fraude_gate(cli, bin_num='', last4=''):
             'nombre':    _fraude_norm(cli.get('nombre')),
         }
 
-        # 1) Blocklist
-        cur.execute("SELECT tipo, valor FROM fraude_blocklist WHERE activo = 1")
+        # 1) Blocklist (entradas lista='block')
+        cur.execute("SELECT tipo, valor FROM fraude_blocklist WHERE activo = 1 AND lista = 'block'")
         for e in cur.fetchall():
             t, v = e['tipo'], _fraude_norm(e['valor'])
             if not v:
@@ -4844,6 +4844,20 @@ def _fraude_gate(cli, bin_num='', last4=''):
         # Kill-switch de las reglas de velocidad (la blocklist sigue activa arriba).
         if not _FRAUDE_VELOCIDAD_ACTIVA:
             return False, ''
+
+        # Whitelist (lista='allow'): exime de las reglas de velocidad por
+        # email/dni/telefono/direccion. La blocklist de arriba no se ve afectada.
+        cur.execute("SELECT tipo, valor FROM fraude_blocklist WHERE activo = 1 AND lista = 'allow'")
+        for e in cur.fetchall():
+            t, v = e['tipo'], _fraude_norm(e['valor'])
+            if not v:
+                continue
+            if t == 'direccion':
+                if nd.get('direccion') and v in nd['direccion']:
+                    return False, ''
+            elif t in ('dni', 'email', 'telefono'):
+                if nd.get(t) and v == nd[t]:
+                    return False, ''
 
         # 2) Velocidad por tarjeta (necesita bin Y last4 para evitar falsos positivos)
         if bin_num and last4:
@@ -4880,6 +4894,24 @@ def _fraude_gate(cli, bin_num='', last4=''):
     finally:
         cur.close()
         db.close()
+
+
+def _fraude_registrar_bloqueo(cli, motivo, bin_num='', last4='', ref=''):
+    """Registra un bloqueo del gate en fraude_bloqueos (para verlo en /intentos-pago).
+    Fail-silent: nunca debe afectar el flujo de pago."""
+    try:
+        db = get_db()
+        cur = db.cursor()
+        cur.execute(
+            "INSERT INTO fraude_bloqueos (motivo, dni, email, telefono, direccion, bin, last4, ref) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            (motivo, cli.get('dni'), cli.get('email'), cli.get('telefono'),
+             cli.get('direccion'), bin_num or None, last4 or None, ref or None))
+        db.commit()
+        cur.close()
+        db.close()
+    except Exception as e:
+        logger.warning(f"[FRAUDE] no se pudo registrar bloqueo: {e}")
 
 
 @tienda_bp.route('/pago/payway/token', methods=['POST'])
@@ -4981,6 +5013,7 @@ def pago_payway():
         db.close()
         logger.warning(f"[FRAUDE] Pago Payway BLOQUEADO ref={pedido_ref} motivo={_blk_motivo} "
                        f"dni={cli.get('dni')} dir={str(cli.get('direccion'))[:60]!r}")
+        _fraude_registrar_bloqueo(cli, _blk_motivo, bin_numero, session.get('pw_last4', ''), pedido_ref)
         _base_url = os.getenv('APP_BASE_URL', 'https://sistema.mercadomuebles.com.ar')
         # Misma respuesta que un rechazo del banco (indistinguible para el atacante)
         return jsonify({'status': 'rejected', 'redirect_url': f"{_base_url}/tienda/pago/error"}), 400
@@ -5466,6 +5499,7 @@ def pago_getnet_crear():
     if _blk:
         logger.warning(f"[FRAUDE] Intent GetNet BLOQUEADO ref={pedido_ref} motivo={_blk_motivo} "
                        f"dni={cli.get('dni')} dir={str(cli.get('direccion'))[:60]!r}")
+        _fraude_registrar_bloqueo(cli, _blk_motivo, '', '', pedido_ref)
         # Mismo mensaje que un error genérico de GetNet (indistinguible)
         return jsonify(error='No se pudo iniciar el pago con GetNet. Intentá con otro método.'), 500
 

@@ -16429,11 +16429,13 @@ def intentos_pago():
     estados_disp = sorted({(r.get('status_es') or '') for r in
                            query_db("SELECT DISTINCT status_es FROM payway_intentos")} - {''})
     ultima = query_one("SELECT MAX(fecha_sync) AS u FROM payway_intentos")
-    blocklist = query_db("SELECT * FROM fraude_blocklist ORDER BY activo DESC, fecha_alta DESC")
+    blocklist = query_db("SELECT * FROM fraude_blocklist WHERE lista='block' ORDER BY activo DESC, fecha_alta DESC")
+    whitelist = query_db("SELECT * FROM fraude_blocklist WHERE lista='allow' ORDER BY activo DESC, fecha_alta DESC")
+    bloqueos  = query_db("SELECT * FROM fraude_bloqueos ORDER BY fecha DESC LIMIT 300")
     return render_template('intentos_pago.html', intentos=rows, q=q, estado=estado,
                            total=len(rows), estados_disp=estados_disp,
                            ultima_sync=(ultima['u'] if ultima else None),
-                           blocklist=blocklist,
+                           blocklist=blocklist, whitelist=whitelist, bloqueos=bloqueos,
                            tab=request.args.get('tab', 'intentos'))
 
 
@@ -16494,35 +16496,48 @@ def intentos_pago_blocklist_add():
             entradas.append(('tarjeta', valor_tarj))
         for tipo, valor in entradas:
             if valor:
-                execute_db("INSERT IGNORE INTO fraude_blocklist (tipo, valor, motivo) VALUES (%s,%s,%s)",
+                execute_db("INSERT INTO fraude_blocklist (tipo, valor, lista, motivo, activo) VALUES (%s,%s,'block',%s,1) "
+                           "ON DUPLICATE KEY UPDATE lista='block', motivo=VALUES(motivo), activo=1",
                            (tipo, valor, motivo))
                 agregados += 1
         flash(f'🚫 Bloqueados {agregados} datos de la operación {payment_id}', 'success')
-    else:
-        tipo   = (request.form.get('tipo') or '').strip()
-        valor  = _fraude_norm(request.form.get('valor') or '')
-        motivo = (request.form.get('motivo') or '').strip() or 'Alta manual'
-        if tipo in ('direccion', 'dni', 'email', 'telefono', 'nombre', 'tarjeta') and valor:
-            execute_db("INSERT IGNORE INTO fraude_blocklist (tipo, valor, motivo) VALUES (%s,%s,%s)",
-                       (tipo, valor, motivo))
-            flash(f'🚫 Agregado a blocklist: {tipo} = {valor}', 'success')
+        return redirect(url_for('intentos_pago', tab='blocklist'))
+
+    tipo   = (request.form.get('tipo') or '').strip()
+    valor  = _fraude_norm(request.form.get('valor') or '')
+    lista  = 'allow' if (request.form.get('lista') == 'allow') else 'block'
+    motivo = (request.form.get('motivo') or '').strip() or ('Excepción manual' if lista == 'allow' else 'Alta manual')
+    if tipo in ('direccion', 'dni', 'email', 'telefono', 'nombre', 'tarjeta') and valor:
+        execute_db("INSERT INTO fraude_blocklist (tipo, valor, lista, motivo, activo) VALUES (%s,%s,%s,%s,1) "
+                   "ON DUPLICATE KEY UPDATE lista=VALUES(lista), motivo=VALUES(motivo), activo=1",
+                   (tipo, valor, lista, motivo))
+        if lista == 'allow':
+            flash(f'✅ Excepción agregada (no se bloquea por velocidad): {tipo} = {valor}', 'success')
         else:
-            flash('Tipo o valor inválido', 'warning')
-    return redirect(url_for('intentos_pago', tab='blocklist'))
+            flash(f'🚫 Agregado a blocklist: {tipo} = {valor}', 'success')
+    else:
+        flash('Tipo o valor inválido', 'warning')
+    return redirect(url_for('intentos_pago', tab=('whitelist' if lista == 'allow' else 'blocklist')))
 
 
 @app.route('/intentos-pago/blocklist/<int:bl_id>/toggle', methods=['POST'])
 @login_required
 @vendedor_required
 def intentos_pago_blocklist_toggle(bl_id):
-    row = query_one("SELECT id, activo, tipo, valor FROM fraude_blocklist WHERE id = %s", (bl_id,))
+    row = query_one("SELECT id, activo, tipo, valor, lista FROM fraude_blocklist WHERE id = %s", (bl_id,))
+    tab = 'blocklist'
     if not row:
         flash('Entrada no encontrada', 'warning')
     else:
+        tab = 'whitelist' if row.get('lista') == 'allow' else 'blocklist'
         nuevo = 0 if row['activo'] else 1
         execute_db("UPDATE fraude_blocklist SET activo = %s WHERE id = %s", (nuevo, bl_id))
-        flash(f"{'✅ Desbloqueado' if nuevo == 0 else '🚫 Re-bloqueado'}: {row['tipo']} = {row['valor']}", 'success')
-    return redirect(url_for('intentos_pago', tab='blocklist'))
+        if row.get('lista') == 'allow':
+            msg = '✅ Excepción activada' if nuevo == 1 else '⛔ Excepción quitada'
+        else:
+            msg = '🚫 Re-bloqueado' if nuevo == 1 else '✅ Desbloqueado'
+        flash(f"{msg}: {row['tipo']} = {row['valor']}", 'success')
+    return redirect(url_for('intentos_pago', tab=tab))
 
 
 def iniciar_scheduler():

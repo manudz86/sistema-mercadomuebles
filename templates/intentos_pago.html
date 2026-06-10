@@ -3,6 +3,47 @@
 {% block title %}Intentos de pago — Payway{% endblock %}
 
 {% block content %}
+
+{# ── macro reutilizable para blocklist / whitelist ── #}
+{% macro _tabla_lista(filas, tipo_lista) %}
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle small">
+    <thead class="table-light">
+      <tr><th>Estado</th><th>Tipo</th><th>Valor</th><th>Motivo</th><th>Fecha de alta</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for b in filas %}
+      <tr {% if not b.activo %}class="text-muted"{% endif %}>
+        <td>
+          {% if b.activo %}
+            {% if tipo_lista == 'allow' %}<span class="badge bg-success">Activa</span>{% else %}<span class="badge bg-danger">Activo</span>{% endif %}
+          {% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}
+        </td>
+        <td>{{ b.tipo }}</td>
+        <td><code>{{ b.valor }}</code></td>
+        <td class="small">{{ b.motivo or '' }}</td>
+        <td class="text-nowrap">{{ b.fecha_alta.strftime('%d/%m/%y %H:%M') if b.fecha_alta else '' }}</td>
+        <td>
+          <form method="POST" action="{{ url_for('intentos_pago_blocklist_toggle', bl_id=b.id) }}" class="d-inline">
+            {% if tipo_lista == 'allow' %}
+              {% if b.activo %}<button type="submit" class="btn btn-sm btn-outline-secondary py-0 px-2">⛔ Quitar excepción</button>
+              {% else %}<button type="submit" class="btn btn-sm btn-outline-success py-0 px-2">✅ Reactivar</button>{% endif %}
+            {% else %}
+              {% if b.activo %}<button type="submit" class="btn btn-sm btn-outline-success py-0 px-2"
+                      onclick="return confirm('¿Desbloquear {{ b.tipo }} = {{ b.valor }}?');">✅ Desbloquear</button>
+              {% else %}<button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2">🚫 Re-bloquear</button>{% endif %}
+            {% endif %}
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="text-center text-muted py-4">Lista vacía.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
 <div class="container-fluid py-4">
 
   <div class="row mb-3 align-items-center">
@@ -23,25 +64,34 @@
   </div>
 
   {% set bl_activos = blocklist | selectattr('activo') | list | length %}
+  {% set wl_activos = whitelist | selectattr('activo') | list | length %}
   <ul class="nav nav-tabs mb-3">
     <li class="nav-item">
-      <a class="nav-link {% if tab != 'blocklist' %}active{% endif %}"
-         href="{{ url_for('intentos_pago') }}">
+      <a class="nav-link {% if tab == 'intentos' %}active{% endif %}" href="{{ url_for('intentos_pago') }}">
         Intentos <span class="badge bg-secondary">{{ total }}</span>
       </a>
     </li>
     <li class="nav-item">
-      <a class="nav-link {% if tab == 'blocklist' %}active{% endif %}"
-         href="{{ url_for('intentos_pago', tab='blocklist') }}">
+      <a class="nav-link {% if tab == 'bloqueos' %}active{% endif %}" href="{{ url_for('intentos_pago', tab='bloqueos') }}">
+        ⛔ Bloqueos <span class="badge bg-warning text-dark">{{ bloqueos | length }}</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if tab == 'blocklist' %}active{% endif %}" href="{{ url_for('intentos_pago', tab='blocklist') }}">
         🚫 Blocklist <span class="badge bg-danger">{{ bl_activos }}</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if tab == 'whitelist' %}active{% endif %}" href="{{ url_for('intentos_pago', tab='whitelist') }}">
+        ✅ Excepciones <span class="badge bg-success">{{ wl_activos }}</span>
       </a>
     </li>
   </ul>
 
-  {% if tab != 'blocklist' %}
+  {% if tab == 'intentos' %}
   {# ════════════════ SOLAPA INTENTOS ════════════════ #}
-
   <form method="GET" class="row g-2 mb-3">
+    <input type="hidden" name="tab" value="intentos">
     <div class="col-md-5">
       <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm"
              placeholder="Buscar por nombre, DNI, dirección, email, tarjeta, ref o motivo…">
@@ -67,20 +117,10 @@
     <table class="table table-sm table-hover align-middle small">
       <thead class="table-light">
         <tr>
-          <th>Fecha</th>
-          <th>Estado</th>
-          <th>Motivo</th>
-          <th>Nombre</th>
-          <th>DNI</th>
-          <th>Dirección</th>
-          <th>Tel</th>
-          <th>Email</th>
-          <th>Tarjeta</th>
-          <th class="text-end">Monto</th>
-          <th class="text-center">Cuotas</th>
-          <th>Coincidencias</th>
-          <th>Ref</th>
-          <th></th>
+          <th>Fecha</th><th>Estado</th><th>Motivo</th><th>Nombre</th><th>DNI</th>
+          <th>Dirección</th><th>Tel</th><th>Email</th><th>Tarjeta</th>
+          <th class="text-end">Monto</th><th class="text-center">Cuotas</th>
+          <th>Coincidencias</th><th>Ref</th><th></th>
         </tr>
       </thead>
       <tbody>
@@ -102,121 +142,128 @@
           <td style="max-width:280px;">{{ r.cli_direccion or '' }}</td>
           <td>{{ r.cli_telefono or '' }}</td>
           <td>{{ r.cli_email or '' }}</td>
-          <td class="text-nowrap">
-            {{ r.card_brand or '' }}{% if r.last4 %} ••{{ r.last4 }}{% endif %}
-          </td>
+          <td class="text-nowrap">{{ r.card_brand or '' }}{% if r.last4 %} ••{{ r.last4 }}{% endif %}</td>
           <td class="text-end text-nowrap">${{ "{:,.0f}".format(r.amount) if r.amount is not none else '' }}</td>
           <td class="text-center">{{ r.installments or '' }}</td>
-          <td>
-            {% for f in r.coincidencias %}
-            <span class="badge bg-warning text-dark">{{ f }}</span>
-            {% endfor %}
-          </td>
+          <td>{% for f in r.coincidencias %}<span class="badge bg-warning text-dark">{{ f }}</span> {% endfor %}</td>
           <td class="text-nowrap text-muted" style="font-size:.8em;">{{ r.site_transaction_id or ('PW-' ~ r.payment_id) }}</td>
           <td>
             <form method="POST" action="{{ url_for('intentos_pago_blocklist_add') }}" class="d-inline"
                   onsubmit="return confirm('¿Bloquear dirección, DNI, email, teléfono y tarjeta de esta operación?');">
               <input type="hidden" name="payment_id" value="{{ r.payment_id }}">
-              <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"
-                      title="Bloquear los datos de esta operación">🚫</button>
+              <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1" title="Bloquear los datos de esta operación">🚫</button>
             </form>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="14" class="text-center text-muted py-4">
-          No hay operaciones. Probá <strong>Actualizar ahora</strong> para traerlas de Payway.
-        </td></tr>
+        <tr><td colspan="14" class="text-center text-muted py-4">No hay operaciones. Probá <strong>Actualizar ahora</strong>.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  <p class="text-muted small mt-2"><i class="bi bi-info-circle"></i>
+    Filas <span class="badge bg-warning text-dark">resaltadas</span> = comparten DNI, email, dirección o tarjeta con otra operación.
+    El botón 🚫 agrega los datos de esa operación a la blocklist.</p>
 
-  <p class="text-muted small mt-2">
-    <i class="bi bi-info-circle"></i>
-    Las filas <span class="badge bg-warning text-dark">resaltadas</span> comparten DNI, email,
-    dirección o tarjeta con otra operación. El botón 🚫 agrega los datos de esa operación a la blocklist.
+  {% elif tab == 'bloqueos' %}
+  {# ════════════════ SOLAPA BLOQUEOS ════════════════ #}
+  <p class="text-muted small">
+    Pagos frenados por el gate antifraude <strong>antes</strong> de llegar a Payway. Para liberar a un cliente
+    legítimo, usá <span class="badge bg-success">Permitir</span> sobre el dato que corresponda (lo exime de las reglas de velocidad).
   </p>
-
-  {% else %}
-  {# ════════════════ SOLAPA BLOCKLIST ════════════════ #}
-
-  <div class="card mb-3">
-    <div class="card-body py-2">
-      <form method="POST" action="{{ url_for('intentos_pago_blocklist_add') }}" class="row g-2 align-items-end">
-        <div class="col-md-2">
-          <label class="form-label small mb-0">Tipo</label>
-          <select name="tipo" class="form-select form-select-sm" required>
-            <option value="direccion">Dirección</option>
-            <option value="dni">DNI</option>
-            <option value="email">Email</option>
-            <option value="telefono">Teléfono</option>
-            <option value="nombre">Nombre</option>
-            <option value="tarjeta">Tarjeta (últ. 4 o bin+4)</option>
-          </select>
-        </div>
-        <div class="col-md-4">
-          <label class="form-label small mb-0">Valor</label>
-          <input type="text" name="valor" class="form-control form-control-sm" required
-                 placeholder="ej: san felipe 731 / 30123456 / mail@x.com">
-        </div>
-        <div class="col-md-4">
-          <label class="form-label small mb-0">Motivo</label>
-          <input type="text" name="motivo" class="form-control form-control-sm" placeholder="opcional">
-        </div>
-        <div class="col-auto">
-          <button type="submit" class="btn btn-sm btn-danger">🚫 Agregar</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
   <div class="table-responsive">
     <table class="table table-sm table-hover align-middle small">
       <thead class="table-light">
-        <tr>
-          <th>Estado</th>
-          <th>Tipo</th>
-          <th>Valor</th>
-          <th>Motivo</th>
-          <th>Fecha de alta</th>
-          <th></th>
-        </tr>
+        <tr><th>Fecha</th><th>Motivo</th><th>DNI</th><th>Email</th><th>Tel</th><th>Dirección</th><th>Tarjeta</th><th>Permitir</th></tr>
       </thead>
       <tbody>
-        {% for b in blocklist %}
-        <tr {% if not b.activo %}class="text-muted"{% endif %}>
+        {% for b in bloqueos %}
+        <tr>
+          <td class="text-nowrap">{{ b.fecha.strftime('%d/%m/%y %H:%M') if b.fecha else '' }}</td>
           <td>
-            {% if b.activo %}<span class="badge bg-danger">Activo</span>
-            {% else %}<span class="badge bg-secondary">Inactivo</span>{% endif %}
+            {% if 'velocidad' in (b.motivo or '') %}<span class="badge bg-warning text-dark">{{ b.motivo }}</span>
+            {% else %}<span class="badge bg-danger">{{ b.motivo }}</span>{% endif %}
           </td>
-          <td>{{ b.tipo }}</td>
-          <td><code>{{ b.valor }}</code></td>
-          <td class="small">{{ b.motivo or '' }}</td>
-          <td class="text-nowrap">{{ b.fecha_alta.strftime('%d/%m/%y %H:%M') if b.fecha_alta else '' }}</td>
-          <td>
-            <form method="POST" action="{{ url_for('intentos_pago_blocklist_toggle', bl_id=b.id) }}" class="d-inline">
-              {% if b.activo %}
-              <button type="submit" class="btn btn-sm btn-outline-success py-0 px-2"
-                      onclick="return confirm('¿Desbloquear {{ b.tipo }} = {{ b.valor }}?');">✅ Desbloquear</button>
-              {% else %}
-              <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2">🚫 Re-bloquear</button>
+          <td>{{ b.dni or '' }}</td>
+          <td>{{ b.email or '' }}</td>
+          <td>{{ b.telefono or '' }}</td>
+          <td style="max-width:240px;">{{ b.direccion or '' }}</td>
+          <td class="text-nowrap">{% if b.last4 %}••{{ b.last4 }}{% endif %}</td>
+          <td class="text-nowrap">
+            {% for campo, valor in [('dni', b.dni), ('email', b.email), ('telefono', b.telefono), ('direccion', b.direccion)] %}
+              {% if valor %}
+              <form method="POST" action="{{ url_for('intentos_pago_blocklist_add') }}" class="d-inline">
+                <input type="hidden" name="lista" value="allow">
+                <input type="hidden" name="tipo" value="{{ campo }}">
+                <input type="hidden" name="valor" value="{{ valor }}">
+                <button type="submit" class="btn btn-sm btn-outline-success py-0 px-1" style="font-size:.72rem;"
+                        title="Permitir este {{ campo }} (excluir de velocidad)">✅ {{ campo }}</button>
+              </form>
               {% endif %}
-            </form>
+            {% endfor %}
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="text-center text-muted py-4">Blocklist vacía.</td></tr>
+        <tr><td colspan="8" class="text-center text-muted py-4">No hubo bloqueos todavía.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
-  <p class="text-muted small mt-2">
-    <i class="bi bi-shield-exclamation"></i>
-    Las entradas <strong>activas</strong> bloquean el pago en el checkout (Payway y GetNet) antes de cobrar:
-    el cliente ve un rechazo genérico. <strong>Desbloquear</strong> deja de bloquear al instante (no requiere reinicio).
-    Dirección y nombre matchean por contención (sin tildes, minúsculas); DNI/email/teléfono por igualdad exacta.
+  {% elif tab == 'blocklist' %}
+  {# ════════════════ SOLAPA BLOCKLIST ════════════════ #}
+  <div class="card mb-3"><div class="card-body py-2">
+    <form method="POST" action="{{ url_for('intentos_pago_blocklist_add') }}" class="row g-2 align-items-end">
+      <input type="hidden" name="lista" value="block">
+      <div class="col-md-2">
+        <label class="form-label small mb-0">Tipo</label>
+        <select name="tipo" class="form-select form-select-sm" required>
+          <option value="direccion">Dirección</option><option value="dni">DNI</option>
+          <option value="email">Email</option><option value="telefono">Teléfono</option>
+          <option value="nombre">Nombre</option><option value="tarjeta">Tarjeta (últ.4 o bin+4)</option>
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-0">Valor</label>
+        <input type="text" name="valor" class="form-control form-control-sm" required placeholder="ej: san felipe 731 / 30123456">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-0">Motivo</label>
+        <input type="text" name="motivo" class="form-control form-control-sm" placeholder="opcional">
+      </div>
+      <div class="col-auto"><button type="submit" class="btn btn-sm btn-danger">🚫 Agregar</button></div>
+    </form>
+  </div></div>
+  {{ _tabla_lista(blocklist, 'block') }}
+
+  {% elif tab == 'whitelist' %}
+  {# ════════════════ SOLAPA EXCEPCIONES (WHITELIST) ════════════════ #}
+  <p class="text-muted small">
+    Las excepciones <strong>eximen de las reglas de velocidad</strong> (la blocklist manual sigue mandando).
+    Útil para liberar a un cliente legítimo que quedó trabado por hacer varios intentos.
   </p>
+  <div class="card mb-3"><div class="card-body py-2">
+    <form method="POST" action="{{ url_for('intentos_pago_blocklist_add') }}" class="row g-2 align-items-end">
+      <input type="hidden" name="lista" value="allow">
+      <div class="col-md-2">
+        <label class="form-label small mb-0">Tipo</label>
+        <select name="tipo" class="form-select form-select-sm" required>
+          <option value="email">Email</option><option value="dni">DNI</option>
+          <option value="telefono">Teléfono</option><option value="direccion">Dirección</option>
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-0">Valor</label>
+        <input type="text" name="valor" class="form-control form-control-sm" required placeholder="ej: mail@x.com / 30123456">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-0">Motivo</label>
+        <input type="text" name="motivo" class="form-control form-control-sm" placeholder="opcional">
+      </div>
+      <div class="col-auto"><button type="submit" class="btn btn-sm btn-success">✅ Agregar excepción</button></div>
+    </form>
+  </div></div>
+  {{ _tabla_lista(whitelist, 'allow') }}
 
   {% endif %}
 
