@@ -5058,9 +5058,9 @@ def pago_payway():
             "grandTotalAmount": amount_centavos,
         },
         "customer_in_site": {
-            "days_in_site":        "0",
+            "days_in_site":        1,
             "is_guest":            True,
-            "num_of_transactions": "1",
+            "num_of_transactions": 1,
             "cellphone_number":    cs_phone,
             "street":              cs_street1,
         },
