@@ -14129,8 +14129,10 @@ def _importar_orden_automatica(orden, access_token):
             sku_ml = item.get('sku', '').upper()
             titulo = item.get('titulo', '').lower()
             es_almohada_sku = any(a in sku_ml for a in SKUS_ALMOHADA_PURAS)
-            if 'almohada' in titulo and not es_almohada_sku:
-                import re as _re2
+            # Detecta "almohada" y también la forma abreviada "Almo" que ML usa
+            # cuando el título no entra completo (límite de 60 caracteres).
+            import re as _re2
+            if _re2.search(r'\balmo', titulo) and not es_almohada_sku:
                 ancho = 0
                 m = _re2.search(r'(\d{2,3})\s*x\s*(\d{2,3})', titulo)
                 if m:
