@@ -2075,6 +2075,262 @@ def orden_retiro_pdf(venta_id):
     return response
 
 
+@app.route('/ventas/activas/<int:venta_id>/remito')
+@login_required
+def remito_conforme_pdf(venta_id):
+    """Remito / Conforme de entrega (A4, ORIGINAL + DUPLICADO).
+    Comprobante de entrega para firma del cliente (defensa ante contracargos)."""
+    from flask import make_response
+    from io import BytesIO
+    from datetime import date
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import Paragraph
+
+    venta = query_one('SELECT * FROM ventas WHERE id = %s', (venta_id,))
+    if not venta:
+        flash('Venta no encontrada', 'danger')
+        return redirect(url_for('ventas_activas'))
+
+    items = query_db('''
+        SELECT iv.sku, iv.cantidad, iv.precio_unitario,
+               COALESCE(pb.nombre, pc.nombre, iv.sku) as nombre_producto
+        FROM items_venta iv
+        LEFT JOIN productos_base pb ON iv.sku = pb.sku
+        LEFT JOIN productos_compuestos pc ON iv.sku = pc.sku
+        WHERE iv.venta_id = %s ORDER BY iv.id
+    ''', (venta_id,))
+
+    nombre   = venta.get('nombre_cliente') or ''
+    telefono = venta.get('telefono_cliente') or ''
+    metodo   = venta.get('metodo_pago') or ''
+    nro_op   = venta.get('numero_venta') or venta.get('mla_code') or str(venta['id'])
+    total    = venta.get('importe_total') or 0
+    abonado  = venta.get('importe_abonado') or 0
+    provincia = venta.get('provincia_cliente') or ''
+
+    # DNI / CUIT del cliente
+    doc_label, doc_num = 'DNI/CUIT', ''
+    if venta.get('factura_doc_number'):
+        doc_num = str(venta['factura_doc_number'])
+        doc_label = venta.get('factura_doc_type') or 'DNI/CUIT'
+    elif venta.get('dni_cliente'):
+        doc_num = str(venta['dni_cliente'])
+
+    # Tipo de entrega + dirección
+    es_retiro = (venta.get('tipo_entrega') in ('retiro', 'Retiro')) or (not venta.get('metodo_envio'))
+    if es_retiro:
+        tipo_entrega_lbl = 'Retiro en depósito'
+        direccion = 'Emilio Lamarca 1870, Floresta, CABA'
+    else:
+        tipo_entrega_lbl = 'Envío a domicilio'
+        direccion = venta.get('direccion_entrega') or ''
+
+    # Tarjeta usada (para ventas Payway): cruzar con payway_intentos
+    tarjeta_txt = ''
+    if str(nro_op).startswith('PW-'):
+        try:
+            pay = query_one("SELECT card_brand, last4 FROM payway_intentos WHERE payment_id = %s",
+                            (str(nro_op)[3:],))
+            if pay:
+                marca = pay.get('card_brand') or 'Tarjeta'
+                l4 = pay.get('last4')
+                tarjeta_txt = f"{marca} ••{l4}" if l4 else marca
+        except Exception:
+            tarjeta_txt = ''
+    metodo_full = f"{metodo} — {tarjeta_txt}" if tarjeta_txt else metodo
+
+    fecha_venta = venta.get('fecha_venta')
+    fecha_venta_str = fecha_venta.strftime('%d/%m/%Y %H:%M') if hasattr(fecha_venta, 'strftime') else ''
+    fecha_hoy = date.today().strftime('%d/%m/%Y')
+
+    CUIT = '30-53471680-6'
+
+    def dibujar_copia(c, y_offset, tipo_copia):
+        W, H = A4
+        m = mR = 15 * mm
+        ancho = W - m - mR
+        y = y_offset
+
+        def campo(label, valor, x, cy, w, h=7*mm):
+            c.setStrokeColor(colors.HexColor('#cccccc'))
+            c.setFillColor(colors.white)
+            c.rect(x, cy - h, w, h, fill=1, stroke=1)
+            c.setFillColor(colors.HexColor('#666666'))
+            c.setFont('Helvetica', 6.5)
+            c.drawString(x + 1.5*mm, cy - 2.5*mm, label)
+            c.setFillColor(colors.black)
+            c.setFont('Helvetica-Bold', 8.5)
+            c.drawString(x + 1.5*mm, cy - 5.5*mm, str(valor)[:70])
+
+        def titulo_seccion(txt, cy):
+            c.setFillColor(colors.HexColor('#e8eaf6'))
+            c.rect(m, cy - 6*mm, ancho, 6*mm, fill=1, stroke=0)
+            c.setFillColor(colors.HexColor('#1a237e'))
+            c.setFont('Helvetica-Bold', 8)
+            c.drawString(m + 2*mm, cy - 4*mm, txt)
+
+        # ── ENCABEZADO ──
+        c.setFillColor(colors.HexColor('#1a1a2e'))
+        c.roundRect(m, y - 18*mm, ancho * 0.65, 22*mm, 3, fill=1, stroke=0)
+        c.setFillColor(colors.white)
+        c.setFont('Helvetica-Bold', 12)
+        c.drawString(m + 4*mm, y - 6*mm, 'REMITO – CONFORME DE ENTREGA')
+        c.setFont('Helvetica', 7.5)
+        c.drawString(m + 4*mm, y - 11*mm, f'N° {nro_op}    Fecha emisión: {fecha_hoy}')
+        c.setFont('Helvetica-Bold', 8)
+        c.setFillColor(colors.HexColor('#ffd54f'))
+        c.drawString(m + 4*mm, y - 16*mm, f'COPIA {tipo_copia}')
+
+        x_logo = m + ancho * 0.67
+        c.setFillColor(colors.HexColor('#f0f4ff'))
+        c.roundRect(x_logo, y - 18*mm, ancho * 0.33, 22*mm, 3, fill=1, stroke=0)
+        c.setFillColor(colors.HexColor('#1a1a2e'))
+        c.setFont('Helvetica-Bold', 9)
+        c.drawCentredString(x_logo + (ancho * 0.33)/2, y - 5*mm, 'MERCADOMUEBLES')
+        c.setFont('Helvetica', 7)
+        c.drawCentredString(x_logo + (ancho * 0.33)/2, y - 9*mm, 'Cimater SRL')
+        c.drawCentredString(x_logo + (ancho * 0.33)/2, y - 12.5*mm, f'CUIT {CUIT}')
+        c.drawCentredString(x_logo + (ancho * 0.33)/2, y - 16*mm, 'Emilio Lamarca 1870, CABA')
+        y -= 24 * mm
+
+        # ── SECCIÓN 1: DATOS DE LA VENTA ──
+        titulo_seccion('1. Datos de la operación', y)
+        y -= 9 * mm
+        campo('N° de operación', nro_op, m, y, ancho * 0.48)
+        campo('Fecha de venta', fecha_venta_str, m + ancho * 0.52, y, ancho * 0.48)
+        y -= 9 * mm
+        campo('Medio de pago', metodo_full, m, y, ancho * 0.48)
+        campo('Tipo de entrega', tipo_entrega_lbl, m + ancho * 0.52, y, ancho * 0.48)
+        y -= 12 * mm
+
+        # ── SECCIÓN 2: DATOS DEL RECEPTOR ──
+        titulo_seccion('2. Datos del cliente / domicilio de entrega', y)
+        y -= 9 * mm
+        campo('Nombre completo', nombre, m, y, ancho)
+        y -= 9 * mm
+        campo(doc_label, doc_num, m, y, ancho * 0.48)
+        campo('Teléfono', telefono, m + ancho * 0.52, y, ancho * 0.48)
+        y -= 9 * mm
+        campo('Dirección de entrega', direccion, m, y, ancho * 0.72)
+        campo('Provincia', provincia, m + ancho * 0.74, y, ancho * 0.26)
+        y -= 12 * mm
+
+        # ── SECCIÓN 3: PRODUCTOS ──
+        titulo_seccion('3. Productos entregados', y)
+        y -= 9 * mm
+        c.setFillColor(colors.HexColor('#37474f'))
+        c.rect(m, y - 6*mm, ancho, 6*mm, fill=1, stroke=0)
+        c.setFillColor(colors.white)
+        c.setFont('Helvetica-Bold', 7.5)
+        c.drawString(m + 2*mm, y - 4*mm, 'Descripción')
+        c.drawRightString(m + ancho * 0.72, y - 4*mm, 'Cant.')
+        c.drawRightString(m + ancho * 0.87, y - 4*mm, 'P. Unit.')
+        c.drawRightString(m + ancho, y - 4*mm, 'Subtotal')
+        y -= 7 * mm
+        for i, item in enumerate(items):
+            bg = colors.HexColor('#f5f5f5') if i % 2 == 0 else colors.white
+            c.setFillColor(bg)
+            c.rect(m, y - 9*mm, ancho, 9*mm, fill=1, stroke=0)
+            c.setFillColor(colors.black)
+            c.setFont('Helvetica', 8)
+            c.drawString(m + 2*mm, y - 5.5*mm, str(item['nombre_producto'])[:55])
+            c.setFont('Helvetica-Bold', 8)
+            c.drawRightString(m + ancho * 0.72, y - 5.5*mm, str(item['cantidad']))
+            pu = float(item['precio_unitario'] or 0)
+            c.drawRightString(m + ancho * 0.87, y - 5.5*mm, f'${pu:,.0f}')
+            c.drawRightString(m + ancho, y - 5.5*mm, f'${pu * int(item["cantidad"]):,.0f}')
+            y -= 9 * mm
+        c.setStrokeColor(colors.HexColor('#cccccc'))
+        c.line(m, y, m + ancho, y)
+        y -= 5 * mm
+        c.setFillColor(colors.HexColor('#37474f'))
+        c.setFont('Helvetica-Bold', 9)
+        c.drawRightString(m + ancho * 0.87, y, 'TOTAL:')
+        c.drawRightString(m + ancho, y, f'${float(total):,.0f}')
+        y -= 5 * mm
+        # N° de bultos (campo para completar)
+        c.setFont('Helvetica', 7)
+        c.setFillColor(colors.HexColor('#666666'))
+        c.drawString(m, y, 'N° de bultos entregados: ______')
+        y -= 8 * mm
+
+        # ── SECCIÓN 4: CONFORMIDAD DE RECEPCIÓN ──
+        titulo_seccion('4. Conformidad de recepción', y)
+        y -= 8 * mm
+        decl = ('Recibí de conformidad los productos detallados en el presente remito, en buen estado y '
+                'de acuerdo a lo solicitado, y reconozco la operación de pago asociada a esta compra.')
+        p = Paragraph(decl, ParagraphStyle('decl', fontName='Helvetica', fontSize=7.5, leading=10,
+                                           textColor=colors.HexColor('#333333')))
+        pw, ph = p.wrap(ancho - 4*mm, 30*mm)
+        p.drawOn(c, m + 2*mm, y - ph)
+        y -= (ph + 4*mm)
+
+        # Quién recibe + casillas titular/tercero
+        c.setFillColor(colors.HexColor('#666666'))
+        c.setFont('Helvetica', 7)
+        c.drawString(m, y, 'Quien recibe es:   [  ] Titular de la compra      [  ] Tercero autorizado')
+        y -= 8 * mm
+
+        col_w = ancho * 0.48
+        alto = 30*mm
+        # Izquierda: firma de quien recibe
+        c.setStrokeColor(colors.HexColor('#cccccc'))
+        c.setFillColor(colors.white)
+        c.rect(m, y - alto, col_w, alto, fill=1, stroke=1)
+        c.setFillColor(colors.HexColor('#666666'))
+        c.setFont('Helvetica', 6.5)
+        c.drawString(m + 1.5*mm, y - 5*mm, 'Firma:')
+        c.line(m + 12*mm, y - 5.5*mm, m + col_w - 2*mm, y - 5.5*mm)
+        c.drawString(m + 1.5*mm, y - 13*mm, 'Aclaración:')
+        c.line(m + 16*mm, y - 13.5*mm, m + col_w - 2*mm, y - 13.5*mm)
+        c.drawString(m + 1.5*mm, y - 21*mm, 'DNI de quien recibe:')
+        c.line(m + 28*mm, y - 21.5*mm, m + col_w - 2*mm, y - 21.5*mm)
+        c.drawString(m + 1.5*mm, y - 27*mm, 'Fecha y hora de recepción:')
+        c.line(m + 35*mm, y - 27.5*mm, m + col_w - 2*mm, y - 27.5*mm)
+        # Derecha: sello/entrega empresa
+        x_emp = m + ancho * 0.52
+        c.setFillColor(colors.HexColor('#f8f9fa'))
+        c.rect(x_emp, y - alto, col_w, alto, fill=1, stroke=1)
+        c.setFillColor(colors.HexColor('#1a1a2e'))
+        c.setFont('Helvetica-Bold', 8)
+        c.drawCentredString(x_emp + col_w/2, y - 7*mm, 'Mercadomuebles – Cimater SRL')
+        c.setFillColor(colors.HexColor('#c62828'))
+        c.setFont('Helvetica-Bold', 15)
+        c.drawCentredString(x_emp + col_w/2, y - 17*mm, 'ENTREGADO')
+        c.setFillColor(colors.HexColor('#666666'))
+        c.setFont('Helvetica', 6.5)
+        c.drawCentredString(x_emp + col_w/2, y - 25*mm, 'Firma / sello del responsable de entrega')
+        y -= (alto + 5*mm)
+
+        # ── FOOTER ──
+        c.setStrokeColor(colors.HexColor('#cccccc'))
+        c.line(m, y, m + ancho, y)
+        c.setFillColor(colors.HexColor('#888888'))
+        c.setFont('Helvetica', 6.5)
+        footer_txt = ('Emilio Lamarca 1870, Floresta, CABA  —  www.mercadomuebles.com.ar  —  '
+                      'Mercadomuebles de Cimater SRL  —  Tel: (011) 4639-7370  —  WhatsApp: +5491126275185')
+        c.drawCentredString(W / 2, y - 4*mm, footer_txt)
+
+    buffer = BytesIO()
+    c = rl_canvas.Canvas(buffer, pagesize=A4)
+    W, H = A4
+    dibujar_copia(c, H - 5*mm, 'ORIGINAL')
+    c.showPage()
+    dibujar_copia(c, H - 5*mm, 'DUPLICADO')
+    c.save()
+
+    buffer.seek(0)
+    response = make_response(buffer.read())
+    response.headers['Content-Type'] = 'application/pdf'
+    nombre_archivo = f'remito_{venta_id}_{fecha_hoy.replace("/", "-")}.pdf'
+    response.headers['Content-Disposition'] = f'inline; filename={nombre_archivo}'
+    return response
+
+
 @app.route('/ventas/activas/<int:venta_id>/proceso', methods=['POST'])
 @login_required
 def pasar_a_proceso(venta_id):

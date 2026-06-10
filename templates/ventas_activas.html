@@ -524,6 +524,13 @@
                     {% else %}
                         <strong>Envío</strong>
                         <br><span class="badge bg-secondary">{{ venta.metodo_envio }}</span>
+                        {% if venta.canal != 'Mercado Libre' %}
+                        <br>
+                        <a href="{{ url_for('remito_conforme_pdf', venta_id=venta.id) }}" target="_blank"
+                           class="btn btn-outline-secondary btn-sm mt-1" title="Remito / Conforme de entrega PDF">
+                            🖨️ Remito
+                        </a>
+                        {% endif %}
                         {% if venta.metodo_envio in ['Flete Propio', 'Zippin'] and venta.costo_flete and venta.costo_flete > 0 %}
                             <br>
                             {% if venta.metodo_pago in ['Payway', 'GetNet'] or es_getnet %}
@@ -747,6 +754,10 @@
                            class="badge bg-secondary text-white text-decoration-none ms-1">🖨️ Orden</a>
                     {% else %}
                         <span class="badge bg-secondary">{{ venta.metodo_envio }}</span>
+                        {% if venta.canal != 'Mercado Libre' %}
+                        <a href="{{ url_for('remito_conforme_pdf', venta_id=venta.id) }}" target="_blank"
+                           class="badge bg-dark text-white text-decoration-none ms-1">🖨️ Remito</a>
+                        {% endif %}
                         {% if venta.zona_envio %}<span class="badge bg-light text-dark border ms-1">{{ venta.zona_envio }}</span>{% endif %}
                         {% if venta.ubicacion_despacho == 'FULL' %}
                             <span class="badge bg-warning text-dark ms-1">🔶 FULL</span>
