@@ -562,7 +562,11 @@ document.getElementById('pw-btn').addEventListener('click', function(e) {
     card_expiration_year:   expYear,
     security_code:          cvv,
     card_holder_name:       holderName,
-    card_holder_identification: { type: docType, number: docNumber }
+    card_holder_identification: { type: docType, number: docNumber },
+    // Device fingerprint en la tokenización (requerido por CyberSource retail)
+    fraud_detection: {
+      device_unique_identifier: (typeof TMXSESSIONID !== 'undefined' ? TMXSESSIONID : '')
+    }
   };
 
   // Tokenizamos via nuestro proxy Flask (CORS impide llamar directo a Payway desde el browser)

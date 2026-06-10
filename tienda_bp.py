@@ -4886,6 +4886,14 @@ def payway_token():
     data = request.get_json() or {}
     payway_api_url    = os.getenv('PAYWAY_API_URL', 'https://live.decidir.com/api/v2')
     payway_public_key = os.getenv('PAYWAY_PUBLIC_KEY', '')
+    # Device fingerprint en la tokenización (CyberSource retail asocia el device acá):
+    # el frontend manda fraud_detection.device_unique_identifier; sumamos la IP real.
+    try:
+        ip_tok = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
+        if ip_tok:
+            data.setdefault('ip_address', ip_tok)
+    except Exception:
+        pass
     try:
         resp = req_lib.post(
             f"{payway_api_url}/tokens",
