@@ -5013,7 +5013,7 @@ def pago_payway():
     cs_email       = cli.get('email', '') or 'sin_email@mercadomuebles.com.ar'
 
     fraud_detection = {
-        "send_to_cs": False,
+        "send_to_cs": True,
         "channel": "Web",
         "device_unique_identifier": device_fingerprint_id or ip_cliente,
         "bill_to": {
