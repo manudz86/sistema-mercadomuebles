@@ -4805,6 +4805,9 @@ def _fraude_norm(s):
     return ' '.join(s.split())
 
 
+_FRAUDE_VELOCIDAD_ACTIVA = False  # TEMP: desactivado durante debug de CyberSource (reactivar a True)
+
+
 def _fraude_gate(cli, bin_num='', last4=''):
     """Devuelve (bloqueado, motivo). Reglas:
     1) blocklist (direccion/dni/email/telefono/nombre/tarjeta)
@@ -4837,6 +4840,12 @@ def _fraude_gate(cli, bin_num='', last4=''):
             else:
                 if nd.get(t) and v == nd[t]:
                     return True, f'blocklist:{t}'
+
+        # TEMP — debug CyberSource: reglas de velocidad desactivadas para no
+        # bloquear las pruebas repetidas con la misma tarjeta/DNI. La blocklist
+        # sigue activa. Volver _FRAUDE_VELOCIDAD_ACTIVA a True al terminar.
+        if not _FRAUDE_VELOCIDAD_ACTIVA:
+            return False, ''
 
         # 2) Velocidad por tarjeta (necesita bin Y last4 para evitar falsos positivos)
         if bin_num and last4:
