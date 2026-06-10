@@ -5042,17 +5042,6 @@ def pago_payway():
             "state":        "BA",
             "street1":      cs_street1,
         },
-        "ship_to": {
-            "city":         cs_city,
-            "country":      "AR",
-            "email":        cs_email,
-            "first_name":   cs_first_name,
-            "last_name":    cs_last_name,
-            "phone_number": cs_phone,
-            "postal_code":  cs_cp,
-            "state":        "BA",
-            "street1":      cs_street1,
-        },
         "purchase_totals": {
             "currency":         "ARS",
             "grandTotalAmount": amount_centavos,
@@ -5064,20 +5053,33 @@ def pago_payway():
             "cellphone_number":    cs_phone,
             "street":              cs_street1,
         },
-        "days_to_delivery": "2",
         "dispatch_method":  "delivery" if cli.get('tipo_entrega') == 'envio' else "storepickup",
-        "items": [
-            {
-                "code":         it.get('sku', 'PROD'),
-                "description":  (it.get('nombre') or it.get('sku') or 'Producto')[:100],
-                "name":         (it.get('nombre') or it.get('sku') or 'Producto')[:50],
-                "sku":          it.get('sku', 'PROD'),
-                "total_amount": int(float(it.get('precio', 0)) * int(it.get('cantidad', 1)) * 100),
-                "quantity":     int(it.get('cantidad', 1)),
-                "unit_price":   int(float(it.get('precio', 0)) * 100),
-            }
-            for it in cart_items
-        ],
+        "retail_transaction_data": {
+            "ship_to": {
+                "city":         cs_city,
+                "country":      "AR",
+                "email":        cs_email,
+                "first_name":   cs_first_name,
+                "last_name":    cs_last_name,
+                "phone_number": cs_phone,
+                "postal_code":  cs_cp,
+                "state":        "BA",
+                "street1":      cs_street1,
+            },
+            "days_to_delivery": "2",
+            "items": [
+                {
+                    "code":         it.get('sku', 'PROD'),
+                    "description":  (it.get('nombre') or it.get('sku') or 'Producto')[:100],
+                    "name":         (it.get('nombre') or it.get('sku') or 'Producto')[:50],
+                    "sku":          it.get('sku', 'PROD'),
+                    "total_amount": int(float(it.get('precio', 0)) * int(it.get('cantidad', 1)) * 100),
+                    "quantity":     int(it.get('cantidad', 1)),
+                    "unit_price":   int(float(it.get('precio', 0)) * 100),
+                }
+                for it in cart_items
+            ],
+        },
     }
 
     payment_body = {
