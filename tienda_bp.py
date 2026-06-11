@@ -5898,37 +5898,44 @@ def pago_exito():
         prefix = 'MP'
     numero_venta = f"{prefix}-{payment_id}"
 
-    # Obtener datos de la venta para GA4
+    # Obtener datos de la venta para GA4. Reintento corto contra la carrera con
+    # el webhook async (la venta MP puede crearse después del redirect; Payway la
+    # encuentra al primer intento). Una vez que aparece, ga_items sale de items_venta.
     ga_items  = []
     ga_value  = 0
     importe_abonado = 0
-    try:
-        db = get_db()
-        cur = db.cursor()
-        cur.execute("""
-            SELECT v.importe_total, v.importe_abonado, iv.sku, iv.cantidad, iv.precio_unitario,
-                   COALESCE(pb.nombre, pc.nombre, iv.sku) as nombre
-            FROM ventas v
-            JOIN items_venta iv ON iv.venta_id = v.id
-            LEFT JOIN productos_base pb ON pb.sku = iv.sku
-            LEFT JOIN productos_compuestos pc ON pc.sku = iv.sku
-            WHERE v.numero_venta = %s
-        """, (numero_venta,))
-        rows = cur.fetchall()
-        if rows:
-            importe_abonado = float(rows[0]['importe_abonado'] or 0)
-            ga_value = importe_abonado   # alineado al monto pagado (GA4 = Pixel = CAPI)
-            for r in rows:
-                ga_items.append({
-                    'item_id':   r['sku'],
-                    'item_name': r['nombre'],
-                    'price':     float(r['precio_unitario'] or 0),
-                    'quantity':  int(r['cantidad'] or 1),
-                })
-        cur.close()
-        db.close()
-    except Exception:
-        pass
+    for _intento in range(3):
+        try:
+            db = get_db()
+            cur = db.cursor()
+            cur.execute("""
+                SELECT v.importe_total, v.importe_abonado, iv.sku, iv.cantidad, iv.precio_unitario,
+                       COALESCE(pb.nombre, pc.nombre, iv.sku) as nombre
+                FROM ventas v
+                JOIN items_venta iv ON iv.venta_id = v.id
+                LEFT JOIN productos_base pb ON pb.sku = iv.sku
+                LEFT JOIN productos_compuestos pc ON pc.sku = iv.sku
+                WHERE v.numero_venta = %s
+            """, (numero_venta,))
+            rows = cur.fetchall()
+            if rows:
+                importe_abonado = float(rows[0]['importe_abonado'] or 0)
+                ga_value = importe_abonado   # alineado al monto pagado (GA4 = Pixel = CAPI)
+                ga_items = []
+                for r in rows:
+                    ga_items.append({
+                        'item_id':   r['sku'],
+                        'item_name': r['nombre'],
+                        'price':     float(r['precio_unitario'] or 0),
+                        'quantity':  int(r['cantidad'] or 1),
+                    })
+            cur.close()
+            db.close()
+        except Exception:
+            pass
+        if importe_abonado > 0:
+            break
+        time.sleep(0.4)
 
     # Fallback race-free SOLO para MP: si la venta async aún no existe en DB,
     # traer monto e items directo de MP por payment_id (mismo patrón que verificar_pago).
