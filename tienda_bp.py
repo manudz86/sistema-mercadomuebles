@@ -5794,17 +5794,23 @@ def pago_exito_getnet(pedido_ref):
     # Limpiar carrito (mismo comportamiento que /pago/exito)
     session.pop('carrito', None)
     session.pop('mp_preference_id', None)
-    ga_value = _importe_total_venta(numero_pedido)
+    # Reintento corto contra la carrera con el webhook async de GetNet:
+    # si la venta aún no existe (importe_abonado<=0), esperar y reintentar.
     importe_abonado = 0
-    try:
-        _db = get_db(); _cur = _db.cursor()
-        _cur.execute("SELECT importe_abonado FROM ventas WHERE numero_venta=%s LIMIT 1", (numero_pedido,))
-        _r = _cur.fetchone()
-        _cur.close(); _db.close()
-        if _r:
-            importe_abonado = float(_r['importe_abonado'] or 0)
-    except Exception:
-        pass
+    for _intento in range(3):
+        try:
+            _db = get_db(); _cur = _db.cursor()
+            _cur.execute("SELECT importe_abonado FROM ventas WHERE numero_venta=%s LIMIT 1", (numero_pedido,))
+            _r = _cur.fetchone()
+            _cur.close(); _db.close()
+            if _r:
+                importe_abonado = float(_r['importe_abonado'] or 0)
+        except Exception:
+            pass
+        if importe_abonado > 0:
+            break
+        time.sleep(0.4)
+    ga_value = importe_abonado   # alineado al monto pagado (GA4 = Pixel = CAPI)
     return render_template(
         'tienda/pago_exito_getnet.html',
         payment_id=pedido_ref,
@@ -5861,17 +5867,22 @@ def pago_exito():
                     logger.warning(f"[getnet_exito] fallback DB falló: {e_chk}")
 
         print(f"[getnet_exito] payment_id={payment_id} numero={numero_pedido}", flush=True)
-        ga_value = _importe_total_venta(numero_pedido)
+        # Reintento corto contra la carrera con el webhook async de GetNet.
         importe_abonado_gn = 0
-        try:
-            _db = get_db(); _cur = _db.cursor()
-            _cur.execute("SELECT importe_abonado FROM ventas WHERE numero_venta=%s LIMIT 1", (numero_pedido,))
-            _r = _cur.fetchone()
-            _cur.close(); _db.close()
-            if _r:
-                importe_abonado_gn = float(_r['importe_abonado'] or 0)
-        except Exception:
-            pass
+        for _intento in range(3):
+            try:
+                _db = get_db(); _cur = _db.cursor()
+                _cur.execute("SELECT importe_abonado FROM ventas WHERE numero_venta=%s LIMIT 1", (numero_pedido,))
+                _r = _cur.fetchone()
+                _cur.close(); _db.close()
+                if _r:
+                    importe_abonado_gn = float(_r['importe_abonado'] or 0)
+            except Exception:
+                pass
+            if importe_abonado_gn > 0:
+                break
+            time.sleep(0.4)
+        ga_value = importe_abonado_gn   # alineado al monto pagado (GA4 = Pixel = CAPI)
         return render_template(
             'tienda/pago_exito_getnet.html',
             payment_id=payment_id or '',
@@ -5905,8 +5916,8 @@ def pago_exito():
         """, (numero_venta,))
         rows = cur.fetchall()
         if rows:
-            ga_value = float(rows[0]['importe_total'] or 0)
             importe_abonado = float(rows[0]['importe_abonado'] or 0)
+            ga_value = importe_abonado   # alineado al monto pagado (GA4 = Pixel = CAPI)
             for r in rows:
                 ga_items.append({
                     'item_id':   r['sku'],
@@ -5918,6 +5929,23 @@ def pago_exito():
         db.close()
     except Exception:
         pass
+
+    # Fallback race-free SOLO para MP: si la venta async aún no existe en DB,
+    # traer monto e items directo de MP por payment_id (mismo patrón que verificar_pago).
+    if canal == 'mp' and payment_id and importe_abonado <= 0:
+        try:
+            sdk = get_mp_sdk()
+            mp = sdk.payment().get(payment_id).get('response', {}) or {}
+            ta = float(mp.get('transaction_amount') or 0)
+            if ta > 0:
+                ga_value = ta
+                importe_abonado = ta
+                ga_items = [{'item_id': it.get('id', ''), 'item_name': it.get('title', ''),
+                             'price': float(it.get('unit_price') or 0),
+                             'quantity': int(it.get('quantity') or 1)}
+                            for it in ((mp.get('additional_info') or {}).get('items') or [])]
+        except Exception:
+            pass
 
     return render_template('tienda/pago_exito.html',
         payment_id    = payment_id,
