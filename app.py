@@ -4459,6 +4459,7 @@ def ventas_historicas():
         filtro_buscar = request.args.get('buscar', '').strip()
         filtro_estado = parsear_filtro_multi(request.args.getlist('estado') or request.args.get('estado', ''))
         filtro_periodo = request.args.get('periodo', 'todo')
+        filtro_tipo_entrega = parsear_filtro_multi(request.args.getlist('tipo_entrega') or request.args.get('tipo_entrega', ''))
         filtro_metodo_envio = parsear_filtro_multi(request.args.getlist('metodo_envio') or request.args.get('metodo_envio', ''))
         filtro_zona         = parsear_filtro_multi(request.args.getlist('zona')         or request.args.get('zona', ''))
         filtro_canal        = parsear_filtro_multi(request.args.getlist('canal')        or request.args.get('canal', ''))
@@ -4520,6 +4521,7 @@ def ventas_historicas():
 
         # Filtros multi-valor
         for col, valores in [
+            ('tipo_entrega', filtro_tipo_entrega),
             ('metodo_envio', filtro_metodo_envio),
             ('zona_envio',   filtro_zona),
             ('canal',        filtro_canal),
@@ -4632,6 +4634,7 @@ def ventas_historicas():
                              filtro_buscar=filtro_buscar,
                              filtro_estado=filtro_estado,
                              filtro_periodo=filtro_periodo,
+                             filtro_tipo_entrega=filtro_tipo_entrega,
                              filtro_metodo_envio=filtro_metodo_envio,
                              filtro_zona=filtro_zona,
                              filtro_canal=filtro_canal,

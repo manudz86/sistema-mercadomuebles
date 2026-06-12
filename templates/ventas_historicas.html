@@ -110,6 +110,15 @@
             </div>
             
             <div class="col-md-2">
+                <label class="form-label"><i class="bi bi-truck"></i> Tipo Entrega</label>
+                <select class="form-select" name="tipo_entrega">
+                    <option value="">Todos</option>
+                    <option value="envio" {% if 'envio' in filtro_tipo_entrega %}selected{% endif %}>Envío</option>
+                    <option value="retiro" {% if 'retiro' in filtro_tipo_entrega %}selected{% endif %}>Retiro</option>
+                </select>
+            </div>
+
+            <div class="col-md-2">
                 <label class="form-label"><i class="bi bi-box"></i> Método Envío</label>
                 <select class="form-select" name="metodo_envio">
                     <option value="">Todos</option>
