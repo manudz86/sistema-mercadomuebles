@@ -625,9 +625,27 @@
                         <br>
                     {% endif %}
                     
+                    {% if venta.canal == 'Mercado Libre' and venta.metodo_envio == 'Flete Propio' %}
+                        {% if venta.ml_entregado_at %}
+                            <button type="button" class="btn btn-sm btn-success mb-1" disabled
+                                    title="Entrega reportada a ML el {{ venta.ml_entregado_at.strftime('%d/%m %H:%M') }}">
+                                <i class="bi bi-check-circle-fill"></i> Entregado en ML
+                            </button>
+                        {% else %}
+                            <form method="POST" action="{{ url_for('historicas_marcar_entregado_ml', venta_id=venta.id) }}" style="display:inline;">
+                                <button type="submit" class="btn btn-sm btn-outline-primary mb-1"
+                                        onclick="return confirm('¿Reportar a ML que esta venta fue entregada? Acelera la acreditación del pago. Es irreversible.')"
+                                        title="Reportar entrega a ML (acelera la acreditación)">
+                                    <i class="bi bi-truck"></i> Marcar entregado ML
+                                </button>
+                            </form>
+                        {% endif %}
+                        <br>
+                    {% endif %}
+
                     <form method="POST" action="{{ url_for('historicas_volver_activas', venta_id=venta.id) }}" style="display: inline;">
-                        <button type="submit" 
-                                class="btn btn-sm {% if venta.estado_entrega == 'entregada' %}btn-warning{% else %}btn-secondary{% endif %}" 
+                        <button type="submit"
+                                class="btn btn-sm {% if venta.estado_entrega == 'entregada' %}btn-warning{% else %}btn-secondary{% endif %}"
                                 onclick="return confirm('¿Volver esta venta a Activas?')">
                             <i class="bi bi-arrow-counterclockwise"></i> Activa
                         </button>

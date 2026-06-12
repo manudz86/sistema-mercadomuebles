@@ -267,23 +267,33 @@ def tool_calcular(skus_recargos):
     ) for i in skus_recargos]}
 
 def _buscar_mlas_por_sku(sku):
-    """Busca en vivo en ML todas las publicaciones del seller para un seller_sku
-    (igual que 'cargar stock ML'). Reemplaza la lectura de sku_mla_mapeo, que
-    quedaba desactualizada. Devuelve lista de MLA ids."""
-    from app import ML_SELLER_ID   # import lazy: evita import circular
-    token = _ml_token()
-    if not token:
-        return []
+    """Devuelve las MLA ids de un seller_sku desde sku_mla_mapeo (tabla local
+    recargada desde el export de ML). Antes consultaba la API en vivo, pero ML
+    restringió /users/{id}/items/search (403). La forma vieja por API quedó
+    comentada abajo para volver atrás si ML re-habilita el endpoint."""
     try:
-        r = requests.get(
-            f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/items/search',
-            headers={'Authorization': f'Bearer {token}'},
-            params={'seller_sku': sku},
-            timeout=10
-        )
-        return r.json().get('results', []) if r.status_code == 200 else []
+        db = _db(); cur = db.cursor()
+        cur.execute("SELECT mla_id FROM sku_mla_mapeo WHERE sku=%s AND activo=TRUE", (sku,))
+        rows = cur.fetchall()
+        cur.close(); db.close()
+        return [(r['mla_id'] if isinstance(r, dict) else r[0]) for r in rows]
     except Exception:
         return []
+    # ── Forma vieja: búsqueda en vivo por API (ML la restringió → 403) ──────
+    # from app import ML_SELLER_ID   # import lazy: evita import circular
+    # token = _ml_token()
+    # if not token:
+    #     return []
+    # try:
+    #     r = requests.get(
+    #         f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/items/search',
+    #         headers={'Authorization': f'Bearer {token}'},
+    #         params={'seller_sku': sku},
+    #         timeout=10
+    #     )
+    #     return r.json().get('results', []) if r.status_code == 200 else []
+    # except Exception:
+    #     return []
 
 def _fetch_mla(mla_id):
     """Fetch un MLA de ML y devuelve dict procesado. Thread-safe."""

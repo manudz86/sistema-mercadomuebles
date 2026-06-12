@@ -4565,7 +4565,8 @@ def ventas_historicas():
                 pago_mercadopago, pago_efectivo,
                 pago_transferencia, pago_tarjeta,
                 estado_entrega, estado_pago, notas,
-                factura_generada, factura_fecha_generacion
+                factura_generada, factura_fecha_generacion,
+                ml_entregado_at
             FROM ventas
             {where}
             ORDER BY {order_by_clause}
@@ -4720,6 +4721,48 @@ def historicas_volver_activas(venta_id):
         conn.close()
     
     return redirect(url_for('ventas_historicas'))
+
+
+@app.route('/ventas/historicas/<int:venta_id>/marcar-entregado-ml', methods=['POST'])
+@login_required
+def historicas_marcar_entregado_ml(venta_id):
+    """Reporta a ML la entrega de un envío ME1/Flete Propio
+    (POST /shipments/{id}/seller_notifications, status=delivered) → acelera la
+    acreditación del pago. Marca ventas.ml_entregado_at al confirmar (200 OK)."""
+    from datetime import timezone, timedelta
+    venta = query_one("SELECT id, numero_venta, canal, metodo_envio FROM ventas WHERE id=%s", (venta_id,))
+    if not venta:
+        flash('Venta no encontrada', 'warning')
+        return redirect(request.referrer or url_for('ventas_historicas'))
+    nv = venta.get('numero_venta') or ''
+    if venta.get('canal') != 'Mercado Libre' or venta.get('metodo_envio') != 'Flete Propio' or not nv.startswith('ML-'):
+        flash('Solo aplica a ventas de Mercado Libre con Flete Propio', 'warning')
+        return redirect(request.referrer or url_for('ventas_historicas'))
+    token = cargar_ml_token()
+    if not token:
+        flash('No hay token de ML configurado', 'warning')
+        return redirect(request.referrer or url_for('ventas_historicas'))
+    order_id = nv.replace('ML-', '')
+    try:
+        o = ml_request('get', f'https://api.mercadolibre.com/orders/{order_id}', token)
+        ship_id = (o.json().get('shipping') or {}).get('id') if o.status_code == 200 else None
+        if not ship_id:
+            flash('No se encontró el envío en ML para esta venta', 'warning')
+            return redirect(request.referrer or url_for('ventas_historicas'))
+        now = datetime.now(timezone(timedelta(hours=-3))).isoformat(timespec='milliseconds')
+        body = {"payload": {"comment": "Entregado por el vendedor", "date": now},
+                "status": "delivered", "substatus": None}
+        r = ml_request('post', f'https://api.mercadolibre.com/shipments/{ship_id}/seller_notifications',
+                       token, json_data=body)
+        if r.status_code == 200:
+            execute_db("UPDATE ventas SET ml_entregado_at = NOW() WHERE id = %s", (venta_id,))
+            flash(f'✅ Entrega reportada a ML para {nv} (acelera la acreditación)', 'success')
+        else:
+            flash(f'❌ ML rechazó el reporte de entrega ({r.status_code}): {r.text[:140]}', 'danger')
+    except Exception as e:
+        flash(f'Error al reportar entrega a ML: {e}', 'danger')
+    return redirect(request.referrer or url_for('ventas_historicas'))
+
 
 @app.route('/ventas/historicas/volver-activas-multiple', methods=['POST'])
 @login_required
@@ -9242,17 +9285,22 @@ def buscar_sku_ml():
         es_sku_con_z = False
     else:
         es_sku_con_z = sku_buscado.endswith('Z')
-        r = ml_request('get',
-            f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/items/search',
-            access_token, params={'seller_sku': sku_buscado})
-        if r.status_code != 200:
-            flash(f'❌ Error consultando ML: {r.status_code}', 'danger')
-            return render_template('cargar_stock_ml.html',
-                                   sku_buscado=sku_buscado,
-                                   publicaciones=[],
-                                   es_sku_con_z=es_sku_con_z,
-                                   porcentajes=porcentajes)
-        mla_ids = r.json().get('results', [])
+        # ── SKU→MLAs desde sku_mla_mapeo (tabla local recargada del export de ML).
+        # ML restringió /users/{id}/items/search (403). La forma vieja por API
+        # queda comentada abajo para volver atrás si ML re-habilita el endpoint.
+        mla_ids = [x['mla_id'] for x in query_db(
+            "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku_buscado,))]
+        # r = ml_request('get',
+        #     f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/items/search',
+        #     access_token, params={'seller_sku': sku_buscado})
+        # if r.status_code != 200:
+        #     flash(f'❌ Error consultando ML: {r.status_code}', 'danger')
+        #     return render_template('cargar_stock_ml.html',
+        #                            sku_buscado=sku_buscado,
+        #                            publicaciones=[],
+        #                            es_sku_con_z=es_sku_con_z,
+        #                            porcentajes=porcentajes)
+        # mla_ids = r.json().get('results', [])
 
     if not mla_ids:
         flash(f'No se encontraron publicaciones para "{sku_buscado}"', 'warning')
@@ -14653,16 +14701,23 @@ def actualizar_stock_compac_dep_ml(sku_dep, cantidad_disponible, access_token):
         print(f"[COMPAC-ML] Error obteniendo user_id: {e}")
         return
 
-    # Buscar MLAs activas con ese seller_sku
+    # MLAs con ese seller_sku desde sku_mla_mapeo (ML restringió items/search → 403).
+    # Forma vieja por API comentada abajo para volver atrás si ML re-habilita.
     try:
-        r = _req.get(
-            f'https://api.mercadolibre.com/users/{user_id}/items/search?seller_sku={sku_base}&status=active',
-            headers=headers, timeout=10
-        ).json()
-        mlas = r.get('results', [])
+        mlas = [x['mla_id'] for x in query_db(
+            "SELECT mla_id FROM sku_mla_mapeo WHERE sku=%s AND activo=TRUE", (sku_base,))]
     except Exception as e:
         print(f"[COMPAC-ML] Error buscando MLAs de {sku_base}: {e}")
         return
+    # try:
+    #     r = _req.get(
+    #         f'https://api.mercadolibre.com/users/{user_id}/items/search?seller_sku={sku_base}&status=active',
+    #         headers=headers, timeout=10
+    #     ).json()
+    #     mlas = r.get('results', [])
+    # except Exception as e:
+    #     print(f"[COMPAC-ML] Error buscando MLAs de {sku_base}: {e}")
+    #     return
 
     print(f"[COMPAC-ML] {sku_dep} → disponible={cantidad_disponible} | MLAs: {mlas}")
 
@@ -18046,15 +18101,17 @@ def costos_envio_barrido_ml():
 
     resultados = []
     for sku in SKUS_COLECTA_BARRIDO:
-        # Buscar MLA gold_special para este SKU
-        r = ml_request('get',
-            f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/items/search',
-            access_token, params={'seller_sku': sku})
-        if r.status_code != 200:
-            resultados.append({'sku': sku, 'error': f'ML error {r.status_code}'})
-            continue
-
-        mla_ids = r.json().get('results', [])
+        # MLAs del SKU desde sku_mla_mapeo (ML restringió items/search → 403).
+        # Forma vieja por API comentada abajo para volver atrás si ML re-habilita.
+        mla_ids = [x['mla_id'] for x in query_db(
+            "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku,))]
+        # r = ml_request('get',
+        #     f'https://api.mercadolibre.com/users/{ML_SELLER_ID}/items/search',
+        #     access_token, params={'seller_sku': sku})
+        # if r.status_code != 200:
+        #     resultados.append({'sku': sku, 'error': f'ML error {r.status_code}'})
+        #     continue
+        # mla_ids = r.json().get('results', [])
         if not mla_ids:
             resultados.append({'sku': sku, 'error': 'Sin publicaciones'})
             continue
