@@ -634,7 +634,7 @@
                         <br>
                     {% endif %}
                     
-                    {% if venta.canal == 'Mercado Libre' and venta.metodo_envio == 'Flete Propio' %}
+                    {% if venta.canal == 'Mercado Libre' and (venta.metodo_envio == 'Flete Propio' or venta.tipo_entrega in ['retiro','Retiro'] or not venta.metodo_envio) %}
                         {% if venta.ml_entregado_at %}
                             <button type="button" class="btn btn-sm btn-success mb-1" disabled
                                     title="Entrega reportada a ML el {{ venta.ml_entregado_at.strftime('%d/%m %H:%M') }}">

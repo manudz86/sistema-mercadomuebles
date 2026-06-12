@@ -4729,17 +4729,21 @@ def historicas_volver_activas(venta_id):
 @app.route('/ventas/historicas/<int:venta_id>/marcar-entregado-ml', methods=['POST'])
 @login_required
 def historicas_marcar_entregado_ml(venta_id):
-    """Reporta a ML la entrega de un envío ME1/Flete Propio
-    (POST /shipments/{id}/seller_notifications, status=delivered) → acelera la
-    acreditación del pago. Marca ventas.ml_entregado_at al confirmar (200 OK)."""
+    """Reporta a ML la entrega de una venta para acelerar la acreditación.
+    Detecta el caso automáticamente:
+      - Con envío (Flete Propio/ME1): POST /shipments/{id}/seller_notifications.
+      - Retiro / sin envío (no_shipping): POST /orders/{id}/tags/delivered.
+    Marca ventas.ml_entregado_at al confirmar."""
     from datetime import timezone, timedelta
-    venta = query_one("SELECT id, numero_venta, canal, metodo_envio FROM ventas WHERE id=%s", (venta_id,))
+    venta = query_one("SELECT id, numero_venta, canal, metodo_envio, tipo_entrega FROM ventas WHERE id=%s", (venta_id,))
     if not venta:
         flash('Venta no encontrada', 'warning')
         return redirect(request.referrer or url_for('ventas_historicas'))
     nv = venta.get('numero_venta') or ''
-    if venta.get('canal') != 'Mercado Libre' or venta.get('metodo_envio') != 'Flete Propio' or not nv.startswith('ML-'):
-        flash('Solo aplica a ventas de Mercado Libre con Flete Propio', 'warning')
+    _es_retiro = (venta.get('tipo_entrega') in ('retiro', 'Retiro')) or not venta.get('metodo_envio')
+    if venta.get('canal') != 'Mercado Libre' or not nv.startswith('ML-') \
+            or not (venta.get('metodo_envio') == 'Flete Propio' or _es_retiro):
+        flash('Solo aplica a ventas de Mercado Libre con Flete Propio o Retiro', 'warning')
         return redirect(request.referrer or url_for('ventas_historicas'))
     token = cargar_ml_token()
     if not token:
@@ -4748,16 +4752,23 @@ def historicas_marcar_entregado_ml(venta_id):
     order_id = nv.replace('ML-', '')
     try:
         o = ml_request('get', f'https://api.mercadolibre.com/orders/{order_id}', token)
-        ship_id = (o.json().get('shipping') or {}).get('id') if o.status_code == 200 else None
-        if not ship_id:
-            flash('No se encontró el envío en ML para esta venta', 'warning')
+        if o.status_code != 200:
+            flash(f'No se pudo consultar la orden en ML ({o.status_code})', 'warning')
             return redirect(request.referrer or url_for('ventas_historicas'))
-        now = datetime.now(timezone(timedelta(hours=-3))).isoformat(timespec='milliseconds')
-        body = {"payload": {"comment": "Entregado por el vendedor", "date": now},
-                "status": "delivered", "substatus": None}
-        r = ml_request('post', f'https://api.mercadolibre.com/shipments/{ship_id}/seller_notifications',
-                       token, json_data=body)
-        if r.status_code == 200:
+        ship_id = (o.json().get('shipping') or {}).get('id')
+        if ship_id:
+            # Con envío (Flete Propio / ME1): reportar entrega sobre el shipment.
+            now = datetime.now(timezone(timedelta(hours=-3))).isoformat(timespec='milliseconds')
+            body = {"payload": {"comment": "Entregado por el vendedor", "date": now},
+                    "status": "delivered", "substatus": None}
+            r = ml_request('post', f'https://api.mercadolibre.com/shipments/{ship_id}/seller_notifications',
+                           token, json_data=body)
+            ok = (r.status_code == 200)
+        else:
+            # Retiro / sin envío (no_shipping): marcar el tag 'delivered' en la orden.
+            r = ml_request('post', f'https://api.mercadolibre.com/orders/{order_id}/tags/delivered', token)
+            ok = (r.status_code in (200, 201))
+        if ok:
             execute_db("UPDATE ventas SET ml_entregado_at = NOW() WHERE id = %s", (venta_id,))
             flash(f'✅ Entrega reportada a ML para {nv} (acelera la acreditación)', 'success')
         else:
