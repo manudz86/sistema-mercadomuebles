@@ -277,9 +277,6 @@
                 <button type="button" class="btn btn-success" onclick="marcarEntregadasMultiple()">
                     <i class="bi bi-check-circle"></i> Marcar Entregadas
                 </button>
-                <button type="button" class="btn btn-danger" onclick="cancelarMultiple()">
-                    <i class="bi bi-x-circle"></i> Cancelar
-                </button>
                 <button type="button" class="btn btn-secondary" onclick="limpiarSeleccion()">
                     <i class="bi bi-x"></i> Limpiar
                 </button>
@@ -494,13 +491,6 @@
                                 onclick="confirmarAccion('{{ venta.id }}', 'entregada', '{{ venta.numero_venta }}')">
                             <i class="bi bi-check-circle"></i> Entregada
                         </button>
-                        
-                        <!-- Cancelar y Devolver Stock -->
-                        <button type="button" 
-                                class="btn btn-sm btn-danger"
-                                onclick="confirmarAccion('{{ venta.id }}', 'cancelar', '{{ venta.numero_venta }}')">
-                            <i class="bi bi-x-circle"></i> Cancelar
-                        </button>
                     </div>
                 </td>
             </tr>
@@ -624,9 +614,6 @@
                 <button class="btn btn-sm btn-success"
                         onclick="confirmarAccion('{{ venta.id }}', 'entregada', '{{ venta.numero_venta }}')">
                     <i class="bi bi-check-circle"></i> Entregada</button>
-                <button class="btn btn-sm btn-danger"
-                        onclick="confirmarAccion('{{ venta.id }}', 'cancelar', '{{ venta.numero_venta }}')">
-                    <i class="bi bi-x-circle"></i> Cancelar</button>
             </div>
         </div>
     </div>

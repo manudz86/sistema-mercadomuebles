@@ -2346,11 +2346,17 @@ def pasar_a_proceso(venta_id):
         if not venta:
             flash('Venta no encontrada', 'error')
             return redirect(url_for('ventas_activas'))
-        
+
+        # Blindaje: solo se procesa una venta que siga activa (pendiente).
+        # Evita doble descuento por doble-click o pestaña vieja.
+        if venta['estado_entrega'] != 'pendiente':
+            flash('⚠️ Esa venta ya no está activa (quizás cambió de estado en otra pestaña). Actualizá la página.', 'warning')
+            return redirect(url_for('ventas_activas'))
+
         # Obtener items
         cursor.execute('SELECT * FROM items_venta WHERE venta_id = %s', (venta_id,))
         items = cursor.fetchall()
-        
+
         # ========================================
         # VERIFICAR STOCK ANTES DE DESCONTAR
         # ========================================
@@ -2590,13 +2596,18 @@ def eliminar_venta(venta_id):
     
     try:
         # Obtener info de la venta antes de borrar
-        cursor.execute('SELECT numero_venta FROM ventas WHERE id = %s', (venta_id,))
+        cursor.execute('SELECT numero_venta, estado_entrega FROM ventas WHERE id = %s', (venta_id,))
         venta = cursor.fetchone()
-        
+
         if not venta:
             flash('❌ Venta no encontrada', 'error')
             return redirect(url_for('ventas_activas'))
-        
+
+        # Blindaje: solo se eliminan ventas activas (pendiente, sin stock descontado).
+        if venta['estado_entrega'] != 'pendiente':
+            flash('⚠️ Solo se pueden eliminar ventas activas. Esta venta ya cambió de estado; actualizá la página.', 'warning')
+            return redirect(url_for('ventas_activas'))
+
         numero_venta = venta['numero_venta']
         
         # Obtener items antes de borrar para actualizar ML después
@@ -3481,7 +3492,16 @@ def editar_venta(venta_id):
         if not venta:
             flash('Venta no encontrada', 'error')
             return redirect(url_for('ventas_activas'))
-        
+
+        # Blindaje: solo se edita una venta activa (pendiente). Si ya pasó a
+        # proceso/entregada/cancelada, su stock ya fue descontado y editarla
+        # descuadraría el inventario; no se abre el editor.
+        if venta['estado_entrega'] != 'pendiente':
+            cursor.close()
+            conn.close()
+            flash('⚠️ Esa venta ya no está activa; no se puede editar. Actualizá la página.', 'warning')
+            return redirect(url_for('ventas_activas'))
+
         # CORREGIDO: Convertir fecha a formato string para input type="date"
         if venta['fecha_venta']:
             from datetime import datetime
@@ -3525,7 +3545,17 @@ def editar_venta(venta_id):
     # POST - Guardar cambios
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
+    # Blindaje: re-chequear estado antes de guardar (la venta pudo cambiar de
+    # estado entre que se abrió el editor y se envió el form).
+    cursor.execute('SELECT estado_entrega FROM ventas WHERE id = %s', (venta_id,))
+    _vchk = cursor.fetchone()
+    if not _vchk or _vchk['estado_entrega'] != 'pendiente':
+        cursor.close()
+        conn.close()
+        flash('⚠️ Esa venta ya no está activa; no se guardaron cambios. Actualizá la página.', 'warning')
+        return redirect(url_for('ventas_activas'))
+
     try:
         # Obtener items ANTES del cambio (para comparar)
         cursor.execute('SELECT sku, cantidad FROM items_venta WHERE venta_id = %s', (venta_id,))
