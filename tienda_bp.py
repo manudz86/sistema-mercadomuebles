@@ -2087,13 +2087,41 @@ def get_coeficientes_cuotas():
     return coef_3, coef_6
 
 
-def calc_cuotas(precio, coef_3, coef_6):
+def get_coef_12():
+    """Coeficiente de recargo para 12 cuotas (MercadoPago). Default 1.6."""
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("SELECT valor FROM configuracion WHERE clave='cuotas_12_coef'")
+        row = cur.fetchone()
+        cur.close(); db.close()
+        if row and row['valor']:
+            return float(row['valor'])
+    except Exception:
+        pass
+    return 1.6
+
+
+def mp_12_cuotas_activo():
+    """True si el medio 'MercadoPago 12 cuotas' está activo (flag en configuracion)."""
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("SELECT valor FROM configuracion WHERE clave='mp_12_enabled'")
+        row = cur.fetchone()
+        cur.close(); db.close()
+        return bool(row and row['valor'] == '1')
+    except Exception:
+        return False
+
+
+def calc_cuotas(precio, coef_3, coef_6, coef_12=1.6):
     """Devuelve dict con info de cuotas para mostrar en detalle del producto."""
-    total_3 = round(precio * coef_3)
-    total_6 = round(precio * coef_6)
+    total_3  = round(precio * coef_3)
+    total_6  = round(precio * coef_6)
+    total_12 = round(precio * coef_12)
     return {
-        '3': {'cuota': format_price(total_3 / 3), 'total': format_price(total_3)},
-        '6': {'cuota': format_price(total_6 / 6), 'total': format_price(total_6)},
+        '3':  {'cuota': format_price(total_3 / 3),   'total': format_price(total_3)},
+        '6':  {'cuota': format_price(total_6 / 6),   'total': format_price(total_6)},
+        '12': {'cuota': format_price(total_12 / 12), 'total': format_price(total_12)},
     }
 
 
@@ -2969,7 +2997,8 @@ def detalle(sku_url):
                 'item_category': prod_simple['tipo'],
                 'price': precio_venta_s,
             },
-            cuotas = calc_cuotas(precio_venta_s, *get_coeficientes_cuotas()),
+            cuotas = calc_cuotas(precio_venta_s, *get_coeficientes_cuotas(), get_coef_12()),
+            mp_12_enabled = mp_12_cuotas_activo(),
         )
 
     cursor.execute("""
@@ -3137,7 +3166,8 @@ def detalle(sku_url):
             'item_category': producto.get('linea', ''),
             'price':         float(producto.get('precio', 0)),
         },
-        cuotas = calc_cuotas(float(producto.get('precio', 0)), *get_coeficientes_cuotas()),
+        cuotas = calc_cuotas(float(producto.get('precio', 0)), *get_coeficientes_cuotas(), get_coef_12()),
+        mp_12_enabled = mp_12_cuotas_activo(),
     )
 
 # ── CARRITO ────────────────────────────────────────────────────────────────────

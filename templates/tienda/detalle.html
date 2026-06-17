@@ -143,10 +143,22 @@
           <div style="font-size:1.05rem; font-weight:700; color:#1a1a2e;">{{ cuotas['6'].cuota }}</div>
           <div style="font-size:0.72rem; color:#aaa; margin-top:2px;">Total {{ cuotas['6'].total }}</div>
         </div>
+        {% if mp_12_enabled %}
+        <div style="flex:1; min-width:130px; background:#eef7fb; border:1px solid #cfe8f3; border-radius:8px; padding:10px 14px;">
+          <div style="font-size:0.75rem; color:#0a6e9e; margin-bottom:2px;">12 cuotas de</div>
+          <div style="font-size:1.05rem; font-weight:700; color:#0a6e9e;">{{ cuotas['12'].cuota }}</div>
+          <div style="font-size:0.72rem; color:#7fb8d4; margin-top:2px;">Total {{ cuotas['12'].total }}</div>
+        </div>
+        {% endif %}
       </div>
       <p style="font-size:0.72rem; color:#bbb; margin-top:6px;">
         Con tarjeta de credito bancaria · Visa, Mastercard, Cabal, Amex
       </p>
+      {% if mp_12_enabled %}
+      <p style="font-size:0.72rem; color:#0a6e9e; margin-top:2px;">
+        12 cuotas sin interés con Visa y Mastercard (MercadoPago)
+      </p>
+      {% endif %}
       {% endif %}
 
       <!-- Medidas -->
