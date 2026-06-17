@@ -18788,8 +18788,19 @@ def productos_lista():
 
     coef_3_row = query_one("SELECT valor FROM configuracion WHERE clave='cuotas_3_coef'")
     coef_6_row = query_one("SELECT valor FROM configuracion WHERE clave='cuotas_6_coef'")
+    coef_12_row = query_one("SELECT valor FROM configuracion WHERE clave='cuotas_12_coef'")
     cuotas_3_coef = float(coef_3_row['valor']) if coef_3_row and coef_3_row['valor'] else 1.11
     cuotas_6_coef = float(coef_6_row['valor']) if coef_6_row and coef_6_row['valor'] else 1.22
+    cuotas_12_coef = float(coef_12_row['valor']) if coef_12_row and coef_12_row['valor'] else 1.6
+
+    # Flags on/off de medios de pago. Payway default ON (siempre se mostró);
+    # GetNet y MP 12 default OFF.
+    pw_row = query_one("SELECT valor FROM configuracion WHERE clave='payway_enabled'")
+    payway_enabled = (pw_row['valor'] == '1') if pw_row else True
+    gn_row = query_one("SELECT valor FROM configuracion WHERE clave='getnet_enabled'")
+    getnet_enabled = bool(gn_row and gn_row['valor'] == '1')
+    mp12_row = query_one("SELECT valor FROM configuracion WHERE clave='mp_12_enabled'")
+    mp_12_enabled = bool(mp12_row and mp12_row['valor'] == '1')
 
     return render_template('productos_lista.html',
         productos     = productos,
@@ -18802,6 +18813,10 @@ def productos_lista():
         nl_minimo     = nl_minimo,
         cuotas_3_coef = cuotas_3_coef,
         cuotas_6_coef = cuotas_6_coef,
+        cuotas_12_coef = cuotas_12_coef,
+        payway_enabled = payway_enabled,
+        getnet_enabled = getnet_enabled,
+        mp_12_enabled  = mp_12_enabled,
     )
 
 
@@ -18851,9 +18866,11 @@ def productos_newsletter_cupon():
 def productos_cuotas_coeficientes():
     coef_3 = request.form.get('coef_3', '').strip()
     coef_6 = request.form.get('coef_6', '').strip()
+    coef_12 = request.form.get('coef_12', '').strip()
     try:
         coef_3_f = round(max(1.0, float(coef_3)), 4) if coef_3 else 1.11
         coef_6_f = round(max(1.0, float(coef_6)), 4) if coef_6 else 1.22
+        coef_12_f = round(max(1.0, float(coef_12)), 4) if coef_12 else 1.6
         execute_db(
             "INSERT INTO configuracion (clave, valor) VALUES ('cuotas_3_coef', %s) ON DUPLICATE KEY UPDATE valor=%s",
             (str(coef_3_f), str(coef_3_f))
@@ -18862,10 +18879,34 @@ def productos_cuotas_coeficientes():
             "INSERT INTO configuracion (clave, valor) VALUES ('cuotas_6_coef', %s) ON DUPLICATE KEY UPDATE valor=%s",
             (str(coef_6_f), str(coef_6_f))
         )
+        execute_db(
+            "INSERT INTO configuracion (clave, valor) VALUES ('cuotas_12_coef', %s) ON DUPLICATE KEY UPDATE valor=%s",
+            (str(coef_12_f), str(coef_12_f))
+        )
         pct_3 = round((coef_3_f - 1) * 100, 1)
         pct_6 = round((coef_6_f - 1) * 100, 1)
-        return jsonify(ok=True, msg=f'✅ 3 cuotas: +{pct_3}% / 6 cuotas: +{pct_6}%',
-                       coef_3=coef_3_f, coef_6=coef_6_f)
+        pct_12 = round((coef_12_f - 1) * 100, 1)
+        return jsonify(ok=True, msg=f'✅ 3c: +{pct_3}% / 6c: +{pct_6}% / 12c: +{pct_12}%',
+                       coef_3=coef_3_f, coef_6=coef_6_f, coef_12=coef_12_f)
+    except Exception as e:
+        return jsonify(ok=False, msg=str(e))
+
+
+@app.route('/productos/medio-toggle', methods=['POST'])
+@admin_required
+def productos_medio_toggle():
+    """Prende/apaga un medio de pago desde el catálogo. Allowlist de claves."""
+    PERMITIDAS = {'payway_enabled', 'getnet_enabled', 'mp_12_enabled'}
+    clave = request.form.get('clave', '').strip()
+    valor = '1' if request.form.get('valor', '').strip() in ('1', 'true', 'on') else '0'
+    if clave not in PERMITIDAS:
+        return jsonify(ok=False, msg='Clave no permitida')
+    try:
+        execute_db(
+            "INSERT INTO configuracion (clave, valor) VALUES (%s, %s) ON DUPLICATE KEY UPDATE valor=%s",
+            (clave, valor, valor)
+        )
+        return jsonify(ok=True, clave=clave, valor=valor)
     except Exception as e:
         return jsonify(ok=False, msg=str(e))
 

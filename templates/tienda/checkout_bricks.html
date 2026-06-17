@@ -65,6 +65,7 @@
         </div>
       </label>
 
+      {% if payway_enabled %}
       <!-- Opcion Payway 3 cuotas -->
       <label id="opt-pw3" onclick="seleccionarMetodo('pw3')"
         style="display:flex; align-items:center; gap:14px; border:2px solid #ddd; border-radius:10px; padding:14px 16px; cursor:pointer; background:#fff; color:#333; transition:all 0.2s;">
@@ -75,6 +76,7 @@
           <div class="card-sub" style="font-size:0.78rem; color:#888;">Total {{ total_3_fmt }} · Visa, Mastercard, Amex, Cabal (bancarias)</div>
         </div>
       </label>
+      {% endif %}
 
       {% if payway_6_enabled %}
       <!-- Opcion Payway 6 cuotas -->
@@ -105,6 +107,19 @@
         </div>
       </label>
       {% endif %}
+
+      {% if mp_12_enabled %}
+      <!-- Opcion MercadoPago 12 cuotas -->
+      <label id="opt-mp12" onclick="seleccionarMetodo('mp12')"
+        style="display:flex; align-items:center; gap:14px; border:2px solid #ddd; border-radius:10px; padding:14px 16px; cursor:pointer; background:#fff; color:#333; transition:all 0.2s;">
+        <input type="radio" name="metodo_pago" value="mp12" style="display:none;">
+        <span class="card-icon" style="font-size:1.4rem; color:#009ee3;">💳</span>
+        <div>
+          <div style="font-weight:700; font-size:0.95rem;">12 cuotas de {{ cuota_12_fmt }}</div>
+          <div class="card-sub" style="font-size:0.78rem; color:#888;">Total {{ total_12_fmt }} · MercadoPago · Visa y Mastercard crédito</div>
+        </div>
+      </label>
+      {% endif %}
     </div>
   </div>
 
@@ -115,6 +130,12 @@
 
   <!-- Brick de MP (oculto hasta que elijan MP) -->
   <div id="paymentBrick_container" style="display:none;"></div>
+
+  <!-- Loader y Brick MP 12 cuotas (oculto hasta que elijan mp12; solo desktop) -->
+  <div id="mp12-loader" style="display:none; text-align:center; padding:30px 0; color:#888; font-size:0.95rem;">
+    <div style="font-size:1.5rem; margin-bottom:8px;">...</div>Cargando formulario seguro...
+  </div>
+  <div id="paymentBrick12_container" style="display:none;"></div>
 
   <!-- Wallet Brick de MP (solo desktop, oculto hasta que elijan mp-wallet) -->
   <div id="walletBrick_container" style="display:none; margin-top:16px;"></div>
@@ -262,6 +283,7 @@ var TMXSESSIONID = 'mmu-' + Date.now() + '-' + Math.random().toString(36).substr
 <script>
 var metodoActual = '';  // ninguna opcion preseleccionada
 var mpBrickCreado = false;
+var mp12BrickCreado = false;
 var walletBrickCreado = false;
 var bricksBuilder = null;
 var isMobile = window.innerWidth < 768;
@@ -269,6 +291,7 @@ var urlCarrito = "{{ url_carrito }}";
 var paywayPublicKey = "{{ payway_public_key }}";
 var totalPW3 = {{ total_pw_3 | int }};
 var totalPW6 = {{ total_pw_6 | int }};
+var totalMP12 = {{ total_12 | int }};
 var getnetCreando = false;
 
 // Colores de marca por método de pago (border, bg de la card seleccionada y color del ícono sin seleccionar)
@@ -278,15 +301,21 @@ var cardColors = {
   'pw3':       { border: '#003087', bg: '#003087' },
   'pw6':       { border: '#003087', bg: '#003087' },
   'getnet':    { border: '#EC0000', bg: '#EC0000' },
+  'mp12':      { border: '#009ee3', bg: '#009ee3' },
 };
 
-var cardIds = ['opt-mp-wallet', 'opt-mp', 'opt-pw3', 'opt-pw6', 'opt-getnet'];
+var cardIds = ['opt-mp-wallet', 'opt-mp', 'opt-pw3', 'opt-pw6', 'opt-getnet', 'opt-mp12'];
 
 // ── Selector de método ────────────────────────────────────────────────────────
 function seleccionarMetodo(metodo) {
   // En mobile, MP redirige directo a Checkout Pro (no se renderiza el Brick)
   if (metodo === 'mp' && isMobile) {
     window.location.href = "{{ mp_init_point }}";
+    return;
+  }
+  // MP 12 cuotas en mobile: redirige a Checkout Pro de la preference de 12
+  if (metodo === 'mp12' && isMobile) {
+    window.location.href = "{{ init_point_12 }}";
     return;
   }
 
@@ -321,6 +350,8 @@ function seleccionarMetodo(metodo) {
   var gnSection     = document.getElementById('getnet-section');
   var walletSection = document.getElementById('walletBrick_container');
   var mobileRedir   = document.getElementById('mp-mobile-redirect');
+  var mp12Section   = document.getElementById('paymentBrick12_container');
+  var mp12Loader    = document.getElementById('mp12-loader');
 
   // Ocultar todas las secciones primero
   mpSection.style.display = 'none';
@@ -329,12 +360,20 @@ function seleccionarMetodo(metodo) {
   if (gnSection)     gnSection.style.display     = 'none';
   if (walletSection) walletSection.style.display = 'none';
   if (mobileRedir)   mobileRedir.style.display   = 'none';
+  if (mp12Section)   mp12Section.style.display   = 'none';
+  if (mp12Loader)    mp12Loader.style.display    = 'none';
 
   if (metodo === 'mp') {
     mpSection.style.display = 'block';
     if (!mpBrickCreado) {
       mpLoader.style.display = 'block';
       initBrick();
+    }
+  } else if (metodo === 'mp12') {
+    mp12Section.style.display = 'block';
+    if (!mp12BrickCreado) {
+      mp12Loader.style.display = 'block';
+      initBrick12();
     }
   } else if (metodo === 'mp-wallet') {
     walletSection.style.display = 'block';
@@ -486,6 +525,59 @@ async function initBrick() {
     await builder.create('payment', 'paymentBrick_container', settings);
   } catch(e) {
     document.getElementById('mp-loader').innerHTML = '<p style="color:#c00;font-size:0.9rem;">No se pudo inicializar. <a href="' + urlCarrito + '">Volver al carrito</a>.</p>';
+  }
+}
+
+// ── MercadoPago Bricks — 12 cuotas (recargo) ───────────────────────────────────
+async function initBrick12() {
+  if (mp12BrickCreado) return;
+  mp12BrickCreado = true;
+  var builder = getBricksBuilder();
+  var settings = {
+    initialization: { amount: totalMP12 },
+    customization: {
+      paymentMethods: {
+        creditCard: ['visa', 'master'],
+        debitCard: false, ticket: false, prepaidCard: false,
+        mercadoPago: false, bankTransfer: false, atm: false,
+        minInstallments: 12, maxInstallments: 12
+      },
+      visual: { hideFormTitle: true }
+    },
+    callbacks: {
+      onReady: function() { document.getElementById('mp12-loader').style.display = 'none'; },
+      onSubmit: function(params) {
+        var formData = params.formData;
+        return new Promise(function(resolve, reject) {
+          fetch('/tienda/pago/ejecutar-12', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+          })
+          .then(function(res) { return res.json().then(function(d) { return { ok: res.ok, status: res.status, data: d }; }); })
+          .then(function(r) {
+            if (r.status === 400 && r.data && r.data.redirect) {
+              alert(r.data.error || 'No se encontró la cotización de envío. Volvé a cotizar el envío.');
+              window.location = r.data.redirect; resolve(); return;
+            }
+            if (r.data.redirect_url) { window.location.href = r.data.redirect_url; resolve(); }
+            else { reject(r.data); }
+          })
+          .catch(function(e) { reject(e); });
+        });
+      },
+      onError: function(error) {
+        if (error.type !== 'non_critical') {
+          document.getElementById('mp12-loader').style.display = 'block';
+          document.getElementById('mp12-loader').innerHTML = '<p style="color:#c00;font-size:0.9rem;">Problema al cargar el pago. <a href="' + urlCarrito + '">Volver al carrito</a>.</p>';
+        }
+      }
+    }
+  };
+  try {
+    await builder.create('payment', 'paymentBrick12_container', settings);
+  } catch(e) {
+    document.getElementById('paymentBrick12_container').innerHTML = '<p style="color:#c00;font-size:0.9rem;">No se pudo inicializar. <a href="' + urlCarrito + '">Volver al carrito</a>.</p>';
   }
 }
 

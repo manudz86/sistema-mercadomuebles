@@ -76,24 +76,54 @@
     <div class="card-body py-2">
       <div class="row g-2 align-items-center">
         <div class="col-auto">
-          <span class="fw-semibold">💳 Recargo por cuotas (Payway)</span>
-          <small class="text-muted ms-1">coeficiente que se multiplica al precio para 3 y 6 cuotas</small>
+          <span class="fw-semibold">💳 Recargo por cuotas</span>
+          <small class="text-muted ms-1">coeficiente que multiplica al precio · 3c Payway, 6c GetNet, 12c MercadoPago</small>
         </div>
         <div class="col-auto ms-auto d-flex align-items-center gap-2 flex-wrap">
-          <div class="input-group input-group-sm" style="width:160px">
-            <span class="input-group-text">3 cuotas ×</span>
-            <input type="number" id="coef-3-input" class="form-control" min="1" max="2" step="0.01"
+          <div class="input-group input-group-sm" style="width:175px">
+            <span class="input-group-text">3c (Payway) ×</span>
+            <input type="number" id="coef-3-input" class="form-control" min="1" max="3" step="0.01"
                    value="{{ cuotas_3_coef }}" placeholder="1.11">
           </div>
-          <div class="input-group input-group-sm" style="width:160px">
-            <span class="input-group-text">6 cuotas ×</span>
-            <input type="number" id="coef-6-input" class="form-control" min="1" max="2" step="0.01"
+          <div class="input-group input-group-sm" style="width:175px">
+            <span class="input-group-text">6c (GetNet) ×</span>
+            <input type="number" id="coef-6-input" class="form-control" min="1" max="3" step="0.01"
                    value="{{ cuotas_6_coef }}" placeholder="1.22">
+          </div>
+          <div class="input-group input-group-sm" style="width:175px">
+            <span class="input-group-text">12c (MP) ×</span>
+            <input type="number" id="coef-12-input" class="form-control" min="1" max="3" step="0.01"
+                   value="{{ cuotas_12_coef }}" placeholder="1.6">
           </div>
           <button id="btn-coef-guardar" class="btn btn-sm btn-success">Guardar</button>
           <span id="coef-status" class="small ms-1 text-muted">
-            ✅ 3c: +{{ ((cuotas_3_coef - 1) * 100) | round(1) }}% / 6c: +{{ ((cuotas_6_coef - 1) * 100) | round(1) }}%
+            ✅ 3c: +{{ ((cuotas_3_coef - 1) * 100) | round(1) }}% / 6c: +{{ ((cuotas_6_coef - 1) * 100) | round(1) }}% / 12c: +{{ ((cuotas_12_coef - 1) * 100) | round(1) }}%
           </span>
+        </div>
+      </div>
+
+      <div class="row g-2 align-items-center mt-1 pt-2 border-top">
+        <div class="col-auto">
+          <span class="fw-semibold">🔘 Medios de pago en cuotas</span>
+          <small class="text-muted ms-1">prendé/apagá las opciones que ve el cliente en el checkout</small>
+        </div>
+        <div class="col-auto ms-auto d-flex align-items-center gap-3 flex-wrap">
+          <div class="form-check form-switch m-0">
+            <input class="form-check-input medio-toggle" type="checkbox" role="switch"
+                   id="toggle-payway" data-clave="payway_enabled" {% if payway_enabled %}checked{% endif %}>
+            <label class="form-check-label small" for="toggle-payway">Payway 3 cuotas</label>
+          </div>
+          <div class="form-check form-switch m-0">
+            <input class="form-check-input medio-toggle" type="checkbox" role="switch"
+                   id="toggle-getnet" data-clave="getnet_enabled" {% if getnet_enabled %}checked{% endif %}>
+            <label class="form-check-label small" for="toggle-getnet">GetNet 6 cuotas</label>
+          </div>
+          <div class="form-check form-switch m-0">
+            <input class="form-check-input medio-toggle" type="checkbox" role="switch"
+                   id="toggle-mp12" data-clave="mp_12_enabled" {% if mp_12_enabled %}checked{% endif %}>
+            <label class="form-check-label small" for="toggle-mp12">MercadoPago 12 cuotas</label>
+          </div>
+          <span id="medio-status" class="small ms-1 text-muted"></span>
         </div>
       </div>
     </div>
@@ -418,13 +448,15 @@ if (btnDes) {
   });
 }
 
-// ── Coeficientes cuotas Payway ────────────────────────────────────────────────
+// ── Coeficientes cuotas (Payway 3c / GetNet 6c / MP 12c) ──────────────────────
 document.getElementById('btn-coef-guardar').addEventListener('click', function() {
   const coef3 = document.getElementById('coef-3-input').value;
   const coef6 = document.getElementById('coef-6-input').value;
+  const coef12 = document.getElementById('coef-12-input').value;
   const fd = new FormData();
   fd.append('coef_3', coef3);
   fd.append('coef_6', coef6);
+  fd.append('coef_12', coef12);
   fetch('/productos/cuotas-coeficientes', { method: 'POST', body: fd })
     .then(r => r.json())
     .then(data => {
@@ -443,6 +475,36 @@ document.getElementById('btn-coef-guardar').addEventListener('click', function()
         st.textContent = data.msg;
       }
     });
+});
+
+// ── Toggles de medios de pago (GetNet / MP 12) ────────────────────────────────
+document.querySelectorAll('.medio-toggle').forEach(function(sw) {
+  sw.addEventListener('change', function() {
+    const clave = this.dataset.clave;
+    const valor = this.checked ? '1' : '0';
+    const label = this.nextElementSibling ? this.nextElementSibling.textContent : clave;
+    const st = document.getElementById('medio-status');
+    const fd = new FormData();
+    fd.append('clave', clave);
+    fd.append('valor', valor);
+    fetch('/productos/medio-toggle', { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) {
+          st.className = 'small ms-1 text-success';
+          st.textContent = '✅ ' + label + ': ' + (valor === '1' ? 'activado' : 'desactivado');
+        } else {
+          st.className = 'small ms-1 text-danger';
+          st.textContent = data.msg || 'Error';
+          this.checked = !this.checked;  // revertir el switch si falló
+        }
+      })
+      .catch(e => {
+        st.className = 'small ms-1 text-danger';
+        st.textContent = 'Error de red';
+        this.checked = !this.checked;
+      });
+  });
 });
 </script>
 {% endblock %}
