@@ -86,6 +86,20 @@ def get_mp_sdk():
     token = os.environ.get('MP_ACCESS_TOKEN', '')
     return mercadopago.SDK(token)
 
+
+def get_mp_sdk_test():
+    """SDK de Mercado Pago en modo PRUEBA (sandbox).
+    Usa EXCLUSIVAMENTE MP_ACCESS_TOKEN_TEST. Se niega a operar si el token de
+    prueba falta o coincide con el de producción, de modo que la página
+    /tienda/test-mp nunca pueda generar un cobro real."""
+    token_test = os.environ.get('MP_ACCESS_TOKEN_TEST', '').strip()
+    token_prod = os.environ.get('MP_ACCESS_TOKEN', '').strip()
+    if not token_test:
+        raise RuntimeError('MP_ACCESS_TOKEN_TEST no configurado')
+    if token_prod and token_test == token_prod:
+        raise RuntimeError('MP_ACCESS_TOKEN_TEST coincide con producción: abortado por seguridad')
+    return mercadopago.SDK(token_test)
+
 CP_LOCALIDADES = {
     "1407": ["Floresta"],
     "1408": ["Liniers"],
@@ -4593,7 +4607,9 @@ def checkout():
         'statement_descriptor': 'MERCADOMUEBLES',
         'external_reference': pedido_ref,
         'payer': payer_data,
-        'payment_methods': {'installments': 12},
+        # MP limitado a 1 cuota: con "cuotas sin interés" activo a nivel cuenta,
+        # ofrecer >1 cuota le cobraría el costo de financiación al vendedor.
+        'payment_methods': {'installments': 1},
     }
 
     if shipments:
@@ -4744,7 +4760,9 @@ def pago_ejecutar():
     payment_data = {
         'transaction_amount': float(data.get('transaction_amount', 0)),
         'payment_method_id':  data.get('payment_method_id', ''),
-        'installments':       int(data.get('installments', 1)),
+        # Candado server-side: MP siempre 1 cuota (protege contra requests
+        # armadas que pidan >1 y disparen el costo de cuotas sin interés).
+        'installments':       1,
         'payer':              data.get('payer', {}),
         'external_reference': pedido_ref,
         'notification_url':   f"{base_url}/tienda/webhook/mp",
@@ -7529,3 +7547,168 @@ def test_getnet():
         getnet_env='UAT (sandbox)',
         getnet_base_url=os.getenv('GETNET_BASE_URL_UAT'),
     )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# PÁGINA DE PRUEBA — MERCADO PAGO (sandbox aislado, NO registra venta)
+# Valida: 12 cuotas fijas + whitelist de marcas + 3DS. URL no publicada.
+# Usa SOLO credenciales de test (MP_*_TEST). No afecta el checkout real.
+# ════════════════════════════════════════════════════════════════════════════
+TEST_MP_RECARGO = 1.60  # recargo de prueba: 60%
+
+
+@tienda_bp.route('/test-mp', methods=['GET'])
+def test_mp():
+    """Página de prueba MP — sin auth (URL no publicada). No registra venta."""
+    db  = get_db()
+    cur = db.cursor()
+    cur.execute("""
+        SELECT sku, nombre, precio_base AS precio
+        FROM productos_base
+        WHERE activo = 1 AND precio_base > 0
+        ORDER BY nombre
+        LIMIT 50
+    """)
+    productos = cur.fetchall()
+    cur.close()
+    db.close()
+
+    cred_ok = bool(os.environ.get('MP_ACCESS_TOKEN_TEST', '').strip())
+    return render_template(
+        'tienda/test_mp.html',
+        productos=productos,
+        mp_public_key_test=os.getenv('MP_PUBLIC_KEY_TEST', ''),
+        recargo_pct=int(round((TEST_MP_RECARGO - 1) * 100)),
+        cred_ok=cred_ok,
+    )
+
+
+@tienda_bp.route('/test-mp/preparar', methods=['POST'])
+def test_mp_preparar():
+    """Calcula total con recargo + cupón y crea una preference de PRUEBA."""
+    data   = request.get_json() or {}
+    sku    = (data.get('sku') or '').strip()
+    nombre = (data.get('nombre') or 'Producto')[:60]
+    precio = float(data.get('precio', 0) or 0)
+    cupon  = (data.get('cupon') or '').strip().upper()
+
+    if precio <= 0:
+        return jsonify({'ok': False, 'error': 'Elegí un producto válido'}), 400
+
+    # Cupón opcional — mismo criterio que validar_cupon, sin tocar la sesión real
+    descuento   = 0
+    cupon_label = None
+    if cupon:
+        db = get_db(); cur = db.cursor()
+        try:
+            cur.execute("SELECT * FROM cupones WHERE codigo=%s AND activo=1", (cupon,))
+            c = cur.fetchone()
+            if not c:
+                return jsonify({'ok': False, 'error': 'Cupón inválido o inactivo'}), 400
+            from datetime import date
+            if c['fecha_vencimiento'] and c['fecha_vencimiento'] < date.today():
+                return jsonify({'ok': False, 'error': 'Cupón vencido'}), 400
+            if c['tipo'] == 'pct':
+                descuento   = round(precio * float(c['valor']) / 100)
+                cupon_label = f"-{int(c['valor'])}%"
+            else:
+                descuento   = min(float(c['valor']), precio)
+                cupon_label = f"-{format_price(c['valor'])}"
+        finally:
+            cur.close(); db.close()
+
+    base  = max(0, precio - descuento)
+    total = round(base * TEST_MP_RECARGO)
+    if total <= 0:
+        return jsonify({'ok': False, 'error': 'Total inválido'}), 400
+
+    try:
+        sdk = get_mp_sdk_test()
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Credenciales de prueba: {e}'}), 500
+
+    import time as _t
+    pref = {
+        'items': [{
+            'title':       nombre,
+            'quantity':    1,
+            'unit_price':  float(total),
+            'currency_id': 'ARS',
+        }],
+        # default_installments=12 hace que mobile venga ya con 12 preseleccionado
+        'payment_methods':    {'installments': 12, 'default_installments': 12},
+        'external_reference': f"TESTMP-{sku}-{int(_t.time())}",
+    }
+    result     = sdk.preference().create(pref)
+    preference = result.get('response', {}) or {}
+    if 'id' not in preference:
+        logger.error(f"[test_mp] error preference: {result}")
+        return jsonify({'ok': False, 'error': 'No se pudo crear la preferencia de prueba'}), 500
+
+    # Total autoritativo del server para /test-mp/pagar (no confío en el cliente)
+    session['test_mp_total'] = total
+    session.modified = True
+
+    return jsonify({
+        'ok':            True,
+        'preference_id': preference['id'],
+        'total':         total,
+        'total_fmt':     format_price(total),
+        'cuota_fmt':     format_price(round(total / 12)),
+        'descuento':     descuento,
+        'descuento_fmt': format_price(descuento) if descuento else None,
+        'cupon_label':   cupon_label,
+    })
+
+
+@tienda_bp.route('/test-mp/pagar', methods=['POST'])
+def test_mp_pagar():
+    """Ejecuta el pago de PRUEBA con installments=12 forzado + 3DS. NO registra venta."""
+    data  = request.get_json() or {}
+    total = float(session.get('test_mp_total', 0) or 0)
+    if total <= 0:
+        return jsonify({'ok': False, 'error': 'Sesión sin total; volvé a preparar el pago'}), 400
+
+    try:
+        sdk = get_mp_sdk_test()
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Credenciales de prueba: {e}'}), 500
+
+    payment_data = {
+        'transaction_amount':   total,            # autoritativo del server, no del cliente
+        'token':                data.get('token'),
+        'payment_method_id':    data.get('payment_method_id', ''),
+        'installments':         12,               # FORZADO server-side
+        'payer':                data.get('payer', {}),
+        'statement_descriptor': 'MM TEST',
+        'three_d_secure_mode':  'optional',       # habilita 3DS
+    }
+    if data.get('issuer_id'):
+        payment_data['issuer_id'] = data['issuer_id']
+
+    try:
+        result  = sdk.payment().create(payment_data)
+        payment = result.get('response', {}) or {}
+        status  = payment.get('status', 'error')
+        detail  = payment.get('status_detail', '')
+        pid     = payment.get('id', '')
+        logger.info(f"[test_mp_pagar] status={status} detail={detail} pid={pid} inst={payment.get('installments')}")
+
+        resp = {
+            'ok':            True,
+            'status':        status,
+            'status_detail': detail,
+            'payment_id':    pid,
+            'installments':  payment.get('installments'),
+            'amount':        payment.get('transaction_amount'),
+        }
+        if status == 'pending' and detail == 'pending_challenge':
+            tds = payment.get('three_ds_info', {}) or {}
+            resp['three_ds_info'] = {
+                'external_resource_url': tds.get('external_resource_url'),
+                'creq':                  tds.get('creq'),
+            }
+        return jsonify(resp)
+    except Exception as e:
+        logger.error(f"[test_mp_pagar] excepcion: {e}", exc_info=True)
+        return jsonify({'ok': False, 'error': str(e)}), 500

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🧪 Test MercadoPago — Sandbox</title>
+<script src="https://sdk.mercadopago.com/js/v2"></script>
+<style>
+  body{font-family:system-ui,Arial,sans-serif;max-width:680px;margin:0 auto;padding:16px;background:#f4f5f7;color:#1a1a2e;}
+  h2{margin:8px 0 4px;}
+  .banner{background:#fff3cd;border:1px solid #ffe69c;color:#664d03;padding:10px 14px;border-radius:8px;font-size:.88rem;margin-bottom:16px;}
+  .card{background:#fff;border-radius:10px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px;}
+  label{display:block;font-weight:600;font-size:.85rem;margin:10px 0 4px;}
+  select,input{width:100%;padding:9px;border:1px solid #ccc;border-radius:8px;font-size:1rem;box-sizing:border-box;}
+  button{background:#1a1a2e;color:#fff;border:0;border-radius:8px;padding:11px 16px;font-size:1rem;font-weight:700;cursor:pointer;width:100%;margin-top:12px;}
+  button:disabled{opacity:.5;cursor:not-allowed;}
+  .total{font-size:1.4rem;font-weight:800;}
+  .cuota{font-size:1.1rem;font-weight:700;color:#1a1a2e;margin-top:4px;}
+  .muted{color:#888;font-size:.8rem;}
+  .err{color:#c00;font-size:.9rem;margin-top:8px;}
+  .ok{color:#0a7d2c;font-weight:800;}
+  .testcards{font-size:.78rem;color:#555;background:#eef0ff;border-radius:8px;padding:10px 12px;margin-top:6px;line-height:1.5;}
+  code{background:#eee;padding:1px 5px;border-radius:4px;}
+</style>
+</head>
+<body>
+  <h2>🧪 Test MercadoPago — Sandbox</h2>
+  <div class="banner">
+    MODO PRUEBA AISLADO · credenciales <b>TEST</b> · no registra venta · no cobra plata real ·
+    fuerza <b>12 cuotas</b> · marcas <b>Visa / Master / Amex</b> · 3DS activo.
+    Recargo de prueba: <b>{{ recargo_pct }}%</b> · <span id="modoEntorno"></span>
+  </div>
+
+  {% if not cred_ok %}
+  <div class="card err">⚠️ Falta <code>MP_ACCESS_TOKEN_TEST</code> en el entorno. Cargá las credenciales de prueba y reiniciá el servicio.</div>
+  {% endif %}
+
+  <div class="card">
+    <label for="sku">Producto</label>
+    <select id="sku">
+      <option value="">— Elegí un producto —</option>
+      {% for p in productos %}
+      <option value="{{ p.sku }}" data-precio="{{ p.precio }}" data-nombre="{{ p.nombre }}">{{ p.nombre }} — ${{ '{:,.0f}'.format(p.precio) }}</option>
+      {% endfor %}
+    </select>
+
+    <label for="cupon">Cupón de descuento (opcional)</label>
+    <input id="cupon" placeholder="Ej: PROMO10" autocomplete="off">
+
+    <button id="btnPreparar">Preparar pago en 12 cuotas</button>
+    <div class="err" id="errPreparar"></div>
+  </div>
+
+  <div class="card" id="resumen" style="display:none;">
+    <div>Total con recargo {{ recargo_pct }}%: <span class="total" id="totalFmt"></span></div>
+    <div class="cuota" id="cuotaFmt"></div>
+    <div class="muted" id="descLine"></div>
+  </div>
+
+  <div class="card" id="brickCard" style="display:none;">
+    <div id="paymentBrick_container"></div>
+  </div>
+
+  <div class="card" id="statusCard" style="display:none;">
+    <div id="statusScreenBrick_container"></div>
+  </div>
+
+  <div class="card" id="resultCard" style="display:none;">
+    <div id="resultMsg"></div>
+  </div>
+
+  <div class="testcards">
+    <b>Tarjetas de prueba 3DS (Mastercard):</b><br>
+    ✅ Challenge OK: <code>5483 9281 6457 4623</code> · CVV 123 · 11/30<br>
+    ❌ Challenge rechazado: <code>5361 9568 0611 7557</code> · CVV 123 · 11/30<br>
+    Nombre: APRO · DNI: 12345678
+  </div>
+
+<script>
+const PUBLIC_KEY = "{{ mp_public_key_test }}";
+const mp = new MercadoPago(PUBLIC_KEY, { locale: 'es-AR' });
+const isMobile = window.matchMedia('(max-width: 768px)').matches || /Mobi|Android/i.test(navigator.userAgent);
+const bricksBuilder = mp.bricks();
+let brickCreado = false;
+
+document.getElementById('modoEntorno').textContent = isMobile
+  ? 'mobile (máx 12, default 12)' : 'web (min=max=12, bloqueado)';
+
+document.getElementById('btnPreparar').addEventListener('click', async function(){
+  const sel = document.getElementById('sku');
+  const opt = sel.options[sel.selectedIndex];
+  const errEl = document.getElementById('errPreparar');
+  errEl.textContent = '';
+  if (!sel.value) { errEl.textContent = 'Elegí un producto.'; return; }
+  this.disabled = true; this.textContent = 'Preparando…';
+  try {
+    const r = await fetch('/tienda/test-mp/preparar', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        sku:    sel.value,
+        nombre: opt.dataset.nombre,
+        precio: parseFloat(opt.dataset.precio),
+        cupon:  document.getElementById('cupon').value
+      })
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      errEl.textContent = d.error || 'Error';
+      this.disabled = false; this.textContent = 'Preparar pago en 12 cuotas';
+      return;
+    }
+    document.getElementById('totalFmt').textContent = d.total_fmt;
+    document.getElementById('cuotaFmt').textContent = '12 cuotas de ' + d.cuota_fmt;
+    document.getElementById('descLine').textContent = d.descuento
+      ? ('Cupón ' + (d.cupon_label || '') + ' · descuento ' + d.descuento_fmt) : '';
+    document.getElementById('resumen').style.display  = 'block';
+    document.getElementById('brickCard').style.display = 'block';
+    await renderBrick(d.preference_id, d.total);
+    this.style.display = 'none';
+  } catch(e){
+    errEl.textContent = 'Error de red: ' + e;
+    this.disabled = false; this.textContent = 'Preparar pago en 12 cuotas';
+  }
+});
+
+async function renderBrick(prefId, amount){
+  if (brickCreado) return;
+  brickCreado = true;
+  // Whitelist Visa/Master/Amex; sin débito/efectivo/prepaga/dinero en cuenta.
+  const pm = {
+    creditCard: ['visa','master','amex'],
+    debitCard: false, ticket: false, prepaidCard: false,
+    mercadoPago: false, bankTransfer: false, atm: false,
+    maxInstallments: 12
+  };
+  // Web: candado min=max=12. Mobile: max 12 + default 12 (de la preference).
+  if (!isMobile) { pm.minInstallments = 12; }
+
+  const settings = {
+    initialization: { amount: amount, preferenceId: prefId },
+    customization: { paymentMethods: pm, visual: { hideFormTitle: true } },
+    callbacks: {
+      onReady: function(){},
+      onSubmit: function(params){
+        const formData = params.formData;
+        return new Promise(function(resolve, reject){
+          fetch('/tienda/test-mp/pagar', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify(formData)
+          })
+          .then(function(res){ return res.json(); })
+          .then(function(d){
+            if (!d.ok) { mostrarResultado('error', d.error || 'Error'); resolve(); return; }
+            if (d.status === 'pending' && d.status_detail === 'pending_challenge' && d.three_ds_info) {
+              lanzarChallenge(d.payment_id, d.three_ds_info);
+              resolve();
+            } else {
+              mostrarResultado(d.status,
+                'Estado: ' + d.status + ' / ' + d.status_detail +
+                ' · cuotas: ' + d.installments + ' · $' + d.amount + ' · pago ' + d.payment_id);
+              resolve();
+            }
+          })
+          .catch(function(e){ mostrarResultado('error', 'Error de red: ' + e); reject(); });
+        });
+      },
+      onError: function(e){ console.error('[Brick]', e); }
+    }
+  };
+  try {
+    await bricksBuilder.create('payment', 'paymentBrick_container', settings);
+  } catch(e){
+    document.getElementById('paymentBrick_container').innerHTML =
+      '<p class="err">No se pudo inicializar el Brick: ' + e + '</p>';
+  }
+}
+
+async function lanzarChallenge(pid, tds){
+  document.getElementById('statusCard').style.display = 'block';
+  try {
+    await bricksBuilder.create('statusScreen', 'statusScreenBrick_container', {
+      initialization: {
+        paymentId: pid,
+        additionalInfo: { externalResourceURL: tds.external_resource_url, creq: tds.creq }
+      },
+      callbacks: { onReady: function(){}, onError: function(e){ console.error('[StatusScreen]', e); } }
+    });
+  } catch(e){
+    document.getElementById('statusScreenBrick_container').innerHTML =
+      '<p class="err">No se pudo iniciar el challenge 3DS: ' + e + '</p>';
+  }
+}
+
+function mostrarResultado(status, msg){
+  const card = document.getElementById('resultCard');
+  const el   = document.getElementById('resultMsg');
+  card.style.display = 'block';
+  el.innerHTML = (status === 'approved'
+    ? '<span class="ok">✅ APROBADO</span><br>'
+    : '<b>' + status + '</b><br>') + '<span class="muted">' + msg + '</span>';
+}
+</script>
+</body>
+</html>
