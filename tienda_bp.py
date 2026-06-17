@@ -6748,6 +6748,21 @@ def webhook_mp():
         if cli.get('demora_dias'):
             fecha_disp = cli.get('fecha_disponible', '')
             notas_parts.append(f"DEMORA: {cli['demora_dias']} días (disponible {fecha_disp})")
+        # Cuotas: distingue el pago en 12 cuotas (recargo) del MP normal en 1 cuota
+        _inst = int(payment.get('installments', 1) or 1)
+        if _inst > 1:
+            _nota_cuotas = f"CUOTAS: {_inst}"
+            if _inst == 12:
+                try:
+                    _dbc = get_db(); _cc = _dbc.cursor()
+                    _cc.execute("SELECT valor FROM configuracion WHERE clave='cuotas_12_coef'")
+                    _rc = _cc.fetchone()
+                    _cc.close(); _dbc.close()
+                    if _rc and _rc['valor']:
+                        _nota_cuotas += f" (recargo coef {float(_rc['valor'])})"
+                except Exception:
+                    pass
+            notas_parts.append(_nota_cuotas)
         notas_extra = "\n".join(notas_parts)
 
         # ── Tipo de entrega según si hubo shipment ME2 ───────────────────────
@@ -6840,12 +6855,17 @@ def webhook_mp():
         )
 
         # ── INSERT items_venta + descontar stock ──────────────────────────────
+        # Ajustar el precio de cada item al neto realmente cobrado (cupón + recargo
+        # de cuotas), para que las líneas reflejen lo pagado y sumen el importe_total
+        # de la venta. Sin cupón ni recargo el factor es 1 (no cambia nada).
+        _factor_item = (importe_total_mp / importe_solo_productos) if importe_solo_productos else 1.0
         if cart_items:
             for it in cart_items:
+                _precio_aj = round(float(it['precio']) * _factor_item)
                 cursor.execute("""
                     INSERT INTO items_venta (venta_id, sku, cantidad, precio_unitario)
                     VALUES (%s, %s, %s, %s)
-                """, (venta_id, it['sku'], it['cantidad'], it['precio']))
+                """, (venta_id, it['sku'], it['cantidad'], _precio_aj))
         db.commit()
         # ── Meta CAPI Purchase (server-side) ──────────────────────────────────
         try:
