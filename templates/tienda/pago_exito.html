@@ -4,39 +4,51 @@
 
 {% if payment_id %}
 <script>
-  gtag('event', 'purchase', {
-    transaction_id: '{{ numero_venta }}',
-    currency: 'ARS',
-    value: {{ ga_value | int }},
-    items: [
-      {% for item in ga_items %}
-      {
-        item_id:   '{{ item.item_id }}',
-        item_name: '{{ item.item_name }}',
-        price:     {{ item.price | int }},
-        quantity:  {{ item.quantity }},
-      }{% if not loop.last %},{% endif %}
-      {% endfor %}
-    ]
-  });
-</script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  window.dataLayer.push({
-    event: 'purchase',
-    value: {{ ga_value | int }},
-    currency: 'ARS',
-    transaction_id: '{{ numero_venta }}'
-  });
-</script>
-<script>
-  fbq('track', 'Purchase', {
-    value: {{ importe_abonado | round(2) }},
-    currency: 'ARS',
-    content_type: 'product',
-    content_ids: [{% for item in ga_items %}'{{ item.item_id }}'{% if not loop.last %},{% endif %}{% endfor %}],
-    contents: [{% for item in ga_items %}{id:'{{ item.item_id }}',quantity:{{ item.quantity }},item_price:{{ item.price }}}{% if not loop.last %},{% endif %}{% endfor %}]
-  }, { eventID: '{{ numero_venta }}' });
+(function(){
+  try {
+    var k = 'fb_purchase_' + '{{ numero_venta }}';
+    if (localStorage.getItem(k)) return;   // ya disparó para esta venta
+    localStorage.setItem(k, '1');
+  } catch(e) {}
+
+  try {
+    gtag('event', 'purchase', {
+      transaction_id: '{{ numero_venta }}',
+      currency: 'ARS',
+      value: {{ ga_value | int }},
+      items: [
+        {% for item in ga_items %}
+        {
+          item_id:   '{{ item.item_id }}',
+          item_name: '{{ item.item_name }}',
+          price:     {{ item.price | int }},
+          quantity:  {{ item.quantity }},
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+      ]
+    });
+  } catch(e) {}
+
+  try {
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push({
+      event: 'purchase',
+      value: {{ ga_value | int }},
+      currency: 'ARS',
+      transaction_id: '{{ numero_venta }}'
+    });
+  } catch(e) {}
+
+  try {
+    fbq('track', 'Purchase', {
+      value: {{ importe_abonado | round(2) }},
+      currency: 'ARS',
+      content_type: 'product',
+      content_ids: [{% for item in ga_items %}'{{ item.item_id }}'{% if not loop.last %},{% endif %}{% endfor %}],
+      contents: [{% for item in ga_items %}{id:'{{ item.item_id }}',quantity:{{ item.quantity }},item_price:{{ item.price }}}{% if not loop.last %},{% endif %}{% endfor %}]
+    }, { eventID: '{{ numero_venta }}' });
+  } catch(e) {}
+})();
 </script>
 {% endif %}
 <div class="pago-container">
