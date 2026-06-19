@@ -24,6 +24,7 @@ import logging
 import json
 from datetime import datetime, timezone, timedelta
 import uuid
+import urllib.parse
 import smtplib
 import requests as http_requests
 import hashlib
@@ -4499,6 +4500,10 @@ def checkout():
         cliente['_fbc'] = request.cookies.get('_fbc')
         cliente['_capi_ip'] = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
         cliente['_capi_ua'] = request.headers.get('User-Agent')
+        # Origen de tráfico (cookies del landing) — JSON limpio para persistir en la venta
+        _of = request.cookies.get('mm_origen_first'); _ol = request.cookies.get('mm_origen_last')
+        cliente['_origen_first'] = urllib.parse.unquote(_of) if _of else None
+        cliente['_origen_last']  = urllib.parse.unquote(_ol) if _ol else None
     except Exception:
         pass
 
@@ -5555,6 +5560,10 @@ def pago_payway():
         notas_parts.append(f"DEMORA: {cli['demora_dias']} dias ({cli.get('fecha_disponible','')})")
     notas_extra = "\n".join(notas_parts)
 
+    # Origen de tráfico (cookies del landing) — JSON limpio para la columna
+    _origen_first = urllib.parse.unquote(request.cookies.get('mm_origen_first') or '') or None
+    _origen_last  = urllib.parse.unquote(request.cookies.get('mm_origen_last') or '') or None
+
     # ── INSERT ventas ─────────────────────────────────────────────────────────
     cur2.execute("""
         INSERT INTO ventas (
@@ -5563,14 +5572,14 @@ def pago_payway():
             metodo_pago, tipo_entrega, metodo_envio,
             direccion_entrega, estado_pago, estado_entrega,
             estado, costo_flete, pago_mercadopago,
-            stock_descontado, notas, fecha_venta, fecha_registro
+            stock_descontado, notas, origen_first, origen_last, fecha_venta, fecha_registro
         ) VALUES (
             %s, 'tienda_web', %s, %s,
             %s, %s, %s, %s,
             'Payway', %s, %s,
             %s, 'pagado', 'pendiente',
             'ACTIVA', %s, 0,
-            0, %s, %s, %s
+            0, %s, %s, %s, %s, %s
         )
     """, (
         numero_venta,
@@ -5580,7 +5589,7 @@ def pago_payway():
         tipo_entrega_val, metodo_envio_val,
         direccion,
         costo_flete_adj,  # flete tambien con coef embebido
-        notas_extra, fecha_now, fecha_now,
+        notas_extra, _origen_first, _origen_last, fecha_now, fecha_now,
     ))
     venta_id = cur2.lastrowid
 
@@ -6848,7 +6857,7 @@ def webhook_mp():
                 direccion_entrega, estado_pago, estado_entrega,
                 estado, costo_flete, pago_mercadopago,
                 stock_descontado, fecha_entrega_estimada, notas,
-                fecha_venta, fecha_registro
+                origen_first, origen_last, fecha_venta, fecha_registro
             ) VALUES (
                 %s, 'tienda_web', %s, %s,
                 %s, %s, %s, %s,
@@ -6856,7 +6865,7 @@ def webhook_mp():
                 %s, 'pagado', 'pendiente',
                 'ACTIVA', %s, %s,
                 0, %s, %s,
-                %s, %s
+                %s, %s, %s, %s
             )
         """, (
             numero_venta,
@@ -6866,6 +6875,7 @@ def webhook_mp():
             direccion,
             costo_flete, importe_abonado_real,
             fecha_entrega, notas_extra,
+            cli.get('_origen_first'), cli.get('_origen_last'),
             fecha_now, fecha_now,
         ))
         venta_id = cursor.lastrowid
@@ -7225,14 +7235,14 @@ def webhook_getnet():
                 metodo_pago, tipo_entrega, metodo_envio,
                 direccion_entrega, estado_pago, estado_entrega,
                 estado, costo_flete, pago_mercadopago,
-                stock_descontado, notas, fecha_venta, fecha_registro
+                stock_descontado, notas, origen_first, origen_last, fecha_venta, fecha_registro
             ) VALUES (
                 %s, 'tienda_web', %s, %s,
                 %s, %s, %s, %s,
                 'GetNet', %s, %s,
                 %s, 'pagado', 'pendiente',
                 'ACTIVA', %s, 0,
-                0, %s, %s, %s
+                0, %s, %s, %s, %s, %s
             )
         """, (
             numero_venta,
@@ -7242,7 +7252,7 @@ def webhook_getnet():
             tipo_entrega_val, metodo_envio_val,
             direccion,
             costo_flete_adj,
-            notas_extra, fecha_now, fecha_now,
+            notas_extra, cli.get('_origen_first'), cli.get('_origen_last'), fecha_now, fecha_now,
         ))
         venta_id = cursor.lastrowid
 

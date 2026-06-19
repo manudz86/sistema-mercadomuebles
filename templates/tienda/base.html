@@ -1,6 +1,28 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<!-- Captura de origen de trafico (UTM / fbclid / gclid / referrer) -->
+<script>
+(function(){
+  try {
+    var qs = new URLSearchParams(window.location.search);
+    var sig = {
+      utm_source: qs.get('utm_source'), utm_medium: qs.get('utm_medium'),
+      utm_campaign: qs.get('utm_campaign'), fbclid: qs.get('fbclid'),
+      gclid: qs.get('gclid'), referrer: document.referrer || null,
+      ts: new Date().toISOString()
+    };
+    var host = location.hostname;
+    var refExterno = sig.referrer && sig.referrer.indexOf('://') > -1 && sig.referrer.indexOf(host) === -1;
+    if (!(sig.utm_source || sig.fbclid || sig.gclid || refExterno)) return; // visita directa: no pisa
+    function getCookie(n){ var m=document.cookie.match('(^|;)\\s*'+n+'\\s*=\\s*([^;]+)'); return m?m.pop():null; }
+    function setCookie(n,v){ var d=new Date(); d.setTime(d.getTime()+90*864e5); document.cookie=n+'='+v+';expires='+d.toUTCString()+';path=/;SameSite=Lax'; }
+    var val = encodeURIComponent(JSON.stringify(sig));
+    if (!getCookie('mm_origen_first')) setCookie('mm_origen_first', val); // primer clic (una vez)
+    setCookie('mm_origen_last', val); // ultimo clic no-directo
+  } catch(e) {}
+})();
+</script>
 <!-- Google Tag Manager -->
 <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
 new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
