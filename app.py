@@ -11493,6 +11493,7 @@ def auditoria_poner_demora():
 @login_required
 def estadisticas():
     from datetime import datetime, timedelta
+    import json as _json
 
     # ========================================
     # FILTROS
@@ -11597,6 +11598,46 @@ def estadisticas():
         GROUP BY canal_label
     """, tuple(base_params))
 
+    # ===== 3.5 DESGLOSE POR ORIGEN DE TRÁFICO (torta) =====
+    # Clasifica cada venta parseando origen_last (último clic no-directo).
+    # Monto = importe_abonado (lo cobrado), comparable con lo que reporta Meta.
+    def _clasificar_origen(origen_last):
+        if not origen_last:
+            return 'Directo'
+        try:
+            d = _json.loads(origen_last)
+        except Exception:
+            return 'Directo'
+        src = (d.get('utm_source') or '').lower()
+        ref = (d.get('referrer') or '').lower()
+        if d.get('fbclid') or src in ('facebook', 'instagram', 'fb', 'ig', 'meta'):
+            return 'Meta'
+        if d.get('gclid') or src in ('google', 'adwords', 'google_ads', 'googleads'):
+            return 'Google'
+        if ref:
+            return 'Orgánico/Referido'
+        return 'Directo'
+
+    origen_rows = query_db(f"""
+        SELECT v.origen_last, v.importe_abonado
+        FROM ventas v
+        {base_where}
+    """, tuple(base_params))
+
+    _agg_origen = {}
+    total_abonado = 0.0
+    for r in (origen_rows or []):
+        ab = float(r.get('importe_abonado') or 0)
+        total_abonado += ab
+        lbl = _clasificar_origen(r.get('origen_last'))
+        if lbl not in _agg_origen:
+            _agg_origen[lbl] = {'origen_label': lbl, 'cantidad': 0, 'total': 0.0}
+        _agg_origen[lbl]['cantidad'] += 1
+        _agg_origen[lbl]['total'] += ab
+
+    _orden_origen = {'Meta': 0, 'Google': 1, 'Orgánico/Referido': 2, 'Directo': 3}
+    por_origen = sorted(_agg_origen.values(), key=lambda x: _orden_origen.get(x['origen_label'], 9))
+
     # ========================================
     # 4. DESGLOSE POR MÉTODO DE ENVÍO (para torta)
     # ========================================
@@ -11649,6 +11690,8 @@ def estadisticas():
         resumen=resumen,
         ventas_por_dia=ventas_por_dia,
         por_canal=por_canal,
+        por_origen=por_origen,
+        total_abonado=total_abonado,
         por_metodo=por_metodo,
         top_productos=top_productos,
         metodos_disponibles=metodos_disponibles,

@@ -286,6 +286,33 @@
 
     </div>
 
+    <!-- ── POR ORIGEN DE TRÁFICO ── -->
+    <div class="row g-3 mb-3">
+      <div class="col-md-4">
+        <div class="chart-card" style="height: 380px;">
+          <h6><i class="bi bi-bullseye me-1"></i>Por Origen de Tráfico</h6>
+          <canvas id="chartOrigen" style="max-height: 150px;"></canvas>
+          <div class="dist-tabla">
+            {% for p in por_origen %}
+            {% set pct_cant  = (p.cantidad / resumen.total_ventas * 100) if resumen.total_ventas else 0 %}
+            {% set pct_monto = ((p.total or 0) / total_abonado * 100) if total_abonado else 0 %}
+            <div class="dist-row">
+              <span class="dist-color" style="background: {{ ['#1877F2','#34A853','#A5A5A5','#5B9BD5','#ED7D31'][loop.index0 % 5] }};"></span>
+              <span class="dist-label" title="{{ p.origen_label }}">{{ p.origen_label }}</span>
+              <span class="dist-nums">
+                <span class="dist-cant">{{ p.cantidad }}</span> <span class="dist-pct">({{ "%.0f"|format(pct_cant) }}%)</span>
+                <span class="dist-monto">${{ "{:,.0f}".format(p.total or 0) }} <span class="dist-pct">({{ "%.0f"|format(pct_monto) }}%)</span></span>
+              </span>
+            </div>
+            {% endfor %}
+          </div>
+          <div style="font-size:11px;color:#888;margin-top:6px;">
+            Monto = cobrado (comparable con Meta Ads). "Meta" = clics de anuncio (fbclid) + UTM de FB/IG.
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- FILA 2: Top productos -->
     <div class="row g-3">
         <div class="col-12">
@@ -455,6 +482,36 @@ new Chart(document.getElementById('chartCanal'), {
         }
     }
 });
+
+// ─── Torta origen de tráfico ───
+const origenLabels   = {{ por_origen | map(attribute='origen_label') | list | tojson }};
+const origenCantidad = {{ por_origen | map(attribute='cantidad')     | list | tojson }};
+const origenTotal    = {{ por_origen | map(attribute='total')        | list | tojson }};
+const totalAbonadoGral = {{ total_abonado or 0 }};
+const paletaOrigen = ['#1877F2','#34A853','#A5A5A5','#5B9BD5','#ED7D31'];
+
+if (document.getElementById('chartOrigen')) {
+  new Chart(document.getElementById('chartOrigen'), {
+    type: 'doughnut',
+    data: {
+      labels: origenLabels,
+      datasets: [{ data: origenCantidad, backgroundColor: paletaOrigen, borderWidth: 2, borderColor: '#fff' }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: function(ctx) {
+          const cant  = ctx.parsed || 0;
+          const monto = origenTotal[ctx.dataIndex] || 0;
+          const pctC  = totalVentasGral ? (cant / totalVentasGral * 100) : 0;
+          const pctM  = totalAbonadoGral ? (monto / totalAbonadoGral * 100) : 0;
+          return [ ctx.label, `  ${cant} vtas (${pctC.toFixed(0)}%)`, `  $${monto.toLocaleString('es-AR')} (${pctM.toFixed(0)}%)` ];
+        }}}
+      }
+    }
+  });
+}
 
 // ─── Torta método envío ───────────────────────────────────────────────
 new Chart(document.getElementById('chartMetodo'), {
