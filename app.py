@@ -12225,6 +12225,9 @@ app.register_blueprint(competencia_scraper_bp)
 from whatsapp_bp import whatsapp_bp
 app.register_blueprint(whatsapp_bp)
 
+from cocinar_bp import cocinar_bp
+app.register_blueprint(cocinar_bp)
+
 
 # ============================================================================
 # FLETES
