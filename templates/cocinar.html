@@ -86,8 +86,11 @@
   .prov{font-family:'Space Mono',monospace;font-weight:700;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--green);border-bottom:1px dashed var(--line2);padding-bottom:5px;margin-bottom:7px;display:flex;justify-content:space-between}
   .prov small{color:var(--muted);font-weight:400;letter-spacing:0;text-transform:none}
   .ilist{list-style:none;font-size:14px}
-  .ilist li{display:flex;justify-content:space-between;gap:10px;padding:2.5px 0}
+  .ilist li{display:flex;align-items:center;gap:8px;padding:2.5px 0}
+  .ilist li>span:first-child{flex:1}
   .ilist li .q{font-family:'Space Mono',monospace;color:var(--muted);white-space:nowrap}
+  .ilist li .ish-del{border:0;background:transparent;color:var(--line2);cursor:pointer;font-size:17px;line-height:1;padding:0 6px;border-radius:6px}
+  .ilist li .ish-del:hover{color:var(--red);background:var(--paper)}
   .cook-line{font-size:14.5px;padding:4px 0;border-bottom:1px solid var(--line)}
   .panel-actions{padding:14px 18px;border-top:1px solid var(--line);display:flex;gap:9px;flex-wrap:wrap}
   .btn{flex:1;border:0;border-radius:11px;padding:12px;font-weight:700;font-size:14px;cursor:pointer;font-family:'Inter'}
@@ -254,14 +257,14 @@ const FRUITS=[
   {id:"f_kiwi",label:"Kiwi",months:[4,5,6,7,8]},{id:"f_palta",label:"Palta",months:[3,4,5,6,7,8,9]},
   {id:"f_granada",label:"Granada",months:[3,4,5,6]},{id:"f_manzana",label:"Manzana",months:[1,2,3,4,5,6,7,8,9,10,11,12]},
   {id:"f_banana",label:"Banana",months:[1,2,3,4,5,6,7,8,9,10,11,12]},{id:"f_anana",label:"Ananá",months:[11,12,1,2,3]},
-  {id:"f_arandanos",label:"Arándanos",months:[10,11,12,1]},{id:"f_frutilla",label:"Frutilla",months:[9,10,11,12,1]},
-  {id:"f_ciruela",label:"Ciruela",months:[12,1,2,3]},{id:"f_uva",label:"Uva sin semilla",months:[2,3,4]},
+  {id:"f_arandanos",label:"Arándanos",months:[10,11,12,1],u:"caja"},{id:"f_frutilla",label:"Frutilla",months:[9,10,11,12,1],u:"kg",step:0.5},
+  {id:"f_ciruela",label:"Ciruela",months:[12,1,2,3]},{id:"f_uva",label:"Uva sin semilla",months:[2,3,4],u:"kg",step:0.5},
   {id:"f_durazno",label:"Durazno",months:[11,12,1,2]},{id:"f_melon",label:"Melón",months:[12,1,2,3]},
 ];
 
 /* ---- estado y datos remotos ---- */
 let PROVIDERS={}, PROV_ORDER=[], RECETAS=[];
-const state={dishes:{},vaporiera:{},guarni:{},preps:{},fruits:{}};
+const state={dishes:{},vaporiera:{},guarni:{},preps:{},fruits:{},excludedShop:{}};
 const MONTH=new Date().getMonth()+1;
 let activeTab="cook";
 const $=s=>document.querySelector(s);
@@ -282,9 +285,9 @@ async function loadConfig(){
 
 /* ---- escalado y formato ---- */
 function scaledQty(ing,size){ if(!size)return ing.q; if(ing.esc)return ing.esc[size]??ing.q; if(ing.scale)return ing.q*(SIZE_MULT[size]||1); return ing.q; }
-const COUNT_UNITS=["u","lata","paq","atado","cabeza","diente"];
+const COUNT_UNITS=["u","lata","paq","atado","cabeza","diente","caja"];
 function roundQty(q,u){ if(COUNT_UNITS.includes(u))return Math.max(1,Math.round(q)); if(u==="g")return Math.round(q/50)*50; if(u==="kg")return Math.round(q*4)/4; return Math.round(q*100)/100; }
-function fmtQty(q,u){ if(u==="u")return q>1?q+"×":""; if(u==="g")return q>=1000?(q/1000)+" kg":q+" g"; if(u==="kg")return q+" kg"; if(u==="lata")return q+" "+(q>1?"latas":"lata"); if(u==="paq")return q+" paq"; if(u==="atado")return q+" atado"+(q>1?"s":""); return q+" "+u; }
+function fmtQty(q,u){ if(u==="u")return q>1?q+"×":""; if(u==="g")return q>=1000?(q/1000)+" kg":q+" g"; if(u==="kg")return q+" kg"; if(u==="lata")return q+" "+(q>1?"latas":"lata"); if(u==="paq")return q+" paq"; if(u==="atado")return q+" atado"+(q>1?"s":""); if(u==="caja")return q+" "+(q>1?"cajas":"caja"); return q+" "+u; }
 
 /* ===================== RENDER MENÚ ===================== */
 function renderMenu(){
@@ -313,12 +316,12 @@ function renderMenu(){
   m.appendChild(chipSection("Guarniciones","", GUARNI.map(g=>({label:g.label,on:!!state.guarni[g.id],toggle:()=>{state.guarni[g.id]=!state.guarni[g.id];refresh();}}))));
   m.appendChild(prepSection());
   const fr=[...FRUITS].sort((a,b)=>{const sa=a.months.includes(MONTH)?0:1,sb=b.months.includes(MONTH)?0:1;return sa-sb||a.label.localeCompare(b.label);});
-  m.appendChild(chipSection("Frutas (verdulería)","Las de estación van primero.", fr.map(f=>({
-    label:f.label,season:f.months.includes(MONTH),on:state.fruits[f.id]!=null,adj:true,qty:state.fruits[f.id]||1,
-    toggle:()=>{ if(state.fruits[f.id]!=null)delete state.fruits[f.id]; else state.fruits[f.id]=1; refresh(); },
-    inc:()=>{ state.fruits[f.id]=(state.fruits[f.id]||0)+1; refresh(); },
-    dec:()=>{ const v=(state.fruits[f.id]||0)-1; if(v<=0)delete state.fruits[f.id]; else state.fruits[f.id]=v; refresh(); }
-  }))));
+  m.appendChild(chipSection("Frutas (verdulería)","Las de estación van primero. Frutilla y uva por 0,5 kg; arándanos por caja.", fr.map(f=>{ const st=f.step||1; return {
+    label:f.label,season:f.months.includes(MONTH),on:state.fruits[f.id]!=null,adj:true,qty:state.fruits[f.id]||st,
+    toggle:()=>{ if(state.fruits[f.id]!=null)delete state.fruits[f.id]; else state.fruits[f.id]=st; refresh(); },
+    inc:()=>{ state.fruits[f.id]=Math.round(((state.fruits[f.id]||0)+st)*100)/100; refresh(); },
+    dec:()=>{ const v=Math.round(((state.fruits[f.id]||0)-st)*100)/100; if(v<=0)delete state.fruits[f.id]; else state.fruits[f.id]=v; refresh(); }
+  }; })));
 }
 
 function dishCard(d){
@@ -396,8 +399,16 @@ function buildShopping(){
   VAPORIERA.forEach(v=>{ if(state.vaporiera[v.id]!=null){const q=v.adjustable?state.vaporiera[v.id]:v.q;add(v.n,v.p,v.u,q);} });
   GUARNI.forEach(g=>{ if(state.guarni[g.id])add(g.n,g.p,g.u,g.q); });
   PREPS.forEach(pr=>{ const st=state.preps[pr.id]; if(st){const nm=pr.meat?st.meat:pr.n;add(nm,pr.p,pr.u,st.qty);} });
-  FRUITS.forEach(f=>{ if(state.fruits[f.id]!=null)add(f.label,"verduleria","u",state.fruits[f.id]); });
+  FRUITS.forEach(f=>{ if(state.fruits[f.id]!=null)add(f.label,"verduleria",f.u||"u",state.fruits[f.id]); });
   return map;
+}
+// Saca de excludedShop las líneas que ya no existen en la lista (p. ej. al quitar
+// el plato): así, si volvés a agregar la receta, vuelven TODOS sus ingredientes.
+function pruneExclusions(map){
+  for(const k in state.excludedShop){
+    const i=k.indexOf("|"); const p=k.slice(0,i); const rest=k.slice(i+1);
+    if(!(map[p] && map[p][rest])) delete state.excludedShop[k];
+  }
 }
 function buildCookText(){
   const lines=[];
@@ -416,7 +427,9 @@ function shoppingText(){
   const map=buildShopping(); const parts=[];
   PROV_ORDER.forEach(p=>{ if(!map[p])return;
     const head=PROVIDERS[p].label+(PROVIDERS[p].note?` (${PROVIDERS[p].note})`:"");
-    const items=Object.values(map[p]).sort((a,b)=>a.n.localeCompare(b.n)).map(it=>{const q=roundQty(it.q,it.u),f=fmtQty(q,it.u);return "- "+(f?f+" ":"")+it.n;});
+    const arr=Object.values(map[p]).filter(it=>!state.excludedShop[p+"|"+it.n+"|"+it.u]).sort((a,b)=>a.n.localeCompare(b.n));
+    if(!arr.length)return;
+    const items=arr.map(it=>{const q=roundQty(it.q,it.u),f=fmtQty(q,it.u);return "- "+(f?f+" ":"")+it.n;});
     parts.push(head+":\n"+items.join("\n")); });
   return parts.join("\n\n");
 }
@@ -433,11 +446,12 @@ function renderTicket(){
   } else {
     const map=buildShopping(); let html="";
     PROV_ORDER.forEach(p=>{ if(!map[p])return;
-      const items=Object.values(map[p]).sort((a,b)=>a.n.localeCompare(b.n));
+      const items=Object.values(map[p]).sort((a,b)=>a.n.localeCompare(b.n)).filter(it=>!state.excludedShop[p+"|"+it.n+"|"+it.u]);
+      if(!items.length)return;
       html+=`<div class="out-section"><div class="prov">${PROVIDERS[p].label}${PROVIDERS[p].note?` <small>${PROVIDERS[p].note}</small>`:""}</div><ul class="ilist">`;
-      items.forEach(it=>{const q=roundQty(it.q,it.u);html+=`<li><span>${it.n}</span><span class="q">${fmtQty(q,it.u)}</span></li>`;});
+      items.forEach(it=>{const q=roundQty(it.q,it.u);const k=p+"|"+it.n+"|"+it.u;html+=`<li><span>${it.n}</span><span class="q">${fmtQty(q,it.u)}</span><button class="ish-del" data-k="${k}" title="Ya lo tengo en casa">×</button></li>`;});
       html+=`</ul></div>`; });
-    body.innerHTML=html||`<div class="empty">Nada para comprar todavía.</div>`;
+    body.innerHTML=html||`<div class="empty">${Object.keys(state.excludedShop).length?'Sacaste todo lo de la lista.':'Nada para comprar todavía.'}</div>`;
   }
 }
 function copyText(){
@@ -477,7 +491,7 @@ async function savePedido(){
   try{
     const res=await fetch(`${API}/api/pedidos`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       mensaje:cookMessage(), compras:shoppingText(),
-      seleccion:{dishes:state.dishes,vaporiera:state.vaporiera,guarni:state.guarni,preps:state.preps,fruits:state.fruits}
+      seleccion:{dishes:state.dishes,vaporiera:state.vaporiera,guarni:state.guarni,preps:state.preps,fruits:state.fruits,excludedShop:state.excludedShop}
     })}).then(x=>x.json());
     if(res.ok)toast("Pedido guardado ✓"); else toast("No se pudo guardar");
   }catch(e){ console.error(e); toast("Error guardando el pedido"); }
@@ -500,13 +514,14 @@ async function loadPedido(id){
   try{
     const r=await fetch(`${API}/api/pedidos/${id}`).then(x=>x.json());
     const sel=r.seleccion||{};
-    state.dishes=sel.dishes||{}; state.vaporiera=sel.vaporiera||{}; state.guarni=sel.guarni||{}; state.preps=sel.preps||{}; state.fruits=sel.fruits||{};
+    state.dishes=sel.dishes||{}; state.vaporiera=sel.vaporiera||{}; state.guarni=sel.guarni||{}; state.preps=sel.preps||{}; state.fruits=sel.fruits||{}; state.excludedShop=sel.excludedShop||{};
     closeHist(); refresh(); toast("Pedido cargado");
   }catch(e){ console.error(e); toast("No se pudo cargar"); }
 }
 
 /* ===================== GLUE ===================== */
 function refresh(){
+  pruneExclusions(buildShopping());   // limpia excluidos que ya no están en la lista
   renderMenu(); renderTicket();
   $("#cnt").textContent=Object.keys(state.dishes).reduce((a,id)=>a+state.dishes[id].qty,0);
   $("#fabCnt").textContent=totalSel()+" items";
@@ -514,9 +529,10 @@ function refresh(){
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1500); }
 
 document.querySelectorAll(".tabs button").forEach(b=>b.addEventListener("click",()=>{document.querySelectorAll(".tabs button").forEach(x=>x.classList.remove("act"));b.classList.add("act");activeTab=b.dataset.tab;renderTicket();}));
+$("#ticketBody").addEventListener("click",e=>{ if(e.target.classList.contains("ish-del")){ state.excludedShop[e.target.dataset.k]=true; refresh(); } });
 $("#copyBtn").addEventListener("click",copyText);
 $("#saveBtn").addEventListener("click",savePedido);
-$("#clearBtn").addEventListener("click",()=>{state.dishes={};state.vaporiera={};state.guarni={};state.preps={};state.fruits={};refresh();});
+$("#clearBtn").addEventListener("click",()=>{state.dishes={};state.vaporiera={};state.guarni={};state.preps={};state.fruits={};state.excludedShop={};refresh();});
 $("#fab").addEventListener("click",()=>$("#panel").classList.add("open"));
 $("#closePanel").addEventListener("click",()=>$("#panel").classList.remove("open"));
 $("#addRow").addEventListener("click",addRow);
