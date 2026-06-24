@@ -110,12 +110,12 @@
   .modal label.flag input{width:auto;margin:0;cursor:pointer}
   .modal input,.modal select{font-family:'Inter';font-size:14px;border:1px solid var(--line2);border-radius:9px;padding:9px 10px;background:#fff;color:var(--ink)}
   #cName{width:100%}
-  .mrow{display:grid;grid-template-columns:1fr 54px 58px 1fr 32px 32px;gap:6px;margin-bottom:6px;align-items:center}
+  .mrow{display:grid;grid-template-columns:1fr 52px 56px 1fr 44px 30px;gap:6px;margin-bottom:6px;align-items:center}
   .mrow input,.mrow select{width:100%;padding:8px 7px;font-size:13px}
   .ci-del{border:1px solid var(--line2);background:var(--paper);border-radius:8px;cursor:pointer;height:36px;color:var(--red);font-size:16px;padding:0}
-  .ci-esc{display:flex;align-items:center;justify-content:center;height:36px;border:1px solid var(--line2);border-radius:8px;background:var(--paper);cursor:pointer}
+  .ci-esc{display:flex;align-items:center;justify-content:center;gap:3px;height:36px;border:1px solid var(--line2);border-radius:8px;background:#fff;cursor:pointer;font-size:12px;color:var(--gold)}
   .ci-esc input{width:auto !important;margin:0;cursor:pointer}
-  @media(max-width:540px){.mrow{grid-template-columns:1fr 50px 54px 32px 32px}.mrow .ci-p{grid-column:1 / -1}}
+  @media(max-width:540px){.mrow{grid-template-columns:46px 52px 1fr 44px 34px}.mrow .ci-name{grid-column:1 / -1}}
   .ghost{margin-top:8px;background:transparent;border:1px dashed var(--line2);border-radius:10px;padding:9px 14px;cursor:pointer;font-family:'Inter';font-weight:600;color:var(--green);font-size:13px;width:100%}
   .ghost:hover{border-color:var(--green2)}
   .modal-actions{display:flex;gap:9px;margin-top:20px}
@@ -477,7 +477,7 @@ function rowHTML(ing){
   const ps=PROV_ORDER.map(p=>`<option value="${p}" ${p===dp?"selected":""}>${PROVIDERS[p].label}</option>`).join("");
   const nm=(ing.n||'').replace(/"/g,'&quot;');
   const q=(ing.q!=null?ing.q:1);
-  return `<div class="mrow"><input class="ci-name" placeholder="ingrediente" value="${nm}"><input class="ci-q" type="number" value="${q}" min="0" step="0.25"><select class="ci-u">${us}</select><select class="ci-p">${ps}</select><label class="ci-esc" title="Escala con el tamaño (+25% mediano / +50% grande)"><input type="checkbox" class="ci-escala" ${ing.scale?'checked':''}></label><button class="ci-del" title="Quitar">×</button></div>`;
+  return `<div class="mrow"><input class="ci-name" placeholder="ingrediente" value="${nm}"><input class="ci-q" type="number" value="${q}" min="0" step="0.25"><select class="ci-u">${us}</select><select class="ci-p">${ps}</select><label class="ci-esc" title="Escala con el tamaño: si la receta lleva tamaño, suma +25% en mediano y +50% en grande"><span>↕</span><input type="checkbox" class="ci-escala" ${ing.scale?'checked':''}></label><button class="ci-del" title="Quitar">×</button></div>`;
 }
 function openCustom(){ editingId=null; $("#cTitle").textContent="Nuevo plato"; $("#saveCustom").textContent="Guardar plato"; $("#cName").value=""; $("#cSized").checked=false; $("#cFreezer").checked=false; $("#cRows").innerHTML=rowHTML(); $("#overlay").classList.add("open"); $("#cName").focus(); }
 function openEdit(d){ editingId=d.dbid; $("#cTitle").textContent="Editar plato"; $("#saveCustom").textContent="Guardar cambios"; $("#cName").value=d.name; $("#cSized").checked=!!d.sized; $("#cFreezer").checked=!!d.freezer; $("#cRows").innerHTML=((d.ing&&d.ing.length)?d.ing:[{}]).map(rowHTML).join(""); $("#overlay").classList.add("open"); $("#cName").focus(); }
