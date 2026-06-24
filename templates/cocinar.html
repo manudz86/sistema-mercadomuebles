@@ -47,7 +47,8 @@
   .tick{position:absolute;top:11px;right:11px;width:19px;height:19px;border-radius:50%;border:1.5px solid var(--line2);display:grid;place-items:center;font-size:12px;color:#fff}
   .dish.on .tick{background:var(--green2);border-color:var(--green2)}
   .dish.on .tick::after{content:"✓"}
-  .del{position:absolute;top:-7px;left:-7px;width:20px;height:20px;border-radius:50%;background:var(--red);color:#fff;display:grid;place-items:center;font-size:14px;line-height:1;cursor:pointer;border:2px solid var(--paper);z-index:2}
+  .edit{position:absolute;top:-7px;left:-7px;width:20px;height:20px;border-radius:50%;background:var(--green2);color:#fff;display:grid;place-items:center;font-size:11px;line-height:1;cursor:pointer;border:2px solid var(--paper);z-index:2}
+  .del{position:absolute;top:-7px;left:17px;width:20px;height:20px;border-radius:50%;background:var(--red);color:#fff;display:grid;place-items:center;font-size:14px;line-height:1;cursor:pointer;border:2px solid var(--paper);z-index:2}
   .controls{display:none;gap:8px;margin-top:11px;align-items:center;flex-wrap:wrap}
   .dish.on .controls{display:flex}
   .stepper{display:inline-flex;align-items:center;border:1px solid var(--line2);border-radius:9px;overflow:hidden;background:#fff}
@@ -105,12 +106,16 @@
   .modal h3{font-family:'Fraunces',serif;font-size:24px;margin-bottom:4px}
   .modal .sub{color:var(--muted);font-size:13px;margin-bottom:16px}
   .modal label{display:block;font-family:'Space Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:14px 0 6px}
+  .modal label.flag{display:flex;align-items:center;gap:7px;font-family:'Inter';text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink);margin:10px 0 0;cursor:pointer}
+  .modal label.flag input{width:auto;margin:0;cursor:pointer}
   .modal input,.modal select{font-family:'Inter';font-size:14px;border:1px solid var(--line2);border-radius:9px;padding:9px 10px;background:#fff;color:var(--ink)}
   #cName{width:100%}
-  .mrow{display:grid;grid-template-columns:1fr 60px 74px 1fr 34px;gap:6px;margin-bottom:6px;align-items:center}
+  .mrow{display:grid;grid-template-columns:1fr 54px 58px 1fr 32px 32px;gap:6px;margin-bottom:6px;align-items:center}
   .mrow input,.mrow select{width:100%;padding:8px 7px;font-size:13px}
   .ci-del{border:1px solid var(--line2);background:var(--paper);border-radius:8px;cursor:pointer;height:36px;color:var(--red);font-size:16px;padding:0}
-  @media(max-width:540px){.mrow{grid-template-columns:1fr 56px 66px 34px}.mrow .ci-p{grid-column:1 / -1}}
+  .ci-esc{display:flex;align-items:center;justify-content:center;height:36px;border:1px solid var(--line2);border-radius:8px;background:var(--paper);cursor:pointer}
+  .ci-esc input{width:auto !important;margin:0;cursor:pointer}
+  @media(max-width:540px){.mrow{grid-template-columns:1fr 50px 54px 32px 32px}.mrow .ci-p{grid-column:1 / -1}}
   .ghost{margin-top:8px;background:transparent;border:1px dashed var(--line2);border-radius:10px;padding:9px 14px;cursor:pointer;font-family:'Inter';font-weight:600;color:var(--green);font-size:13px;width:100%}
   .ghost:hover{border-color:var(--green2)}
   .modal-actions{display:flex;gap:9px;margin-top:20px}
@@ -196,11 +201,13 @@
 <!-- Modal nuevo plato -->
 <div class="overlay" id="overlay">
   <div class="modal">
-    <h3>Nuevo plato</h3>
+    <h3 id="cTitle">Nuevo plato</h3>
     <div class="sub">Nombre + ingredientes. Queda guardado en la base de recetas.</div>
     <label>Nombre del plato</label>
     <input id="cName" placeholder="Ej: Tarta de zapallo y queso">
-    <label>Ingredientes</label>
+    <label class="flag"><input type="checkbox" id="cSized"> Con tamaño (chico / mediano / grande)</label>
+    <label class="flag"><input type="checkbox" id="cFreezer"> Permite freezar (cocinar ahora, freezar el resto)</label>
+    <label>Ingredientes <small style="text-transform:none;letter-spacing:0;color:var(--muted)">· la ✓ del final = escala con el tamaño</small></label>
     <div id="cRows"></div>
     <button class="ghost" id="addRow">+ agregar ingrediente</button>
     <div class="modal-actions">
@@ -329,6 +336,7 @@ function dishCard(d){
   el.className="dish"+(sel?" on":"");
   let meta=[]; if(d.sized)meta.push("con tamaño"); if(d.freezer)meta.push("freezer"); if(d.custom)meta.push("mío"); if(sel&&sel.qty>1)meta.push(sel.qty+"×");
   el.innerHTML=`
+    <span class="edit" data-act="edit" title="Editar ingredientes">✎</span>
     ${d.custom?`<span class="del" data-act="del" title="Borrar plato">×</span>`:""}
     <div class="name">${d.name}</div>
     <div class="meta">${meta.join(" · ")||"&nbsp;"}</div>
@@ -340,6 +348,7 @@ function dishCard(d){
     ${d.freezer?`<div class="frow"><span class="flabel">cocinar ahora</span><div class="stepper"><button data-act="cdec">–</button><span>${sel?(sel.cookNow||0):0}</span><button data-act="cinc">+</button></div></div>`:""}`;
   el.addEventListener("click",e=>{
     const t=e.target,a=t.dataset.act;
+    if(a==="edit"){e.stopPropagation();openEdit(d);return;}
     if(a==="del"){e.stopPropagation();delDish(d);return;}
     if(a==="inc"){e.stopPropagation();state.dishes[d.id].qty++;refresh();return;}
     if(a==="dec"){e.stopPropagation();const s=state.dishes[d.id];s.qty--;if(s.qty<=0)delete state.dishes[d.id];refresh();return;}
@@ -460,23 +469,38 @@ function copyText(){
 }
 
 /* ===================== PLATO PERSONALIZADO ===================== */
-function rowHTML(){
-  const us=UNITS.map(u=>`<option value="${u}">${u}</option>`).join("");
-  const ps=PROV_ORDER.map(p=>`<option value="${p}" ${p==="verduleria"?"selected":""}>${PROVIDERS[p].label}</option>`).join("");
-  return `<div class="mrow"><input class="ci-name" placeholder="ingrediente"><input class="ci-q" type="number" value="1" min="0" step="0.25"><select class="ci-u">${us}</select><select class="ci-p">${ps}</select><button class="ci-del" title="Quitar">×</button></div>`;
+let editingId=null;
+function rowHTML(ing){
+  ing=ing||{};
+  const us=UNITS.map(u=>`<option value="${u}" ${u===(ing.u||'u')?'selected':''}>${u}</option>`).join("");
+  const dp=ing.p||'verduleria';
+  const ps=PROV_ORDER.map(p=>`<option value="${p}" ${p===dp?"selected":""}>${PROVIDERS[p].label}</option>`).join("");
+  const nm=(ing.n||'').replace(/"/g,'&quot;');
+  const q=(ing.q!=null?ing.q:1);
+  return `<div class="mrow"><input class="ci-name" placeholder="ingrediente" value="${nm}"><input class="ci-q" type="number" value="${q}" min="0" step="0.25"><select class="ci-u">${us}</select><select class="ci-p">${ps}</select><label class="ci-esc" title="Escala con el tamaño (+25% mediano / +50% grande)"><input type="checkbox" class="ci-escala" ${ing.scale?'checked':''}></label><button class="ci-del" title="Quitar">×</button></div>`;
 }
-function openCustom(){ $("#cName").value=""; $("#cRows").innerHTML=rowHTML(); $("#overlay").classList.add("open"); $("#cName").focus(); }
-function closeCustom(){ $("#overlay").classList.remove("open"); }
+function openCustom(){ editingId=null; $("#cTitle").textContent="Nuevo plato"; $("#saveCustom").textContent="Guardar plato"; $("#cName").value=""; $("#cSized").checked=false; $("#cFreezer").checked=false; $("#cRows").innerHTML=rowHTML(); $("#overlay").classList.add("open"); $("#cName").focus(); }
+function openEdit(d){ editingId=d.dbid; $("#cTitle").textContent="Editar plato"; $("#saveCustom").textContent="Guardar cambios"; $("#cName").value=d.name; $("#cSized").checked=!!d.sized; $("#cFreezer").checked=!!d.freezer; $("#cRows").innerHTML=((d.ing&&d.ing.length)?d.ing:[{}]).map(rowHTML).join(""); $("#overlay").classList.add("open"); $("#cName").focus(); }
+function closeCustom(){ $("#overlay").classList.remove("open"); editingId=null; }
 function addRow(){ $("#cRows").insertAdjacentHTML("beforeend",rowHTML()); }
 async function saveCustom(){
   const name=$("#cName").value.trim();
-  const rows=[...document.querySelectorAll("#cRows .mrow")].map(r=>({n:r.querySelector(".ci-name").value.trim(),q:parseFloat(r.querySelector(".ci-q").value)||1,u:r.querySelector(".ci-u").value,p:r.querySelector(".ci-p").value})).filter(x=>x.n);
+  const rows=[...document.querySelectorAll("#cRows .mrow")].map(r=>({n:r.querySelector(".ci-name").value.trim(),q:parseFloat(r.querySelector(".ci-q").value)||1,u:r.querySelector(".ci-u").value,p:r.querySelector(".ci-p").value,esc:r.querySelector(".ci-escala").checked})).filter(x=>x.n);
   if(!name){toast("Ponele un nombre");return;}
   if(!rows.length){toast("Cargá al menos un ingrediente");return;}
+  const ingredientes=rows.map(r=>({nombre:r.n,cantidad:r.q,unidad:r.u,proveedor:r.p,escala:r.esc}));
+  const body={nombre:name,sized:$("#cSized").checked,freezer:$("#cFreezer").checked,ingredientes:ingredientes};
   try{
-    const res=await fetch(`${API}/api/recetas`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({nombre:name,categoria:"Mis platos",ingredientes:rows.map(r=>({nombre:r.n,cantidad:r.q,unidad:r.u,proveedor:r.p}))})}).then(x=>x.json());
-    if(res.id){ closeCustom(); await loadConfig(); state.dishes["r"+res.id]={qty:1,size:null,cookNow:0}; refresh(); toast("Plato agregado ✓"); }
-    else toast("No se pudo guardar");
+    if(editingId){
+      const res=await fetch(`${API}/api/recetas/${editingId}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(x=>x.json());
+      if(res.ok){ closeCustom(); await loadConfig(); refresh(); toast("Plato actualizado ✓"); }
+      else toast("No se pudo guardar");
+    } else {
+      body.categoria="Mis platos";
+      const res=await fetch(`${API}/api/recetas`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(x=>x.json());
+      if(res.id){ closeCustom(); await loadConfig(); state.dishes["r"+res.id]={qty:1,size:$("#cSized").checked?"chico":null,cookNow:0}; refresh(); toast("Plato agregado ✓"); }
+      else toast("No se pudo guardar");
+    }
   }catch(e){ console.error(e); toast("Error guardando el plato"); }
 }
 async function delDish(d){

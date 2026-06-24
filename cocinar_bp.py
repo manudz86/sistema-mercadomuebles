@@ -313,6 +313,33 @@ def api_borrar_receta(rid):
     return jsonify({"ok": True})
 
 
+@cocinar_bp.route("/cocinar/api/recetas/<int:rid>", methods=["PUT"])
+def api_editar_receta(rid):
+    """Edita una receta existente (base o propia): nombre, tamaño, freezer y
+    reemplaza por completo sus ingredientes."""
+    d = request.get_json(force=True) or {}
+    nombre = (d.get("nombre") or "").strip()
+    ings = d.get("ingredientes") or []
+    if not nombre or not ings:
+        return jsonify({"error": "Faltan nombre o ingredientes"}), 400
+    con = _conn(); cur = con.cursor()
+    cur.execute("SELECT id FROM cocina_recetas WHERE id=%s", (rid,))
+    if not cur.fetchone():
+        cur.close(); con.close(); return jsonify({"error": "no existe"}), 404
+    cur.execute(
+        "UPDATE cocina_recetas SET nombre=%s, sized=%s, freezer=%s WHERE id=%s",
+        (nombre, int(bool(d.get("sized"))), int(bool(d.get("freezer"))), rid))
+    cur.execute("DELETE FROM cocina_receta_ingredientes WHERE receta_id=%s", (rid,))
+    for oi, ing in enumerate(ings):
+        cur.execute(
+            "INSERT INTO cocina_receta_ingredientes "
+            "(receta_id,nombre,proveedor,cantidad,unidad,escala,orden) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            (rid, (ing.get("nombre") or "").strip(), ing.get("proveedor") or "verduleria",
+             float(ing.get("cantidad") or 1), ing.get("unidad") or "u", int(bool(ing.get("escala"))), oi))
+    con.commit(); cur.close(); con.close()
+    return jsonify({"ok": True, "id": rid})
+
+
 @cocinar_bp.route("/cocinar/api/pedidos", methods=["POST"])
 def api_guardar_pedido():
     d = request.get_json(force=True) or {}
