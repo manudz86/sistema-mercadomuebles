@@ -214,7 +214,10 @@ def _get_filtros(productos):
     medidas = sorted(set(p['medida'] for p in productos
                           if p['medida'] and p['medida'] != '?'),
                      key=lambda x: (int(x.split('x')[0]) if 'x' in x else 999, x))
-    return modelos, medidas
+    # Tiendas dinámicas: cualquier tienda nueva en los datos aparece sola en el filtro.
+    tiendas = sorted(set(p['tienda'] for p in productos if p.get('tienda')),
+                     key=lambda x: x.lower())
+    return modelos, medidas, tiendas
 
 
 # ============================================================================
@@ -223,10 +226,10 @@ def _get_filtros(productos):
 @competencia_scraper_bp.route('/admin/competencia-scraper')
 def competencia_scraper_page():
     productos, meta = _cargar_productos()
-    modelos, medidas = _get_filtros(productos)
+    modelos, medidas, tiendas = _get_filtros(productos)
     return render_template(
         'competencia_scraper.html',
-        productos=productos, modelos=modelos, medidas=medidas,
+        productos=productos, modelos=modelos, medidas=medidas, tiendas=tiendas,
         pasajes=(meta or {}).get('pasajes', PASAJES_DEFAULT),
         detectado_en=(meta or {}).get('detectado_en'),
     )
