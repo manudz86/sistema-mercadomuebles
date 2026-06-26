@@ -80,6 +80,7 @@
     </select>
     <input type="text" id="f-buscar" class="form-control form-control-sm" style="width:180px" placeholder="Buscar título..." oninput="filtrar()">
     <button class="btn btn-sm btn-outline-secondary" onclick="limpiarFiltros()">✕ Limpiar</button>
+    <a class="btn btn-sm btn-primary" href="{{ url_for('competencia_scraper.competencia_informe_page') }}">📊 Informe vs mis precios</a>
     <span class="text-muted small ms-2"><span id="contador">{{ productos|length }}</span> productos</span>
   </div>
 </div>

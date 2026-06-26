@@ -7,13 +7,14 @@ Endpoints:
   GET  /admin/competencia-scraper/sondas/lista   — JSON con sondas activas (auth)
   POST /admin/competencia-scraper/upload         — recibe CSVs y procesa
 """
-import os, csv, json, datetime
+import os, csv, json, datetime, statistics
 from collections import defaultdict
 from flask import Blueprint, render_template, jsonify, request
 
 import pymysql
 from procesar_competencia import procesar
 from scraper_alerts import alerta_falla_scraper
+import competencia_informe as ci
 
 competencia_scraper_bp = Blueprint('competencia_scraper', __name__)
 
@@ -221,6 +222,143 @@ def _get_filtros(productos):
 
 
 # ============================================================================
+# Informe de competencia + histórico de precios
+# ============================================================================
+def _inv_pasajes():
+    pasajes, _ = cargar_pasajes_activos()
+    return ci.inv_desde_pasajes(pasajes)
+
+
+def guardar_snapshot_hist():
+    """Guarda un snapshot del día (precios representativos de competencia) en
+    competencia_precios_hist. Idempotente por (fecha, tienda, sku, bucket).
+    Devuelve la cantidad de filas del snapshot, o 0 si falló."""
+    try:
+        snap = ci.construir_snapshot(CSV_PATH, _inv_pasajes())
+        if not snap:
+            return 0
+        hoy = datetime.date.today().isoformat()
+        conn = _db()
+        cur = conn.cursor()
+        cur.executemany("""
+            INSERT INTO competencia_precios_hist (fecha, tienda, sku, bucket, precio, n)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE precio = VALUES(precio), n = VALUES(n)
+        """, [(hoy, s['tienda'], s['sku'], s['bucket'], s['precio'], s['n']) for s in snap])
+        conn.commit()
+        cur.close(); conn.close()
+        return len(snap)
+    except Exception as e:
+        print(f"[competencia snapshot] error: {e}")
+        return 0
+
+
+def _hist_cambios():
+    """Compara el último snapshot del histórico contra el anterior (sobre el contado).
+    Devuelve mediana del % de cambio por tienda + los mayores saltos (posibles promos)."""
+    try:
+        conn = _db()
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT fecha FROM competencia_precios_hist ORDER BY fecha DESC LIMIT 2")
+        fechas = [r['fecha'] for r in cur.fetchall()]
+        if len(fechas) < 2:
+            cur.close(); conn.close()
+            return {'hay': False, 'fechas': [f.strftime('%d/%m/%Y') for f in fechas]}
+        nueva, vieja = fechas[0], fechas[1]
+        cur.execute("""
+            SELECT fecha, tienda, sku, bucket, precio
+              FROM competencia_precios_hist
+             WHERE fecha IN (%s, %s) AND bucket = 'sin'
+        """, (nueva, vieja))
+        pn, pv = {}, {}
+        for r in cur.fetchall():
+            key = (r['tienda'], r['sku'])
+            (pn if r['fecha'] == nueva else pv)[key] = r['precio']
+        cur.close(); conn.close()
+
+        porc = defaultdict(list)
+        movers = []
+        for key in set(pn) & set(pv):
+            if pv[key] <= 0:
+                continue
+            ch = (pn[key] / pv[key] - 1) * 100
+            porc[key[0]].append(ch)
+            if abs(ch) >= 15:
+                movers.append({'tienda': key[0], 'sku': key[1],
+                               'viejo': pv[key], 'nuevo': pn[key], 'ch': ch})
+        comp = {t: {'med': statistics.median(v), 'n': len(v)} for t, v in porc.items()}
+        movers.sort(key=lambda m: -abs(m['ch']))
+        return {'hay': True,
+                'fechas': [nueva.strftime('%d/%m/%Y'), vieja.strftime('%d/%m/%Y')],
+                'comp': comp, 'top': movers[:40]}
+    except Exception as e:
+        print(f"[competencia hist] error: {e}")
+        return {'hay': False, 'fechas': []}
+
+
+@competencia_scraper_bp.route('/admin/competencia-scraper/informe')
+def competencia_informe_page():
+    # Import perezoso: el proceso ya tiene app cargada (no re-ejecuta el módulo
+    # ni dispara el scheduler); así usamos la función de precios REAL de /costos.
+    from app import _get_precio_costos_sku, query_db, query_one
+
+    inv = _inv_pasajes()
+    row = query_one("SELECT valor FROM configuracion WHERE clave='porcentajes_ml'")
+    pml = json.loads(row['valor']) if row else None
+
+    col = [r['sku'] for r in query_db(
+        "SELECT sku FROM productos_base WHERE COALESCE(activo,1)=1 AND sku LIKE %s ORDER BY sku", ('C%',))]
+    som = [r['sku'] for r in query_db(
+        "SELECT sku FROM productos_compuestos WHERE activo=1 AND sku LIKE %s ORDER BY sku", ('S%',))]
+    col = [s for s in col if s not in ('CERVICAL', 'CLASICA')]
+
+    nombres = {}
+    for r in query_db("SELECT sku, nombre FROM productos_base WHERE COALESCE(activo,1)=1 AND sku LIKE %s", ('C%',)):
+        nombres[r['sku']] = r['nombre']
+    for r in query_db("SELECT sku, nombre FROM productos_compuestos WHERE activo=1 AND sku LIKE %s", ('S%',)):
+        nombres[r['sku']] = r['nombre']
+
+    mis = {}
+    for s in col + som:
+        p = _get_precio_costos_sku(s, pml)
+        if p:
+            mis[s] = p
+
+    comps = ['TMS', 'Lanus', 'Ivana']
+    lines = ci.construir_comparacion(CSV_PATH, mis, inv, comps=tuple(comps))
+    recargo = ci.recargo_por_tienda(CSV_PATH, inv, comps=tuple(comps))
+
+    kpis = {}
+    for c in comps:
+        ds = [l['diff'] for l in lines if l['comp'] == c]
+        if ds:
+            kpis[c] = {'n': len(ds), 'med': statistics.median(ds),
+                       'barato': sum(1 for d in ds if d < 0),
+                       'flag': sum(1 for d in ds if abs(d) >= 30)}
+
+    for l in lines:
+        l['lbl'] = ci.LBL[l['bt']]
+        l['nombre'] = nombres.get(l['sku'], '')
+        l['tipo_txt'] = 'Sommier' if l['sku'].startswith('S') else 'Colchón'
+        l['flag'] = abs(l['diff']) >= 30
+        d = l['diff']
+        l['cls'] = 'g2' if d <= -10 else ('g1' if d < 0 else ('r1' if d < 10 else 'r2'))
+        l['ordc'] = ci.ORDER.index(l['bt'])
+    lines.sort(key=lambda l: (0 if not l['sku'].startswith('S') else 1,
+                              l['sku'], l['ordc'], comps.index(l['comp'])))
+
+    try:
+        fecha_csv = datetime.datetime.fromtimestamp(os.path.getmtime(CSV_PATH)).strftime('%d/%m/%Y %H:%M')
+    except Exception:
+        fecha_csv = ''
+
+    return render_template('competencia_informe.html',
+        lines=lines, kpis=kpis, recargo=recargo, comps=comps,
+        fecha_csv=fecha_csv, hist=_hist_cambios(),
+        n_skus=len(set(l['sku'] for l in lines)), lbl=ci.LBL)
+
+
+# ============================================================================
 # RUTAS
 # ============================================================================
 @competencia_scraper_bp.route('/admin/competencia-scraper')
@@ -266,6 +404,9 @@ def upload_csv():
     except Exception as e:
         return jsonify({'error': f'Error al procesar: {e}'}), 500
 
+    # Snapshot del día para el histórico de precios de competencia (no rompe el upload si falla)
+    snap_n = guardar_snapshot_hist()
+
     total = len(rows)
     matches = sum(1 for r in rows if r['sku_match'])
     cuotas_si = sum(1 for r in rows if r['cuotas_si'])
@@ -276,6 +417,7 @@ def upload_csv():
         'sin_match':          total - matches,
         'cuotas_si':          cuotas_si,
         'pasajes_detectados': pasajes_detectados,
+        'snapshot_hist':      snap_n,
     })
 
 

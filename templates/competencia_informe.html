@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Informe de Competencia{% endblock %}
+
+{% block content %}
+<style>
+.ci-wrap{max-width:1200px;margin:0 auto;padding:18px}
+.ci-wrap h1{font-size:22px;margin:0 0 3px}
+.ci-wrap h2{font-size:17px;margin:26px 0 10px;padding-bottom:6px;border-bottom:2px solid #d7dbe2}
+.ci-sub{color:#5b6472;margin:0 0 6px;font-size:13px}
+.ci-top{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+.ci-cards{display:flex;gap:12px;flex-wrap:wrap}
+.ci-card{flex:1;min-width:200px;background:#fff;border-radius:12px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,.08);border-top:4px solid #adb5bd}
+.cb-TMS{border-top-color:#0d6efd}.cb-Lanus{border-top-color:#d63384}.cb-Ivana{border-top-color:#6f42c1}
+.ci-card h3{margin:0 0 6px;font-size:15px}
+.ci-big{font-size:28px;font-weight:800;line-height:1}
+.ci-big.pos{color:#198754}.ci-big.neg{color:#dc3545}
+.ci-card .s{color:#5b6472;font-size:12px;margin-top:3px}.ci-card .m{font-size:12px;margin-top:7px;color:#3b424d}
+.ci-table{border-collapse:collapse;width:100%;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.ci-table th,.ci-table td{padding:6px 9px;text-align:left;border-bottom:1px solid #eef0f3;font-size:13px;white-space:nowrap}
+.ci-table th{background:#2b3140;color:#fff;font-size:12px;position:sticky;top:0;z-index:2}
+.ci-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+.ci-table td.mio{font-weight:700}
+.ci-table td.diff{font-weight:800;text-align:right}
+.g2{color:#0f7a3d;background:#e7f6ec}.g1{color:#198754;background:#f1faf4}
+.r1{color:#c0392b;background:#fdf1ef}.r2{color:#fff;background:#dc3545}
+.ci-table td.sku{font-family:ui-monospace,monospace;font-weight:700;color:#334}
+.cc{font-weight:700}.cc-TMS{color:#0d6efd}.cc-Lanus{color:#d63384}.cc-Ivana{color:#6f42c1}
+.recargo td{text-align:center}.recargo td:first-child{text-align:left;font-weight:600}
+.ci-filtros{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px;position:sticky;top:0;background:#f4f5f7;padding:8px 0;z-index:3}
+.ci-filtros select,.ci-filtros input{padding:6px 8px;border:1px solid #c7ccd4;border-radius:7px;font-size:13px}
+.ci-note{background:#fff7e6;border-left:4px solid #f0a202;padding:9px 13px;border-radius:6px;font-size:13px;margin:10px 0}
+.ci-note.bad{background:#fdecea;border-left-color:#dc3545}
+.ci-tbox{max-height:70vh;overflow:auto;border-radius:10px}
+.ci-btn{background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:600}
+.up{color:#dc3545;font-weight:700}.down{color:#198754;font-weight:700}
+</style>
+
+<div class="ci-wrap">
+<div class="ci-top">
+  <div>
+    <h1>📊 Informe de Competencia — mis precios por cuotas</h1>
+    <p class="ci-sub">Mis precios (cálculo de costos, SKUs activos C* y S*) vs precios actuales de competencia del scraping.
+      {% if fecha_csv %}<b>Scrape: {{ fecha_csv }}</b>.{% endif %} {{ n_skus }} SKUs con comparable.</p>
+  </div>
+  <a class="ci-btn" href="{{ url_for('competencia_scraper.competencia_scraper_page') }}">← Monitor scraper</a>
+</div>
+
+<h2>Resumen — cómo estoy en cada competidor</h2>
+<div class="ci-cards">
+{% for c in comps %}{% if c in kpis %}{% set k = kpis[c] %}
+  <div class="ci-card cb-{{ c }}">
+    <h3>{{ c }}</h3>
+    <div class="ci-big {{ 'pos' if k.med < 0 else 'neg' }}">{{ '%+.1f'|format(k.med) }}%</div>
+    <div class="s">mediana (mi precio vs {{ c }})</div>
+    <div class="m">{{ k.n }} ofertas · soy más barato en <b>{{ k.barato }}/{{ k.n }}</b>{% if k.flag %} · ⚠ {{ k.flag }} con dif≥30%{% endif %}</div>
+  </div>
+{% endif %}{% endfor %}
+</div>
+<p class="ci-note">El % es <b>mi precio vs el del competidor</b> a la misma modalidad: <b>negativo (verde) = soy más barato</b>. Se descarta ruido con los flags del scraper (medida inferida, almohadas, bundles) y se colapsa a un precio representativo por competidor/SKU/cuota.</p>
+
+<h2>Cuánto recarga cada uno por las cuotas (vs su contado)</h2>
+<table class="ci-table recargo" style="max-width:620px">
+  <thead><tr><th>Vendedor</th><th>3 cuotas</th><th>6 cuotas</th><th>9 cuotas</th><th>12 cuotas</th></tr></thead>
+  <tbody>
+  {% for c in comps %}<tr><td>{{ c }}</td>
+    {% for cu in ['3','6','9','12'] %}<td>{% if recargo[c][cu] is not none %}+{{ '%.0f'|format(recargo[c][cu]) }}%{% else %}—{% endif %}</td>{% endfor %}
+  </tr>{% endfor %}
+  </tbody>
+</table>
+<p class="ci-note">Calculado en vivo del scrape. Recordá: financiando sos el más barato (tu recargo está por debajo del de los tres).</p>
+
+<h2>Histórico — cómo se movieron sus precios</h2>
+{% if hist.hay %}
+  <p class="ci-sub">Comparando el último scrape (<b>{{ hist.fechas[0] }}</b>) contra el anterior (<b>{{ hist.fechas[1] }}</b>), sobre el precio de contado.</p>
+  <div class="ci-cards">
+  {% for c in comps %}{% if c in hist.comp %}{% set h = hist.comp[c] %}
+    <div class="ci-card cb-{{ c }}">
+      <h3>{{ c }}</h3>
+      <div class="ci-big {{ 'neg' if h.med > 0 else 'pos' }}">{{ '%+.1f'|format(h.med) }}%</div>
+      <div class="s">cambio mediano de contado ({{ h.n }} SKUs)</div>
+    </div>
+  {% endif %}{% endfor %}
+  </div>
+  {% if hist.top %}
+  <p class="ci-sub" style="margin-top:12px">Mayores saltos (≥15%) — un salto parejo y grande suele ser una <b>promo que se prendió/apagó</b>:</p>
+  <div class="ci-tbox"><table class="ci-table">
+    <thead><tr><th>Competidor</th><th>SKU</th><th>Antes</th><th>Ahora</th><th>Cambio</th></tr></thead>
+    <tbody>
+    {% for m in hist.top %}<tr>
+      <td class="cc cc-{{ m.tienda }}">{{ m.tienda }}</td>
+      <td class="sku">{{ m.sku }}</td>
+      <td class="num">${{ '{:,.0f}'.format(m.viejo)|replace(',','.') }}</td>
+      <td class="num">${{ '{:,.0f}'.format(m.nuevo)|replace(',','.') }}</td>
+      <td class="num {{ 'up' if m.ch > 0 else 'down' }}">{{ '%+.0f'|format(m.ch) }}%</td>
+    </tr>{% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+{% else %}
+  <p class="ci-note">Todavía no hay un snapshot anterior para comparar. El histórico se arma solo con cada scrape que subas{% if hist.fechas %} (snapshot inicial guardado: <b>{{ hist.fechas[0] }}</b>){% endif %}. Cuando subas el próximo, acá vas a ver cuánto movió cada competidor sus precios.</p>
+{% endif %}
+
+<h2>Detalle — mis SKUs vs competencia (una línea por oferta)</h2>
+<div class="ci-filtros">
+  <select id="f-comp" onchange="ciFiltrar()"><option value="">Competidor (todos)</option>{% for c in comps %}<option>{{ c }}</option>{% endfor %}</select>
+  <select id="f-bt" onchange="ciFiltrar()"><option value="">Cuota (todas)</option><option value="sin">Contado</option><option value="3">3 cuotas</option><option value="6">6 cuotas</option><option value="9">9 cuotas</option><option value="12">12 cuotas</option><option value="simple">C. Simple</option></select>
+  <select id="f-tipo" onchange="ciFiltrar()"><option value="">Tipo (todos)</option><option>Colchón</option><option>Sommier</option></select>
+  <select id="f-flag" onchange="ciFiltrar()"><option value="">Todas</option><option value="1">Solo ⚠ (dif≥30%)</option><option value="0">Ocultar ⚠</option></select>
+  <input id="f-sku" placeholder="Buscar SKU..." oninput="ciFiltrar()">
+  <span id="ci-cont" style="align-self:center;color:#5b6472"></span>
+</div>
+<div class="ci-tbox"><table class="ci-table" id="ci-tabla">
+  <thead><tr><th>SKU</th><th>Producto</th><th>Tipo</th><th>Cuota</th><th>Competidor</th><th>Precio competidor</th><th>MI precio</th><th>Dif%</th><th></th></tr></thead>
+  <tbody>
+  {% for l in lines %}<tr data-comp="{{ l.comp }}" data-bt="{{ l.bt }}" data-tipo="{{ l.tipo_txt }}" data-sku="{{ l.sku }}" data-flag="{{ '1' if l.flag else '0' }}">
+    <td class="sku">{{ l.sku }}</td>
+    <td>{{ l.nombre }}</td>
+    <td>{{ l.tipo_txt }}</td>
+    <td>{{ l.lbl }}</td>
+    <td class="cc cc-{{ l.comp }}">{{ l.comp }}</td>
+    <td class="num">${{ '{:,.0f}'.format(l.comp_price)|replace(',','.') }}</td>
+    <td class="num mio">${{ '{:,.0f}'.format(l.my)|replace(',','.') }}</td>
+    <td class="num diff {{ l.cls }}">{{ '%+.0f'|format(l.diff) }}%</td>
+    <td>{{ '⚠' if l.flag else '' }}</td>
+  </tr>{% endfor %}
+  </tbody>
+</table></div>
+<p class="ci-note">⚠ = diferencia ≥30%. En Lanús suele ser real (lista muy por encima y después descuenta). En TMS/Ivana son casos sueltos a revisar.</p>
+
+</div>
+
+<script>
+function ciFiltrar(){
+  var c=document.getElementById('f-comp').value,b=document.getElementById('f-bt').value,
+      t=document.getElementById('f-tipo').value,fl=document.getElementById('f-flag').value,
+      s=document.getElementById('f-sku').value.toUpperCase(),n=0;
+  document.querySelectorAll('#ci-tabla tbody tr').forEach(function(r){
+    var ok=(!c||r.dataset.comp===c)&&(!b||r.dataset.bt===b)&&(!t||r.dataset.tipo===t)&&(!fl||r.dataset.flag===fl)&&(!s||r.dataset.sku.indexOf(s)>=0);
+    r.style.display=ok?'':'none'; if(ok)n++;
+  });
+  document.getElementById('ci-cont').textContent=n+' líneas';
+}
+ciFiltrar();
+</script>
+{% endblock %}
