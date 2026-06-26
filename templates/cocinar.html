@@ -92,6 +92,10 @@
   .ilist li .q{font-family:'Space Mono',monospace;color:var(--muted);white-space:nowrap}
   .ilist li .ish-del{border:0;background:transparent;color:var(--line2);cursor:pointer;font-size:17px;line-height:1;padding:0 6px;border-radius:6px}
   .ilist li .ish-del:hover{color:var(--red);background:var(--paper)}
+  .ilist li .iqs{display:inline-flex;gap:4px}
+  .ilist li .iq{border:1px solid var(--line2);background:#fff;color:var(--ink);border-radius:6px;width:24px;height:24px;line-height:1;font-size:15px;cursor:pointer;padding:0}
+  .ilist li .iq:hover{background:var(--paper)}
+  .panel-backdrop{display:none}
   .cook-line{font-size:14.5px;padding:4px 0;border-bottom:1px solid var(--line)}
   .panel-actions{padding:14px 18px;border-top:1px solid var(--line);display:flex;gap:9px;flex-wrap:wrap}
   .btn{flex:1;border:0;border-radius:11px;padding:12px;font-weight:700;font-size:14px;cursor:pointer;font-family:'Inter'}
@@ -127,10 +131,11 @@
   @media(max-width:920px){
     .panel{position:fixed;inset:auto 0 0 0;top:auto;z-index:40;transform:translateY(100%);transition:.28s;padding:0}
     .panel.open{transform:translateY(0)}
+    .panel-backdrop.show{display:block;position:fixed;inset:0;background:rgba(34,28,22,.45);z-index:39}
     .ticket{border-radius:18px 18px 0 0;max-height:82vh;display:flex;flex-direction:column}
     .ticket-body{max-height:none;flex:1}
     .fab{display:flex;position:fixed;left:18px;right:18px;bottom:18px;z-index:30;background:var(--red);color:#fff;border:0;border-radius:14px;padding:15px;font-weight:700;font-size:15px;justify-content:space-between;align-items:center;cursor:pointer;box-shadow:0 8px 24px -8px rgba(162,53,41,.6)}
-    .panel-close{display:block;text-align:center;padding:8px;color:var(--muted);cursor:pointer;font-size:13px}
+    .panel-close{display:block;text-align:center;padding:12px;color:var(--ink);font-weight:600;cursor:pointer;font-size:14px}
   }
   .panel-close{display:none}
   /* ---- pulido mobile estilo app ---- */
@@ -180,9 +185,10 @@
 <div class="wrap">
   <div class="grid">
     <main id="menu"></main>
+    <div class="panel-backdrop" id="panelBackdrop"></div>
     <aside class="panel" id="panel">
       <div class="ticket">
-        <div class="panel-close" id="closePanel">▾ cerrar</div>
+        <div class="panel-close" id="closePanel">▾ Cerrar lista</div>
         <div class="tabs">
           <button class="act" data-tab="cook">Para Norma</button>
           <button data-tab="shop">Lista de compras</button>
@@ -268,10 +274,23 @@ const FRUITS=[
   {id:"f_ciruela",label:"Ciruela",months:[12,1,2,3]},{id:"f_uva",label:"Uva sin semilla",months:[2,3,4],u:"kg",step:0.5},
   {id:"f_durazno",label:"Durazno",months:[11,12,1,2]},{id:"f_melon",label:"Melón",months:[12,1,2,3]},
 ];
+const VERDURAS=[
+  {id:"vd_espinaca",label:"Espinaca",u:"atado"},{id:"vd_zanahoria",label:"Zanahoria"},
+  {id:"vd_cebolla",label:"Cebolla"},{id:"vd_cebolla_mor",label:"Cebolla morada"},
+  {id:"vd_rucula",label:"Rúcula",u:"atado"},{id:"vd_choclo",label:"Choclo"},
+  {id:"vd_papa",label:"Papa blanca",u:"kg",step:0.5},{id:"vd_batata",label:"Batata"},
+  {id:"vd_boniato",label:"Boniato"},{id:"vd_cal_ch",label:"Calabaza chica"},
+  {id:"vd_cal_me",label:"Calabaza mediana"},{id:"vd_cal_gr",label:"Calabaza grande"},
+  {id:"vd_brocoli",label:"Brócoli"},{id:"vd_coliflor",label:"Coliflor"},
+  {id:"vd_remolacha",label:"Remolacha"},{id:"vd_perejil",label:"Perejil",u:"atado"},
+  {id:"vd_ciboulette",label:"Ciboulette",u:"atado"},{id:"vd_zucchini",label:"Zucchini"},
+  {id:"vd_verdeo",label:"Cebolla de verdeo",u:"atado"},{id:"vd_cherry",label:"Tomate cherry",u:"kg",step:0.25},
+  {id:"vd_perita",label:"Tomate perita"},
+];
 
 /* ---- estado y datos remotos ---- */
 let PROVIDERS={}, PROV_ORDER=[], RECETAS=[];
-const state={dishes:{},vaporiera:{},guarni:{},preps:{},fruits:{},excludedShop:{}};
+const state={dishes:{},vaporiera:{},guarni:{},preps:{},fruits:{},verduras:{},excludedShop:{},adjShop:{}};
 const MONTH=new Date().getMonth()+1;
 let activeTab="cook";
 const $=s=>document.querySelector(s);
@@ -328,6 +347,12 @@ function renderMenu(){
     toggle:()=>{ if(state.fruits[f.id]!=null)delete state.fruits[f.id]; else state.fruits[f.id]=st; refresh(); },
     inc:()=>{ state.fruits[f.id]=Math.round(((state.fruits[f.id]||0)+st)*100)/100; refresh(); },
     dec:()=>{ const v=Math.round(((state.fruits[f.id]||0)-st)*100)/100; if(v<=0)delete state.fruits[f.id]; else state.fruits[f.id]=v; refresh(); }
+  }; })));
+  m.appendChild(chipSection("Verduras (verdulería)","Sueltas, para tener. Espinaca/rúcula/perejil/ciboulette/verdeo por atado; papa por 0,5 kg; tomate cherry por 0,25 kg.", VERDURAS.map(v=>{ const st=v.step||1; return {
+    label:v.label,on:state.verduras[v.id]!=null,adj:true,qty:state.verduras[v.id]||st,
+    toggle:()=>{ if(state.verduras[v.id]!=null)delete state.verduras[v.id]; else state.verduras[v.id]=st; refresh(); },
+    inc:()=>{ state.verduras[v.id]=Math.round(((state.verduras[v.id]||0)+st)*100)/100; refresh(); },
+    dec:()=>{ const x=Math.round(((state.verduras[v.id]||0)-st)*100)/100; if(x<=0)delete state.verduras[v.id]; else state.verduras[v.id]=x; refresh(); }
   }; })));
 }
 
@@ -409,14 +434,23 @@ function buildShopping(){
   GUARNI.forEach(g=>{ if(state.guarni[g.id])add(g.n,g.p,g.u,g.q); });
   PREPS.forEach(pr=>{ const st=state.preps[pr.id]; if(st){const nm=pr.meat?st.meat:pr.n;add(nm,pr.p,pr.u,st.qty);} });
   FRUITS.forEach(f=>{ if(state.fruits[f.id]!=null)add(f.label,"verduleria",f.u||"u",state.fruits[f.id]); });
+  VERDURAS.forEach(v=>{ if(state.verduras[v.id]!=null)add(v.label,"verduleria",v.u||"u",state.verduras[v.id]); });
   return map;
 }
+// paso de ajuste manual (+/-) por unidad
+function shopStep(u){ return u==="g"?50:(u==="kg"?0.25:1); }
+// cantidad final de una línea = calculada + ajuste manual (mín 1 paso)
+function shopFinal(p,it){ const base=roundQty(it.q,it.u); const adj=state.adjShop[p+"|"+it.n+"|"+it.u]||0; let q=Math.round((base+adj)*100)/100; const st=shopStep(it.u); if(q<st)q=st; return q; }
 // Saca de excludedShop las líneas que ya no existen en la lista (p. ej. al quitar
 // el plato): así, si volvés a agregar la receta, vuelven TODOS sus ingredientes.
 function pruneExclusions(map){
   for(const k in state.excludedShop){
     const i=k.indexOf("|"); const p=k.slice(0,i); const rest=k.slice(i+1);
     if(!(map[p] && map[p][rest])) delete state.excludedShop[k];
+  }
+  for(const k in state.adjShop){
+    const i=k.indexOf("|"); const p=k.slice(0,i); const rest=k.slice(i+1);
+    if(!(map[p] && map[p][rest])) delete state.adjShop[k];
   }
 }
 function buildCookText(){
@@ -438,13 +472,13 @@ function shoppingText(){
     const head=PROVIDERS[p].label+(PROVIDERS[p].note?` (${PROVIDERS[p].note})`:"");
     const arr=Object.values(map[p]).filter(it=>!state.excludedShop[p+"|"+it.n+"|"+it.u]).sort((a,b)=>a.n.localeCompare(b.n));
     if(!arr.length)return;
-    const items=arr.map(it=>{const q=roundQty(it.q,it.u),f=fmtQty(q,it.u);return "- "+(f?f+" ":"")+it.n;});
+    const items=arr.map(it=>{const q=shopFinal(p,it),f=fmtQty(q,it.u);return "- "+(f?f+" ":"")+it.n;});
     parts.push(head+":\n"+items.join("\n")); });
   return parts.join("\n\n");
 }
 
 /* ===================== PANEL ===================== */
-function totalSel(){ return Object.keys(state.dishes).length+Object.keys(state.vaporiera).length+Object.values(state.guarni).filter(Boolean).length+Object.keys(state.preps).length+Object.keys(state.fruits).length; }
+function totalSel(){ return Object.keys(state.dishes).length+Object.keys(state.vaporiera).length+Object.values(state.guarni).filter(Boolean).length+Object.keys(state.preps).length+Object.keys(state.fruits).length+Object.keys(state.verduras).length; }
 function renderTicket(){
   const body=$("#ticketBody");
   if(totalSel()===0){ body.innerHTML=`<div class="empty"><div class="big">Pizarra vacía</div>Tocá los platos del día y se arma solo.</div>`; return; }
@@ -458,7 +492,7 @@ function renderTicket(){
       const items=Object.values(map[p]).sort((a,b)=>a.n.localeCompare(b.n)).filter(it=>!state.excludedShop[p+"|"+it.n+"|"+it.u]);
       if(!items.length)return;
       html+=`<div class="out-section"><div class="prov">${PROVIDERS[p].label}${PROVIDERS[p].note?` <small>${PROVIDERS[p].note}</small>`:""}</div><ul class="ilist">`;
-      items.forEach(it=>{const q=roundQty(it.q,it.u);const k=p+"|"+it.n+"|"+it.u;html+=`<li><span>${it.n}</span><span class="q">${fmtQty(q,it.u)}</span><button class="ish-del" data-k="${k}" title="Ya lo tengo en casa">×</button></li>`;});
+      items.forEach(it=>{const k=p+"|"+it.n+"|"+it.u;const q=shopFinal(p,it);html+=`<li><span>${it.n}</span><span class="q">${fmtQty(q,it.u)}</span><span class="iqs"><button class="iq" data-k="${k}" data-d="dec" title="Menos">−</button><button class="iq" data-k="${k}" data-d="inc" title="Más">+</button></span><button class="ish-del" data-k="${k}" title="Ya lo tengo en casa">×</button></li>`;});
       html+=`</ul></div>`; });
     body.innerHTML=html||`<div class="empty">${Object.keys(state.excludedShop).length?'Sacaste todo lo de la lista.':'Nada para comprar todavía.'}</div>`;
   }
@@ -515,7 +549,7 @@ async function savePedido(){
   try{
     const res=await fetch(`${API}/api/pedidos`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       mensaje:cookMessage(), compras:shoppingText(),
-      seleccion:{dishes:state.dishes,vaporiera:state.vaporiera,guarni:state.guarni,preps:state.preps,fruits:state.fruits,excludedShop:state.excludedShop}
+      seleccion:{dishes:state.dishes,vaporiera:state.vaporiera,guarni:state.guarni,preps:state.preps,fruits:state.fruits,verduras:state.verduras,excludedShop:state.excludedShop,adjShop:state.adjShop}
     })}).then(x=>x.json());
     if(res.ok)toast("Pedido guardado ✓"); else toast("No se pudo guardar");
   }catch(e){ console.error(e); toast("Error guardando el pedido"); }
@@ -538,7 +572,7 @@ async function loadPedido(id){
   try{
     const r=await fetch(`${API}/api/pedidos/${id}`).then(x=>x.json());
     const sel=r.seleccion||{};
-    state.dishes=sel.dishes||{}; state.vaporiera=sel.vaporiera||{}; state.guarni=sel.guarni||{}; state.preps=sel.preps||{}; state.fruits=sel.fruits||{}; state.excludedShop=sel.excludedShop||{};
+    state.dishes=sel.dishes||{}; state.vaporiera=sel.vaporiera||{}; state.guarni=sel.guarni||{}; state.preps=sel.preps||{}; state.fruits=sel.fruits||{}; state.verduras=sel.verduras||{}; state.excludedShop=sel.excludedShop||{}; state.adjShop=sel.adjShop||{};
     closeHist(); refresh(); toast("Pedido cargado");
   }catch(e){ console.error(e); toast("No se pudo cargar"); }
 }
@@ -553,12 +587,24 @@ function refresh(){
 function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1500); }
 
 document.querySelectorAll(".tabs button").forEach(b=>b.addEventListener("click",()=>{document.querySelectorAll(".tabs button").forEach(x=>x.classList.remove("act"));b.classList.add("act");activeTab=b.dataset.tab;renderTicket();}));
-$("#ticketBody").addEventListener("click",e=>{ if(e.target.classList.contains("ish-del")){ state.excludedShop[e.target.dataset.k]=true; refresh(); } });
+$("#ticketBody").addEventListener("click",e=>{
+  const t=e.target;
+  if(t.classList.contains("ish-del")){ state.excludedShop[t.dataset.k]=true; refresh(); return; }
+  if(t.classList.contains("iq")){
+    const k=t.dataset.k, u=k.slice(k.lastIndexOf("|")+1), st=shopStep(u);
+    if(t.dataset.d==="inc"){ state.adjShop[k]=Math.round(((state.adjShop[k]||0)+st)*100)/100; }
+    else { const map=buildShopping(); const i=k.indexOf("|"),p=k.slice(0,i),rest=k.slice(i+1); const it=map[p]&&map[p][rest]; const base=it?roundQty(it.q,it.u):0; if(base+(state.adjShop[k]||0)-st >= st-0.0001) state.adjShop[k]=Math.round(((state.adjShop[k]||0)-st)*100)/100; }
+    refresh();
+  }
+});
 $("#copyBtn").addEventListener("click",copyText);
 $("#saveBtn").addEventListener("click",savePedido);
-$("#clearBtn").addEventListener("click",()=>{state.dishes={};state.vaporiera={};state.guarni={};state.preps={};state.fruits={};state.excludedShop={};refresh();});
-$("#fab").addEventListener("click",()=>$("#panel").classList.add("open"));
-$("#closePanel").addEventListener("click",()=>$("#panel").classList.remove("open"));
+$("#clearBtn").addEventListener("click",()=>{state.dishes={};state.vaporiera={};state.guarni={};state.preps={};state.fruits={};state.verduras={};state.excludedShop={};state.adjShop={};refresh();});
+function openPanel(){ $("#panel").classList.add("open"); $("#panelBackdrop").classList.add("show"); }
+function closePanelM(){ $("#panel").classList.remove("open"); $("#panelBackdrop").classList.remove("show"); }
+$("#fab").addEventListener("click",openPanel);
+$("#closePanel").addEventListener("click",closePanelM);
+$("#panelBackdrop").addEventListener("click",closePanelM);
 $("#addRow").addEventListener("click",addRow);
 $("#saveCustom").addEventListener("click",saveCustom);
 $("#cancelCustom").addEventListener("click",closeCustom);
