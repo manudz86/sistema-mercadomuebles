@@ -1682,7 +1682,7 @@ def etiqueta_ml(venta_id):
                 continue
             primer_num = nums[0]
             if len(primer_num) >= 4:
-                ancho = int(primer_num[:3]) if int(primer_num[:3]) in (140, 150, 160, 180, 200) else int(primer_num[:2])
+                ancho = int(primer_num[:3]) if int(primer_num[:3]) in (100, 140, 150, 160, 180, 200) else int(primer_num[:2])
             else:
                 ancho = int(primer_num)
             if ancho in (160, 180, 200):
@@ -1750,7 +1750,7 @@ def etiquetas_ml_masivo():
             if not nums: continue
             primer_num = nums[0]
             if len(primer_num) >= 4:
-                ancho = int(primer_num[:3]) if int(primer_num[:3]) in (140,150,160,180,200) else int(primer_num[:2])
+                ancho = int(primer_num[:3]) if int(primer_num[:3]) in (100,140,150,160,180,200) else int(primer_num[:2])
             else:
                 ancho = int(primer_num)
             if ancho in (160, 180, 200): copias = max(copias, 4)
@@ -1775,42 +1775,46 @@ def etiquetas_ml_masivo():
         flash('No se encontraron shipments válidos', 'error')
         return redirect(url_for('ventas_activas'))
 
-    fmt = 'pdf' if formato == 'pdf' else 'zpl2'
-    ids_str = ','.join(sid for sid, _ in ventas_info)
-    label_r = _req.get(
-        f'https://api.mercadolibre.com/shipment_labels?shipment_ids={ids_str}&response_type={fmt}',
-        headers=headers, timeout=30
-    )
-    if label_r.status_code != 200:
-        flash(f'Error obteniendo etiquetas: {label_r.status_code}', 'error')
-        return redirect(url_for('ventas_activas'))
-
     if formato == 'pdf':
+        ids_str = ','.join(sid for sid, _ in ventas_info)
+        label_r = _req.get(
+            f'https://api.mercadolibre.com/shipment_labels?shipment_ids={ids_str}&response_type=pdf',
+            headers=headers, timeout=30
+        )
+        if label_r.status_code != 200:
+            flash(f'Error obteniendo etiquetas: {label_r.status_code}', 'error')
+            return redirect(url_for('ventas_activas'))
         return Response(label_r.content, headers={
             'Content-Type': 'application/pdf',
             'Content-Disposition': 'attachment; filename="etiquetas_ml.pdf"'
         })
-    else:
-        # ML devuelve un ZIP — extraer y multiplicar por sommier
-        try:
-            z = zipfile.ZipFile(_io.BytesIO(label_r.content))
-            # ML devuelve un archivo por shipment en orden
-            archivos = z.namelist()
-            zpl_parts = []
-            for i, (sid, copias) in enumerate(ventas_info):
-                if i < len(archivos):
-                    contenido = z.read(archivos[i]).decode('utf-8', errors='replace')
-                else:
-                    break
-                zpl_parts.append(contenido * copias)
-            zpl_content = ''.join(zpl_parts).encode('utf-8')
-        except Exception:
-            zpl_content = label_r.content
 
-        return Response(zpl_content, headers={
-            'Content-Type': 'application/octet-stream',
-            'Content-Disposition': 'attachment; filename="etiquetas_ml.zpl"'
-        })
+    # ZPL: pedir la etiqueta de cada shipment por separado para garantizar que las
+    # copias de cada sommier se apliquen a SU etiqueta (no depender del orden del ZIP).
+    zpl_parts = []
+    for sid, copias in ventas_info:
+        lr = _req.get(
+            f'https://api.mercadolibre.com/shipment_labels?shipment_ids={sid}&response_type=zpl2',
+            headers=headers, timeout=20
+        )
+        if lr.status_code != 200:
+            continue
+        try:
+            z = zipfile.ZipFile(_io.BytesIO(lr.content))
+            contenido = z.read(z.namelist()[0]).decode('utf-8', errors='replace')
+        except Exception:
+            contenido = lr.content.decode('utf-8', errors='replace')
+        zpl_parts.append(contenido * copias)
+
+    if not zpl_parts:
+        flash('No se pudieron obtener las etiquetas', 'error')
+        return redirect(url_for('ventas_activas'))
+
+    zpl_content = ''.join(zpl_parts).encode('utf-8')
+    return Response(zpl_content, headers={
+        'Content-Type': 'application/octet-stream',
+        'Content-Disposition': 'attachment; filename="etiquetas_ml.zpl"'
+    })
 
 
 @app.route('/ventas/activas/<int:venta_id>/orden-retiro')
