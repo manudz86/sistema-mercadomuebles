@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Competencia V2{% endblock %}
+{% block content %}
+<style>
+.cv-wrap{max-width:1180px;margin:0 auto;padding:16px}
+.cv-wrap h1{font-size:21px;margin:0 0 3px}
+.cv-sub{color:#5b6472;font-size:12.5px;margin:0 0 12px}
+.cv-vend a{display:inline-block;padding:7px 16px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;margin-right:6px;border:1px solid #c7ccd4;color:#334}
+.cv-vend a.on{background:#2b3140;color:#fff;border-color:#2b3140}
+.cv-tabs{display:flex;gap:4px;margin:14px 0 10px;flex-wrap:wrap}
+.cv-tabs button{padding:7px 14px;border:1px solid #c7ccd4;background:#fff;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;color:#334}
+.cv-tabs button.on{background:#0d6efd;color:#fff;border-color:#0d6efd}
+.cv-card{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.cv-kpi{background:#fff;border-radius:10px;padding:10px 14px;box-shadow:0 1px 3px rgba(0,0,0,.06);font-size:12.5px}
+.cv-kpi b{font-size:17px}
+table.cv{border-collapse:collapse;width:100%;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+table.cv th,table.cv td{padding:6px 9px;text-align:left;border-bottom:1px solid #eef0f3;white-space:nowrap;font-size:12.5px}
+table.cv th{background:#2b3140;color:#fff;position:sticky;top:0;z-index:2;font-size:11.5px}
+table.cv td.num{text-align:right;font-variant-numeric:tabular-nums}
+td.mio{font-weight:700}td.diff{font-weight:800;text-align:right}
+.g2{color:#0f7a3d;background:#e7f6ec}.g1{color:#198754;background:#f1faf4}.r1{color:#c0392b;background:#fdf1ef}.r2{color:#fff;background:#dc3545}
+td.sku{font-family:ui-monospace,monospace;font-weight:700;color:#334}
+.fu{font-size:10px;color:#8a93a0}
+.cv-note{background:#fff7e6;border-left:4px solid #f0a202;padding:8px 12px;border-radius:6px;margin:9px 0;font-size:12.5px}
+.cv-note.bad{background:#fdecea;border-left-color:#dc3545}
+.filt{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}
+.filt select,.filt input{padding:6px 8px;border:1px solid #c7ccd4;border-radius:7px;font-size:13px}
+.tbox{max-height:66vh;overflow:auto;border-radius:10px}
+.bar{display:inline-block;height:11px;background:#0d6efd;border-radius:2px;vertical-align:middle}
+.tag{font-size:10px;padding:1px 5px;border-radius:4px;background:#e9ecef;color:#495057}
+.pane{display:none}.pane.on{display:block}
+</style>
+
+<div class="cv-wrap">
+  <h1>📊 Competencia V2 — ventas de competidores vs mis precios</h1>
+  {% if data %}
+  <p class="cv-sub">Ventas históricas del mes cargado · precios <b>actuales</b> recalculados en vivo (monitor → scraper → catálogo ML → mes). Snapshot de precios: <b>{{ data.snap }}</b>. Se actualiza solo con el monitor.</p>
+
+  <div class="cv-vend">
+    {% for k, v in vendors.items() %}
+      <a href="?vendedor={{ k }}" class="{{ 'on' if k == vendor else '' }}">{{ v.nombre }}</a>
+    {% endfor %}
+  </div>
+
+  <div class="cv-card">
+    <div class="cv-kpi">SKUs que tenés<br><b>{{ data.n_skus }}</b></div>
+    <div class="cv-kpi">Unidades (tuyas)<br><b>{{ data.u_con }}</b></div>
+    <div class="cv-kpi">Unidades que NO tenés<br><b>{{ data.u_no }}</b></div>
+    <div class="cv-kpi">Facturación {{ vendor_nombre }}<br><b>${{ '{:,.0f}'.format(data.gmv_tot)|replace(',','.') }}</b></div>
+  </div>
+
+  <div class="cv-tabs">
+    <button data-p="A" class="on" onclick="tab('A',this)">A · Precio</button>
+    <button data-p="B" onclick="tab('B',this)">B · Cuotas</button>
+    <button data-p="C" onclick="tab('C',this)">C · Mix</button>
+    <button data-p="D" onclick="tab('D',this)">D · Oportunidad</button>
+  </div>
+
+  <!-- A -->
+  <div class="pane on" id="pA">
+    <div class="cv-note">Cada fila = un SKU en un tramo de cuota. <b>U</b> = unidades vendidas en junio en ese tramo. <b>Δ = mi precio / competidor − 1</b>: verde = soy más barato, rojo = más caro. Mismo tramo vs mismo tramo. Fuente del precio entre paréntesis.</div>
+    <div class="cv-note bad"><b>{{ data.caros }}</b> tramos con volumen ≥5u donde estás <b>más caro</b> que {{ vendor_nombre }} → candidatos a ajustar.</div>
+    <div class="filt">
+      <select id="fA_tipo" onchange="filA()"><option value="">Tipo</option><option>colchon</option><option>sommier</option></select>
+      <select id="fA_tier" onchange="filA()"><option value="">Tramo</option>{% for t in data.tiers %}<option value="{{ t }}">{{ data.tier_lbl[t] }}</option>{% endfor %}</select>
+      <input id="fA_sku" placeholder="SKU..." oninput="filA()"><span id="fA_c" style="align-self:center;color:#5b6472"></span>
+    </div>
+    <div class="tbox"><table class="cv" id="tA"><thead><tr><th>SKU</th><th>Modelo</th><th>Medida</th><th>Tramo</th><th>U</th><th>Precio {{ vendor_nombre }}</th><th>MI precio</th><th>Δ%</th></tr></thead><tbody>
+    {% for f in data.A %}<tr data-tipo="{{ f.tipo }}" data-tier="{{ f.tier }}" data-sku="{{ f.sku }}">
+      <td class="sku">{{ f.sku }}</td><td>{{ f.model }}</td><td>{{ f.w }}cm</td><td>{{ f.tier_lbl }}</td>
+      <td class="num">{{ f.u }}</td>
+      <td class="num">${{ '{:,.0f}'.format(f.comp)|replace(',','.') }} <span class="fu">{{ f.fu }}</span></td>
+      <td class="num mio">{% if f.mio %}${{ '{:,.0f}'.format(f.mio)|replace(',','.') }}{% else %}—{% endif %}</td>
+      {% if f.dtxt %}<td class="num diff {{ f.cls }}">{{ f.dtxt }}</td>{% else %}<td class="num" style="color:#aaa">—</td>{% endif %}
+    </tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+
+  <!-- B -->
+  <div class="pane" id="pB">
+    <div class="cv-note">Cómo repartió {{ vendor_nombre }} sus ventas entre contado y cuotas (unidades y % por SKU).</div>
+    <div class="tbox"><table class="cv"><thead><tr><th>SKU</th><th>Modelo</th><th>U total</th>{% for t in data.tiers %}<th>{{ data.tier_lbl[t] }}</th>{% endfor %}</tr></thead><tbody>
+    <tr style="background:#eef2f7"><td colspan="2"><b>TOTAL</b></td><td class="num"><b>{{ data.u_con }}</b></td>{% for c in data.Btot %}<td class="num"><b>{{ c.v }}</b><span class="fu"> {{ '%.0f'|format(c.pct) }}%</span></td>{% endfor %}</tr>
+    {% for r in data.B %}<tr><td class="sku">{{ r.sku }}</td><td>{{ r.model }}</td><td class="num">{{ r.u }}</td>
+      {% for c in r.cells %}<td class="num">{{ c.v }}<span class="fu"> {{ '%.0f'|format(c.pct) }}%</span></td>{% endfor %}</tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+
+  <!-- C -->
+  <div class="pane" id="pC">
+    <div class="cv-note">Pareto de facturación de {{ vendor_nombre }} (GMV). Dónde se concentra su plata.</div>
+    <div class="tbox"><table class="cv"><thead><tr><th>SKU/Producto</th><th>Modelo</th><th>U</th><th>GMV</th><th>%</th><th>Acum.</th><th></th></tr></thead><tbody>
+    {% for r in data.C %}<tr><td class="sku">{{ r.nombre }}{% if not r.tiene %} <span class="tag">no tenés</span>{% endif %}</td>
+      <td>{{ r.model }}</td><td class="num">{{ r.u }}</td><td class="num">${{ '{:,.0f}'.format(r.gmv)|replace(',','.') }}</td>
+      <td class="num">{{ '%.1f'|format(r.share) }}%</td><td class="num">{{ '%.0f'|format(r.cum) }}%</td>
+      <td><span class="bar" style="width:{{ r.barw }}px"></span></td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+
+  <!-- D -->
+  <div class="pane" id="pD">
+    <div class="cv-note">Lo que {{ vendor_nombre }} vendió y <b>no tenés en catálogo</b>. Ordenado por volumen — candidatos a evaluar sumar.</div>
+    <div class="tbox"><table class="cv"><thead><tr><th>Modelo</th><th>Medida</th><th>Tipo</th><th>U</th><th>GMV</th><th>Financiación</th></tr></thead><tbody>
+    {% for r in data.D %}<tr><td>{{ r.model or '?' }}</td><td>{{ r.w }}cm</td><td>{{ r.tipo }}</td>
+      <td class="num">{{ r.u }}</td><td class="num">${{ '{:,.0f}'.format(r.gmv)|replace(',','.') }}</td>
+      <td class="num">{{ '%.0f'|format(r.pct_contado) }}% contado</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+
+  <script>
+  function tab(p,btn){document.querySelectorAll('.pane').forEach(function(x){x.classList.remove('on')});
+    document.getElementById('p'+p).classList.add('on');
+    document.querySelectorAll('.cv-tabs button').forEach(function(b){b.classList.remove('on')});btn.classList.add('on');}
+  function filA(){var t=fA_tipo.value,c=fA_tier.value,s=fA_sku.value.toUpperCase(),n=0;
+    document.querySelectorAll('#tA tbody tr').forEach(function(r){var ok=(!t||r.dataset.tipo==t)&&(!c||r.dataset.tier==c)&&(!s||r.dataset.sku.indexOf(s)>=0);r.style.display=ok?'':'none';if(ok)n++;});
+    fA_c.textContent=n+' filas';}
+  var fA_tipo=document.getElementById('fA_tipo'),fA_tier=document.getElementById('fA_tier'),fA_sku=document.getElementById('fA_sku'),fA_c=document.getElementById('fA_c');filA();
+  </script>
+  {% else %}
+  <div class="cv-note bad">No se pudo generar el informe{% if err %}: {{ err }}{% endif %}.</div>
+  {% endif %}
+</div>
+{% endblock %}

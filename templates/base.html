@@ -424,6 +424,11 @@
                         <i class="bi bi-shop"></i> Competencia (Scraper)
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'competencia_v2.competencia_v2_page' %}active{% endif %}" href="/admin/competencia-v2">
+                        <i class="bi bi-bar-chart-line"></i> Competencia V2
+                    </a>
+                </li>
                 <div class="section-title">CONFIGURACIÓN</div>
                 <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'admin_logs' %}active{% endif %}" href="/admin/logs">
@@ -661,6 +666,11 @@
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'competencia_scraper.competencia_scraper_page' %}active{% endif %}" href="/admin/competencia-scraper">
                                 <i class="bi bi-shop"></i> Competencia (Scraper)
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'competencia_v2.competencia_v2_page' %}active{% endif %}" href="/admin/competencia-v2">
+                                <i class="bi bi-bar-chart-line"></i> Competencia V2
                             </a>
                         </li>
                         <div class="section-title">CONFIGURACIÓN</div>
