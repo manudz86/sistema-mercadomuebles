@@ -433,7 +433,7 @@ def get_productos_context():
         pf = precio_final(p['precio_base'], p['descuento_catalogo'], p['oferta_pct'])
         desc = max(float(p['descuento_catalogo'] or 0), float(p['oferta_pct'] or 0))
         stock_txt = estado_stock(p['stock_actual'], p.get('linea'), p.get('tipo'), p.get('modelo'))
-        link = f"https://www.mercadomuebles.com.ar/tienda/producto/{p['sku']}"
+        link = f"https://www.mercadomuebles.com.ar/tienda/producto/{p['sku']}?utm_source=whatsapp&utm_medium=bot"
         if desc > 0:
             precio_str = f"Web: ${pf:,} (-{int(desc)}%) | Local: ${precio_lista:,}"
         else:
@@ -469,7 +469,7 @@ def get_productos_context():
         pf = precio_final(p['precio_base'], p['descuento_catalogo'], p['oferta_pct'])
         desc = max(float(p['descuento_catalogo'] or 0), float(p['oferta_pct'] or 0))
         stock_txt = estado_stock(p['stock_actual'], p.get('_comp_linea'), p.get('_comp_tipo'), p.get('_comp_modelo'))
-        link = f"https://www.mercadomuebles.com.ar/tienda/producto/{p['sku']}"
+        link = f"https://www.mercadomuebles.com.ar/tienda/producto/{p['sku']}?utm_source=whatsapp&utm_medium=bot"
         if desc > 0:
             precio_str = f"Web: ${pf:,} (-{int(desc)}%) | Local: ${precio_lista:,}"
         else:
@@ -638,6 +638,10 @@ PRECIO WEB vs PRECIO LOCAL (REGLA CRÍTICA):
 - Si el cliente pregunta directamente "¿cuánto sale en el local?" o similar, aclarale: "En el local el precio es $X (precio de lista, los descuentos online no aplican en compra presencial). Con tarjeta, 3 cuotas fijas de $Y... o 6 cuotas fijas de $Z..."
 - Si el cliente cotiza online y después dice que va a ir al local, aclarale el cambio de precio antes de que se confunda.
 - NUNCA digas que el precio web y el precio del local son iguales si el producto tiene descuento. NO son iguales.
+
+LINK DE LA TIENDA:
+- Los links de cada producto ya vienen etiquetados en el contexto: pasalos TAL CUAL, no les recortes la parte de "?utm_source=...".
+- Si compartís el link general de la tienda, usá siempre este: https://www.mercadomuebles.com.ar/tienda/?utm_source=whatsapp&utm_medium=bot
 
 ENVÍOS:
 - Podés calcular el costo de envío exacto si el cliente te da su código postal

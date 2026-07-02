@@ -11618,14 +11618,19 @@ def estadisticas():
             return 'Meta'
         if d.get('gclid') or src in ('google', 'adwords', 'google_ads', 'googleads'):
             return 'Google'
+        if src in ('whatsapp', 'wa', 'whatsapp_bot', 'whatsapp_humano') or 'whatsapp' in ref or 'wa.me' in ref:
+            return 'WhatsApp'
         if ref:
             return 'Orgánico/Referido'
         return 'Directo'
 
+    # El origen de tráfico solo aplica a la tienda web (ML/presencial no tienen
+    # captura de origen). Se fuerza tienda_web para no inflar "Directo".
     origen_rows = query_db(f"""
         SELECT v.origen_last, v.importe_abonado
         FROM ventas v
         {base_where}
+        AND v.canal = 'tienda_web'
     """, tuple(base_params))
 
     _agg_origen = {}
@@ -11639,7 +11644,7 @@ def estadisticas():
         _agg_origen[lbl]['cantidad'] += 1
         _agg_origen[lbl]['total'] += ab
 
-    _orden_origen = {'Meta': 0, 'Google': 1, 'Orgánico/Referido': 2, 'Directo': 3}
+    _orden_origen = {'Meta': 0, 'Google': 1, 'WhatsApp': 2, 'Orgánico/Referido': 3, 'Directo': 4}
     por_origen = sorted(_agg_origen.values(), key=lambda x: _orden_origen.get(x['origen_label'], 9))
 
     # ========================================
