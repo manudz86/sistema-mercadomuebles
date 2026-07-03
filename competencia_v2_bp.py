@@ -64,6 +64,37 @@ def _num(v, lo=2, hi=3):
     m = re.search(r'\d{%d,%d}' % (lo, hi), str(v or ''))
     return int(m.group()) if m else None
 
+# ── Pasaje de ML (mostrada → real), igual criterio que el scraper ──
+# Se carga de la config competencia_pasajes (real→mostrada) y se invierte.
+def _cargar_pasaje_inv(conn):
+    inv = {'colchon': {6:3, 9:6, 12:9, 18:12}, 'sommier': {6:3, 12:9, 18:12}}  # fallback
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT valor FROM configuracion WHERE clave='competencia_pasajes'")
+            r = c.fetchone()
+        if r:
+            d = json.loads(r['valor'])
+            out = {'colchon': {}, 'sommier': {}}
+            for t in ('colchon', 'sommier'):
+                for real, most in d.get(t, []):
+                    out[t][int(most)] = int(real)
+            if out['colchon'] or out['sommier']:
+                # completar con fallback lo que falte (ej. sommier 12→9, 18→12)
+                for t in ('colchon', 'sommier'):
+                    for k, v in inv[t].items():
+                        out[t].setdefault(k, v)
+                return out
+    except Exception:
+        pass
+    return inv
+
+def _real_tier(n, tipo, inv):
+    """Convierte un nº de cuota MOSTRADO al REAL según el pasaje."""
+    try: n = int(n)
+    except (TypeError, ValueError): return None
+    r = inv.get(tipo, {}).get(n, n)
+    return str(r) if r in (3, 6, 9, 12) else None
+
 # ── Cuota → tramo canónico ──
 def _lbl_to_tier(lbl):
     if not lbl: return None
@@ -76,10 +107,12 @@ def _lbl_to_tier(lbl):
         if n in (3, 6, 9, 12): return str(n)
         if n == 18: return '12'
     return None
-def _inst_to_tier(inst):
+def _inst_to_tier(inst, tipo, inv):
+    """installments del JSON = MOSTRADO → se revierte al real por el pasaje."""
     if not inst or inst == 'no_installments': return 'sin'
     m = re.match(r'(\d+)_', inst)
-    return str(int(m.group(1))) if m else 'sin'
+    if not m: return 'sin'
+    return _real_tier(m.group(1), tipo, inv) or str(int(m.group(1)))
 
 # ── Match de SKU ──
 MODMAP = [('exclusive pillow','EXP'),('exclusive euro','EXP'),('exclusive','EX'),
@@ -185,7 +218,7 @@ def _cargar_scraper(tienda):
 
 # catálogo ML — cache por catalog_id por día
 _cat_cache = {}
-def _cargar_catalogo(catalog_id, seller_id, hoy):
+def _cargar_catalogo(catalog_id, seller_id, hoy, tipo, inv):
     ck = (catalog_id, seller_id)
     hit = _cat_cache.get(ck)
     if hit and hit[0] == hoy:
@@ -200,6 +233,10 @@ def _cargar_catalogo(catalog_id, seller_id, hoy):
                      for t in r.get('sale_terms', []) if t.get('id')=='INSTALLMENTS_CAMPAIGN'), None)
         if not camp: camp = _campaign_from_tags(r.get('tags', []))
         tier = _lbl_to_tier(_cuotas_publi(lt, camp))
+        # gold_pro sin campaña: ML muestra "6 cuotas" por default (MOSTRADO) →
+        # revertir al real por el pasaje, igual criterio que el scraper.
+        if lt == 'gold_pro' and not camp and tier and tier.isdigit():
+            tier = _real_tier(tier, tipo, inv)
         if not tier: continue
         env, _, _ = _envio_tipo(r.get('shipping', {}))
         p = r.get('price') or 0
@@ -280,6 +317,7 @@ def _construir(vendor_key):
     mon, snap = _cargar_monitor(conn, V['seller_id'])
     scr = _cargar_scraper(V['tienda'])
     compac_precio = _mi_compac(conn)
+    inv = _cargar_pasaje_inv(conn)
 
     productos = {}
     for fname, tipo in V['files']:
@@ -289,7 +327,7 @@ def _construir(vendor_key):
             sku, w = _match_sku(r, tipo, mis)
             q = int(r.get('sold_quantity') or 0)
             g = _price(r.get('gmv')); p = _price(r.get('price'))
-            tier = _inst_to_tier(r.get('installments'))
+            tier = _inst_to_tier(r.get('installments'), tipo, inv)
             key = sku or f"NOMATCH|{tipo}|{r.get('model')}|{w}"
             P = productos.get(key)
             if not P:
@@ -320,7 +358,7 @@ def _construir(vendor_key):
             if comp_p is None and P['es_cat']:
                 cid = _catalog_id_de(sku, P['prov_cat'], conn)
                 if cid:
-                    cat = _cargar_catalogo(cid, V['seller_id'], hoy)
+                    cat = _cargar_catalogo(cid, V['seller_id'], hoy, P['tipo'], inv)
                     if cat['comp'].get(tier):
                         comp_p = cat['comp'][tier]; src = 'catalogo_ml'
                     if mio_p is None and not es_compac and cat['mio'].get(tier):
