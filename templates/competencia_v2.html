@@ -34,11 +34,18 @@ td.sku{font-family:ui-monospace,monospace;font-weight:700;color:#334}
 <div class="cv-wrap">
   <h1>📊 Competencia V2 — ventas de competidores vs mis precios</h1>
   {% if data %}
-  <p class="cv-sub">Ventas históricas del mes cargado · precios <b>actuales</b> recalculados en vivo (monitor → scraper → catálogo ML → mes). Snapshot de precios: <b>{{ data.snap }}</b>. Se actualiza solo con el monitor.</p>
+  <p class="cv-sub">Ventas del período · precio del competidor en vivo (catálogo: monitor → scraper → catálogo ML; no-catálogo: scraper). Cuotas <b>reales</b> del integrador (sin pasaje). Snapshot: <b>{{ data.snap }}</b>.</p>
 
+  <div class="cv-vend" style="margin-bottom:6px">
+    <span style="font-size:12px;color:#5b6472;margin-right:4px">Período:</span>
+    {% for p in periodos.keys()|sort(reverse=true) %}
+      <a href="?periodo={{ p }}" class="{{ 'on' if p == periodo else '' }}">{{ periodo_lbl.get(p, p) }}</a>
+    {% endfor %}
+  </div>
   <div class="cv-vend">
-    {% for k, v in vendors.items() %}
-      <a href="?vendedor={{ k }}" class="{{ 'on' if k == vendor else '' }}">{{ v.nombre }}</a>
+    <span style="font-size:12px;color:#5b6472;margin-right:4px">Vendedor:</span>
+    {% for k in vends %}
+      <a href="?periodo={{ periodo }}&vendedor={{ k }}" class="{{ 'on' if k == vendor else '' }}">{{ vendor_meta[k].nombre }}</a>
     {% endfor %}
   </div>
 

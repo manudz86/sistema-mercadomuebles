@@ -1,23 +1,25 @@
 # -*- coding: utf-8 -*-
 """
 competencia_v2_bp.py — "Competencia V2" (BOTS)
-Analiza las ventas mensuales de competidores (JSON del proveedor) y las compara
-contra mis precios ACTUALES, por SKU y por tramo de cuota.
+Ventas mensuales de competidores (JSON del integrador) vs mis precios, por SKU y
+por cuota REAL.
 
-Precio ACTUAL de la competencia (jerarquía): monitor (competencia_snapshots) →
-scraper (competencia_procesado.csv) → catálogo ML en vivo → precio del mes.
-Mi precio: monitor (es_propio) → catálogo ML → /costos → (Compac: valor fijo).
+IMPORTANTE: el `installments` del JSON es la cuota REAL de la publicación (el
+"pasaje" de ML es solo visual y NO se descuenta). Por eso NO se revierte.
 
-Las VENTAS son históricas (del mes cargado); los PRECIOS se recalculan en vivo,
-así que la comparación se actualiza sola con el refresco del monitor (2x/día).
-Cachea el dataset por (vendedor, día) para no reconsultar en cada carga.
+Precio ACTUAL del competidor (jerarquía que definió el usuario):
+  - Publi de CATÁLOGO:   monitor (competencia_snapshots) → scraper → catálogo ML (fórmula del monitor)
+  - Publi NO de catálogo: scraper
+  - Último recurso: el precio del propio JSON (marcado 'json').
+Mi precio: mi publi ML (monitor es_propio) → /costos → (Compac: contado fijo 378k).
+
+Los precios se recalculan en vivo (cache por snapshot del monitor).
 """
 import os, json, re, csv, datetime
 from collections import defaultdict
 import pymysql
 from flask import Blueprint, render_template, request
 
-# Helpers del monitor (import seguro; no importa app)
 from competencia_bp import (_ml_catalog_all, _cuotas_publi, _campaign_from_tags,
                             _envio_tipo)
 
@@ -28,18 +30,22 @@ DATA_DIR  = os.path.join(APP_DIR, 'data', 'competencia_v2')
 CSV_SCRAP = os.path.join(APP_DIR, 'data', 'competencia_procesado.csv')
 MY_ID     = 29563319
 
-VENDORS = {
-    'TMS':   {'nombre': 'TMS', 'seller_id': 60351381, 'tienda': 'TMS',
-              'files': [('tms_colchones.json', 'colchon'), ('tms_sommiers.json', 'sommier')]},
-    'Lanus': {'nombre': 'Muebles Lanús', 'seller_id': 54898332, 'tienda': 'Lanus',
-              'files': [('lanus_colchones.json', 'colchon'), ('lanus_sommier.json', 'sommier')]},
+VENDOR_META = {
+    'TMS':   {'nombre': 'TMS',           'seller_id': 60351381, 'tienda': 'TMS'},
+    'Lanus': {'nombre': 'Muebles Lanús', 'seller_id': 54898332, 'tienda': 'Lanus'},
 }
+# periodo → vendedor → [(archivo, tipo)]
+PERIODOS = {
+    '2026-07': {'TMS':   [('tms_colchones.json', 'colchon')]},
+    '2026-06': {'TMS':   [('tms_colchones.json', 'colchon'), ('tms_sommiers.json', 'sommier')],
+                'Lanus': [('lanus_colchones.json', 'colchon'), ('lanus_sommier.json', 'sommier')]},
+}
+PERIODO_LBL = {'2026-06': 'Junio 2026', '2026-07': 'Julio 2026'}
 
 TIERS = ['sin', '3', '6', '9', '12']
 TIER_LBL = {'sin': 'Contado', '3': '3 cuotas', '6': '6 cuotas', '9': '9 cuotas', '12': '12 cuotas'}
-PORC_COMPAC = {'sin': 378000}  # Compac contado fijo; cuotas = _pc(378000, coef)
+PORC_COMPAC = {'sin': 378000}   # Compac contado fijo; cuotas = _pc(378000, coef)
 
-# ── Config cuotas (para calcular las cuotas del Compac) ──
 def _porcentajes_ml(conn):
     with conn.cursor() as c:
         c.execute("SELECT valor FROM configuracion WHERE clave='porcentajes_ml'")
@@ -49,7 +55,6 @@ def _porcentajes_ml(conn):
 def _pc(base, pct):
     return round(base * 0.76 / (0.76 - pct / 100) / 1000) * 1000
 
-# ── DB ──
 def _db():
     return pymysql.connect(host='localhost', user='cannon',
         password=os.environ.get('DB_PASSWORD', 'Sistema@32267845'),
@@ -64,38 +69,7 @@ def _num(v, lo=2, hi=3):
     m = re.search(r'\d{%d,%d}' % (lo, hi), str(v or ''))
     return int(m.group()) if m else None
 
-# ── Pasaje de ML (mostrada → real), igual criterio que el scraper ──
-# Se carga de la config competencia_pasajes (real→mostrada) y se invierte.
-def _cargar_pasaje_inv(conn):
-    inv = {'colchon': {6:3, 9:6, 12:9, 18:12}, 'sommier': {6:3, 12:9, 18:12}}  # fallback
-    try:
-        with conn.cursor() as c:
-            c.execute("SELECT valor FROM configuracion WHERE clave='competencia_pasajes'")
-            r = c.fetchone()
-        if r:
-            d = json.loads(r['valor'])
-            out = {'colchon': {}, 'sommier': {}}
-            for t in ('colchon', 'sommier'):
-                for real, most in d.get(t, []):
-                    out[t][int(most)] = int(real)
-            if out['colchon'] or out['sommier']:
-                # completar con fallback lo que falte (ej. sommier 12→9, 18→12)
-                for t in ('colchon', 'sommier'):
-                    for k, v in inv[t].items():
-                        out[t].setdefault(k, v)
-                return out
-    except Exception:
-        pass
-    return inv
-
-def _real_tier(n, tipo, inv):
-    """Convierte un nº de cuota MOSTRADO al REAL según el pasaje."""
-    try: n = int(n)
-    except (TypeError, ValueError): return None
-    r = inv.get(tipo, {}).get(n, n)
-    return str(r) if r in (3, 6, 9, 12) else None
-
-# ── Cuota → tramo canónico ──
+# ── Cuota → tramo. installments del JSON = REAL (no se revierte). ──
 def _lbl_to_tier(lbl):
     if not lbl: return None
     l = lbl.lower()
@@ -105,14 +79,16 @@ def _lbl_to_tier(lbl):
     if m:
         n = int(m.group(1))
         if n in (3, 6, 9, 12): return str(n)
-        if n == 18: return '12'
+        if n >= 18: return '12'
     return None
-def _inst_to_tier(inst, tipo, inv):
-    """installments del JSON = MOSTRADO → se revierte al real por el pasaje."""
+def _inst_to_tier(inst):
     if not inst or inst == 'no_installments': return 'sin'
     m = re.match(r'(\d+)_', inst)
     if not m: return 'sin'
-    return _real_tier(m.group(1), tipo, inv) or str(int(m.group(1)))
+    n = int(m.group(1))
+    if n in (3, 6, 9, 12): return str(n)
+    if n >= 18: return '12'
+    return None
 
 # ── Match de SKU ──
 MODMAP = [('exclusive pillow','EXP'),('exclusive euro','EXP'),('exclusive','EX'),
@@ -157,7 +133,7 @@ def _match_sku(r, tipo, mis):
             return c.upper(), w
     return None, w
 
-# ── Fuentes de precio actual ──
+# ── Fuentes de precio ──
 def _cargar_mis_skus(conn):
     with conn.cursor() as c:
         c.execute("SELECT sku FROM productos_base WHERE COALESCE(activo,1)=1 "
@@ -192,7 +168,7 @@ def _cargar_monitor(conn, seller_id):
     return out, str(d)
 
 def _cargar_scraper(tienda):
-    inv = {'colchon': {6:3,9:6,12:9,18:12}, 'sommier': {6:3,12:9,18:12}}
+    inv = {'colchon': {6:3, 9:6, 12:9, 18:12}, 'sommier': {6:3, 12:9, 18:12}}
     out = defaultdict(dict)
     if not os.path.exists(CSV_SCRAP): return out
     for r in csv.DictReader(open(CSV_SCRAP, encoding='utf-8')):
@@ -209,16 +185,17 @@ def _cargar_scraper(tienda):
         else:
             try: n = int(cs)
             except: continue
-            real = inv.get(r['tipo'], {}).get(n, n)
+            real = inv.get(r['tipo'], {}).get(n, n)   # scraper: mostrada→real
             tier = str(real) if real in (3,6,9,12) else None
         if not tier: continue
         if tier not in out[sku] or p < out[sku][tier]:
             out[sku][tier] = p
     return out
 
-# catálogo ML — cache por catalog_id por día
+# catálogo ML — cache por catalog_id/día. SIN reversión (installments=real; el
+# catálogo con la fórmula del monitor ya trae la cuota bien).
 _cat_cache = {}
-def _cargar_catalogo(catalog_id, seller_id, hoy, tipo, inv):
+def _cargar_catalogo(catalog_id, seller_id, hoy):
     ck = (catalog_id, seller_id)
     hit = _cat_cache.get(ck)
     if hit and hit[0] == hoy:
@@ -233,10 +210,6 @@ def _cargar_catalogo(catalog_id, seller_id, hoy, tipo, inv):
                      for t in r.get('sale_terms', []) if t.get('id')=='INSTALLMENTS_CAMPAIGN'), None)
         if not camp: camp = _campaign_from_tags(r.get('tags', []))
         tier = _lbl_to_tier(_cuotas_publi(lt, camp))
-        # gold_pro sin campaña: ML muestra "6 cuotas" por default (MOSTRADO) →
-        # revertir al real por el pasaje, igual criterio que el scraper.
-        if lt == 'gold_pro' and not camp and tier and tier.isdigit():
-            tier = _real_tier(tier, tipo, inv)
         if not tier: continue
         env, _, _ = _envio_tipo(r.get('shipping', {}))
         p = r.get('price') or 0
@@ -271,15 +244,12 @@ def _catalog_id_de(sku, prov_cat_id, conn):
         except: pass
     return None
 
-# ── mi precio Compac (fijo) ──
 def _mi_compac(conn):
-    pml = _porcentajes_ml(conn)
-    base = PORC_COMPAC['sin']
+    pml = _porcentajes_ml(conn); base = PORC_COMPAC['sin']
     return {'sin': base, '3': _pc(base, pml.get('cuotas_3', 8.4)),
             '6': _pc(base, pml.get('cuotas_6', 12.3)), '9': _pc(base, pml.get('cuotas_9', 15.7)),
             '12': _pc(base, pml.get('cuotas_12', 19.2))}
 
-# ── mi precio por /costos (función real, import perezoso in-proc) ──
 def _mi_costos(sku):
     try:
         from app import _get_precio_costos_sku
@@ -290,20 +260,17 @@ def _mi_costos(sku):
     except Exception:
         return {}
 
-# ── Construcción del dataset por vendedor ──
-# Cache en archivo, atado al snapshot del monitor: carga rápido entre workers y
-# se recalcula solo cuando el monitor guarda un snapshot nuevo (2x/día).
-def _cache_path(vendor_key, snap_ts):
+# ── Construcción del dataset ──
+def _cache_path(periodo, vendedor, snap_ts):
     safe = re.sub(r'[^0-9]', '', str(snap_ts))
-    return os.path.join(DATA_DIR, f'.cache_{vendor_key}_{safe}.json')
+    return os.path.join(DATA_DIR, f'.cache_{periodo}_{vendedor}_{safe}.json')
 
-def _construir(vendor_key):
-    hoy = datetime.date.today().isoformat()
+def _construir(periodo, vendedor):
     conn = _db()
     with conn.cursor() as c:
         c.execute("SELECT MAX(fecha) t FROM competencia_snapshots")
         snap_ts = c.fetchone()['t']
-    cpath = _cache_path(vendor_key, snap_ts)
+    cpath = _cache_path(periodo, vendedor, snap_ts)
     if os.path.exists(cpath):
         try:
             conn.close()
@@ -312,31 +279,33 @@ def _construir(vendor_key):
         except Exception:
             pass
 
-    V = VENDORS[vendor_key]
+    meta = VENDOR_META[vendedor]
+    files = PERIODOS.get(periodo, {}).get(vendedor, [])
     mis = _cargar_mis_skus(conn)
-    mon, snap = _cargar_monitor(conn, V['seller_id'])
-    scr = _cargar_scraper(V['tienda'])
+    mon, snap = _cargar_monitor(conn, meta['seller_id'])
+    scr = _cargar_scraper(meta['tienda'])
     compac_precio = _mi_compac(conn)
-    inv = _cargar_pasaje_inv(conn)
 
     productos = {}
-    for fname, tipo in V['files']:
-        path = os.path.join(DATA_DIR, fname)
+    for fname, tipo in files:
+        path = os.path.join(DATA_DIR, periodo, fname)
         if not os.path.exists(path): continue
         for r in json.load(open(path, encoding='utf-8')):
             sku, w = _match_sku(r, tipo, mis)
             q = int(r.get('sold_quantity') or 0)
             g = _price(r.get('gmv')); p = _price(r.get('price'))
-            tier = _inst_to_tier(r.get('installments'), tipo, inv)
+            tier = _inst_to_tier(r.get('installments'))
+            if tier is None: continue
             key = sku or f"NOMATCH|{tipo}|{r.get('model')}|{w}"
             P = productos.get(key)
             if not P:
                 P = productos[key] = {'sku': sku, 'tipo': tipo, 'model': r.get('model'),
                     'w': w, 'u': 0, 'gmv': 0.0, 'cuota_u': defaultdict(int),
-                    'pjunio': defaultdict(list), 'prov_cat': r.get('catalog_product_id'),
+                    'pjson': defaultdict(list), 'prov_cat': r.get('catalog_product_id'),
                     'es_cat': r.get('is_catalog_product') == 'yes'}
             P['u'] += q; P['gmv'] += g; P['cuota_u'][tier] += q
-            if p > 0: P['pjunio'][tier].append(p)
+            if p > 0: P['pjson'][tier].append(p)
+            if r.get('is_catalog_product') == 'yes': P['es_cat'] = True
             if not P['prov_cat'] and r.get('catalog_product_id'):
                 P['prov_cat'] = r.get('catalog_product_id')
 
@@ -347,40 +316,49 @@ def _construir(vendor_key):
         es_compac = sku.startswith('CCO')
         m = mon.get(sku) or mon.get(sku.replace('_DEP', '')) or {'comp': {}, 'mio': {}}
         scr_sku = scr.get(sku) or scr.get(sku.replace('_DEP', '')) or {}
+        cat = None
+        def _cat():
+            nonlocal cat
+            if cat is None:
+                cid = _catalog_id_de(sku, P['prov_cat'], conn)
+                cat = _cargar_catalogo(cid, meta['seller_id'], datetime.date.today().isoformat()) if cid else {'comp': {}, 'mio': {}}
+            return cat
         costos = None
         for tier in TIERS:
-            src = None; comp_p = None
-            if m.get('comp', {}).get(tier):
-                comp_p = m['comp'][tier]; src = 'monitor'
-            elif scr_sku.get(tier):
-                comp_p = scr_sku[tier]; src = 'scraper'
-            mio_p = None if es_compac else m.get('mio', {}).get(tier)
-            if comp_p is None and P['es_cat']:
-                cid = _catalog_id_de(sku, P['prov_cat'], conn)
-                if cid:
-                    cat = _cargar_catalogo(cid, V['seller_id'], hoy, P['tipo'], inv)
-                    if cat['comp'].get(tier):
-                        comp_p = cat['comp'][tier]; src = 'catalogo_ml'
-                    if mio_p is None and not es_compac and cat['mio'].get(tier):
-                        mio_p = cat['mio'][tier]
+            # ── precio del competidor (jerarquía) ──
+            comp_p, src = None, None
+            if P['es_cat']:
+                if m.get('comp', {}).get(tier):
+                    comp_p, src = m['comp'][tier], 'monitor'
+                elif scr_sku.get(tier):
+                    comp_p, src = scr_sku[tier], 'scraper'
+                elif _cat()['comp'].get(tier):
+                    comp_p, src = _cat()['comp'][tier], 'catalogo_ml'
+            else:
+                if scr_sku.get(tier):
+                    comp_p, src = scr_sku[tier], 'scraper'
+            if comp_p is None and P['pjson'].get(tier):
+                vals = sorted(P['pjson'][tier]); comp_p, src = vals[len(vals)//2], 'json'
+            # ── mi precio: mi publi ML (monitor) → catálogo → /costos → Compac ──
             if es_compac:
                 mio_p = compac_precio.get(tier)
-            elif mio_p is None:
-                if costos is None: costos = _mi_costos(sku)
-                if costos.get(tier): mio_p = costos[tier]
-            if comp_p is None and P['pjunio'].get(tier):
-                vals = sorted(P['pjunio'][tier]); comp_p = vals[len(vals)//2]; src = 'mes'
+            else:
+                mio_p = m.get('mio', {}).get(tier)
+                if mio_p is None and P['es_cat'] and _cat()['mio'].get(tier):
+                    mio_p = _cat()['mio'][tier]
+                if mio_p is None:
+                    if costos is None: costos = _mi_costos(sku)
+                    if costos.get(tier): mio_p = costos[tier]
             if comp_p is not None:
                 P['comp_now'][tier] = comp_p; P['fuente'][tier] = src
             if mio_p is not None:
                 P['mio_now'][tier] = mio_p
     conn.close()
 
-    vistas = _armar_vistas(productos, V, snap)
-    # Guardar cache (y limpiar caches viejos de este vendedor)
+    vistas = _armar_vistas(productos, meta, snap, periodo)
     try:
         for old in os.listdir(DATA_DIR):
-            if old.startswith(f'.cache_{vendor_key}_') and os.path.join(DATA_DIR, old) != cpath:
+            if old.startswith(f'.cache_{periodo}_{vendedor}_') and os.path.join(DATA_DIR, old) != cpath:
                 try: os.remove(os.path.join(DATA_DIR, old))
                 except Exception: pass
         with open(cpath, 'w', encoding='utf-8') as f:
@@ -392,16 +370,17 @@ def _construir(vendor_key):
 def _dcls(d):
     return 'g2' if d <= -10 else ('g1' if d < 0 else ('r1' if d < 10 else 'r2'))
 
-def _armar_vistas(productos, V, snap):
+def _armar_vistas(productos, meta, snap, periodo):
     con = [p for p in productos.values() if p['sku']]
     nomatch = [p for p in productos.values() if not p['sku']]
 
-    # A — precio (fila por sku×tramo)
     A = []
     for p in con:
         for t in TIERS:
             comp = p['comp_now'].get(t)
             if not comp: continue
+            u_t = p['cuota_u'].get(t, 0)
+            if u_t == 0: continue   # solo tramos donde el competidor realmente vendió
             mio = p['mio_now'].get(t)
             d = (mio/comp - 1) * 100 if (comp and mio) else None
             A.append({'sku': p['sku'], 'model': p['model'], 'w': p['w'], 'tipo': p['tipo'],
@@ -411,11 +390,9 @@ def _armar_vistas(productos, V, snap):
     A.sort(key=lambda x: (-x['u'], x['sku']))
     caros = sum(1 for f in A if f['d'] is not None and f['d'] > 0 and f['u'] >= 5)
 
-    # B — cuotas
     B = []; tot = defaultdict(int)
     for p in sorted(con, key=lambda x: -x['u']):
-        cu = p['cuota_u']; u = p['u']
-        cells = []
+        cu = p['cuota_u']; u = p['u']; cells = []
         for t in TIERS:
             v = cu.get(t, 0); tot[t] += v
             cells.append({'v': v, 'pct': (100*v/u if u else 0)})
@@ -423,7 +400,6 @@ def _armar_vistas(productos, V, snap):
     U = sum(tot.values()) or 1
     Btot = [{'v': tot[t], 'pct': 100*tot[t]/U} for t in TIERS]
 
-    # C — mix (pareto)
     allp = sorted(con + nomatch, key=lambda x: -x['gmv'])
     gtot = sum(p['gmv'] for p in allp) or 1
     gmax = max((p['gmv'] for p in allp), default=1)
@@ -434,7 +410,6 @@ def _armar_vistas(productos, V, snap):
             'tiene': bool(p['sku']), 'u': p['u'], 'gmv': p['gmv'],
             'share': 100*p['gmv']/gtot, 'cum': 100*cum/gtot, 'barw': int(120*p['gmv']/gmax)})
 
-    # D — oportunidad
     agg = defaultdict(lambda: {'u': 0, 'gmv': 0.0, 'model': '', 'w': None, 'tipo': '', 'contado': 0})
     for p in nomatch:
         k = (p['model'], p['w'], p['tipo'])
@@ -445,7 +420,7 @@ def _armar_vistas(productos, V, snap):
         D.append({'model': a['model'], 'w': a['w'], 'tipo': a['tipo'], 'u': a['u'],
             'gmv': a['gmv'], 'pct_contado': (100*a['contado']/a['u'] if a['u'] else 0)})
 
-    return {'snap': snap, 'A': A, 'caros': caros, 'B': B, 'Btot': Btot,
+    return {'snap': snap, 'periodo': periodo, 'A': A, 'caros': caros, 'B': B, 'Btot': Btot,
             'C': C, 'D': D, 'tiers': TIERS, 'tier_lbl': TIER_LBL,
             'n_skus': len(con), 'u_con': sum(p['u'] for p in con),
             'u_no': sum(p['u'] for p in nomatch), 'gmv_tot': gtot}
@@ -453,16 +428,19 @@ def _armar_vistas(productos, V, snap):
 
 @competencia_v2_bp.route('/admin/competencia-v2')
 def competencia_v2_page():
-    vendor = request.args.get('vendedor', 'TMS')
-    if vendor not in VENDORS:
-        vendor = 'TMS'
+    periodo = request.args.get('periodo') or sorted(PERIODOS.keys(), reverse=True)[0]
+    if periodo not in PERIODOS:
+        periodo = sorted(PERIODOS.keys(), reverse=True)[0]
+    vends = list(PERIODOS[periodo].keys())
+    vendor = request.args.get('vendedor') or vends[0]
+    if vendor not in vends:
+        vendor = vends[0]
     try:
-        data = _construir(vendor)
-    except Exception as e:
-        data = None
-        err = str(e)
-    else:
+        data = _construir(periodo, vendor)
         err = None
+    except Exception as e:
+        data, err = None, str(e)
     return render_template('competencia_v2.html',
-        vendor=vendor, vendor_nombre=VENDORS[vendor]['nombre'],
-        vendors=VENDORS, data=data, err=err)
+        periodo=periodo, periodos=PERIODOS, periodo_lbl=PERIODO_LBL,
+        vendor=vendor, vendor_nombre=VENDOR_META[vendor]['nombre'],
+        vends=vends, vendor_meta=VENDOR_META, data=data, err=err)
