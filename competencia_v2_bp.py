@@ -452,3 +452,73 @@ def competencia_v2_page():
         periodo=periodo, periodos=PERIODOS, periodo_lbl=PERIODO_LBL,
         vendor=vendor, vendor_nombre=VENDOR_META[vendor]['nombre'],
         vends=vends, vendor_meta=VENDOR_META, data=data, err=err)
+
+
+# ── Parte 2: ventas detalladas por competidor (día × producto × cuota) ──
+MESES = {'January':'01','February':'02','March':'03','April':'04','May':'05','June':'06',
+         'July':'07','August':'08','September':'09','October':'10','November':'11','December':'12'}
+def _dia_sort(day):
+    m = re.match(r'([A-Za-z]+)\s+(\d+),\s+(\d+)', str(day or ''))
+    if not m: return str(day or '')
+    return f"{m.group(3)}-{MESES.get(m.group(1),'00')}-{int(m.group(2)):02d}"
+def _dia_corto(day):
+    m = re.match(r'([A-Za-z]+)\s+(\d+),\s+(\d+)', str(day or ''))
+    if not m: return str(day or '')
+    return f"{int(m.group(2)):02d}/{MESES.get(m.group(1),'00')}"
+
+def _ventas_detalle(periodo, vendor):
+    data = _construir(periodo, vendor)   # cacheado; trae A con precios por sku×tramo
+    L = {}
+    for r in data.get('A', []):
+        L[(r['sku'], r['tier'])] = (r.get('comp'), r.get('mio'), r.get('fu'))
+    conn = _db(); mis = _cargar_mis_skus(conn); conn.close()
+    meta = VENDOR_META[vendor]; alias = meta['alias']
+    rows = []
+    for fname, tipo in PERIODOS.get(periodo, []):
+        path = os.path.join(DATA_DIR, periodo, fname)
+        if not os.path.exists(path): continue
+        for r in json.load(open(path, encoding='utf-8')):
+            if r.get('alias') != alias: continue
+            q = int(r.get('sold_quantity') or 0)
+            if q <= 0: continue
+            sku, w = _match_sku(r, tipo, mis)
+            tier = _inst_to_tier(r.get('installments')) or 'sin'
+            comp, mio, fu = L.get((sku, tier), (None, None, None))
+            d = ((mio/comp - 1) * 100) if (comp and mio) else None
+            rows.append({
+                'dia': _dia_corto(r.get('day')), 'dia_sort': _dia_sort(r.get('day')),
+                'title': (r.get('title') or '')[:70], 'model': r.get('model') or '',
+                'medida': (f"{w}cm" if w else '?'), 'tipo': tipo, 'sku': sku or '—',
+                'tier': tier, 'tier_lbl': TIER_LBL.get(tier, '?'),
+                'u': q, 'gmv': _price(r.get('gmv')), 'pvend': _price(r.get('price')),
+                'comp': comp, 'mio': mio, 'fu': fu, 'd': d,
+                'dtxt': (f"{d:+.0f}%" if d is not None else None),
+                'cls': (_dcls(d) if d is not None else ''),
+            })
+    rows.sort(key=lambda x: (x['dia_sort'], -x['u']))
+    return rows, data
+
+
+@competencia_v2_bp.route('/admin/ventas-competidores')
+def ventas_competidores_page():
+    periodo = request.args.get('periodo') or sorted(PERIODOS.keys(), reverse=True)[0]
+    if periodo not in PERIODOS:
+        periodo = sorted(PERIODOS.keys(), reverse=True)[0]
+    vendor = request.args.get('vendedor') or VENDORS_ORDEN[0]
+    if vendor not in VENDORS_ORDEN:
+        vendor = VENDORS_ORDEN[0]
+    try:
+        rows, data = _ventas_detalle(periodo, vendor)
+        err = None
+    except Exception as e:
+        rows, data, err = [], None, str(e)
+    dias = sorted(set(r['dia'] for r in rows), key=lambda x: x)
+    modelos = sorted(set(r['model'] for r in rows if r['model']))
+    medidas = sorted(set(r['medida'] for r in rows))
+    return render_template('ventas_competidores.html',
+        periodo=periodo, periodos=PERIODOS, periodo_lbl=PERIODO_LBL,
+        vendor=vendor, vendor_nombre=VENDOR_META[vendor]['nombre'],
+        vends=VENDORS_ORDEN, vendor_meta=VENDOR_META, rows=rows,
+        dias=dias, modelos=modelos, medidas=medidas,
+        total_u=sum(r['u'] for r in rows), total_gmv=sum(r['gmv'] for r in rows),
+        snap=(data.get('snap') if data else ''), err=err)

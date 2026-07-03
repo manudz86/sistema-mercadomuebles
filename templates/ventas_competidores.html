@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Ventas Competidores{% endblock %}
+{% block content %}
+<style>
+.vc-wrap{max-width:1280px;margin:0 auto;padding:16px}
+.vc-wrap h1{font-size:21px;margin:0 0 3px}
+.vc-sub{color:#5b6472;font-size:12.5px;margin:0 0 12px}
+.vc-sel a{display:inline-block;padding:6px 13px;border-radius:8px;text-decoration:none;font-weight:700;font-size:12.5px;margin:2px 4px 2px 0;border:1px solid #c7ccd4;color:#334}
+.vc-sel a.on{background:#2b3140;color:#fff;border-color:#2b3140}
+.vc-kpis{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+.vc-kpi{background:#fff;border-radius:10px;padding:9px 14px;box-shadow:0 1px 3px rgba(0,0,0,.06);font-size:12.5px}
+.vc-kpi b{font-size:16px}
+.filt{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;position:sticky;top:0;background:#f4f5f7;padding:8px 0;z-index:3}
+.filt select,.filt input{padding:6px 8px;border:1px solid #c7ccd4;border-radius:7px;font-size:13px}
+table.vc{border-collapse:collapse;width:100%;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+table.vc th,table.vc td{padding:6px 8px;text-align:left;border-bottom:1px solid #eef0f3;white-space:nowrap;font-size:12px}
+table.vc th{background:#2b3140;color:#fff;position:sticky;top:52px;z-index:2;font-size:11px}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+td.sku{font-family:ui-monospace,monospace;font-weight:700;color:#334}
+td.mio{font-weight:700}td.diff{font-weight:800;text-align:right}
+.g2{color:#0f7a3d;background:#e7f6ec}.g1{color:#198754;background:#f1faf4}.r1{color:#c0392b;background:#fdf1ef}.r2{color:#fff;background:#dc3545}
+.fu{font-size:10px;color:#8a93a0}
+.vc-note{background:#fff7e6;border-left:4px solid #f0a202;padding:8px 12px;border-radius:6px;margin:8px 0;font-size:12.5px}
+.vc-note.bad{background:#fdecea;border-left-color:#dc3545}
+.tbox{max-height:70vh;overflow:auto;border-radius:10px}
+.prod{white-space:normal;max-width:260px;line-height:1.15}
+</style>
+
+<div class="vc-wrap">
+  <h1>🔎 Ventas por competidor — análisis profundo</h1>
+  <p class="vc-sub">Cada fila = lo que vendió en un día · precio actual del competidor (mismo producto y financiación) · mi precio (mismo producto y financiación).{% if snap %} Precios al snapshot <b>{{ snap }}</b>.{% endif %}</p>
+
+  <div class="vc-sel">
+    <span style="font-size:12px;color:#5b6472;margin-right:4px">Período:</span>
+    {% for p in periodos.keys()|sort(reverse=true) %}
+      <a href="?periodo={{ p }}&vendedor={{ vendor }}" class="{{ 'on' if p == periodo else '' }}">{{ periodo_lbl.get(p, p) }}</a>
+    {% endfor %}
+  </div>
+  <div class="vc-sel">
+    <span style="font-size:12px;color:#5b6472;margin-right:4px">Competidor:</span>
+    {% for k in vends %}
+      <a href="?periodo={{ periodo }}&vendedor={{ k }}" class="{{ 'on' if k == vendor else '' }}">{{ vendor_meta[k].nombre }}</a>
+    {% endfor %}
+  </div>
+
+  {% if err %}<div class="vc-note bad">Error: {{ err }}</div>{% endif %}
+
+  <div class="vc-kpis">
+    <div class="vc-kpi">{{ vendor_nombre }} · {{ periodo_lbl.get(periodo, periodo) }}</div>
+    <div class="vc-kpi">Unidades vendidas<br><b>{{ total_u }}</b></div>
+    <div class="vc-kpi">Facturación (GMV)<br><b>${{ '{:,.0f}'.format(total_gmv)|replace(',','.') }}</b></div>
+    <div class="vc-kpi">Registros<br><b>{{ rows|length }}</b></div>
+  </div>
+
+  <div class="filt">
+    <select id="fdia" onchange="fil()"><option value="">Día (todos)</option>{% for d in dias %}<option>{{ d }}</option>{% endfor %}</select>
+    <select id="fmodelo" onchange="fil()"><option value="">Modelo (todos)</option>{% for m in modelos %}<option>{{ m }}</option>{% endfor %}</select>
+    <select id="fmedida" onchange="fil()"><option value="">Medida (todas)</option>{% for m in medidas %}<option>{{ m }}</option>{% endfor %}</select>
+    <select id="ftier" onchange="fil()"><option value="">Cuota (todas)</option><option value="Contado">Contado</option><option value="3 cuotas">3</option><option value="6 cuotas">6</option><option value="9 cuotas">9</option><option value="12 cuotas">12</option></select>
+    <input id="fprod" placeholder="Buscar producto/SKU..." oninput="fil()" style="width:190px">
+    <span id="cont" style="align-self:center;color:#5b6472"></span>
+  </div>
+
+  <div class="tbox"><table class="vc" id="tabla">
+    <thead><tr>
+      <th>Día</th><th>Producto</th><th>Modelo</th><th>Medida</th><th>SKU</th><th>Cuota</th>
+      <th>U</th><th>GMV</th><th>Precio vendido</th><th>Precio actual {{ vendor_nombre }}</th><th>MI precio</th><th>Δ%</th>
+    </tr></thead>
+    <tbody>
+    {% for r in rows %}
+    <tr data-dia="{{ r.dia }}" data-modelo="{{ r.model }}" data-medida="{{ r.medida }}" data-tier="{{ r.tier_lbl }}" data-prod="{{ (r.title ~ ' ' ~ r.sku)|lower }}">
+      <td>{{ r.dia }}</td>
+      <td class="prod">{{ r.title }}</td>
+      <td>{{ r.model }}</td>
+      <td>{{ r.medida }}</td>
+      <td class="sku">{{ r.sku }}</td>
+      <td>{{ r.tier_lbl }}</td>
+      <td class="num">{{ r.u }}</td>
+      <td class="num">${{ '{:,.0f}'.format(r.gmv)|replace(',','.') }}</td>
+      <td class="num">${{ '{:,.0f}'.format(r.pvend)|replace(',','.') }}</td>
+      <td class="num">{% if r.comp %}${{ '{:,.0f}'.format(r.comp)|replace(',','.') }} <span class="fu">{{ r.fu }}</span>{% else %}—{% endif %}</td>
+      <td class="num mio">{% if r.mio %}${{ '{:,.0f}'.format(r.mio)|replace(',','.') }}{% else %}—{% endif %}</td>
+      {% if r.dtxt %}<td class="num diff {{ r.cls }}">{{ r.dtxt }}</td>{% else %}<td class="num" style="color:#aaa">—</td>{% endif %}
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+
+  <script>
+  function fil(){
+    var d=fdia.value,mo=fmodelo.value,me=fmedida.value,t=ftier.value,p=fprod.value.toLowerCase(),n=0;
+    document.querySelectorAll('#tabla tbody tr').forEach(function(r){
+      var ok=(!d||r.dataset.dia==d)&&(!mo||r.dataset.modelo==mo)&&(!me||r.dataset.medida==me)&&(!t||r.dataset.tier==t)&&(!p||r.dataset.prod.indexOf(p)>=0);
+      r.style.display=ok?'':'none'; if(ok)n++;
+    });
+    cont.textContent=n+' filas';
+  }
+  var fdia=document.getElementById('fdia'),fmodelo=document.getElementById('fmodelo'),fmedida=document.getElementById('fmedida'),ftier=document.getElementById('ftier'),fprod=document.getElementById('fprod'),cont=document.getElementById('cont');
+  fil();
+  </script>
+</div>
+{% endblock %}
