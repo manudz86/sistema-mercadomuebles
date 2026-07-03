@@ -48,9 +48,9 @@ td.mio{font-weight:700}td.diff{font-weight:800;text-align:right}
 
   <div class="vc-kpis">
     <div class="vc-kpi">{{ vendor_nombre }} · {{ periodo_lbl.get(periodo, periodo) }}</div>
-    <div class="vc-kpi">Unidades vendidas<br><b>{{ total_u }}</b></div>
-    <div class="vc-kpi">Facturación (GMV)<br><b>${{ '{:,.0f}'.format(total_gmv)|replace(',','.') }}</b></div>
-    <div class="vc-kpi">Registros<br><b>{{ rows|length }}</b></div>
+    <div class="vc-kpi">Unidades vendidas<br><b id="kpi_u">{{ total_u }}</b></div>
+    <div class="vc-kpi">Facturación (GMV)<br><b id="kpi_gmv">${{ '{:,.0f}'.format(total_gmv)|replace(',','.') }}</b></div>
+    <div class="vc-kpi">Registros<br><b id="kpi_n">{{ rows|length }}</b></div>
   </div>
 
   <div class="filt">
@@ -69,7 +69,7 @@ td.mio{font-weight:700}td.diff{font-weight:800;text-align:right}
     </tr></thead>
     <tbody>
     {% for r in rows %}
-    <tr data-dia="{{ r.dia }}" data-modelo="{{ r.model }}" data-medida="{{ r.medida }}" data-tier="{{ r.tier_lbl }}" data-prod="{{ (r.title ~ ' ' ~ r.sku)|lower }}">
+    <tr data-dia="{{ r.dia }}" data-modelo="{{ r.model }}" data-medida="{{ r.medida }}" data-tier="{{ r.tier_lbl }}" data-prod="{{ (r.title ~ ' ' ~ r.sku)|lower }}" data-u="{{ r.u }}" data-gmv="{{ r.gmv|int }}">
       <td>{{ r.dia }}</td>
       <td class="prod">{{ r.title }}</td>
       <td>{{ r.model }}</td>
@@ -89,12 +89,16 @@ td.mio{font-weight:700}td.diff{font-weight:800;text-align:right}
 
   <script>
   function fil(){
-    var d=fdia.value,mo=fmodelo.value,me=fmedida.value,t=ftier.value,p=fprod.value.toLowerCase(),n=0;
+    var d=fdia.value,mo=fmodelo.value,me=fmedida.value,t=ftier.value,p=fprod.value.toLowerCase(),n=0,su=0,sg=0;
     document.querySelectorAll('#tabla tbody tr').forEach(function(r){
       var ok=(!d||r.dataset.dia==d)&&(!mo||r.dataset.modelo==mo)&&(!me||r.dataset.medida==me)&&(!t||r.dataset.tier==t)&&(!p||r.dataset.prod.indexOf(p)>=0);
-      r.style.display=ok?'':'none'; if(ok)n++;
+      r.style.display=ok?'':'none';
+      if(ok){ n++; su+=parseInt(r.dataset.u||0); sg+=parseFloat(r.dataset.gmv||0); }
     });
     cont.textContent=n+' filas';
+    document.getElementById('kpi_u').textContent=su.toLocaleString('es-AR');
+    document.getElementById('kpi_gmv').textContent='$'+Math.round(sg).toLocaleString('es-AR');
+    document.getElementById('kpi_n').textContent=n;
   }
   var fdia=document.getElementById('fdia'),fmodelo=document.getElementById('fmodelo'),fmedida=document.getElementById('fmedida'),ftier=document.getElementById('ftier'),fprod=document.getElementById('fprod'),cont=document.getElementById('cont');
   fil();
