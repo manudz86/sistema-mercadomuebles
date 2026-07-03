@@ -30,17 +30,23 @@ DATA_DIR  = os.path.join(APP_DIR, 'data', 'competencia_v2')
 CSV_SCRAP = os.path.join(APP_DIR, 'data', 'competencia_procesado.csv')
 MY_ID     = 29563319
 
+# vendedor → alias en el JSON + seller_id (ML) + tienda (scraper)
 VENDOR_META = {
-    'TMS':   {'nombre': 'TMS',           'seller_id': 60351381, 'tienda': 'TMS'},
-    'Lanus': {'nombre': 'Muebles Lanús', 'seller_id': 54898332, 'tienda': 'Lanus'},
+    'TMS':       {'nombre': 'TMS',                  'alias': 'TU MEJOR SOMMIER',      'seller_id': 60351381,  'tienda': 'TMS'},
+    'Ivana':     {'nombre': 'Colchonería Ivana',    'alias': 'COLCHONERIA IVANA',     'seller_id': 192769857, 'tienda': 'Ivana'},
+    'Lanus':     {'nombre': 'Muebles Lanús',        'alias': 'MUEBLES LANUS',         'seller_id': 54898332,  'tienda': 'Lanus'},
+    'Ballester': {'nombre': 'Colchonería Ballester', 'alias': 'COLCHONERIA BALLESTER', 'seller_id': 658910977, 'tienda': 'Ballester'},
+    'Bedpoint':  {'nombre': 'Bedpoint',             'alias': 'BEDPOINT',              'seller_id': 168211358, 'tienda': 'Bedpoint'},
+    'Metymas':   {'nombre': 'Metymas',              'alias': 'METYMAS',               'seller_id': 105539832, 'tienda': 'Metymas'},
+    'Mercadomuebles': {'nombre': 'Mercadomuebles (vos)', 'alias': 'MERCADOMUEBLES (YO)', 'seller_id': MY_ID,   'tienda': None},
 }
-# periodo → vendedor → [(archivo, tipo)]
+VENDORS_ORDEN = ['TMS', 'Ivana', 'Lanus', 'Ballester', 'Bedpoint', 'Metymas', 'Mercadomuebles']
+# periodo → archivos combinados (todos los vendedores; se filtra por alias)
 PERIODOS = {
-    '2026-07': {'TMS':   [('tms_colchones.json', 'colchon')]},
-    '2026-06': {'TMS':   [('tms_colchones.json', 'colchon'), ('tms_sommiers.json', 'sommier')],
-                'Lanus': [('lanus_colchones.json', 'colchon'), ('lanus_sommier.json', 'sommier')]},
+    '2026-07': [('colchones.json', 'colchon'), ('sommiers.json', 'sommier')],
+    '2026-06': [('colchones.json', 'colchon'), ('sommiers.json', 'sommier')],
 }
-PERIODO_LBL = {'2026-06': 'Junio 2026', '2026-07': 'Julio 2026'}
+PERIODO_LBL = {'2026-06': 'Junio 2026', '2026-07': 'Julio 2026 (1-2)'}
 
 TIERS = ['sin', '3', '6', '9', '12']
 TIER_LBL = {'sin': 'Contado', '3': '3 cuotas', '6': '6 cuotas', '9': '9 cuotas', '12': '12 cuotas'}
@@ -280,10 +286,11 @@ def _construir(periodo, vendedor):
             pass
 
     meta = VENDOR_META[vendedor]
-    files = PERIODOS.get(periodo, {}).get(vendedor, [])
+    alias = meta['alias']
+    files = PERIODOS.get(periodo, [])
     mis = _cargar_mis_skus(conn)
     mon, snap = _cargar_monitor(conn, meta['seller_id'])
-    scr = _cargar_scraper(meta['tienda'])
+    scr = _cargar_scraper(meta['tienda']) if meta['tienda'] else {}
     compac_precio = _mi_compac(conn)
 
     productos = {}
@@ -291,6 +298,7 @@ def _construir(periodo, vendedor):
         path = os.path.join(DATA_DIR, periodo, fname)
         if not os.path.exists(path): continue
         for r in json.load(open(path, encoding='utf-8')):
+            if r.get('alias') != alias: continue
             sku, w = _match_sku(r, tipo, mis)
             q = int(r.get('sold_quantity') or 0)
             g = _price(r.get('gmv')); p = _price(r.get('price'))
@@ -431,7 +439,7 @@ def competencia_v2_page():
     periodo = request.args.get('periodo') or sorted(PERIODOS.keys(), reverse=True)[0]
     if periodo not in PERIODOS:
         periodo = sorted(PERIODOS.keys(), reverse=True)[0]
-    vends = list(PERIODOS[periodo].keys())
+    vends = VENDORS_ORDEN
     vendor = request.args.get('vendedor') or vends[0]
     if vendor not in vends:
         vendor = vends[0]
