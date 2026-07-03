@@ -97,15 +97,24 @@ def _inst_to_tier(inst):
     return None
 
 # ── Match de SKU ──
-MODMAP = [('exclusive pillow','EXP'),('exclusive euro','EXP'),('exclusive','EX'),
- ('renovation euro','REP'),('renovation pillow','REP'),('renovation','RE'),
- ('doral pillow','DOP'),('doral','DO'),('sublime','SUP'),('princess','PR'),
- ('soñar','SO'),('sonar','SO'),('tropical','TR'),('especial de lujo','EL'),
- ('compac','CO'),('clásico','CL'),('clasico','CL'),('infantil','INF'),('bajo cama','BC')]
 def _modcod(model):
+    """Detecta el código de modelo. Exclusive/Renovation/Doral tienen variante
+    CON pillow (EXP/REP/DOP) cuando el nombre trae pillow/euro/EP/europillow."""
     m = (model or '').lower()
-    for k, v in MODMAP:
-        if k in m: return v
+    # tokens que indican variante con pillow / euro pillow (incluye abreviatura EP)
+    pillow = bool(re.search(r'\b(ep|europillow|euro|pillow)\b', m))
+    if 'exclusive' in m:  return 'EXP' if pillow else 'EX'
+    if 'renovation' in m: return 'REP' if pillow else 'RE'
+    if 'doral' in m:      return 'DOP' if pillow else 'DO'
+    if 'sublime' in m:    return 'SUP'
+    if 'princess' in m:   return 'PR'
+    if 'soñar' in m or 'sonar' in m: return 'SO'
+    if 'tropical' in m:   return 'TR'
+    if 'especial de lujo' in m: return 'EL'
+    if 'compac' in m:     return 'CO'
+    if 'clásico' in m or 'clasico' in m: return 'CL'
+    if 'infantil' in m:   return 'INF'
+    if 'bajo cama' in m:  return 'BC'
     return '?'
 def _attrs(r):
     try: return {a['id']: a.get('value_name') for a in json.loads(r.get('attributes') or '[]')}
