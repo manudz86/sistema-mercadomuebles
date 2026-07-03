@@ -97,13 +97,14 @@ def _inst_to_tier(inst):
     return None
 
 # ── Match de SKU ──
-def _modcod(model, title=''):
+def _modcod(model, title='', pillow_attr=False):
     """Detecta el código de modelo. El `model` del JSON no es confiable para el
-    pillow, así que la variante CON pillow (EXP/REP/DOP) se detecta también en el
-    TÍTULO (euro pillow / doble pillow / c/pillow / EP / pillow)."""
+    pillow, así que la variante CON pillow (EXP/REP/DOP) se detecta por la UNIÓN de:
+    título (euro/doble/c-pillow/EP) OR atributo de la publicación (WITH_PILLOW='Sí'
+    o SURFACE con pillow). Así cada fuente tapa lo que le falta a la otra."""
     m = (model or '').lower()
     txt = f"{model or ''} {title or ''}".lower().replace('sin pillow', '')
-    pillow = bool(re.search(r'\b(ep|europillow|euro|pillow)\b', txt)) or 'c/pillow' in txt or 'pillow' in txt
+    pillow = bool(re.search(r'\b(ep|europillow|euro|pillow)\b', txt)) or 'c/pillow' in txt or bool(pillow_attr)
     if 'exclusive' in m or 'exclusive' in txt:   return 'EXP' if pillow else 'EX'
     if 'renovation' in m or 'renovation' in txt: return 'REP' if pillow else 'RE'
     if 'doral' in m or 'doral' in txt:           return 'DOP' if pillow else 'DO'
@@ -135,7 +136,10 @@ def _medida(r, tipo):
     return w, h
 def _match_sku(r, tipo, mis):
     w, h = _medida(r, tipo)
-    cod = _modcod(r.get('model'), r.get('title'))
+    a = _attrs(r)
+    surf = (a.get('SURFACE_CONTACT_TYPE') or '').lower()
+    pillow_attr = (a.get('WITH_PILLOW') == 'Sí') or ('pillow' in surf and 'sin pillow' not in surf)
+    cod = _modcod(r.get('model'), r.get('title'), pillow_attr)
     pref = 'S' if tipo == 'sommier' else 'C'
     if cod == '?' or not w:
         return None, w
