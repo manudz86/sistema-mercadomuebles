@@ -97,15 +97,16 @@ def _inst_to_tier(inst):
     return None
 
 # ── Match de SKU ──
-def _modcod(model):
-    """Detecta el código de modelo. Exclusive/Renovation/Doral tienen variante
-    CON pillow (EXP/REP/DOP) cuando el nombre trae pillow/euro/EP/europillow."""
+def _modcod(model, title=''):
+    """Detecta el código de modelo. El `model` del JSON no es confiable para el
+    pillow, así que la variante CON pillow (EXP/REP/DOP) se detecta también en el
+    TÍTULO (euro pillow / doble pillow / c/pillow / EP / pillow)."""
     m = (model or '').lower()
-    # tokens que indican variante con pillow / euro pillow (incluye abreviatura EP)
-    pillow = bool(re.search(r'\b(ep|europillow|euro|pillow)\b', m))
-    if 'exclusive' in m:  return 'EXP' if pillow else 'EX'
-    if 'renovation' in m: return 'REP' if pillow else 'RE'
-    if 'doral' in m:      return 'DOP' if pillow else 'DO'
+    txt = f"{model or ''} {title or ''}".lower().replace('sin pillow', '')
+    pillow = bool(re.search(r'\b(ep|europillow|euro|pillow)\b', txt)) or 'c/pillow' in txt or 'pillow' in txt
+    if 'exclusive' in m or 'exclusive' in txt:   return 'EXP' if pillow else 'EX'
+    if 'renovation' in m or 'renovation' in txt: return 'REP' if pillow else 'RE'
+    if 'doral' in m or 'doral' in txt:           return 'DOP' if pillow else 'DO'
     if 'sublime' in m:    return 'SUP'
     if 'princess' in m:   return 'PR'
     if 'soñar' in m or 'sonar' in m: return 'SO'
@@ -134,7 +135,7 @@ def _medida(r, tipo):
     return w, h
 def _match_sku(r, tipo, mis):
     w, h = _medida(r, tipo)
-    cod = _modcod(r.get('model'))
+    cod = _modcod(r.get('model'), r.get('title'))
     pref = 'S' if tipo == 'sommier' else 'C'
     if cod == '?' or not w:
         return None, w
@@ -310,7 +311,7 @@ def _construir(periodo, vendedor):
             if r.get('alias') != alias: continue
             sku, w = _match_sku(r, tipo, mis)
             q = int(r.get('sold_quantity') or 0)
-            g = _price(r.get('gmv')); p = _price(r.get('price'))
+            p = _price(r.get('price')); g = q * p   # GMV real (el del JSON viene redondeado)
             tier = _inst_to_tier(r.get('installments'))
             if tier is None: continue
             key = sku or f"NOMATCH|{tipo}|{r.get('model')}|{w}"
@@ -499,7 +500,7 @@ def _ventas_detalle(periodo, vendor):
                 'title': (r.get('title') or '')[:70], 'model': r.get('model') or '',
                 'medida': (f"{w}cm" if w else '?'), 'tipo': tipo, 'sku': sku or '—',
                 'tier': tier, 'tier_lbl': TIER_LBL.get(tier, '?'),
-                'u': q, 'gmv': _price(r.get('gmv')), 'pvend': _price(r.get('price')),
+                'u': q, 'gmv': q * _price(r.get('price')), 'pvend': _price(r.get('price')),
                 'comp': comp, 'mio': mio, 'fu': fu, 'd': d,
                 'dtxt': (f"{d:+.0f}%" if d is not None else None),
                 'cls': (_dcls(d) if d is not None else ''),
