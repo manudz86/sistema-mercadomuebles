@@ -40,6 +40,39 @@ logger = logging.getLogger(__name__)
 
 tienda_bp = Blueprint('tienda', __name__, url_prefix='/tienda')
 
+# ── Origen de tráfico: parámetros de tracking que se conservan en los redirects ──
+_TRACK_KEYS = ('fbclid', 'gclid', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content')
+def _track_args():
+    """Query params de tracking presentes en la request (para no perderlos en 301)."""
+    return {k: v for k, v in request.args.items() if k in _TRACK_KEYS}
+
+@tienda_bp.before_request
+def _capturar_origen_server():
+    """Captura server-side del origen (fbclid/gclid/utm/referrer externo) apenas
+    entra la visita, ANTES de cualquier redirect y sin depender del JS ni de las
+    cookies del navegador (robusto para el navegador embebido de Instagram/FB).
+    Se guarda en la sesión y el checkout lo usa como respaldo de la cookie."""
+    try:
+        qs = request.args
+        fbclid = qs.get('fbclid'); gclid = qs.get('gclid'); utm_source = qs.get('utm_source')
+        ref = request.referrer or ''
+        host = request.host or ''
+        ref_ext = ('://' in ref) and (host not in ref)
+        if not (fbclid or gclid or utm_source or ref_ext):
+            return  # visita directa: no pisa
+        sig = {
+            'utm_source': utm_source, 'utm_medium': qs.get('utm_medium'),
+            'utm_campaign': qs.get('utm_campaign'), 'fbclid': fbclid, 'gclid': gclid,
+            'referrer': (ref or None),
+            'ts': datetime.now(timezone.utc).isoformat(),
+        }
+        val = json.dumps(sig, ensure_ascii=False)
+        session['mm_origen_last'] = val
+        if not session.get('mm_origen_first'):
+            session['mm_origen_first'] = val
+    except Exception:
+        pass
+
 @tienda_bp.context_processor
 def inject_now():
     from datetime import datetime
@@ -2916,7 +2949,7 @@ def detalle(sku_url):
             db_s2.close()
 
         if not sku_encontrado:
-            return redirect(url_for('tienda.home'))
+            return redirect(url_for('tienda.home', **_track_args()))
         sku_url = sku_encontrado
     else:
         # Es un SKU directo → redirigir a la URL slug (SEO canonical)
@@ -2929,8 +2962,8 @@ def detalle(sku_url):
         if prod_directo and prod_directo['tipo'] in ('almohada', 'base'):
             cur_r.close()
             db_r.close()
-            # Redirigir al slug del nombre
-            return redirect(url_for('tienda.detalle', sku_url=slugify(prod_directo['nombre'])), 301)
+            # Redirigir al slug del nombre (conservando tracking: fbclid/utm/gclid)
+            return redirect(url_for('tienda.detalle', sku_url=slugify(prod_directo['nombre']), **_track_args()), 301)
 
         es_conj_r = sku_url and sku_url[0] == 'S'
         sku_col_r = sku_conjunto_a_colchon(sku_url) if es_conj_r else sku_url
@@ -2940,7 +2973,7 @@ def detalle(sku_url):
         db_r.close()
         if row_r:
             nombre_r = f"{'Sommier y ' if es_conj_r else ''}Colchón Cannon {row_r['modelo']} {row_r['medida']}cm"
-            return redirect(url_for('tienda.detalle', sku_url=slugify(nombre_r)), 301)
+            return redirect(url_for('tienda.detalle', sku_url=slugify(nombre_r), **_track_args()), 301)
 
     # Conjunto si empieza con S (SEX140, SSUP140), colchon si empieza con C
     es_conjunto = bool(sku_url and sku_url[0] == 'S')
@@ -4500,10 +4533,10 @@ def checkout():
         cliente['_fbc'] = request.cookies.get('_fbc')
         cliente['_capi_ip'] = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
         cliente['_capi_ua'] = request.headers.get('User-Agent')
-        # Origen de tráfico (cookies del landing) — JSON limpio para persistir en la venta
+        # Origen de tráfico: cookie del landing (JS) o, si falta, la sesión (captura server-side)
         _of = request.cookies.get('mm_origen_first'); _ol = request.cookies.get('mm_origen_last')
-        cliente['_origen_first'] = urllib.parse.unquote(_of) if _of else None
-        cliente['_origen_last']  = urllib.parse.unquote(_ol) if _ol else None
+        cliente['_origen_first'] = urllib.parse.unquote(_of) if _of else session.get('mm_origen_first')
+        cliente['_origen_last']  = urllib.parse.unquote(_ol) if _ol else session.get('mm_origen_last')
     except Exception:
         pass
 
@@ -5560,9 +5593,9 @@ def pago_payway():
         notas_parts.append(f"DEMORA: {cli['demora_dias']} dias ({cli.get('fecha_disponible','')})")
     notas_extra = "\n".join(notas_parts)
 
-    # Origen de tráfico (cookies del landing) — JSON limpio para la columna
-    _origen_first = urllib.parse.unquote(request.cookies.get('mm_origen_first') or '') or None
-    _origen_last  = urllib.parse.unquote(request.cookies.get('mm_origen_last') or '') or None
+    # Origen de tráfico: cookie del landing (JS) o, si falta, la sesión (captura server-side)
+    _origen_first = urllib.parse.unquote(request.cookies.get('mm_origen_first') or '') or session.get('mm_origen_first')
+    _origen_last  = urllib.parse.unquote(request.cookies.get('mm_origen_last') or '') or session.get('mm_origen_last')
 
     # ── INSERT ventas ─────────────────────────────────────────────────────────
     cur2.execute("""
