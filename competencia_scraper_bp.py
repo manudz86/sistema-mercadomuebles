@@ -7,7 +7,7 @@ Endpoints:
   GET  /admin/competencia-scraper/sondas/lista   — JSON con sondas activas (auth)
   POST /admin/competencia-scraper/upload         — recibe CSVs y procesa
 """
-import os, csv, json, datetime, statistics
+import os, csv, json, datetime, statistics, re
 from collections import defaultdict
 from flask import Blueprint, render_template, jsonify, request
 
@@ -153,6 +153,149 @@ def calcular_cuotas_real(cuotas_si, tipo, pasajes):
     return (str(n), False)
 
 
+# Mapeo tienda (scraper) → seller_nick (monitor de catálogo)
+TIENDA_NICK = {
+    'TMS': 'TMS', 'Lanus': 'MUEBLESLANUS', 'Ivana': 'COLCHONERIA IVANA',
+    'Ballester': 'BALLESTER', 'Bedpoint': 'BEDPOINT', 'Metymas': 'METYMAS',
+}
+def _cuota_label_num(lbl):
+    """'6 cuotas s/interés' → '6'. Contado/Cuota Simple → None (no aplica override)."""
+    l = (lbl or '').lower()
+    if 'sin cuota' in l or l.startswith('cuota simple'):
+        return None
+    m = re.search(r'(\d+)', l)
+    return m.group(1) if m else None
+
+def _cuotas_reales_monitor():
+    """{(sku_upper, seller_nick): [(precio_float, cuota_str), ...]} del último snapshot
+    del monitor de catálogo, que trae la cuota REAL (lee listing_type/campaña)."""
+    out = defaultdict(list)
+    try:
+        conn = _db(); cur = conn.cursor()
+        cur.execute("SELECT MAX(DATE(fecha)) d FROM competencia_snapshots")
+        row = cur.fetchone()
+        d = row and row['d']
+        if d:
+            cur.execute("""SELECT sku, seller_nick, cuotas_efectivas, precio
+                           FROM competencia_snapshots WHERE DATE(fecha)=%s""", (d,))
+            for r in cur.fetchall():
+                n = _cuota_label_num(r['cuotas_efectivas'])
+                if not n:
+                    continue
+                out[(str(r['sku']).upper(), r['seller_nick'])].append((float(r['precio'] or 0), n))
+        cur.close(); conn.close()
+    except Exception as e:
+        print(f"[scraper] error cargando cuotas del monitor: {e}")
+    return out
+
+def _cuota_real_desde_monitor(mon, sku, tienda, precio, cuotas_mostrada):
+    """Si el monitor tiene esta publi (mismo sku+vendedor y precio cercano), devuelve
+    su cuota REAL. Si no, None (se usa el pasaje). Matchea por precio (cada tramo de
+    cuota tiene su propio precio), con tolerancia."""
+    nick = TIENDA_NICK.get(tienda)
+    if not nick or not sku or not precio:
+        return None
+    try:
+        p = float(precio)
+    except (TypeError, ValueError):
+        return None
+    cands = mon.get((str(sku).upper(), nick))
+    if not cands:
+        return None
+    best = None
+    for mp, mc in cands:
+        if mp <= 0:
+            continue
+        diff = abs(mp - p)
+        if diff / mp <= 0.03 and (best is None or diff < best[0]):   # 3% de tolerancia
+            best = (diff, mc)
+    return best[1] if best else None
+
+
+# ── Cuota real desde el CATÁLOGO de cada publi (por su URL), cacheado por día ──
+TIENDA_SELLER = {'TMS': 60351381, 'Lanus': 54898332, 'Ivana': 192769857,
+                 'Ballester': 658910977, 'Bedpoint': 168211358, 'Metymas': 105539832}
+
+def _catalog_id_de_url(url):
+    m = re.search(r'/p/(MLA\d+)', url or '')
+    return m.group(1) if m else None
+
+def _catalog_cuota_query(catalog_id):
+    """Consulta ML y devuelve [[seller_id, precio, cuota_str], ...]. Cachea por día."""
+    try:
+        from competencia_bp import _ml_catalog_all, _cuotas_publi, _campaign_from_tags
+        res = _ml_catalog_all(catalog_id, '1425')
+        out = []
+        for r in res:
+            lt = r.get('listing_type_id', '')
+            camp = next((t.get('value_name', '').split('|')[0].strip()
+                         for t in r.get('sale_terms', []) if t.get('id') == 'INSTALLMENTS_CAMPAIGN'), None)
+            if not camp:
+                camp = _campaign_from_tags(r.get('tags'))
+            n = _cuota_label_num(_cuotas_publi(lt, camp))
+            p = r.get('price') or 0
+            if not n or p <= 0:
+                continue
+            out.append([r.get('seller_id'), float(p), n])
+        conn = _db(); cur = conn.cursor()
+        cur.execute("""INSERT INTO competencia_cat_cache (catalog_id, fecha, data)
+                       VALUES (%s, CURDATE(), %s)
+                       ON DUPLICATE KEY UPDATE fecha=CURDATE(), data=VALUES(data)""",
+                    (catalog_id, json.dumps(out)))
+        conn.commit(); cur.close(); conn.close()
+        return out
+    except Exception as e:
+        print(f"[scraper] catálogo {catalog_id} error: {e}")
+        return None
+
+def _catalog_cuota_cached(catalog_id):
+    """Lee del cache (solo del día). Sin llamadas a ML. None si no está cacheado."""
+    try:
+        conn = _db(); cur = conn.cursor()
+        cur.execute("SELECT data FROM competencia_cat_cache WHERE catalog_id=%s AND fecha=CURDATE()", (catalog_id,))
+        row = cur.fetchone(); cur.close(); conn.close()
+        return json.loads(row['data']) if (row and row['data']) else None
+    except Exception:
+        return None
+
+def _cuota_real_desde_catalogo(url, tienda, precio, memo):
+    """Cuota real del catálogo de la publi (matcheando seller+precio). Usa cache del día."""
+    sid = TIENDA_SELLER.get(tienda)
+    cid = _catalog_id_de_url(url)
+    if not sid or not cid or not precio:
+        return None
+    try: p = float(precio)
+    except (TypeError, ValueError): return None
+    if cid not in memo:
+        memo[cid] = _catalog_cuota_cached(cid)   # None si no está cacheado
+    data = memo[cid]
+    if not data:
+        return None
+    best = None
+    for s, mp, mc in data:
+        if s == sid and mp > 0:
+            diff = abs(mp - p)
+            if diff / mp <= 0.03 and (best is None or diff < best[0]):
+                best = (diff, mc)
+    return best[1] if best else None
+
+def prewarm_catalogos_scraper():
+    """Consulta y cachea las cuotas reales de todos los catálogos del CSV (para el día).
+    Se corre en background al subir un barrido; el display solo lee del cache."""
+    if not os.path.exists(CSV_PATH):
+        return 0
+    cats = set()
+    with open(CSV_PATH, encoding='utf-8') as f:
+        for r in csv.DictReader(f):
+            if (r.get('cuotas_si') or '').strip():
+                cid = _catalog_id_de_url(r.get('url'))
+                if cid and not _catalog_cuota_cached(cid):
+                    cats.add(cid)
+    for cid in cats:
+        _catalog_cuota_query(cid)
+    return len(cats)
+
+
 # ============================================================================
 # Carga de productos para el panel
 # ============================================================================
@@ -164,6 +307,10 @@ def _cargar_productos():
     with open(CSV_PATH, encoding='utf-8') as f:
         rows = list(csv.DictReader(f))
 
+    # Cuotas REALES: 1º monitor, 2º catálogo de la publi (cache), 3º pasaje
+    mon_cuotas = _cuotas_reales_monitor()
+    _cat_memo = {}
+
     grupos = defaultdict(list)
     for r in rows:
         grupos[(r['titulo_orig'], r['tienda'])].append(r)
@@ -172,13 +319,27 @@ def _cargar_productos():
     for (titulo, tienda), variantes in grupos.items():
         base = variantes[0]
         tipo = base['tipo']
+        sku_m = base.get('sku_match', '')
         opciones = []
         for v in variantes:
             precio = v.get('precio', '') or ''
             cuotas_mostrada = v.get('cuotas_si', '') or ''
             cuotas_simple = v.get('cuotas_simple', '0') == '1'
-            cuotas_real, hubo_pasaje = calcular_cuotas_real(
-                cuotas_mostrada, tipo, pasajes)
+            # 1º monitor, 2º catálogo de la publi, 3º pasaje
+            cuota_ok = None; cuota_fuente = 'pasaje'
+            if cuotas_mostrada:
+                cuota_ok = _cuota_real_desde_monitor(mon_cuotas, sku_m, tienda, precio, cuotas_mostrada)
+                if cuota_ok is not None:
+                    cuota_fuente = 'monitor'
+                else:
+                    cuota_ok = _cuota_real_desde_catalogo(v.get('url', ''), tienda, precio, _cat_memo)
+                    if cuota_ok is not None:
+                        cuota_fuente = 'catalogo'
+            if cuota_ok is not None:
+                cuotas_real = cuota_ok
+                hubo_pasaje = (cuotas_mostrada and cuotas_real != cuotas_mostrada)
+            else:
+                cuotas_real, hubo_pasaje = calcular_cuotas_real(cuotas_mostrada, tipo, pasajes)
             if precio:
                 opciones.append({
                     'precio':              precio,
@@ -186,6 +347,7 @@ def _cargar_productos():
                     'cuotas_si_mostrada':  cuotas_mostrada,
                     'pasaje':              hubo_pasaje,
                     'cuotas_simple':       cuotas_simple,
+                    'cuota_fuente':        cuota_fuente,
                 })
         precio_min = min((int(o['precio']) for o in opciones if o['precio']), default=0)
 
@@ -406,6 +568,13 @@ def upload_csv():
 
     # Snapshot del día para el histórico de precios de competencia (no rompe el upload si falla)
     snap_n = guardar_snapshot_hist()
+
+    # Cachear en background las cuotas reales de los catálogos (para el display)
+    try:
+        import threading
+        threading.Thread(target=prewarm_catalogos_scraper, daemon=True).start()
+    except Exception:
+        pass
 
     total = len(rows)
     matches = sum(1 for r in rows if r['sku_match'])
