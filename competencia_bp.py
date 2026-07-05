@@ -284,7 +284,7 @@ def _get_mis_publis_all(catalog_id):
         envio_t, envio_free, _ = _envio_tipo(r.get('shipping', {}))
         result.append({
             'mla_id':     mla_id,
-            'precio':     data.get('price'),
+            'precio':     r.get('price') or data.get('price'),   # precio del catálogo (con promo), no el de lista
             'cuotas_pub': cuotas_pub,
             'cuotas_ef':  cuotas_pub,
             'envio_t':    envio_t,
