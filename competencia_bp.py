@@ -376,7 +376,7 @@ def _get_skus_monitorear():
     rows = _q("""SELECT DISTINCT sku FROM sku_mla_mapeo
                  WHERE activo=1 AND sku NOT LIKE '%Z'
                  AND sku NOT IN ('CERVICAL','CLASICA')
-                 AND sku NOT LIKE 'CCO%'
+                 AND (sku NOT LIKE 'CCO%' OR sku = 'CCO140')
                  AND (sku LIKE 'C%' OR sku LIKE 'S%')
                  ORDER BY sku""")
     return [r['sku'] for r in rows]

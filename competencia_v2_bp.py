@@ -18,7 +18,7 @@ Los precios se recalculan en vivo (cache por snapshot del monitor).
 import os, json, re, csv, datetime
 from collections import defaultdict
 import pymysql
-from flask import Blueprint, render_template, request
+from flask import Blueprint, render_template, request, redirect, url_for
 
 from competencia_bp import (_ml_catalog_all, _cuotas_publi, _campaign_from_tags,
                             _envio_tipo)
@@ -41,12 +41,27 @@ VENDOR_META = {
     'Mercadomuebles': {'nombre': 'Mercadomuebles (vos)', 'alias': 'MERCADOMUEBLES (YO)', 'seller_id': MY_ID,   'tienda': None},
 }
 VENDORS_ORDEN = ['TMS', 'Ivana', 'Lanus', 'Ballester', 'Bedpoint', 'Metymas', 'Mercadomuebles']
-# periodo → archivos combinados (todos los vendedores; se filtra por alias)
-PERIODOS = {
-    '2026-07': [('colchones.json', 'colchon'), ('sommiers.json', 'sommier')],
-    '2026-06': [('colchones.json', 'colchon'), ('sommiers.json', 'sommier')],
-}
-PERIODO_LBL = {'2026-06': 'Junio 2026', '2026-07': 'Julio 2026 (1-2)'}
+# Períodos DINÁMICOS: cada subcarpeta YYYY-MM de DATA_DIR con colchones.json/sommiers.json.
+# Así, subir un período nuevo desde el sistema lo hace aparecer solo.
+_MESES_ES = {'01':'Enero','02':'Febrero','03':'Marzo','04':'Abril','05':'Mayo','06':'Junio',
+             '07':'Julio','08':'Agosto','09':'Septiembre','10':'Octubre','11':'Noviembre','12':'Diciembre'}
+def _periodo_lbl(p):
+    m = re.match(r'^(\d{4})-(\d{2})$', str(p or ''))
+    return f"{_MESES_ES.get(m.group(2), m.group(2))} {m.group(1)}" if m else str(p or '')
+
+def PERIODOS():
+    """{periodo: [(archivo, tipo)]} escaneando las carpetas de datos."""
+    out = {}
+    if os.path.isdir(DATA_DIR):
+        for d in sorted(os.listdir(DATA_DIR), reverse=True):
+            p = os.path.join(DATA_DIR, d)
+            if not (os.path.isdir(p) and re.match(r'^\d{4}-\d{2}$', d)):
+                continue
+            files = []
+            if os.path.exists(os.path.join(p, 'colchones.json')): files.append(('colchones.json', 'colchon'))
+            if os.path.exists(os.path.join(p, 'sommiers.json')):  files.append(('sommiers.json', 'sommier'))
+            if files: out[d] = files
+    return out
 
 TIERS = ['sin', '3', '6', '9', '12']
 TIER_LBL = {'sin': 'Contado', '3': '3 cuotas', '6': '6 cuotas', '9': '9 cuotas', '12': '12 cuotas'}
@@ -301,7 +316,7 @@ def _construir(periodo, vendedor):
 
     meta = VENDOR_META[vendedor]
     alias = meta['alias']
-    files = PERIODOS.get(periodo, [])
+    files = PERIODOS().get(periodo, [])
     mis = _cargar_mis_skus(conn)
     mon, snap = _cargar_monitor(conn, meta['seller_id'])
     scr = _cargar_scraper(meta['tienda']) if meta['tienda'] else {}
@@ -450,22 +465,61 @@ def _armar_vistas(productos, meta, snap, periodo):
 
 @competencia_v2_bp.route('/admin/competencia-v2')
 def competencia_v2_page():
-    periodo = request.args.get('periodo') or sorted(PERIODOS.keys(), reverse=True)[0]
-    if periodo not in PERIODOS:
-        periodo = sorted(PERIODOS.keys(), reverse=True)[0]
+    pers = PERIODOS()
+    pers_orden = sorted(pers.keys(), reverse=True)
+    periodo = request.args.get('periodo') or (pers_orden[0] if pers_orden else '')
+    if periodo not in pers:
+        periodo = pers_orden[0] if pers_orden else ''
     vends = VENDORS_ORDEN
     vendor = request.args.get('vendedor') or vends[0]
     if vendor not in vends:
         vendor = vends[0]
     try:
-        data = _construir(periodo, vendor)
-        err = None
+        data = _construir(periodo, vendor) if periodo else None
+        err = None if periodo else 'No hay períodos cargados todavía.'
     except Exception as e:
         data, err = None, str(e)
     return render_template('competencia_v2.html',
-        periodo=periodo, periodos=PERIODOS, periodo_lbl=PERIODO_LBL,
+        periodo=periodo, periodos=pers, periodo_lbl={p: _periodo_lbl(p) for p in pers},
         vendor=vendor, vendor_nombre=VENDOR_META[vendor]['nombre'],
-        vends=vends, vendor_meta=VENDOR_META, data=data, err=err)
+        vends=vends, vendor_meta=VENDOR_META, data=data, err=err,
+        msg=request.args.get('msg'))
+
+
+@competencia_v2_bp.route('/admin/competencia-v2/upload', methods=['POST'])
+def competencia_v2_upload():
+    """Sube los JSON (colchones/sommiers, todos los vendedores) de un período y
+    dispara el reprocesamiento (borrando el cache de ese período)."""
+    periodo = (request.form.get('periodo') or '').strip()
+    if not re.match(r'^\d{4}-\d{2}$', periodo):
+        return redirect(url_for('competencia_v2.competencia_v2_page', msg='Período inválido (usá formato AAAA-MM, ej. 2026-07)'))
+    dest = os.path.join(DATA_DIR, periodo)
+    os.makedirs(dest, exist_ok=True)
+    guardados = []
+    for campo, fname in [('colchones', 'colchones.json'), ('sommiers', 'sommiers.json')]:
+        f = request.files.get(campo)
+        if not f or not f.filename:
+            continue
+        raw = f.read()
+        try:
+            data = json.loads(raw.decode('utf-8'))
+            if not isinstance(data, list):
+                raise ValueError('el JSON no es una lista de ventas')
+        except Exception as e:
+            return redirect(url_for('competencia_v2.competencia_v2_page', periodo=periodo,
+                                    msg=f'{fname}: JSON inválido ({e})'))
+        with open(os.path.join(dest, fname), 'wb') as out:
+            out.write(raw)
+        guardados.append(f'{fname} ({len(data)} filas)')
+    # limpiar cache de ese período para que reprocese
+    try:
+        for old in os.listdir(DATA_DIR):
+            if old.startswith(f'.cache_{periodo}_'):
+                os.remove(os.path.join(DATA_DIR, old))
+    except Exception:
+        pass
+    msg = ('✅ Subido y reprocesando: ' + ', '.join(guardados)) if guardados else '⚠️ No se seleccionó ningún archivo.'
+    return redirect(url_for('competencia_v2.competencia_v2_page', periodo=periodo, msg=msg))
 
 
 # ── Parte 2: ventas detalladas por competidor (día × producto × cuota) ──
@@ -488,7 +542,7 @@ def _ventas_detalle(periodo, vendor):
     conn = _db(); mis = _cargar_mis_skus(conn); conn.close()
     meta = VENDOR_META[vendor]; alias = meta['alias']
     rows = []
-    for fname, tipo in PERIODOS.get(periodo, []):
+    for fname, tipo in PERIODOS().get(periodo, []):
         path = os.path.join(DATA_DIR, periodo, fname)
         if not os.path.exists(path): continue
         for r in json.load(open(path, encoding='utf-8')):
@@ -515,14 +569,16 @@ def _ventas_detalle(periodo, vendor):
 
 @competencia_v2_bp.route('/admin/ventas-competidores')
 def ventas_competidores_page():
-    periodo = request.args.get('periodo') or sorted(PERIODOS.keys(), reverse=True)[0]
-    if periodo not in PERIODOS:
-        periodo = sorted(PERIODOS.keys(), reverse=True)[0]
+    pers = PERIODOS()
+    pers_orden = sorted(pers.keys(), reverse=True)
+    periodo = request.args.get('periodo') or (pers_orden[0] if pers_orden else '')
+    if periodo not in pers:
+        periodo = pers_orden[0] if pers_orden else ''
     vendor = request.args.get('vendedor') or VENDORS_ORDEN[0]
     if vendor not in VENDORS_ORDEN:
         vendor = VENDORS_ORDEN[0]
     try:
-        rows, data = _ventas_detalle(periodo, vendor)
+        rows, data = _ventas_detalle(periodo, vendor) if periodo else ([], None)
         err = None
     except Exception as e:
         rows, data, err = [], None, str(e)
@@ -530,7 +586,7 @@ def ventas_competidores_page():
     modelos = sorted(set(r['model'] for r in rows if r['model']))
     medidas = sorted(set(r['medida'] for r in rows))
     return render_template('ventas_competidores.html',
-        periodo=periodo, periodos=PERIODOS, periodo_lbl=PERIODO_LBL,
+        periodo=periodo, periodos=pers, periodo_lbl={p: _periodo_lbl(p) for p in pers},
         vendor=vendor, vendor_nombre=VENDOR_META[vendor]['nombre'],
         vends=VENDORS_ORDEN, vendor_meta=VENDOR_META, rows=rows,
         dias=dias, modelos=modelos, medidas=medidas,

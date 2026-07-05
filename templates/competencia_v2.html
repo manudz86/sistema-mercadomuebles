@@ -33,6 +33,23 @@ td.sku{font-family:ui-monospace,monospace;font-weight:700;color:#334}
 
 <div class="cv-wrap">
   <h1>📊 Competencia V2 — ventas de competidores vs mis precios</h1>
+
+  {% if msg %}<div style="background:#e7f6ec;border-left:4px solid #198754;padding:8px 12px;border-radius:6px;margin:8px 0;font-size:13px">{{ msg }}</div>{% endif %}
+
+  <details style="margin:8px 0 14px;background:#fff;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.06);padding:6px 12px">
+    <summary style="cursor:pointer;font-weight:700;font-size:13px;color:#334">⬆️ Subir / actualizar datos de un período</summary>
+    <form method="POST" action="{{ url_for('competencia_v2.competencia_v2_upload') }}" enctype="multipart/form-data" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin:10px 0 4px">
+      <label style="font-size:12px;color:#5b6472">Período (AAAA-MM)<br>
+        <input name="periodo" placeholder="2026-07" value="{{ periodo }}" required style="padding:6px 8px;border:1px solid #c7ccd4;border-radius:7px;font-size:13px;width:110px"></label>
+      <label style="font-size:12px;color:#5b6472">Colchones (.json)<br>
+        <input type="file" name="colchones" accept=".json,application/json" style="font-size:12px"></label>
+      <label style="font-size:12px;color:#5b6472">Sommiers (.json)<br>
+        <input type="file" name="sommiers" accept=".json,application/json" style="font-size:12px"></label>
+      <button type="submit" style="background:#0d6efd;color:#fff;border:0;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">Subir y procesar</button>
+    </form>
+    <div style="font-size:11.5px;color:#8a93a0">Los JSON deben tener todos los vendedores juntos (se filtran por alias). Podés subir uno o los dos. Reemplaza el período si ya existe.</div>
+  </details>
+
   {% if data %}
   <p class="cv-sub">Ventas del período · precio del competidor en vivo (catálogo: monitor → scraper → catálogo ML; no-catálogo: scraper). Cuotas <b>reales</b> del integrador (sin pasaje). Snapshot: <b>{{ data.snap }}</b>.</p>
 
