@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Ranking de competidores{% endblock %}
+{% block content %}
+<style>
+.rk-wrap{max-width:1180px;margin:0 auto;padding:16px}
+.rk-wrap h1{font-size:21px;margin:0 0 3px}
+.rk-sub{color:#5b6472;font-size:12.5px;margin:0 0 12px}
+.rk-vend a{display:inline-block;padding:7px 16px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px;margin-right:6px;border:1px solid #c7ccd4;color:#334}
+.rk-vend a.on{background:#6f42c1;color:#fff;border-color:#6f42c1}
+.rk-card{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}
+.rk-kpi{background:#fff;border-radius:10px;padding:10px 14px;box-shadow:0 1px 3px rgba(0,0,0,.06);font-size:12.5px}
+.rk-kpi b{font-size:17px}
+.rk-h{font-size:15px;margin:20px 0 6px;color:#2b3140}
+table.rk{border-collapse:collapse;width:100%;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06);margin-bottom:8px}
+table.rk th,table.rk td{padding:6px 9px;text-align:left;border-bottom:1px solid #eef0f3;white-space:nowrap;font-size:12.5px}
+table.rk th{background:#2b3140;color:#fff;font-size:11.5px}
+table.rk td.num,table.rk th.num{text-align:right;font-variant-numeric:tabular-nums}
+table.rk tr.yo td{background:#fff3cd;font-weight:700}
+table.rk tr.tot td{background:#eef2f7;font-weight:700}
+.pos{color:#8a93a0;font-variant-numeric:tabular-nums}
+.tag{font-size:10px;padding:1px 5px;border-radius:4px;background:#e9ecef;color:#495057;margin-left:4px}
+.tag.sn{background:#efe7fb;color:#6f42c1}
+.bar{display:inline-block;height:10px;background:#6f42c1;border-radius:2px;vertical-align:middle}
+.rk-note{background:#fff7e6;border-left:4px solid #f0a202;padding:8px 12px;border-radius:6px;margin:9px 0;font-size:12.5px}
+.rk-note.bad{background:#fdecea;border-left-color:#dc3545}
+.back{font-size:12.5px;text-decoration:none;color:#6f42c1;font-weight:700}
+</style>
+
+<div class="rk-wrap">
+  <h1>🏆 Ranking de competidores</h1>
+  <a class="back" href="{{ url_for('competencia_v2.competencia_v2_page', periodo=periodo) }}">← Volver a Competencia V2</a>
+
+  <div class="rk-vend" style="margin:12px 0 4px">
+    <span style="font-size:12px;color:#5b6472;margin-right:4px">Mes:</span>
+    {% for p in periodos.keys()|sort(reverse=true) %}
+      <a href="?periodo={{ p }}" class="{{ 'on' if p == periodo else '' }}">{{ periodo_lbl.get(p, p) }}</a>
+    {% endfor %}
+  </div>
+
+  {% if data and data.total %}
+  <p class="rk-sub">Ventas del mes según el integrador. <b>Facturación = unidades × precio</b> (el GMV del JSON viene mal redondeado). Se rankea por facturación. Los vendedores sin alias asignado se muestran con su <b>nickname</b> de ML <span class="tag sn">sin nombre</span>; cuando alguno importe, se le asigna alias. Tu tienda va <span style="background:#fff3cd;padding:0 4px;border-radius:3px">resaltada</span>.</p>
+
+  <div class="rk-card">
+    <div class="rk-kpi">Facturación total mercado<br><b>${{ '{:,.0f}'.format(data.gmv_tot)|replace(',','.') }}</b></div>
+    <div class="rk-kpi">Unidades totales<br><b>{{ data.u_tot }}</b></div>
+    <div class="rk-kpi">Vendedores<br><b>{{ data.n_vend }}</b></div>
+  </div>
+
+  <!-- Ranking total (todas las categorías) -->
+  <div class="rk-h">📌 Ranking total <span style="font-size:12px;color:#8a93a0">(suma de todas las categorías)</span></div>
+  <table class="rk">
+    <thead><tr><th class="num">#</th><th>Vendedor</th>
+      {% for t in data.cats_presentes %}<th class="num">{{ data.cat_lbl[t] }}</th>{% endfor %}
+      <th class="num">TOTAL</th><th class="num">%</th><th class="num">Unid.</th></tr></thead>
+    <tbody>
+    {% for v in data.total %}
+      <tr class="{{ 'yo' if v.yo else '' }}">
+        <td class="pos num">{{ v.pos }}</td>
+        <td>{{ v.nombre }}{% if v.yo %} <span class="tag">vos</span>{% elif not v.nombrado %}<span class="tag sn">sin nombre</span>{% endif %}</td>
+        {% for t in data.cats_presentes %}
+          <td class="num">{% if v.cat[t].gmv %}${{ '{:,.0f}'.format(v.cat[t].gmv)|replace(',','.') }}{% else %}<span style="color:#ccc">—</span>{% endif %}</td>
+        {% endfor %}
+        <td class="num"><b>${{ '{:,.0f}'.format(v.gmv)|replace(',','.') }}</b></td>
+        <td class="num">{{ '%.1f'|format(v.share) }}%</td>
+        <td class="num">{{ v.u }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Ranking por categoría -->
+  {% for t in data.cats_presentes %}
+    {% set pc = data.porcat[t] %}
+    <div class="rk-h">{{ '🛏️' if t=='colchon' else ('🧱' if t=='sommier' else '🛌') }} {{ pc.lbl }}
+      <span style="font-size:12px;color:#8a93a0">· {{ pc.u }} u · ${{ '{:,.0f}'.format(pc.gmv)|replace(',','.') }}</span></div>
+    <table class="rk">
+      <thead><tr><th class="num">#</th><th>Vendedor</th><th class="num">Unidades</th><th class="num">Facturación</th><th class="num">Share</th><th style="width:130px"></th></tr></thead>
+      <tbody>
+      {% for f in pc.filas %}
+        <tr class="{{ 'yo' if f.yo else '' }}">
+          <td class="pos num">{{ f.pos }}</td>
+          <td>{{ f.nombre }}{% if f.yo %} <span class="tag">vos</span>{% elif not f.nombrado %}<span class="tag sn">sin nombre</span>{% endif %}</td>
+          <td class="num">{{ f.u }}</td>
+          <td class="num">${{ '{:,.0f}'.format(f.gmv)|replace(',','.') }}</td>
+          <td class="num">{{ '%.1f'|format(f.share) }}%</td>
+          <td><span class="bar" style="width:{{ (110 * f.gmv / pc.filas[0].gmv)|int if pc.filas[0].gmv else 0 }}px"></span></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endfor %}
+
+  {% else %}
+  <div class="rk-note bad">No hay datos para este mes{% if err %}: {{ err }}{% endif %}. Subí los JSON desde la página de Competencia V2.</div>
+  {% endif %}
+</div>
+{% endblock %}

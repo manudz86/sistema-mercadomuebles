@@ -49,6 +49,12 @@ def _periodo_lbl(p):
     m = re.match(r'^(\d{4})-(\d{2})$', str(p or ''))
     return f"{_MESES_ES.get(m.group(2), m.group(2))} {m.group(1)}" if m else str(p or '')
 
+# Archivos de datos por categoría. 'colchon'/'sommier' alimentan la comparación de
+# precios (pestañas A–D); 'almohada' va SOLO al ranking (no tiene match de SKU/precio).
+FILE_TIPOS = [('colchones.json', 'colchon'), ('sommiers.json', 'sommier'), ('almohadas.json', 'almohada')]
+CAT_LBL = {'almohada': 'Almohadas', 'colchon': 'Colchones', 'sommier': 'Sommiers'}
+CAT_ORDEN = ['almohada', 'colchon', 'sommier']
+
 def PERIODOS():
     """{periodo: [(archivo, tipo)]} escaneando las carpetas de datos."""
     out = {}
@@ -57,9 +63,7 @@ def PERIODOS():
             p = os.path.join(DATA_DIR, d)
             if not (os.path.isdir(p) and re.match(r'^\d{4}-\d{2}$', d)):
                 continue
-            files = []
-            if os.path.exists(os.path.join(p, 'colchones.json')): files.append(('colchones.json', 'colchon'))
-            if os.path.exists(os.path.join(p, 'sommiers.json')):  files.append(('sommiers.json', 'sommier'))
+            files = [(fn, tp) for fn, tp in FILE_TIPOS if os.path.exists(os.path.join(p, fn))]
             if files: out[d] = files
     return out
 
@@ -316,7 +320,8 @@ def _construir(periodo, vendedor):
 
     meta = VENDOR_META[vendedor]
     alias = meta['alias']
-    files = PERIODOS().get(periodo, [])
+    # las almohadas no entran a la comparación de precios (no tienen match de SKU)
+    files = [ft for ft in PERIODOS().get(periodo, []) if ft[1] != 'almohada']
     mis = _cargar_mis_skus(conn)
     mon, snap = _cargar_monitor(conn, meta['seller_id'])
     scr = _cargar_scraper(meta['tienda']) if meta['tienda'] else {}
@@ -496,7 +501,7 @@ def competencia_v2_upload():
     dest = os.path.join(DATA_DIR, periodo)
     os.makedirs(dest, exist_ok=True)
     guardados = []
-    for campo, fname in [('colchones', 'colchones.json'), ('sommiers', 'sommiers.json')]:
+    for campo, fname in [('colchones', 'colchones.json'), ('sommiers', 'sommiers.json'), ('almohadas', 'almohadas.json')]:
         f = request.files.get(campo)
         if not f or not f.filename:
             continue
@@ -542,7 +547,7 @@ def _ventas_detalle(periodo, vendor):
     conn = _db(); mis = _cargar_mis_skus(conn); conn.close()
     meta = VENDOR_META[vendor]; alias = meta['alias']
     rows = []
-    for fname, tipo in PERIODOS().get(periodo, []):
+    for fname, tipo in [ft for ft in PERIODOS().get(periodo, []) if ft[1] != 'almohada']:
         path = os.path.join(DATA_DIR, periodo, fname)
         if not os.path.exists(path): continue
         for r in json.load(open(path, encoding='utf-8')):
@@ -592,3 +597,80 @@ def ventas_competidores_page():
         dias=dias, modelos=modelos, medidas=medidas,
         total_u=sum(r['u'] for r in rows), total_gmv=sum(r['gmv'] for r in rows),
         snap=(data.get('snap') if data else ''), err=err)
+
+
+# ── Parte 3: ranking de competidores por categoría y total (por mes) ──
+ALIAS_YO = 'MERCADOMUEBLES (YO)'
+def _vend_key(r):
+    """(clave, etiqueta, nombrado) del vendedor: alias real si está cargado; si no
+    ('-' o vacío), el nickname de ML (cada seller sin nombre = fila propia)."""
+    al = (r.get('alias') or '').strip()
+    if al and al != '-':
+        return al, al, True
+    nk = (r.get('nickname') or '').strip() or '(sin dato)'
+    return nk, nk, False
+
+def _ranking(periodo):
+    """Suma unidades y GMV (u×precio) por vendedor, por categoría y total, del mes."""
+    present = set(tp for fn, tp in FILE_TIPOS
+                  if os.path.exists(os.path.join(DATA_DIR, periodo, fn)))
+    vend = {}   # key -> {nombre, nombrado, yo, cat:{tipo:{u,gmv}}, u, gmv}
+    for fname, tipo in FILE_TIPOS:
+        path = os.path.join(DATA_DIR, periodo, fname)
+        if not os.path.exists(path): continue
+        try:
+            data = json.load(open(path, encoding='utf-8'))
+        except Exception:
+            continue
+        for r in data:
+            q = int(r.get('sold_quantity') or 0)
+            if q <= 0: continue
+            key, disp, nombrado = _vend_key(r)
+            g = q * _price(r.get('price'))
+            v = vend.get(key)
+            if not v:
+                v = vend[key] = {'nombre': disp, 'nombrado': nombrado, 'yo': False,
+                                 'cat': {t: {'u': 0, 'gmv': 0.0} for t in CAT_ORDEN},
+                                 'u': 0, 'gmv': 0.0}
+            c = v['cat'][tipo]; c['u'] += q; c['gmv'] += g
+            v['u'] += q; v['gmv'] += g
+            if (r.get('alias') or '').strip() == ALIAS_YO: v['yo'] = True
+
+    total = sorted(vend.values(), key=lambda x: -x['gmv'])
+    gtot = sum(v['gmv'] for v in total) or 1
+    for i, v in enumerate(total, 1):
+        v['pos'] = i; v['share'] = 100 * v['gmv'] / gtot
+
+    porcat = {}
+    for t in CAT_ORDEN:
+        filas = [{'nombre': v['nombre'], 'nombrado': v['nombrado'], 'yo': v['yo'],
+                  'u': v['cat'][t]['u'], 'gmv': v['cat'][t]['gmv']}
+                 for v in vend.values() if v['cat'][t]['u'] > 0]
+        filas.sort(key=lambda x: -x['gmv'])
+        gt = sum(f['gmv'] for f in filas) or 1
+        for i, f in enumerate(filas, 1):
+            f['pos'] = i; f['share'] = 100 * f['gmv'] / gt
+        porcat[t] = {'lbl': CAT_LBL[t], 'filas': filas,
+                     'u': sum(f['u'] for f in filas), 'gmv': sum(f['gmv'] for f in filas)}
+
+    return {'periodo': periodo, 'total': total, 'gmv_tot': gtot,
+            'u_tot': sum(v['u'] for v in total), 'n_vend': len(total),
+            'porcat': porcat, 'cats_presentes': [t for t in CAT_ORDEN if t in present],
+            'cat_lbl': CAT_LBL}
+
+
+@competencia_v2_bp.route('/admin/competencia-v2/ranking')
+def ranking_competidores_page():
+    pers = PERIODOS()
+    pers_orden = sorted(pers.keys(), reverse=True)
+    periodo = request.args.get('periodo') or (pers_orden[0] if pers_orden else '')
+    if periodo not in pers:
+        periodo = pers_orden[0] if pers_orden else ''
+    try:
+        data = _ranking(periodo) if periodo else None
+        err = None if periodo else 'No hay períodos cargados todavía.'
+    except Exception as e:
+        data, err = None, str(e)
+    return render_template('ranking_competidores.html',
+        periodo=periodo, periodos=pers, periodo_lbl={p: _periodo_lbl(p) for p in pers},
+        data=data, err=err)
