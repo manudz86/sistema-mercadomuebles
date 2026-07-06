@@ -71,7 +71,7 @@ td.mio{font-weight:700}td.diff{font-weight:800;text-align:right}
     {% for r in rows %}
     <tr data-dia="{{ r.dia }}" data-modelo="{{ r.model }}" data-medida="{{ r.medida }}" data-tier="{{ r.tier_lbl }}" data-prod="{{ (r.title ~ ' ' ~ r.sku)|lower }}" data-u="{{ r.u }}" data-gmv="{{ r.gmv|int }}">
       <td>{{ r.dia }}</td>
-      <td class="prod">{{ r.title }}</td>
+      <td class="prod" title="{{ r.title_full }}" style="cursor:help">{{ r.title }}</td>
       <td>{{ r.model }}</td>
       <td>{{ r.medida }}</td>
       <td class="sku">{{ r.sku }}</td>

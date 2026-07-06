@@ -39,8 +39,11 @@ VENDOR_META = {
     'Bedpoint':  {'nombre': 'Bedpoint',             'alias': 'BEDPOINT',              'seller_id': 168211358, 'tienda': 'Bedpoint'},
     'Metymas':   {'nombre': 'Metymas',              'alias': 'METYMAS',               'seller_id': 105539832, 'tienda': 'Metymas'},
     'Mercadomuebles': {'nombre': 'Mercadomuebles (vos)', 'alias': 'MERCADOMUEBLES (YO)', 'seller_id': MY_ID,   'tienda': None},
+    'Milesi':    {'nombre': 'Milesi Hogar',         'alias': 'MILESI HOGAR',          'seller_id': None,      'tienda': None},
 }
 VENDORS_ORDEN = ['TMS', 'Ivana', 'Lanus', 'Ballester', 'Bedpoint', 'Metymas', 'Mercadomuebles']
+# En "Ventas Competidores" además se puede ver a vendedores de solo-almohadas (Milesi).
+VENDORS_VC = VENDORS_ORDEN + ['Milesi']
 # Períodos DINÁMICOS: cada subcarpeta YYYY-MM de DATA_DIR con colchones.json/sommiers.json.
 # Así, subir un período nuevo desde el sistema lo hace aparecer solo.
 _MESES_ES = {'01':'Enero','02':'Febrero','03':'Marzo','04':'Abril','05':'Mayo','06':'Junio',
@@ -171,6 +174,32 @@ def _match_sku(r, tipo, mis):
         if c.upper() in mis:
             return c.upper(), w
     return None, w
+
+# ── Match de almohadas (modelo → mi SKU, con tamaño de pack) ──
+_ALM_MODELOS = [('platino', 'PLATINO'), ('doral', 'DORAL'), ('exclusive', 'EXCLUSIVE'),
+                ('renovation', 'RENOVATION'), ('sublime', 'SUBLIME'), ('dual', 'DUAL'),
+                ('cervical', 'CERVICAL'), ('clásica', 'CLASICA'), ('clasica', 'CLASICA')]
+def _match_almohada(title, mis):
+    """(sku, pack) de una almohada del competidor: sku = mi SKU si el modelo
+    aparece en el título; pack = unidades del combo (default 1)."""
+    t = (title or '').lower()
+    sku = None
+    for kw, s in _ALM_MODELOS:
+        if kw in t and s in mis:
+            sku = s
+            break
+    pack = 1
+    m = re.search(r'(?:combo|pack|x)\s*(\d{1,2})\b', t) or re.search(r'(\d{1,2})\s*unidad', t)
+    if m:
+        n = int(m.group(1))
+        if 2 <= n <= 12:
+            pack = n
+    return sku, pack
+
+def _precios_almohadas(conn):
+    with conn.cursor() as c:
+        c.execute("SELECT sku, precio_base FROM productos_base WHERE tipo='almohada' AND COALESCE(activo,1)=1")
+        return {r['sku'].upper(): float(r['precio_base'] or 0) for r in c.fetchall()}
 
 # ── Fuentes de precio ──
 def _cargar_mis_skus(conn):
@@ -344,8 +373,9 @@ def _construir(periodo, vendedor):
                 P = productos[key] = {'sku': sku, 'tipo': tipo, 'model': r.get('model'),
                     'w': w, 'u': 0, 'gmv': 0.0, 'cuota_u': defaultdict(int),
                     'pjson': defaultdict(list), 'prov_cat': r.get('catalog_product_id'),
-                    'es_cat': r.get('is_catalog_product') == 'yes'}
+                    'es_cat': r.get('is_catalog_product') == 'yes', 'titulos': defaultdict(int)}
             P['u'] += q; P['gmv'] += g; P['cuota_u'][tier] += q
+            if r.get('title'): P['titulos'][r['title']] += q
             if p > 0: P['pjson'][tier].append(p)
             if r.get('is_catalog_product') == 'yes': P['es_cat'] = True
             if not P['prov_cat'] and r.get('catalog_product_id'):
@@ -416,8 +446,16 @@ def _armar_vistas(productos, meta, snap, periodo):
     con = [p for p in productos.values() if p['sku']]
     nomatch = [p for p in productos.values() if not p['sku']]
 
+    def _tit(p):
+        """(título representativo = el de más unidades, todos los distintos)."""
+        ts = p.get('titulos') or {}
+        if not ts: return '', ''
+        rep = max(ts.items(), key=lambda x: x[1])[0]
+        return rep, ' | '.join(sorted(ts.keys()))
+
     A = []
     for p in con:
+        rep, allt = _tit(p)
         for t in TIERS:
             comp = p['comp_now'].get(t)
             if not comp: continue
@@ -428,7 +466,8 @@ def _armar_vistas(productos, meta, snap, periodo):
             A.append({'sku': p['sku'], 'model': p['model'], 'w': p['w'], 'tipo': p['tipo'],
                 'tier': t, 'tier_lbl': TIER_LBL[t], 'u': p['cuota_u'].get(t, 0),
                 'comp': comp, 'mio': mio, 'd': d, 'dtxt': (f"{d:+.0f}%" if d is not None else None),
-                'cls': (_dcls(d) if d is not None else ''), 'fu': p['fuente'].get(t)})
+                'cls': (_dcls(d) if d is not None else ''), 'fu': p['fuente'].get(t),
+                'titulo': rep, 'titulos': allt})
     A.sort(key=lambda x: (-x['u'], x['sku']))
     caros = sum(1 for f in A if f['d'] is not None and f['d'] > 0 and f['u'] >= 5)
 
@@ -452,15 +491,20 @@ def _armar_vistas(productos, meta, snap, periodo):
             'tiene': bool(p['sku']), 'u': p['u'], 'gmv': p['gmv'],
             'share': 100*p['gmv']/gtot, 'cum': 100*cum/gtot, 'barw': int(120*p['gmv']/gmax)})
 
-    agg = defaultdict(lambda: {'u': 0, 'gmv': 0.0, 'model': '', 'w': None, 'tipo': '', 'contado': 0})
+    agg = defaultdict(lambda: {'u': 0, 'gmv': 0.0, 'model': '', 'w': None, 'tipo': '', 'contado': 0, 'titulos': {}})
     for p in nomatch:
         k = (p['model'], p['w'], p['tipo'])
         a = agg[k]; a['u'] += p['u']; a['gmv'] += p['gmv']; a['model'] = p['model']
         a['w'] = p['w']; a['tipo'] = p['tipo']; a['contado'] += p['cuota_u'].get('sin', 0)
+        for tt, qq in (p.get('titulos') or {}).items():
+            a['titulos'][tt] = a['titulos'].get(tt, 0) + qq
     D = []
     for k, a in sorted(agg.items(), key=lambda x: -x[1]['u']):
+        ts = a['titulos']
+        rep = max(ts.items(), key=lambda x: x[1])[0] if ts else ''
         D.append({'model': a['model'], 'w': a['w'], 'tipo': a['tipo'], 'u': a['u'],
-            'gmv': a['gmv'], 'pct_contado': (100*a['contado']/a['u'] if a['u'] else 0)})
+            'gmv': a['gmv'], 'pct_contado': (100*a['contado']/a['u'] if a['u'] else 0),
+            'titulo': rep, 'titulos': (' | '.join(sorted(ts.keys())) if ts else '')})
 
     return {'snap': snap, 'periodo': periodo, 'A': A, 'caros': caros, 'B': B, 'Btot': Btot,
             'C': C, 'D': D, 'tiers': TIERS, 'tier_lbl': TIER_LBL,
@@ -544,30 +588,45 @@ def _ventas_detalle(periodo, vendor):
     L = {}
     for r in data.get('A', []):
         L[(r['sku'], r['tier'])] = (r.get('comp'), r.get('mio'), r.get('fu'))
-    conn = _db(); mis = _cargar_mis_skus(conn); conn.close()
+    conn = _db(); mis = _cargar_mis_skus(conn); alm_precios = _precios_almohadas(conn); conn.close()
     meta = VENDOR_META[vendor]; alias = meta['alias']
     rows = []
-    for fname, tipo in [ft for ft in PERIODOS().get(periodo, []) if ft[1] != 'almohada']:
+    for fname, tipo in PERIODOS().get(periodo, []):   # incluye almohadas
         path = os.path.join(DATA_DIR, periodo, fname)
         if not os.path.exists(path): continue
         for r in json.load(open(path, encoding='utf-8')):
             if r.get('alias') != alias: continue
             q = int(r.get('sold_quantity') or 0)
             if q <= 0: continue
+            title_full = r.get('title') or ''
+            pvend = _price(r.get('price'))
+            base = {'dia': _dia_corto(r.get('day')), 'dia_sort': _dia_sort(r.get('day')),
+                    'title': title_full[:70], 'title_full': title_full,
+                    'tipo': tipo, 'u': q, 'gmv': q * pvend, 'pvend': pvend}
+            if tipo == 'almohada':
+                # match por modelo; el competidor puede vender packs → comparo por unidad
+                sku, pack = _match_almohada(title_full, mis)
+                comp_u = (pvend / pack) if pack else pvend
+                mio = alm_precios.get(sku) if sku else None
+                d = ((mio / comp_u - 1) * 100) if (comp_u and mio) else None
+                base.update({'model': r.get('model') or 'Almohada',
+                    'medida': (f"pack x{pack}" if pack > 1 else 'unidad'),
+                    'sku': sku or '—', 'tier': 'sin', 'tier_lbl': TIER_LBL['sin'],
+                    'comp': comp_u, 'mio': mio, 'fu': ('catálogo' if mio else None), 'd': d,
+                    'dtxt': (f"{d:+.0f}%" if d is not None else None),
+                    'cls': (_dcls(d) if d is not None else '')})
+                rows.append(base)
+                continue
             sku, w = _match_sku(r, tipo, mis)
             tier = _inst_to_tier(r.get('installments')) or 'sin'
             comp, mio, fu = L.get((sku, tier), (None, None, None))
             d = ((mio/comp - 1) * 100) if (comp and mio) else None
-            rows.append({
-                'dia': _dia_corto(r.get('day')), 'dia_sort': _dia_sort(r.get('day')),
-                'title': (r.get('title') or '')[:70], 'model': r.get('model') or '',
-                'medida': (f"{w}cm" if w else '?'), 'tipo': tipo, 'sku': sku or '—',
-                'tier': tier, 'tier_lbl': TIER_LBL.get(tier, '?'),
-                'u': q, 'gmv': q * _price(r.get('price')), 'pvend': _price(r.get('price')),
+            base.update({'model': r.get('model') or '', 'medida': (f"{w}cm" if w else '?'),
+                'sku': sku or '—', 'tier': tier, 'tier_lbl': TIER_LBL.get(tier, '?'),
                 'comp': comp, 'mio': mio, 'fu': fu, 'd': d,
                 'dtxt': (f"{d:+.0f}%" if d is not None else None),
-                'cls': (_dcls(d) if d is not None else ''),
-            })
+                'cls': (_dcls(d) if d is not None else '')})
+            rows.append(base)
     rows.sort(key=lambda x: (x['dia_sort'], -x['u']))
     return rows, data
 
@@ -579,9 +638,9 @@ def ventas_competidores_page():
     periodo = request.args.get('periodo') or (pers_orden[0] if pers_orden else '')
     if periodo not in pers:
         periodo = pers_orden[0] if pers_orden else ''
-    vendor = request.args.get('vendedor') or VENDORS_ORDEN[0]
-    if vendor not in VENDORS_ORDEN:
-        vendor = VENDORS_ORDEN[0]
+    vendor = request.args.get('vendedor') or VENDORS_VC[0]
+    if vendor not in VENDORS_VC:
+        vendor = VENDORS_VC[0]
     try:
         rows, data = _ventas_detalle(periodo, vendor) if periodo else ([], None)
         err = None
@@ -593,7 +652,7 @@ def ventas_competidores_page():
     return render_template('ventas_competidores.html',
         periodo=periodo, periodos=pers, periodo_lbl={p: _periodo_lbl(p) for p in pers},
         vendor=vendor, vendor_nombre=VENDOR_META[vendor]['nombre'],
-        vends=VENDORS_ORDEN, vendor_meta=VENDOR_META, rows=rows,
+        vends=VENDORS_VC, vendor_meta=VENDOR_META, rows=rows,
         dias=dias, modelos=modelos, medidas=medidas,
         total_u=sum(r['u'] for r in rows), total_gmv=sum(r['gmv'] for r in rows),
         snap=(data.get('snap') if data else ''), err=err)
