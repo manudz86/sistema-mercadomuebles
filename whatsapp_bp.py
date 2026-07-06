@@ -403,6 +403,9 @@ def get_productos_context():
     payway = {r['clave']: float(r['valor']) for r in coefs}
     coef_3 = payway.get('cuotas_3_coef', 1.2)
     coef_6 = payway.get('cuotas_6_coef', 1.4)
+    coef_12 = payway.get('cuotas_12_coef', 1.6)   # 12 cuotas (MercadoPago, solo online)
+    _m12 = _q("SELECT valor FROM configuracion WHERE clave='mp_12_enabled'")
+    mp_12_on = bool(_m12 and str(_m12[0]['valor']) == '1')
 
     # Demora sin stock
     dem_row = _q("SELECT valor FROM configuracion WHERE clave = 'demora_sin_stock'")
@@ -446,10 +449,13 @@ def get_productos_context():
         total_6 = round(pf * coef_6)
         cuota_3 = round(total_3 / 3)
         cuota_6 = round(total_6 / 6)
-        lines.append(
-            f"  Cuotas Web: 3 fijas de ${cuota_3:,} (total ${total_3:,}) | "
-            f"6 fijas de ${cuota_6:,} (total ${total_6:,})"
-        )
+        cuotas_web = (f"  Cuotas Web: 3 fijas de ${cuota_3:,} (total ${total_3:,}) | "
+                      f"6 fijas de ${cuota_6:,} (total ${total_6:,})")
+        if mp_12_on:
+            total_12 = round(pf * coef_12)
+            cuota_12 = round(total_12 / 12)
+            cuotas_web += f" | 12 fijas de ${cuota_12:,} (total ${total_12:,})"
+        lines.append(cuotas_web)
         # Cuotas sobre precio de lista (solo si hay diferencia)
         if desc > 0:
             total_3l = round(precio_lista * coef_3)
@@ -482,10 +488,13 @@ def get_productos_context():
         total_6 = round(pf * coef_6)
         cuota_3 = round(total_3 / 3)
         cuota_6 = round(total_6 / 6)
-        lines.append(
-            f"  Cuotas Web: 3 fijas de ${cuota_3:,} (total ${total_3:,}) | "
-            f"6 fijas de ${cuota_6:,} (total ${total_6:,})"
-        )
+        cuotas_web = (f"  Cuotas Web: 3 fijas de ${cuota_3:,} (total ${total_3:,}) | "
+                      f"6 fijas de ${cuota_6:,} (total ${total_6:,})")
+        if mp_12_on:
+            total_12 = round(pf * coef_12)
+            cuota_12 = round(total_12 / 12)
+            cuotas_web += f" | 12 fijas de ${cuota_12:,} (total ${total_12:,})"
+        lines.append(cuotas_web)
         # Cuotas sobre precio de lista (solo si hay diferencia)
         if desc > 0:
             total_3l = round(precio_lista * coef_3)
@@ -588,7 +597,7 @@ ENVÍOS Y RETIRO:
 
 MEDIOS DE PAGO:
 - MercadoPago: todas las formas (débito, crédito, transferencia, depósito, PagoFácil/RapiPago, dinero en cuenta MP).
-- Tarjeta de crédito Visa o Mastercard bancarizadas: 3 o 6 cuotas fijas.
+- Tarjeta de crédito Visa o Mastercard bancarizadas: 3, 6 o 12 cuotas fijas (las 12 cuotas son solo online).
 
 GARANTÍA: 5 años de garantía de fábrica.
 """
@@ -626,7 +635,7 @@ COTIZACIONES:
 - "Con base" o "con box" = sommier (colchón + base). Cotizá el sommier correspondiente.
 - Cuando el cliente da 2 o más requisitos (medida + tipo + preferencia), mostrá TODOS los modelos que encajan, no solo los 2 más económicos. Si hay más de 3 que encajan, cotizá los 3 principales y mencioná los demás por nombre ofreciendo cotizarlos si el cliente quiere.
   Ejemplo: "También hay Sublime Euro Pillow y Exclusive Pillow Top que podrían interesarte, ¿querés que te los cotice?"
-- Cuando cotices cuotas, usá este formato exacto: "3 cuotas fijas de $XX.XXX (total $XXX.XXX)" o "6 cuotas fijas de $XX.XXX (total $XXX.XXX)". NO menciones la marca del procesador de pagos (no digas Payway, GetNet, ni ningún nombre similar).
+- Cuando cotices cuotas, usá este formato exacto: "3 cuotas fijas de $XX.XXX (total $XXX.XXX)", "6 cuotas fijas de $XX.XXX (total $XXX.XXX)" o "12 cuotas fijas de $XX.XXX (total $XXX.XXX)". Cotizá SOLO las cuotas que figuran en el contexto de cada producto (las 12 cuotas son solo online). NO menciones la marca del procesador de pagos (no digas Payway, GetNet, ni ningún nombre similar).
 - Si el cliente pregunta por cuotas sin interés: explicá que las cuotas son fijas (el importe no varía cuota a cuota). No menciones ni confirmes ni niegues si tienen interés embebido.
 
 PRECIO WEB vs PRECIO LOCAL (REGLA CRÍTICA):
@@ -672,7 +681,7 @@ FOTOS:
 
 MEDIOS DE PAGO:
 - MercadoPago (online en la tienda web): todas las formas (débito, crédito, transferencia, PagoFácil/RapiPago).
-- Tarjeta de crédito Visa o Mastercard bancarizadas: 3 o 6 cuotas fijas (sin mencionar la marca del procesador de pagos). Disponible tanto online como en el local.
+- Tarjeta de crédito Visa o Mastercard bancarizadas: 3 o 6 cuotas fijas (online y en el local) y 12 cuotas fijas (solo online), sin mencionar la marca del procesador de pagos.
 - En el local también se acepta efectivo y transferencia.
 - Recordá: los descuentos online NO aplican en compras presenciales (solo el precio de lista).
 
