@@ -184,4 +184,99 @@
 
 </div>
 
+{# ── Origen de las ventas (tienda web) ── #}
+{% set colores = {'Meta':'#1877F2','Google':'#EA4335','WhatsApp':'#25D366','Orgánico/Referido':'#6c757d','Directo':'#adb5bd'} %}
+<div class="card shadow-sm mt-4">
+  <div class="card-header fw-bold d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span><i class="bi bi-geo-alt me-1"></i> Origen de las ventas (tienda web)</span>
+    <div class="d-flex align-items-center gap-2">
+      <label class="text-muted small mb-0">Filtrar por origen:</label>
+      <select id="filtroOrigen" class="form-select form-select-sm" style="width:auto;" onchange="filtrarOrigen()">
+        <option value="">Todos</option>
+        <option>Meta</option>
+        <option>Google</option>
+        <option>WhatsApp</option>
+        <option>Orgánico/Referido</option>
+        <option>Directo</option>
+      </select>
+    </div>
+  </div>
+  <div class="card-body">
+    <div class="text-muted small mb-3">
+      Monto <b>cobrado</b> (comparable con lo que reporta Meta Ads). Período: {{ label_periodo }}.
+    </div>
+
+    <div class="row g-4">
+      {# Resumen por origen #}
+      <div class="col-md-5">
+        <table class="table table-sm table-hover">
+          <thead class="table-dark">
+            <tr><th>Origen</th><th class="text-end">Ventas</th><th class="text-end">Cobrado</th><th class="text-end">%</th></tr>
+          </thead>
+          <tbody>
+          {% if por_origen %}
+            {% for o in por_origen %}
+            <tr>
+              <td><span class="badge" style="background:{{ colores.get(o.origen,'#6c757d') }};">{{ o.origen }}</span></td>
+              <td class="text-end">{{ o.cantidad }}</td>
+              <td class="text-end">${{ "{:,.0f}".format(o.total).replace(",",".") }}</td>
+              <td class="text-end text-muted">{% if total_origen %}{{ "%.0f"|format(o.total / total_origen * 100) }}%{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+            <tr class="fw-bold table-light">
+              <td>Total</td>
+              <td class="text-end">{{ total_origen_ventas }}</td>
+              <td class="text-end">${{ "{:,.0f}".format(total_origen).replace(",",".") }}</td>
+              <td></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4" class="text-center text-muted py-3">Sin ventas en el período</td></tr>
+          {% endif %}
+          </tbody>
+        </table>
+      </div>
+
+      {# Detalle de ventas (filtrable por origen) #}
+      <div class="col-md-7">
+        <table class="table table-sm table-hover mb-0" id="tablaDetalle">
+          <thead class="table-dark">
+            <tr><th>Fecha</th><th>Origen</th><th class="text-end">Importe cobrado</th></tr>
+          </thead>
+          <tbody>
+          {% for d in ventas_detalle %}
+            <tr data-origen="{{ d.origen }}" data-importe="{{ d.importe }}">
+              <td>{{ d.fecha }} <span class="text-muted small">{{ d.hora }}</span></td>
+              <td><span class="badge" style="background:{{ colores.get(d.origen,'#6c757d') }};">{{ d.origen }}</span></td>
+              <td class="text-end">${{ "{:,.0f}".format(d.importe).replace(",",".") }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr class="fw-bold table-light">
+              <td colspan="2">Total <span id="lblFiltro" class="text-muted fw-normal"></span></td>
+              <td class="text-end" id="totalFiltrado"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function filtrarOrigen(){
+  var f = document.getElementById('filtroOrigen').value;
+  var rows = document.querySelectorAll('#tablaDetalle tbody tr');
+  var tot = 0, cnt = 0;
+  rows.forEach(function(r){
+    var ok = (!f || r.dataset.origen === f);
+    r.style.display = ok ? '' : 'none';
+    if(ok){ tot += parseFloat(r.dataset.importe || 0); cnt++; }
+  });
+  document.getElementById('totalFiltrado').textContent = '$' + Math.round(tot).toLocaleString('es-AR');
+  document.getElementById('lblFiltro').textContent = '(' + cnt + ' venta' + (cnt===1?'':'s') + (f ? ' · ' + f : '') + ')';
+}
+document.addEventListener('DOMContentLoaded', filtrarOrigen);
+</script>
+
 {% endblock %}

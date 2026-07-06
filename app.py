@@ -15433,6 +15433,29 @@ def _ga4_query(property_id, date_ranges, dimensions, metrics):
         return None
 
 
+def _origen_label(origen_last):
+    """Clasifica el origen de tráfico de una venta de tienda web a partir de
+    origen_last (mismo criterio que el desglose de estadísticas)."""
+    if not origen_last:
+        return 'Directo'
+    try:
+        import json as _json
+        d = _json.loads(origen_last)
+    except Exception:
+        return 'Directo'
+    src = (d.get('utm_source') or '').lower()
+    ref = (d.get('referrer') or '').lower()
+    if d.get('fbclid') or src in ('facebook', 'instagram', 'fb', 'ig', 'meta'):
+        return 'Meta'
+    if d.get('gclid') or src in ('google', 'adwords', 'google_ads', 'googleads'):
+        return 'Google'
+    if src in ('whatsapp', 'wa', 'whatsapp_bot', 'whatsapp_humano') or 'whatsapp' in ref or 'wa.me' in ref:
+        return 'WhatsApp'
+    if ref:
+        return 'Orgánico/Referido'
+    return 'Directo'
+
+
 @app.route('/agencia')
 @login_required
 def agencia_dashboard():
@@ -15463,7 +15486,8 @@ def agencia_dashboard():
     elif periodo == 'custom' and fecha_desde_custom and fecha_hasta_custom:
         fecha_desde = fecha_desde_custom
         fecha_hasta = fecha_hasta_custom
-        label_periodo = f'{fecha_desde_custom} → {fecha_hasta_custom}'
+        _dd = lambda s: '/'.join(reversed(s.split('-'))) if s and s.count('-') == 2 else s
+        label_periodo = f'{_dd(fecha_desde_custom)} → {_dd(fecha_hasta_custom)}'
     else:  # 30d default
         fecha_desde = (hoy - timedelta(days=29)).strftime('%Y-%m-%d')
         fecha_hasta = hoy.strftime('%Y-%m-%d')
@@ -15496,6 +15520,35 @@ def agencia_dashboard():
         ORDER BY total_unidades DESC
         LIMIT 8
     """, (fecha_desde, fecha_hasta))
+
+    # ── Origen de las ventas (tienda web) — Meta/Google/WhatsApp/Orgánico/Directo ──
+    _ventas_origen = query_db("""
+        SELECT v.id, v.fecha_venta, v.importe_abonado, v.origen_last
+        FROM ventas v
+        WHERE v.canal = 'tienda_web'
+          AND v.estado_entrega != 'cancelada'
+          AND DATE(v.fecha_venta) BETWEEN %s AND %s
+        ORDER BY v.fecha_venta DESC
+    """, (fecha_desde, fecha_hasta))
+    _orden_or = {'Meta': 0, 'Google': 1, 'WhatsApp': 2, 'Orgánico/Referido': 3, 'Directo': 4}
+    _agg_or = {}
+    ventas_detalle = []
+    for _v in (_ventas_origen or []):
+        _lbl = _origen_label(_v.get('origen_last'))
+        _ab = float(_v.get('importe_abonado') or 0)
+        _a = _agg_or.setdefault(_lbl, {'origen': _lbl, 'cantidad': 0, 'total': 0.0})
+        _a['cantidad'] += 1
+        _a['total'] += _ab
+        _fv = _v.get('fecha_venta')
+        ventas_detalle.append({
+            'fecha': _fv.strftime('%d/%m/%Y') if _fv else '',
+            'hora': _fv.strftime('%H:%M') if _fv else '',
+            'origen': _lbl,
+            'importe': _ab,
+        })
+    por_origen = sorted(_agg_or.values(), key=lambda x: _orden_or.get(x['origen'], 9))
+    total_origen = sum(a['total'] for a in por_origen)
+    total_origen_ventas = sum(a['cantidad'] for a in por_origen)
 
     # ── Datos de GA4 ──────────────────────────────────────────────────────────
     ga4_visitas = 0
@@ -15542,6 +15595,10 @@ def agencia_dashboard():
         ga4_sesiones=ga4_sesiones,
         tasa_conversion=tasa_conversion,
         fuentes=fuentes,
+        por_origen=por_origen,
+        total_origen=total_origen,
+        total_origen_ventas=total_origen_ventas,
+        ventas_detalle=ventas_detalle,
     )
 
 
