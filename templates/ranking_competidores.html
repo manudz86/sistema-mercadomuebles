@@ -17,6 +17,11 @@ table.rk th{background:#2b3140;color:#fff;font-size:11.5px}
 table.rk td.num,table.rk th.num{text-align:right;font-variant-numeric:tabular-nums}
 table.rk tr.yo td{background:#fff3cd;font-weight:700}
 table.rk tr.tot td{background:#eef2f7;font-weight:700}
+table.rk th.sortable{cursor:pointer;user-select:none}
+table.rk th.sortable:hover{background:#3a4152}
+table.rk th.sortable .ar{opacity:.35;font-size:9px}
+table.rk th.sortable.sorted{background:#6f42c1}
+table.rk th.sortable.sorted .ar{opacity:1}
 .pos{color:#8a93a0;font-variant-numeric:tabular-nums}
 .tag{font-size:10px;padding:1px 5px;border-radius:4px;background:#e9ecef;color:#495057;margin-left:4px}
 .tag.sn{background:#efe7fb;color:#6f42c1}
@@ -47,14 +52,14 @@ table.rk tr.tot td{background:#eef2f7;font-weight:700}
   </div>
 
   <!-- Ranking total (todas las categorías) -->
-  <div class="rk-h">📌 Ranking total <span style="font-size:12px;color:#8a93a0">(suma de todas las categorías)</span></div>
-  <table class="rk">
+  <div class="rk-h">📌 Ranking total <span style="font-size:12px;color:#8a93a0">(suma de todas las categorías · clic en una columna para ordenar por esa categoría)</span></div>
+  <table class="rk" id="tbTotal">
     <thead><tr><th class="num">#</th><th>Vendedor</th>
-      {% for t in data.cats_presentes %}<th class="num">{{ data.cat_lbl[t] }}</th>{% endfor %}
-      <th class="num">TOTAL</th><th class="num">%</th><th class="num">Unid.</th></tr></thead>
+      {% for t in data.cats_presentes %}<th class="num sortable" onclick="sortRk('{{ t }}',this)">{{ data.cat_lbl[t] }} <span class="ar">▾</span></th>{% endfor %}
+      <th class="num sortable sorted" onclick="sortRk('total',this)">TOTAL <span class="ar">▾</span></th><th class="num">%</th><th class="num sortable" onclick="sortRk('unid',this)">Unid. <span class="ar">▾</span></th></tr></thead>
     <tbody>
     {% for v in data.total %}
-      <tr class="{{ 'yo' if v.yo else '' }}">
+      <tr class="{{ 'yo' if v.yo else '' }}" data-total="{{ v.gmv|round|int }}" data-unid="{{ v.u }}"{% for t in data.cats_presentes %} data-{{ t }}="{{ (v.cat[t].gmv or 0)|round|int }}"{% endfor %}>
         <td class="pos num">{{ v.pos }}</td>
         <td>{{ v.nombre }}{% if v.yo %} <span class="tag">vos</span>{% elif not v.nombrado %}<span class="tag sn">sin nombre</span>{% endif %}</td>
         {% for t in data.cats_presentes %}
@@ -89,6 +94,17 @@ table.rk tr.tot td{background:#eef2f7;font-weight:700}
       </tbody>
     </table>
   {% endfor %}
+
+  <script>
+  function sortRk(key, th){
+    var tb = document.getElementById('tbTotal').tBodies[0];
+    var rows = Array.prototype.slice.call(tb.rows);
+    rows.sort(function(a,b){ return (parseFloat(b.dataset[key]||0) - parseFloat(a.dataset[key]||0)); });
+    rows.forEach(function(r,i){ tb.appendChild(r); r.cells[0].textContent = i+1; });
+    th.parentNode.querySelectorAll('th.sortable').forEach(function(h){ h.classList.remove('sorted'); });
+    th.classList.add('sorted');
+  }
+  </script>
 
   {% else %}
   <div class="rk-note bad">No hay datos para este mes{% if err %}: {{ err }}{% endif %}. Subí los JSON desde la página de Competencia V2.</div>
