@@ -615,7 +615,7 @@ def bot_precios_chat():
         resp = client.messages.create(
             model='claude-sonnet-4-5',
             max_tokens=4096,
-            system=SYSTEM,
+            system=[{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
             tools=TOOLS,
             messages=messages
         )

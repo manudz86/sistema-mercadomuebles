@@ -1047,7 +1047,10 @@ def procesar_mensaje(phone, texto):
 
     # Extraer contexto acumulado e inyectarlo al system prompt
     ctx_acumulado = _extraer_contexto(historial[:-1])  # sin el último mensaje del usuario
-    system = get_system_prompt() + ctx_acumulado
+    _sys_estatico = get_system_prompt()
+    system = [{"type": "text", "text": _sys_estatico, "cache_control": {"type": "ephemeral"}}]
+    if ctx_acumulado:
+        system.append({"type": "text", "text": ctx_acumulado})
 
     try:
         resp = anthropic.messages.create(
