@@ -15,6 +15,11 @@
 table.vc{border-collapse:collapse;width:100%;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}
 table.vc th,table.vc td{padding:6px 8px;text-align:left;border-bottom:1px solid #eef0f3;white-space:nowrap;font-size:12px}
 table.vc th{background:#2b3140;color:#fff;position:sticky;top:0;z-index:5;font-size:11px}
+table.vc th.sortable{cursor:pointer;user-select:none}
+table.vc th.sortable:hover{background:#3a4152}
+table.vc th.sortable::after{content:' \2195';opacity:.35;font-size:10px}
+table.vc th.sorted-asc::after{content:' \2191';opacity:1}
+table.vc th.sorted-desc::after{content:' \2193';opacity:1}
 table.vc td{overflow:hidden;text-overflow:ellipsis;max-width:220px}
 td.num{text-align:right;font-variant-numeric:tabular-nums}
 td.sku{font-family:ui-monospace,monospace;font-weight:700;color:#334}
@@ -65,11 +70,11 @@ td.mio{font-weight:700}td.diff{font-weight:800;text-align:right}
   <div class="tbox"><table class="vc" id="tabla">
     <thead><tr>
       <th>Día</th><th>Producto</th><th>Modelo</th><th>Medida</th><th>SKU</th><th>Cuota</th>
-      <th>U</th><th>GMV</th><th>Precio vendido</th><th>Precio actual {{ vendor_nombre }}</th><th>MI precio</th><th>Δ%</th>
+      <th class="sortable" onclick="sortBy('u',this)">U</th><th class="sortable" onclick="sortBy('gmv',this)">GMV</th><th>Precio vendido</th><th>Precio actual {{ vendor_nombre }}</th><th>MI precio</th><th class="sortable" onclick="sortBy('d',this)">Δ%</th>
     </tr></thead>
     <tbody>
     {% for r in rows %}
-    <tr data-dia="{{ r.dia }}" data-modelo="{{ r.model }}" data-medida="{{ r.medida }}" data-tier="{{ r.tier_lbl }}" data-prod="{{ (r.title ~ ' ' ~ r.sku)|lower }}" data-u="{{ r.u }}" data-gmv="{{ r.gmv|int }}">
+    <tr data-dia="{{ r.dia }}" data-modelo="{{ r.model }}" data-medida="{{ r.medida }}" data-tier="{{ r.tier_lbl }}" data-prod="{{ (r.title ~ ' ' ~ r.sku)|lower }}" data-u="{{ r.u }}" data-gmv="{{ r.gmv|int }}" data-d="{{ '%.2f'|format(r.d) if r.d is not none else '' }}">
       <td>{{ r.dia }}</td>
       <td class="prod" title="{{ r.title_full }}" style="cursor:help">{{ r.title }}</td>
       <td>{{ r.model }}</td>
@@ -102,6 +107,26 @@ td.mio{font-weight:700}td.diff{font-weight:800;text-align:right}
   }
   var fdia=document.getElementById('fdia'),fmodelo=document.getElementById('fmodelo'),fmedida=document.getElementById('fmedida'),ftier=document.getElementById('ftier'),fprod=document.getElementById('fprod'),cont=document.getElementById('cont');
   fil();
+
+  // Ordenar por columna (U, GMV, Δ%) — respeta los filtros activos (no cambia qué filas se ven)
+  var _sortState={key:null,dir:-1};
+  function sortBy(key, th){
+    var tb=document.querySelector('#tabla tbody');
+    var rows=Array.prototype.slice.call(tb.querySelectorAll('tr'));
+    if(_sortState.key===key){ _sortState.dir*=-1; } else { _sortState.key=key; _sortState.dir=-1; }
+    var dir=_sortState.dir;
+    rows.sort(function(a,b){
+      var va=parseFloat(a.dataset[key]), vb=parseFloat(b.dataset[key]);
+      var na=isNaN(va), nb=isNaN(vb);
+      if(na&&nb) return 0;
+      if(na) return 1;      // filas sin valor (ej. sin Δ) siempre al final
+      if(nb) return -1;
+      return (va-vb)*dir;
+    });
+    rows.forEach(function(r){ tb.appendChild(r); });
+    document.querySelectorAll('#tabla th.sortable').forEach(function(h){ h.classList.remove('sorted-asc','sorted-desc'); });
+    th.classList.add(dir<0?'sorted-desc':'sorted-asc');
+  }
   </script>
 </div>
 {% endblock %}
