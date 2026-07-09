@@ -438,7 +438,7 @@ def get_productos_context():
         stock_txt = estado_stock(p['stock_actual'], p.get('linea'), p.get('tipo'), p.get('modelo'))
         link = f"https://www.mercadomuebles.com.ar/tienda/producto/{p['sku']}?utm_source=whatsapp&utm_medium=bot"
         if desc > 0:
-            precio_str = f"Web: ${pf:,} (-{int(desc)}%) | Local: ${precio_lista:,}"
+            precio_str = f"Web: ${pf:,} (-{int(desc)}%) | Lista: ${precio_lista:,}"
         else:
             precio_str = f"Precio: ${pf:,}"
         lines.append(
@@ -456,16 +456,6 @@ def get_productos_context():
             cuota_12 = round(total_12 / 12)
             cuotas_web += f" | 12 fijas de ${cuota_12:,} (total ${total_12:,})"
         lines.append(cuotas_web)
-        # Cuotas sobre precio de lista (solo si hay diferencia)
-        if desc > 0:
-            total_3l = round(precio_lista * coef_3)
-            total_6l = round(precio_lista * coef_6)
-            cuota_3l = round(total_3l / 3)
-            cuota_6l = round(total_6l / 6)
-            lines.append(
-                f"  Cuotas Local: 3 fijas de ${cuota_3l:,} (total ${total_3l:,}) | "
-                f"6 fijas de ${cuota_6l:,} (total ${total_6l:,})"
-            )
 
     lines.append("\n--- SOMMIERS / CONJUNTOS (colchón + base) ---")
     for p in sommiers:
@@ -477,7 +467,7 @@ def get_productos_context():
         stock_txt = estado_stock(p['stock_actual'], p.get('_comp_linea'), p.get('_comp_tipo'), p.get('_comp_modelo'))
         link = f"https://www.mercadomuebles.com.ar/tienda/producto/{p['sku']}?utm_source=whatsapp&utm_medium=bot"
         if desc > 0:
-            precio_str = f"Web: ${pf:,} (-{int(desc)}%) | Local: ${precio_lista:,}"
+            precio_str = f"Web: ${pf:,} (-{int(desc)}%) | Lista: ${precio_lista:,}"
         else:
             precio_str = f"Precio: ${pf:,}"
         lines.append(
@@ -495,16 +485,6 @@ def get_productos_context():
             cuota_12 = round(total_12 / 12)
             cuotas_web += f" | 12 fijas de ${cuota_12:,} (total ${total_12:,})"
         lines.append(cuotas_web)
-        # Cuotas sobre precio de lista (solo si hay diferencia)
-        if desc > 0:
-            total_3l = round(precio_lista * coef_3)
-            total_6l = round(precio_lista * coef_6)
-            cuota_3l = round(total_3l / 3)
-            cuota_6l = round(total_6l / 6)
-            lines.append(
-                f"  Cuotas Local: 3 fijas de ${cuota_3l:,} (total ${total_3l:,}) | "
-                f"6 fijas de ${cuota_6l:,} (total ${total_6l:,})"
-            )
 
     # Almohadas — sección separada, sin cuotas (productos accesorios)
     if almohadas:
@@ -638,15 +618,13 @@ COTIZACIONES:
 - Cuando cotices cuotas, usá este formato exacto: "3 cuotas fijas de $XX.XXX (total $XXX.XXX)", "6 cuotas fijas de $XX.XXX (total $XXX.XXX)" o "12 cuotas fijas de $XX.XXX (total $XXX.XXX)". Cotizá SOLO las cuotas que figuran en el contexto de cada producto (las 12 cuotas son solo online). NO menciones la marca del procesador de pagos (no digas Payway, GetNet, ni ningún nombre similar).
 - Si el cliente pregunta por cuotas sin interés: explicá que las cuotas son fijas (el importe no varía cuota a cuota). No menciones ni confirmes ni niegues si tienen interés embebido.
 
-PRECIO WEB vs PRECIO LOCAL (REGLA CRÍTICA):
-- Cada producto tiene DOS precios cuando hay descuento: "Web" (online, con descuento) y "Local" (presencial, precio de lista sin descuento).
-- Los descuentos de catálogo y ofertas SOLO aplican a compras online a través de la tienda web. NO se aplican a compras presenciales en el local.
-- Las cuotas se calculan sobre el precio que corresponda: cuotas Web sobre precio Web, cuotas Local sobre precio Local.
-- POR DEFAULT cotizá precio Web y cuotas Web (la mayoría de las consultas son online).
-- Cotizá precio Local y cuotas Local SOLO si el cliente menciona explícitamente: "en el local", "presencial", "ir a comprar", "retirar y pagar ahí", "comprar en persona", "pagar en efectivo en el local".
-- Si el cliente pregunta directamente "¿cuánto sale en el local?" o similar, aclarale: "En el local el precio es $X (precio de lista, los descuentos online no aplican en compra presencial). Con tarjeta, 3 cuotas fijas de $Y... o 6 cuotas fijas de $Z..."
-- Si el cliente cotiza online y después dice que va a ir al local, aclarale el cambio de precio antes de que se confunda.
-- NUNCA digas que el precio web y el precio del local son iguales si el producto tiene descuento. NO son iguales.
+PRECIOS (REGLA CRÍTICA):
+- Cada producto tiene un "precio de lista" (sale de costos) y un "precio con descuento". El descuento sale de la base de datos, es por producto, y aplica ÚNICAMENTE en la tienda web.
+- SIEMPRE cotizá el precio CON descuento: es el que ve y paga el cliente en la web, y es nuestro MENOR precio. Ese número YA tiene el descuento aplicado — NUNCA le restes otro descuento ni inventes un precio más bajo.
+- Podés mencionar el precio de lista solo para mostrar el ahorro, con los números EXACTOS del contexto (ej: "de $436.000 baja a $405.480 con el descuento web"). Nunca inventes montos.
+- El precio con descuento aplica a TODOS los pagos online: contado, 1 pago con tarjeta o en cuotas. "1 pago con tarjeta" NO es "precio de lista".
+- NUNCA menciones ni cotices un precio del local físico (puede variar y no lo tenés). Si preguntan cuánto sale en el local, decíles que el precio del local se consulta presencialmente, pasales la dirección y el horario del local, y aclarales que nuestro MENOR precio es el online en la tienda web.
+- Las cuotas (3/6/12) son formas de financiación, NO descuentos. No confundas "12 cuotas" con un "12%".
 
 LINK DE LA TIENDA:
 - Los links de cada producto ya vienen etiquetados en el contexto: pasalos TAL CUAL, no les recortes la parte de "?utm_source=...".
@@ -683,7 +661,6 @@ MEDIOS DE PAGO:
 - MercadoPago (online en la tienda web): todas las formas (débito, crédito, transferencia, PagoFácil/RapiPago).
 - Tarjeta de crédito Visa o Mastercard bancarizadas: 3 o 6 cuotas fijas (online y en el local) y 12 cuotas fijas (solo online), sin mencionar la marca del procesador de pagos.
 - En el local también se acepta efectivo y transferencia.
-- Recordá: los descuentos online NO aplican en compras presenciales (solo el precio de lista).
 
 HORARIO: {horario_txt}
 
