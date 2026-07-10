@@ -7710,6 +7710,11 @@ def privacidad():
     from flask import render_template
     return render_template('tienda/privacidad.html', carrito_count=len(session.get('carrito', [])))
 
+@tienda_bp.route('/envios')
+def envios():
+    from flask import render_template
+    return render_template('tienda/envios.html', carrito_count=len(session.get('carrito', [])))
+
 @tienda_bp.route('/devoluciones')
 def devoluciones():
     from flask import render_template

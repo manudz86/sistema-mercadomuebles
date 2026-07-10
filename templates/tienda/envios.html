@@ -1,0 +1,92 @@
+{% extends "tienda/base.html" %}
+{% block titulo %}Envíos y entregas | Mercadomuebles{% endblock %}
+{% block contenido %}
+
+<style>
+  .legal-container {
+    max-width: 820px;
+    margin: 40px auto;
+    padding: 0 20px 60px;
+    color: #333;
+    font-family: inherit;
+    line-height: 1.75;
+  }
+  .legal-container h1 {
+    font-size: 2rem;
+    font-weight: 800;
+    color: #1a1a2e;
+    margin-bottom: 6px;
+  }
+  .legal-container .subtitulo {
+    font-size: 0.9rem;
+    color: #888;
+    margin-bottom: 36px;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 16px;
+  }
+  .legal-container h2 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin-top: 32px;
+    margin-bottom: 8px;
+  }
+  .legal-container p {
+    margin-bottom: 14px;
+    font-size: 0.95rem;
+  }
+  .legal-container ul {
+    padding-left: 20px;
+    margin-bottom: 14px;
+    font-size: 0.95rem;
+  }
+  .legal-container ul li {
+    margin-bottom: 6px;
+  }
+  .legal-container a {
+    color: #1a1a2e;
+    text-decoration: underline;
+  }
+  .legal-highlight {
+    background: #f7f7f7;
+    border-left: 3px solid #1a1a2e;
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 20px 0;
+    font-size: 0.92rem;
+    color: #555;
+  }
+</style>
+
+<div class="legal-container">
+
+  <h1>Envíos y entregas</h1>
+  <p class="subtitulo">Mercadomuebles · Última actualización: julio de 2026</p>
+
+  <p>En esta página te explicamos cómo funcionan nuestras entregas para que sepas qué esperar según tu zona y la modalidad de envío.</p>
+
+  <h2>Fechas de entrega</h2>
+  <p>Las fechas que se muestran en el checkout son <strong>estimativas</strong>. Dependen del tiempo de preparación del pedido y de los plazos del transporte, por lo que <strong>pueden variar</strong> y no constituyen una fecha garantizada. Ante cualquier demora, nos comunicamos con vos.</p>
+
+  <h2>Envíos al interior del país</h2>
+  <p>Los pedidos con destino fuera del AMBA se despachan a través de <strong>empresas de transporte (expresos)</strong>. Una vez despachado tu pedido, te enviamos el <strong>link de seguimiento del expreso</strong> por el cual se realizó el despacho, para que puedas seguir el estado de tu envío directamente con la empresa de transporte. Los plazos de entrega dependen del expreso y del destino.</p>
+
+  <h2>Envíos en AMBA (CABA y Gran Buenos Aires)</h2>
+  <p>En el AMBA la entrega se realiza con <strong>flete propio</strong>. La entrega es <strong>hasta la puerta de la calle (planta baja)</strong> del domicilio indicado.</p>
+
+  <div class="legal-highlight">
+    El flete <strong>NO ingresa al domicilio ni sube el producto</strong> a pisos, departamentos ni por escaleras o ascensor. El servicio de subida o acarreo dentro del domicilio <strong>no está incluido y no lo proveemos</strong>.
+  </div>
+
+  <p>Si necesitás que el producto se suba o ingrese, deberás <strong>coordinar por tu cuenta un servicio de flete adicional, retirando el producto desde nuestro local</strong>.</p>
+
+  <h2>Retiro en el local</h2>
+  <p>Podés retirar tu compra <strong>sin costo</strong> en nuestro local:</p>
+  <p>📍 Bahía Blanca 1777, Floresta, CABA<br>
+     🕘 Lunes a viernes de 8 a 12 y de 14 a 16.30 hs.</p>
+
+  <h2>Consultas</h2>
+  <p>Ante cualquier duda sobre tu envío, escribinos por WhatsApp y te ayudamos.</p>
+
+</div>
+{% endblock %}
