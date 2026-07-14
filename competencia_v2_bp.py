@@ -608,12 +608,13 @@ def _ventas_detalle(periodo, vendor):
             if tipo == 'almohada':
                 # match por modelo; el competidor puede vender packs → comparo por unidad
                 sku, pack = _match_almohada(title_full, mis)
+                tier = _inst_to_tier(r.get('installments')) or 'sin'  # cuota real (igual que colchones/sommiers)
                 comp_u = (pvend / pack) if pack else pvend
                 mio = alm_precios.get(sku) if sku else None
                 d = ((mio / comp_u - 1) * 100) if (comp_u and mio) else None
                 base.update({'model': r.get('model') or 'Almohada',
                     'medida': (f"pack x{pack}" if pack > 1 else 'unidad'),
-                    'sku': sku or '—', 'tier': 'sin', 'tier_lbl': TIER_LBL['sin'],
+                    'sku': sku or '—', 'tier': tier, 'tier_lbl': TIER_LBL.get(tier, '?'),
                     'comp': comp_u, 'mio': mio, 'fu': ('catálogo' if mio else None), 'd': d,
                     'dtxt': (f"{d:+.0f}%" if d is not None else None),
                     'cls': (_dcls(d) if d is not None else '')})
