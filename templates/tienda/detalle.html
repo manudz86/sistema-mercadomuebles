@@ -133,11 +133,13 @@
 
       {% if cuotas %}
       <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+        {% if cuota_3_activa %}
         <div style="flex:1; min-width:130px; background:#f8f8f8; border:1px solid #e8e8e8; border-radius:8px; padding:10px 14px;">
           <div style="font-size:0.75rem; color:#888; margin-bottom:2px;">3 cuotas de</div>
           <div style="font-size:1.05rem; font-weight:700; color:#1a1a2e;">{{ cuotas['3'].cuota }}</div>
           <div style="font-size:0.72rem; color:#aaa; margin-top:2px;">Total {{ cuotas['3'].total }}</div>
         </div>
+        {% endif %}
         <div style="flex:1; min-width:130px; background:#f8f8f8; border:1px solid #e8e8e8; border-radius:8px; padding:10px 14px;">
           <div style="font-size:0.75rem; color:#888; margin-bottom:2px;">6 cuotas de</div>
           <div style="font-size:1.05rem; font-weight:700; color:#1a1a2e;">{{ cuotas['6'].cuota }}</div>

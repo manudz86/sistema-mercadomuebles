@@ -2185,6 +2185,34 @@ def calc_cuotas(precio, coef_3, coef_6, coef_12=1.6):
     }
 
 
+def payway_cuotas_activo():
+    """True si el medio 'Payway 3 cuotas' está activo (default ON, siempre se mostró)."""
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("SELECT valor FROM configuracion WHERE clave='payway_enabled'")
+        row = cur.fetchone()
+        cur.close(); db.close()
+        return (row['valor'] == '1') if row else True
+    except Exception:
+        return True
+
+
+def hay_3cuotas_activo():
+    """True si hay algún medio de 3 cuotas activo (Payway o MercadoPago 3)."""
+    return payway_cuotas_activo() or mp_3_cuotas_activo()
+
+
+def calc_cuotas_producto(precio):
+    """calc_cuotas para la página de producto: la de '3 cuotas' usa el MENOR
+    coeficiente entre los medios de 3 cuotas ACTIVOS (Payway 3c / MercadoPago 3c)."""
+    c3, c6 = get_coeficientes_cuotas()
+    coefs = []
+    if payway_cuotas_activo(): coefs.append(c3)
+    if mp_3_cuotas_activo():   coefs.append(get_coef_mp3())
+    c3_ef = min(coefs) if coefs else c3
+    return calc_cuotas(precio, c3_ef, c6, get_coef_12())
+
+
 def sku_colchon_a_conjunto(sku):
     """CEX140 → SEX140, CDO80 → SDO80, etc."""
     if sku and sku[0] == 'C':
@@ -3057,8 +3085,9 @@ def detalle(sku_url):
                 'item_category': prod_simple['tipo'],
                 'price': precio_venta_s,
             },
-            cuotas = calc_cuotas(precio_venta_s, *get_coeficientes_cuotas(), get_coef_12()),
+            cuotas = calc_cuotas_producto(precio_venta_s),
             mp_12_enabled = mp_12_cuotas_activo(),
+            cuota_3_activa = hay_3cuotas_activo(),
         )
 
     cursor.execute("""
@@ -3226,8 +3255,9 @@ def detalle(sku_url):
             'item_category': producto.get('linea', ''),
             'price':         float(producto.get('precio', 0)),
         },
-        cuotas = calc_cuotas(float(producto.get('precio', 0)), *get_coeficientes_cuotas(), get_coef_12()),
+        cuotas = calc_cuotas_producto(float(producto.get('precio', 0))),
         mp_12_enabled = mp_12_cuotas_activo(),
+        cuota_3_activa = hay_3cuotas_activo(),
     )
 
 # ── CARRITO ────────────────────────────────────────────────────────────────────
