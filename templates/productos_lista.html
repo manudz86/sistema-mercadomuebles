@@ -95,6 +95,11 @@
             <input type="number" id="coef-12-input" class="form-control" min="1" max="3" step="0.01"
                    value="{{ cuotas_12_coef }}" placeholder="1.6">
           </div>
+          <div class="input-group input-group-sm" style="width:175px">
+            <span class="input-group-text">3c (MP) ×</span>
+            <input type="number" id="coef-mp3-input" class="form-control" min="1" max="3" step="0.01"
+                   value="{{ cuotas_mp3_coef }}" placeholder="1.18">
+          </div>
           <button id="btn-coef-guardar" class="btn btn-sm btn-success">Guardar</button>
           <span id="coef-status" class="small ms-1 text-muted">
             ✅ 3c: +{{ ((cuotas_3_coef - 1) * 100) | round(1) }}% / 6c: +{{ ((cuotas_6_coef - 1) * 100) | round(1) }}% / 12c: +{{ ((cuotas_12_coef - 1) * 100) | round(1) }}%
@@ -122,6 +127,11 @@
             <input class="form-check-input medio-toggle" type="checkbox" role="switch"
                    id="toggle-mp12" data-clave="mp_12_enabled" {% if mp_12_enabled %}checked{% endif %}>
             <label class="form-check-label small" for="toggle-mp12">MercadoPago 12 cuotas</label>
+          </div>
+          <div class="form-check form-switch m-0">
+            <input class="form-check-input medio-toggle" type="checkbox" role="switch"
+                   id="toggle-mp3" data-clave="mp_3_enabled" {% if mp_3_enabled %}checked{% endif %}>
+            <label class="form-check-label small" for="toggle-mp3">MercadoPago 3 cuotas</label>
           </div>
           <span id="medio-status" class="small ms-1 text-muted"></span>
         </div>
@@ -453,10 +463,12 @@ document.getElementById('btn-coef-guardar').addEventListener('click', function()
   const coef3 = document.getElementById('coef-3-input').value;
   const coef6 = document.getElementById('coef-6-input').value;
   const coef12 = document.getElementById('coef-12-input').value;
+  const coefmp3 = document.getElementById('coef-mp3-input').value;
   const fd = new FormData();
   fd.append('coef_3', coef3);
   fd.append('coef_6', coef6);
   fd.append('coef_12', coef12);
+  fd.append('coef_mp3', coefmp3);
   fetch('/productos/cuotas-coeficientes', { method: 'POST', body: fd })
     .then(r => r.json())
     .then(data => {

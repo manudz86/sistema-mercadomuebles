@@ -2147,6 +2147,32 @@ def mp_12_cuotas_activo():
         return False
 
 
+def get_coef_mp3():
+    """Coeficiente de recargo para 3 cuotas MercadoPago. Default 1.18."""
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("SELECT valor FROM configuracion WHERE clave='cuotas_mp3_coef'")
+        row = cur.fetchone()
+        cur.close(); db.close()
+        if row and row['valor']:
+            return float(row['valor'])
+    except Exception:
+        pass
+    return 1.18
+
+
+def mp_3_cuotas_activo():
+    """True si el medio 'MercadoPago 3 cuotas' está activo (flag en configuracion)."""
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("SELECT valor FROM configuracion WHERE clave='mp_3_enabled'")
+        row = cur.fetchone()
+        cur.close(); db.close()
+        return bool(row and row['valor'] == '1')
+    except Exception:
+        return False
+
+
 def calc_cuotas(precio, coef_3, coef_6, coef_12=1.6):
     """Devuelve dict con info de cuotas para mostrar en detalle del producto."""
     total_3  = round(precio * coef_3)
@@ -4840,6 +4866,68 @@ def checkout():
             except Exception as _e12:
                 logger.warning(f"[checkout] no se pudo crear preference 12 cuotas: {_e12}")
 
+        # ── MP 3 cuotas (recargo) — flag + coeficiente + preference para mobile ──
+        mp_3_enabled = False
+        try:
+            _db_m3  = get_db()
+            _cur_m3 = _db_m3.cursor()
+            _cur_m3.execute("INSERT IGNORE INTO configuracion (clave, valor) VALUES ('mp_3_enabled', '0')")
+            _db_m3.commit()
+            _cur_m3.execute("SELECT valor FROM configuracion WHERE clave = 'mp_3_enabled'")
+            _row_m3 = _cur_m3.fetchone()
+            mp_3_enabled = bool(_row_m3 and _row_m3['valor'] == '1')
+            _cur_m3.execute("SELECT valor FROM configuracion WHERE clave = 'cuotas_mp3_coef'")
+            _row_cm3 = _cur_m3.fetchone()
+            _cur_m3.close()
+            _db_m3.close()
+        except Exception:
+            _row_cm3 = None
+        coef_mp3  = float(_row_cm3['valor']) if _row_cm3 and _row_cm3['valor'] else 1.18
+        total_mp3 = round(total_a_pagar * coef_mp3)
+        session['total_mp3'] = total_mp3  # monto autoritativo para /pago/ejecutar-3-mp
+
+        preference_id_mp3 = None
+        init_point_mp3    = None
+        if mp_3_enabled:
+            pref_mp3 = {
+                'items': [{
+                    'title':       'Compra en 3 cuotas',
+                    'quantity':    1,
+                    'unit_price':  float(total_mp3),
+                    'currency_id': 'ARS',
+                }],
+                'back_urls': {
+                    'success': f"{base_url}/tienda/pago/exito",
+                    'failure': f"{base_url}/tienda/pago/error",
+                    'pending': f"{base_url}/tienda/pago/pendiente",
+                },
+                'auto_return':          'approved',
+                'notification_url':     f"{base_url}/tienda/webhook/mp",
+                'statement_descriptor': 'MERCADOMUEBLES',
+                'external_reference':   pedido_ref,
+                'payer':                payer_data,
+                'payment_methods': {
+                    'installments':         3,
+                    'default_installments': 3,
+                    'excluded_payment_types': [
+                        {'id': 'ticket'}, {'id': 'atm'}, {'id': 'debit_card'},
+                        {'id': 'bank_transfer'}, {'id': 'prepaid_card'},
+                    ],
+                    'excluded_payment_methods': [
+                        {'id': 'amex'}, {'id': 'naranja'}, {'id': 'cabal'}, {'id': 'maestro'},
+                        {'id': 'cencosud'}, {'id': 'cordobesa'}, {'id': 'argencard'},
+                        {'id': 'diners'}, {'id': 'tarshop'}, {'id': 'cmr'},
+                    ],
+                },
+            }
+            try:
+                _res_m3  = sdk.preference().create(pref_mp3)
+                _pref_m3 = _res_m3.get('response', {}) or {}
+                preference_id_mp3 = _pref_m3.get('id')
+                init_point_mp3    = _pref_m3.get('init_point')
+            except Exception as _em3:
+                logger.warning(f"[checkout] no se pudo crear preference 3 cuotas MP: {_em3}")
+
         return render_template(
             'tienda/checkout_bricks.html',
             preference_id    = preference['id'],
@@ -4866,6 +4954,12 @@ def checkout():
             total_12_fmt     = format_price(total_12),
             preference_id_12 = preference_id_12,
             init_point_12    = init_point_12,
+            mp_3_enabled     = mp_3_enabled,
+            total_mp3        = total_mp3,
+            cuota_mp3_fmt    = format_price(total_mp3 / 3),
+            total_mp3_fmt    = format_price(total_mp3),
+            preference_id_mp3 = preference_id_mp3,
+            init_point_mp3   = init_point_mp3,
         )
 
     return redirect(preference['init_point'])
@@ -5051,6 +5145,87 @@ def pago_ejecutar_12():
     except Exception as e:
         safe_payload = {k: v for k, v in payment_data.items() if k not in ('token',)}
         logger.error(f"[pago_ejecutar_12] Excepcion: {e} payload={json.dumps(safe_payload, ensure_ascii=False, default=str)[:1000]}", exc_info=True)
+        return jsonify({'status': 'error', 'redirect_url': f"{base_url}/tienda/pago/error"}), 500
+
+
+@tienda_bp.route('/pago/ejecutar-3-mp', methods=['POST'])
+def pago_ejecutar_3_mp():
+    """Checkout Bricks — pago MP en 3 cuotas (con recargo). El monto y las
+    cuotas son autoritativos del server. Registra por el webhook /webhook/mp."""
+    data       = request.get_json() or {}
+    sdk        = get_mp_sdk()
+    base_url   = os.getenv('APP_BASE_URL', 'https://sistema.mercadomuebles.com.ar')
+    pedido_ref = session.get('pedido_ref_bricks', '')
+    total_mp3  = float(session.get('total_mp3', 0) or 0)
+
+    if total_mp3 <= 0:
+        return jsonify({'ok': False,
+                        'error': 'Sesión sin total; volvé a iniciar el checkout.',
+                        'redirect': '/carrito'}), 400
+
+    # Defensa: no cobrar si falta la cotización de envío (igual que pago_ejecutar)
+    if pedido_ref:
+        _db_chk  = get_db()
+        _cur_chk = _db_chk.cursor()
+        _cur_chk.execute("SELECT cliente_json FROM pedidos_pendientes WHERE ref = %s", (pedido_ref,))
+        _row_chk = _cur_chk.fetchone()
+        _cur_chk.close()
+        _db_chk.close()
+        if _row_chk:
+            _cli_chk = json.loads(_row_chk['cliente_json'])
+            if _cli_chk.get('tipo_entrega', 'envio') == 'envio' and not _cli_chk.get('zipnova_quote'):
+                return jsonify({'ok': False,
+                    'error': 'No se encontró la cotización de envío. Volvé al paso de datos y cotizá el envío antes de pagar.',
+                    'redirect': '/datos-envio'}), 400
+
+    payment_data = {
+        'transaction_amount':   total_mp3,    # autoritativo del server (con recargo)
+        'payment_method_id':    data.get('payment_method_id', ''),
+        'installments':         3,            # forzado
+        'payer':                data.get('payer', {}),
+        'external_reference':   pedido_ref,
+        'notification_url':     f"{base_url}/tienda/webhook/mp",
+        'statement_descriptor': 'MERCADOMUEBLES',
+    }
+    if data.get('token'):
+        payment_data['token'] = data['token']
+    if data.get('issuer_id'):
+        payment_data['issuer_id'] = data['issuer_id']
+
+    try:
+        result    = sdk.payment().create(payment_data)
+        http_code = result.get('status')
+        payment   = result.get('response', {}) or {}
+        status    = payment.get('status', 'error')
+        pid       = payment.get('id', '')
+        logger.info(f"[pago_ejecutar_3_mp] http={http_code} status={status} pid={pid} ref={pedido_ref} monto={total_mp3}")
+
+        if status == 'approved':
+            session.pop('carrito', None)
+            session.pop('mp_preference_id', None)
+            session.pop('pedido_ref_bricks', None)
+            session.pop('total_mp3', None)
+            return jsonify({
+                'status':       'approved',
+                'redirect_url': f"{base_url}/tienda/pago/exito?payment_id={pid}&status=approved",
+            })
+        elif status in ('in_process', 'pending', 'authorized'):
+            return jsonify({
+                'status':       'pending',
+                'redirect_url': f"{base_url}/tienda/pago/pendiente?payment_id={pid}&status={status}",
+            })
+        else:
+            detail = payment.get('status_detail', '')
+            safe_payload = {k: v for k, v in payment_data.items() if k not in ('token',)}
+            logger.warning(
+                f"[pago_ejecutar_3_mp] no aprobado: http={http_code} status={status} detail={detail} pid={pid} "
+                f"mp_response={json.dumps(payment, ensure_ascii=False, default=str)[:1500]} "
+                f"payload={json.dumps(safe_payload, ensure_ascii=False, default=str)[:1000]}"
+            )
+            return jsonify({'status': status, 'redirect_url': f"{base_url}/tienda/pago/error"}), 400
+    except Exception as e:
+        safe_payload = {k: v for k, v in payment_data.items() if k not in ('token',)}
+        logger.error(f"[pago_ejecutar_3_mp] Excepcion: {e} payload={json.dumps(safe_payload, ensure_ascii=False, default=str)[:1000]}", exc_info=True)
         return jsonify({'status': 'error', 'redirect_url': f"{base_url}/tienda/pago/error"}), 500
 
 
