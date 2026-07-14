@@ -373,8 +373,9 @@ def _construir(periodo, vendedor):
                 P = productos[key] = {'sku': sku, 'tipo': tipo, 'model': r.get('model'),
                     'w': w, 'u': 0, 'gmv': 0.0, 'cuota_u': defaultdict(int),
                     'pjson': defaultdict(list), 'prov_cat': r.get('catalog_product_id'),
-                    'es_cat': r.get('is_catalog_product') == 'yes', 'titulos': defaultdict(int)}
-            P['u'] += q; P['gmv'] += g; P['cuota_u'][tier] += q
+                    'es_cat': r.get('is_catalog_product') == 'yes', 'titulos': defaultdict(int),
+                    'cuota_gmv': defaultdict(float)}
+            P['u'] += q; P['gmv'] += g; P['cuota_u'][tier] += q; P['cuota_gmv'][tier] += g
             if r.get('title'): P['titulos'][r['title']] += q
             if p > 0: P['pjson'][tier].append(p)
             if r.get('is_catalog_product') == 'yes': P['es_cat'] = True
@@ -465,6 +466,7 @@ def _armar_vistas(productos, meta, snap, periodo):
             d = (mio/comp - 1) * 100 if (comp and mio) else None
             A.append({'sku': p['sku'], 'model': p['model'], 'w': p['w'], 'tipo': p['tipo'],
                 'tier': t, 'tier_lbl': TIER_LBL[t], 'u': p['cuota_u'].get(t, 0),
+                'gmv': p['cuota_gmv'].get(t, 0),
                 'comp': comp, 'mio': mio, 'd': d, 'dtxt': (f"{d:+.0f}%" if d is not None else None),
                 'cls': (_dcls(d) if d is not None else ''), 'fu': p['fuente'].get(t),
                 'titulo': rep, 'titulos': allt})

@@ -22,6 +22,11 @@ td.mio{font-weight:700}td.diff{font-weight:800;text-align:right}
 td.sku{font-family:ui-monospace,monospace;font-weight:700;color:#334}
 td.ti{max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#5b6472;font-size:11px}
 td.ti:hover{cursor:help}
+table.cv th.sortable{cursor:pointer;user-select:none}
+table.cv th.sortable:hover{background:#3a4152}
+table.cv th.sortable::after{content:' \2195';opacity:.35;font-size:9px}
+table.cv th.sorted-asc::after{content:' \2191';opacity:1}
+table.cv th.sorted-desc::after{content:' \2193';opacity:1}
 .fu{font-size:10px;color:#8a93a0}
 .cv-note{background:#fff7e6;border-left:4px solid #f0a202;padding:8px 12px;border-radius:6px;margin:9px 0;font-size:12.5px}
 .cv-note.bad{background:#fdecea;border-left-color:#dc3545}
@@ -94,10 +99,11 @@ td.ti:hover{cursor:help}
       <select id="fA_tier" onchange="filA()"><option value="">Tramo</option>{% for t in data.tiers %}<option value="{{ t }}">{{ data.tier_lbl[t] }}</option>{% endfor %}</select>
       <input id="fA_sku" placeholder="SKU..." oninput="filA()"><span id="fA_c" style="align-self:center;color:#5b6472"></span>
     </div>
-    <div class="tbox"><table class="cv" id="tA"><thead><tr><th>SKU</th><th>Modelo</th><th>Título</th><th>Medida</th><th>Tramo</th><th>U</th><th>Precio {{ vendor_nombre }}</th><th>MI precio</th><th>Δ%</th></tr></thead><tbody>
-    {% for f in data.A %}<tr data-tipo="{{ f.tipo }}" data-tier="{{ f.tier }}" data-sku="{{ f.sku }}">
+    <div class="tbox"><table class="cv" id="tA"><thead><tr><th>SKU</th><th>Modelo</th><th>Título</th><th>Medida</th><th>Tramo</th><th class="sortable sorted-desc" onclick="sortA('u',this)">U</th><th class="sortable" onclick="sortA('gmv',this)">GMV</th><th>Precio {{ vendor_nombre }}</th><th>MI precio</th><th>Δ%</th></tr></thead><tbody>
+    {% for f in data.A %}<tr data-tipo="{{ f.tipo }}" data-tier="{{ f.tier }}" data-sku="{{ f.sku }}" data-u="{{ f.u }}" data-gmv="{{ f.gmv|int }}">
       <td class="sku">{{ f.sku }}</td><td>{{ f.model }}</td><td class="ti" title="{{ f.titulos }}">{{ f.titulo }}</td><td>{{ f.w }}cm</td><td>{{ f.tier_lbl }}</td>
       <td class="num">{{ f.u }}</td>
+      <td class="num">${{ '{:,.0f}'.format(f.gmv)|replace(',','.') }}</td>
       <td class="num">${{ '{:,.0f}'.format(f.comp)|replace(',','.') }} <span class="fu">{{ f.fu }}</span></td>
       <td class="num mio">{% if f.mio %}${{ '{:,.0f}'.format(f.mio)|replace(',','.') }}{% else %}—{% endif %}</td>
       {% if f.dtxt %}<td class="num diff {{ f.cls }}">{{ f.dtxt }}</td>{% else %}<td class="num" style="color:#aaa">—</td>{% endif %}
@@ -144,6 +150,18 @@ td.ti:hover{cursor:help}
     document.querySelectorAll('#tA tbody tr').forEach(function(r){var ok=(!t||r.dataset.tipo==t)&&(!c||r.dataset.tier==c)&&(!s||r.dataset.sku.indexOf(s)>=0);r.style.display=ok?'':'none';if(ok)n++;});
     fA_c.textContent=n+' filas';}
   var fA_tipo=document.getElementById('fA_tipo'),fA_tier=document.getElementById('fA_tier'),fA_sku=document.getElementById('fA_sku'),fA_c=document.getElementById('fA_c');filA();
+  // Ordenar la pestaña A por U o GMV (respeta el filtro activo)
+  var _sA={key:null,dir:-1};
+  function sortA(key, th){
+    var tb=document.querySelector('#tA tbody');
+    var rows=Array.prototype.slice.call(tb.querySelectorAll('tr'));
+    if(_sA.key===key){ _sA.dir*=-1; } else { _sA.key=key; _sA.dir=-1; }
+    var dir=_sA.dir;
+    rows.sort(function(a,b){ return (parseFloat(a.dataset[key]||0)-parseFloat(b.dataset[key]||0))*dir; });
+    rows.forEach(function(r){ tb.appendChild(r); });
+    document.querySelectorAll('#tA th.sortable').forEach(function(h){ h.classList.remove('sorted-asc','sorted-desc'); });
+    th.classList.add(dir<0?'sorted-desc':'sorted-asc');
+  }
   </script>
   {% else %}
   <div class="cv-note bad">No se pudo generar el informe{% if err %}: {{ err }}{% endif %}.</div>
