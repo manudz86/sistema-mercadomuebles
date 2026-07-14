@@ -78,6 +78,19 @@
       </label>
       {% endif %}
 
+      {% if mp_3_enabled %}
+      <!-- Opcion MercadoPago 3 cuotas -->
+      <label id="opt-mp3" onclick="seleccionarMetodo('mp3')"
+        style="display:flex; align-items:center; gap:14px; border:2px solid #ddd; border-radius:10px; padding:14px 16px; cursor:pointer; background:#fff; color:#333; transition:all 0.2s;">
+        <input type="radio" name="metodo_pago" value="mp3" style="display:none;">
+        <span class="card-icon" style="font-size:1.4rem; color:#009ee3;">💳</span>
+        <div>
+          <div style="font-weight:700; font-size:0.95rem;">3 cuotas de {{ cuota_mp3_fmt }}</div>
+          <div class="card-sub" style="font-size:0.78rem; color:#888;">Total {{ total_mp3_fmt }} · MercadoPago · Visa y Mastercard crédito</div>
+        </div>
+      </label>
+      {% endif %}
+
       {% if payway_6_enabled %}
       <!-- Opcion Payway 6 cuotas -->
       <label id="opt-pw6" onclick="seleccionarMetodo('pw6')"
@@ -117,19 +130,6 @@
         <div>
           <div style="font-weight:700; font-size:0.95rem;">12 cuotas de {{ cuota_12_fmt }}</div>
           <div class="card-sub" style="font-size:0.78rem; color:#888;">Total {{ total_12_fmt }} · MercadoPago · Visa y Mastercard crédito</div>
-        </div>
-      </label>
-      {% endif %}
-
-      {% if mp_3_enabled %}
-      <!-- Opcion MercadoPago 3 cuotas -->
-      <label id="opt-mp3" onclick="seleccionarMetodo('mp3')"
-        style="display:flex; align-items:center; gap:14px; border:2px solid #ddd; border-radius:10px; padding:14px 16px; cursor:pointer; background:#fff; color:#333; transition:all 0.2s;">
-        <input type="radio" name="metodo_pago" value="mp3" style="display:none;">
-        <span class="card-icon" style="font-size:1.4rem; color:#009ee3;">💳</span>
-        <div>
-          <div style="font-weight:700; font-size:0.95rem;">3 cuotas de {{ cuota_mp3_fmt }}</div>
-          <div class="card-sub" style="font-size:0.78rem; color:#888;">Total {{ total_mp3_fmt }} · MercadoPago · Visa y Mastercard crédito</div>
         </div>
       </label>
       {% endif %}
