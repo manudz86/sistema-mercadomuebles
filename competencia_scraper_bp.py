@@ -7,9 +7,14 @@ Endpoints:
   GET  /admin/competencia-scraper/sondas/lista   — JSON con sondas activas (auth)
   POST /admin/competencia-scraper/upload         — recibe CSVs y procesa
 """
-import os, csv, json, datetime, statistics, re
+import os, csv, json, datetime, statistics, re, hmac
+from functools import wraps
 from collections import defaultdict
 from flask import Blueprint, render_template, jsonify, request
+from flask_login import login_required
+from dotenv import load_dotenv
+
+load_dotenv('config/.env')
 
 import pymysql
 from procesar_competencia import procesar
@@ -28,6 +33,17 @@ PASAJES_DEFAULT = {
     'colchon': [(3, 6), (6, 9), (9, 12), (12, 18)],
     'sommier': [(3, 6), (6, 9), (9, 12), (12, 18)],
 }
+
+
+def _token_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        expected = os.getenv('SCRAPER_TOKEN', '')
+        provided = request.headers.get('X-Scraper-Token', '')
+        if not expected or not hmac.compare_digest(provided, expected):
+            return jsonify({'error': 'unauthorized'}), 401
+        return f(*args, **kwargs)
+    return wrapper
 
 
 # ============================================================================
@@ -459,6 +475,7 @@ def _hist_cambios():
 
 
 @competencia_scraper_bp.route('/admin/competencia-scraper/informe')
+@login_required
 def competencia_informe_page():
     # Import perezoso: el proceso ya tiene app cargada (no re-ejecuta el módulo
     # ni dispara el scheduler); así usamos la función de precios REAL de /costos.
@@ -524,6 +541,7 @@ def competencia_informe_page():
 # RUTAS
 # ============================================================================
 @competencia_scraper_bp.route('/admin/competencia-scraper')
+@login_required
 def competencia_scraper_page():
     productos, meta = _cargar_productos()
     modelos, medidas, tiendas = _get_filtros(productos)
@@ -536,6 +554,7 @@ def competencia_scraper_page():
 
 
 @competencia_scraper_bp.route('/admin/competencia-scraper/sondas/lista')
+@_token_required
 def listar_sondas_json():
     """Endpoint para que el scraper local pida las sondas activas."""
     sondas = cargar_sondas_activas()
@@ -543,6 +562,7 @@ def listar_sondas_json():
 
 
 @competencia_scraper_bp.route('/admin/competencia-scraper/upload', methods=['POST'])
+@_token_required
 def upload_csv():
     """Recibe el CSV crudo de competencia y opcionalmente el de sondas."""
     f_comp = request.files.get('competencia') or request.files.get('file')
@@ -591,6 +611,7 @@ def upload_csv():
 
 
 @competencia_scraper_bp.route('/admin/competencia-scraper/alert', methods=['POST'])
+@_token_required
 def alerta_scraper():
     """
     Endpoint llamado por run_scraper.bat (Windows) cuando algo falla.
