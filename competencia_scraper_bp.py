@@ -30,8 +30,9 @@ SONDAS_RES_PATH = os.path.join(DATA_DIR, 'sondas_resultado.csv')
 
 # Pasajes por defecto si nunca se detectaron sondas (fallback)
 PASAJES_DEFAULT = {
-    'colchon': [(3, 6), (6, 9), (9, 12), (12, 18)],
-    'sommier': [(3, 6), (6, 9), (9, 12), (12, 18)],
+    'colchon':  [(3, 6), (6, 9), (9, 12), (12, 18)],
+    'sommier':  [(3, 6), (6, 9), (9, 12), (12, 18)],
+    'almohada': [(3, 6), (6, 9), (9, 12), (12, 18)],
 }
 
 
@@ -71,8 +72,9 @@ def cargar_pasajes_activos():
             return PASAJES_DEFAULT, None
         data = json.loads(row['valor'])
         pasajes = {
-            'colchon': [tuple(p) for p in data.get('colchon', [])],
-            'sommier': [tuple(p) for p in data.get('sommier', [])],
+            'colchon':  [tuple(p) for p in data.get('colchon', [])],
+            'sommier':  [tuple(p) for p in data.get('sommier', [])],
+            'almohada': [tuple(p) for p in data.get('almohada', [])],
         }
         return pasajes, data.get('detectado_en')
     except Exception:
@@ -84,6 +86,7 @@ def guardar_pasajes(pasajes, detectado_en):
     payload = json.dumps({
         'colchon':       [list(p) for p in pasajes.get('colchon', [])],
         'sommier':       [list(p) for p in pasajes.get('sommier', [])],
+        'almohada':      [list(p) for p in pasajes.get('almohada', [])],
         'detectado_en':  detectado_en,
     })
     conn = _db()
@@ -131,7 +134,7 @@ def detectar_pasajes_desde_sondas(sondas_csv_path):
     Una sonda con cuotas_reales=R y cuotas_mostradas=M (M != R) implica un pasaje R→M.
     Un par (0, N) significa que ML aplica un pasaje a publicaciones SIN cuotas s/i (raro).
     """
-    pasajes = {'colchon': set(), 'sommier': set()}
+    pasajes = {'colchon': set(), 'sommier': set(), 'almohada': set()}
     if not os.path.exists(sondas_csv_path):
         return None
 
