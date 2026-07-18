@@ -231,12 +231,16 @@
         <label style="display:block; font-size:0.88rem; font-weight:600; color:#444; margin-bottom:5px;">
           Provincia
         </label>
-        <input type="text" name="provincia" id="input-provincia-envio" readonly autocomplete="off"
-          value="{% if shipping_tipo == 'zipnova' and zipnova_quote %}{{ zipnova_quote.provincia }}{% endif %}"
-          placeholder="Se completa con el CP"
-          style="width:100%; padding:11px 14px; border:1px solid #e0e0e0; border-radius:8px; font-size:0.95rem; box-sizing:border-box; background:#f5f5f5; color:#666; cursor:default;">
+        {% set prov_prefill = zipnova_quote.provincia if (shipping_tipo == 'zipnova' and zipnova_quote) else '' %}
+        <select name="provincia" id="input-provincia-envio" onchange="onProvinciaChange()"
+          style="width:100%; padding:11px 14px; border:1px solid #e0e0e0; border-radius:8px; font-size:0.95rem; box-sizing:border-box; background:#fff; color:#333;">
+          <option value="">Se completa con el CP (podés corregirla)</option>
+          {% for p in ['Capital Federal','Buenos Aires','Catamarca','Chaco','Chubut','Córdoba','Corrientes','Entre Ríos','Formosa','Jujuy','La Pampa','La Rioja','Mendoza','Misiones','Neuquén','Río Negro','Salta','San Juan','San Luis','Santa Cruz','Santa Fe','Santiago del Estero','Tierra del Fuego','Tucumán'] %}
+          <option value="{{ p }}" {% if prov_prefill == p %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
         <input type="hidden" name="provincia_hidden" id="input-provincia-hidden"
-          value="{% if shipping_tipo == 'zipnova' and zipnova_quote %}{{ zipnova_quote.provincia }}{% endif %}">
+          value="{{ prov_prefill }}">
       </div>
     </div>
 
@@ -297,8 +301,9 @@ function provinciaDesdeCP(cp) {
   if (n >= 5700 && n <= 5799) return 'San Luis';
   if (n >= 5800 && n <= 5999) return 'Córdoba';
   if (n >= 6000 && n <= 6299) return 'Buenos Aires';
-  if (n >= 6300 && n <= 6399) return 'Santiago del Estero';
-  if (n >= 6400 && n <= 8399) return 'Buenos Aires';
+  if (n >= 6300 && n <= 6399) return 'La Pampa';
+  if (n >= 6400 && n <= 8299) return 'Buenos Aires';
+  if (n >= 8300 && n <= 8399) return 'Neuquén';
   if (n >= 8400 && n <= 8499) return 'Río Negro';
   if (n >= 8500 && n <= 8699) return 'Neuquén';
   if (n >= 8700 && n <= 8799) return 'Río Negro';
@@ -352,6 +357,13 @@ async function actualizarCP(cp) {
       sel.parentNode.replaceChild(inp, sel);
     }
   } catch(e) { /* silencioso */ }
+}
+
+// Cuando el cliente corrige la provincia a mano, sincronizar el campo hidden
+function onProvinciaChange() {
+  const sel = document.getElementById('input-provincia-envio');
+  const provHidden = document.getElementById('input-provincia-hidden');
+  if (sel && provHidden) provHidden.value = sel.value;
 }
 
 // Al cargar la página
