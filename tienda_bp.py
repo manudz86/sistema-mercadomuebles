@@ -6799,8 +6799,25 @@ def suscribirse():
     """Registra el email, genera un cupón único y envía el mail de bienvenida."""
     data  = request.get_json() or {}
     email = (data.get('email') or '').strip().lower()
-    if not email or '@' not in email:
+
+    # ── Anti-bot ──────────────────────────────────────────────────────────
+    # 1) Honeypot: campo trampa oculto que solo completan los bots.
+    if (data.get('website') or data.get('hp') or '').strip():
+        return jsonify({'ok': True, 'codigo': ''})  # fingir éxito: no se crea ni se envía nada
+    # 2) Validación estricta de formato de email.
+    import re as _re
+    if not email or not _re.match(r'^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$', email):
         return jsonify({'ok': False, 'error': 'Email inválido'})
+    # 3) Rate-limit por IP: máximo 3 altas por IP en la última hora.
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
+    try:
+        _dbr = get_db(); _cr = _dbr.cursor()
+        _cr.execute("SELECT COUNT(*) n FROM suscriptores WHERE ip=%s AND fecha >= DATE_SUB(NOW(), INTERVAL 1 HOUR)", (ip,))
+        _rl = _cr.fetchone(); _cr.close(); _dbr.close()
+        if _rl and _rl['n'] >= 3:
+            return jsonify({'ok': False, 'error': 'Demasiados intentos. Probá de nuevo más tarde.'})
+    except Exception:
+        pass
 
     try:
         db  = get_db()
@@ -6826,8 +6843,8 @@ def suscribirse():
 
         # Registrar suscriptor
         cur.execute(
-            "INSERT INTO suscriptores (email, cupon_id) VALUES (%s, %s)",
-            (email, cupon_id)
+            "INSERT INTO suscriptores (email, cupon_id, ip) VALUES (%s, %s, %s)",
+            (email, cupon_id, ip)
         )
         db.commit()
         cur.close()

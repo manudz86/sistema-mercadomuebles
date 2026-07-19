@@ -50,7 +50,21 @@
 
   <div class="col-md-8">
     <div class="card shadow-sm">
-      <div class="card-header fw-bold"><i class="bi bi-ticket-perforated me-1"></i> Cupones existentes</div>
+      <div class="card-header fw-bold d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <span><i class="bi bi-ticket-perforated me-1"></i> Cupones existentes</span>
+        <div class="d-flex flex-wrap gap-2">
+          <div class="btn-group btn-group-sm" role="group" aria-label="Estado">
+            <button type="button" class="btn btn-light active" data-estado="activos" onclick="filtrarCupones('estado','activos',this)">Activos</button>
+            <button type="button" class="btn btn-light" data-estado="desactivados" onclick="filtrarCupones('estado','desactivados',this)">Desactivados</button>
+            <button type="button" class="btn btn-light" data-estado="todos" onclick="filtrarCupones('estado','todos',this)">Todos</button>
+          </div>
+          <div class="btn-group btn-group-sm" role="group" aria-label="Uso">
+            <button type="button" class="btn btn-light active" data-uso="todos" onclick="filtrarCupones('uso','todos',this)">Uso: todos</button>
+            <button type="button" class="btn btn-light" data-uso="usados" onclick="filtrarCupones('uso','usados',this)">Usados</button>
+            <button type="button" class="btn btn-light" data-uso="no" onclick="filtrarCupones('uso','no',this)">No usados</button>
+          </div>
+        </div>
+      </div>
       <div class="table-responsive">
         <table class="table table-hover table-sm mb-0">
           <thead class="table-dark">
@@ -65,7 +79,8 @@
           </thead>
           <tbody>
             {% for c in cupones %}
-            <tr id="cupon-{{ c.id }}" class="{{ '' if c.activo else 'table-secondary text-muted' }}">
+            <tr id="cupon-{{ c.id }}" class="cupon-row {{ '' if c.activo else 'table-secondary text-muted' }}"
+                data-activo="{{ 1 if c.activo else 0 }}" data-usado="{{ 1 if c.usos_actuales and c.usos_actuales|int > 0 else 0 }}">
               <td>
                 <span class="badge bg-dark font-monospace fs-6">{{ c.codigo }}</span>
               </td>
@@ -114,6 +129,9 @@
             {% else %}
             <tr><td colspan="6" class="text-center text-muted py-3">No hay cupones creados</td></tr>
             {% endfor %}
+            <tr id="cupon-sin-resultados" style="display:none;">
+              <td colspan="6" class="text-center text-muted py-3">No hay cupones que coincidan con el filtro</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -127,7 +145,12 @@
 <div class="card shadow-sm mt-4">
   <div class="card-header fw-bold d-flex justify-content-between align-items-center">
     <span><i class="bi bi-envelope-check me-1"></i> Suscriptores newsletter</span>
-    <span class="badge bg-secondary">{{ suscriptores | length }} en total</span>
+    <span class="d-flex align-items-center gap-2">
+      <span class="badge bg-secondary">{{ suscriptores | length }} en total</span>
+      <a href="/tienda-admin/suscriptores/exportar" class="btn btn-sm btn-outline-success">
+        <i class="bi bi-download me-1"></i> Exportar CSV
+      </a>
+    </span>
   </div>
   <div class="table-responsive">
     <table class="table table-hover table-sm mb-0">
@@ -231,6 +254,38 @@ async function eliminarCupon(id) {
   if (data.ok) { document.getElementById('cupon-' + id)?.remove(); toast('Cupón eliminado'); }
   else toast('Error: ' + data.error, 'danger');
 }
+
+// ── Filtro de cupones (estado activos/desactivados/todos + uso usados/no/todos) ──
+var _filtroCupones = { estado: 'activos', uso: 'todos' };
+
+function filtrarCupones(dim, valor, btn) {
+  _filtroCupones[dim] = valor;
+  if (btn) {
+    var grupo = btn.parentElement.querySelectorAll('button');
+    grupo.forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+  }
+  var filas = document.querySelectorAll('tr.cupon-row');
+  var visibles = 0;
+  filas.forEach(function(tr) {
+    var activo = tr.getAttribute('data-activo') === '1';
+    var usado  = tr.getAttribute('data-usado') === '1';
+    var okEstado = (_filtroCupones.estado === 'todos') ||
+                   (_filtroCupones.estado === 'activos' && activo) ||
+                   (_filtroCupones.estado === 'desactivados' && !activo);
+    var okUso = (_filtroCupones.uso === 'todos') ||
+                (_filtroCupones.uso === 'usados' && usado) ||
+                (_filtroCupones.uso === 'no' && !usado);
+    var mostrar = okEstado && okUso;
+    tr.style.display = mostrar ? '' : 'none';
+    if (mostrar) visibles++;
+  });
+  var sinRes = document.getElementById('cupon-sin-resultados');
+  if (sinRes) sinRes.style.display = visibles === 0 ? '' : 'none';
+}
+
+// Al cargar: mostrar solo los activos primero.
+document.addEventListener('DOMContentLoaded', function() { filtrarCupones('estado', 'activos', null); });
 
 async function eliminarSuscriptor(id, email) {
   if (!confirm(`¿Eliminar suscriptor ${email}?`)) return;

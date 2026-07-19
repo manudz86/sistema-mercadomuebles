@@ -13818,6 +13818,34 @@ def tienda_suscriptores_eliminar():
     return jsonify({'ok': True})
 
 
+@app.route('/tienda-admin/suscriptores/exportar')
+@login_required
+def tienda_suscriptores_exportar():
+    """Exporta la lista de suscriptores a CSV (para enviar a una agencia)."""
+    from flask import Response
+    import io, csv as _csv
+    rows = query_db("""
+        SELECT s.email, s.fecha, c.codigo, c.usos_actuales, c.activo AS cupon_activo
+        FROM suscriptores s
+        LEFT JOIN cupones c ON c.id = s.cupon_id
+        ORDER BY s.fecha DESC
+    """)
+    buf = io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(['email', 'fecha_suscripcion', 'cupon', 'usos_cupon', 'cupon_activo'])
+    for r in (rows or []):
+        w.writerow([
+            r.get('email', ''),
+            r.get('fecha', ''),
+            r.get('codigo') or '',
+            r.get('usos_actuales') if r.get('usos_actuales') is not None else '',
+            'si' if r.get('cupon_activo') else 'no',
+        ])
+    csv_data = '﻿' + buf.getvalue()  # BOM para que Excel abra bien los acentos
+    return Response(csv_data, mimetype='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=suscriptores.csv'})
+
+
 @app.route('/tienda-admin/email-hot-test', methods=['GET', 'POST'])
 @admin_required
 def email_hot_test():
