@@ -44,6 +44,12 @@ table.cv th.sorted-desc::after{content:' \2193';opacity:1}
 
   {% if msg %}<div style="background:#e7f6ec;border-left:4px solid #198754;padding:8px 12px;border-radius:6px;margin:8px 0;font-size:13px">{{ msg }}</div>{% endif %}
 
+  <div style="font-size:12.5px;color:#334;margin:6px 0 2px">
+    📅 <b>{{ periodo_lbl.get(periodo, periodo) }}</b>:
+    {% if periodo_hasta %}datos cargados hasta <b>{{ periodo_hasta }}</b>{% if periodo_counts_lbl %} <span style="color:#8a93a0">· {{ periodo_counts_lbl }}</span>{% endif %}
+    {% else %}<span style="color:#b02a37">sin datos cargados</span>{% endif %}
+  </div>
+
   <form method="POST" action="{{ url_for('competencia_v2.competencia_v2_actualizar_rt') }}"
         style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin:8px 0 12px"
         onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='⏳ Actualizando… (puede tardar ~1 min)';">

@@ -530,11 +530,14 @@ def competencia_v2_page():
         err = None if periodo else 'No hay períodos cargados todavía.'
     except Exception as e:
         data, err = None, str(e)
+    _, periodo_hasta, _counts = _periodo_max_dia(periodo) if periodo else (None, None, {})
+    periodo_counts_lbl = ' · '.join(f"{CAT_LBL.get(t, t)}: {n}" for t, n in sorted(_counts.items()) if n)
     return render_template('competencia_v2.html',
         periodo=periodo, periodos=pers, periodo_lbl={p: _periodo_lbl(p) for p in pers},
         vendor=vendor, vendor_nombre=VENDOR_META[vendor]['nombre'],
         vends=vends, vendor_meta=VENDOR_META, data=data, err=err,
         periodo_rt=datetime.date.today().strftime('%Y-%m'),
+        periodo_hasta=periodo_hasta, periodo_counts_lbl=periodo_counts_lbl,
         msg=request.args.get('msg'))
 
 
@@ -661,6 +664,78 @@ def _rt_descargar_categoria(cat, periodo):
         dia += datetime.timedelta(days=1)
     return out
 
+def _atomic_write_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as out:
+        json.dump(data, out, ensure_ascii=False)
+    os.replace(tmp, path)
+
+def _file_max_ds(path):
+    """(ds_max 'AAAA-MM-DD' o None, filas) del JSON de una categoría."""
+    if not os.path.exists(path):
+        return None, []
+    try:
+        rows = json.load(open(path, encoding='utf-8'))
+    except Exception:
+        return None, []
+    mx = None
+    for r in rows:
+        ds = _dia_sort(r.get('day'))
+        if re.match(r'\d{4}-\d{2}-\d{2}$', ds) and (mx is None or ds > mx):
+            mx = ds
+    return mx, rows
+
+def _periodo_max_dia(periodo):
+    """Último día con datos cargados localmente en el período.
+    Devuelve (ds_max, 'DD/MM/AAAA' o None, {tipo: n_filas})."""
+    best = None
+    counts = {}
+    for fname, tipo in PERIODOS().get(periodo, []):
+        mx, rows = _file_max_ds(os.path.join(DATA_DIR, periodo, fname))
+        counts[tipo] = len(rows)
+        if mx and (best is None or mx > best):
+            best = mx
+    lbl = None
+    if best:
+        y, m, d = best.split('-')
+        lbl = f"{d}/{m}/{y}"
+    return best, lbl, counts
+
+def _rt_actualizar_categoria(cat, fname, periodo):
+    """Actualiza el archivo de una categoría de forma INCREMENTAL: si ya hay datos,
+    baja SOLO los días posteriores al último cargado y los agrega (nunca reescribe
+    días viejos); si el archivo no existe, baja el mes completo. Devuelve (n_nuevos, n_total)."""
+    import calendar
+    path = os.path.join(DATA_DIR, periodo, fname)
+    local_max, existing = _file_max_ds(path)
+    y, mo = int(periodo[:4]), int(periodo[5:7])
+    hoy = datetime.date.today()
+    d0 = datetime.date(y, mo, 1)
+    if hoy < d0:                                   # período futuro
+        return 0, len(existing)
+    d1 = datetime.date(y, mo, calendar.monthrange(y, mo)[1])
+    if hoy < d1:                                   # mes en curso: hasta hoy
+        d1 = hoy
+    if not existing:                               # sin datos → descarga completa
+        data = _rt_descargar_categoria(cat, periodo)
+        if not data:                               # RT sin datos: no crear archivo vacío
+            return 0, 0
+        _atomic_write_json(path, data)
+        return len(data), len(data)
+    # incremental: solo días > último cargado
+    start = datetime.date.fromisoformat(local_max) + datetime.timedelta(days=1)
+    nuevos = []
+    dia = start
+    while dia <= d1:
+        c, rows, _ = _rt_fetch(cat, dia.isoformat(), dia.isoformat())
+        nuevos.extend(_rt_row_to_dict(c, r) for r in rows)
+        dia += datetime.timedelta(days=1)
+    if not nuevos:                                 # nada nuevo → no se toca el archivo
+        return 0, len(existing)
+    _atomic_write_json(path, existing + nuevos)
+    return len(nuevos), len(existing) + len(nuevos)
+
 @competencia_v2_bp.route('/admin/competencia-v2/actualizar-rt', methods=['POST'])
 def competencia_v2_actualizar_rt():
     """Baja las 3 categorías del período desde Real Trends y las guarda como los
@@ -671,29 +746,34 @@ def competencia_v2_actualizar_rt():
     if not os.getenv('RT_LLAVE_USUARIO'):
         return redirect(url_for('competencia_v2.competencia_v2_page', periodo=periodo,
                                 msg='⚠️ Falta configurar RT_LLAVE_USUARIO en el servidor.'))
-    dest = os.path.join(DATA_DIR, periodo)
-    os.makedirs(dest, exist_ok=True)
-    guardados = []
+    _, hasta_antes, _ = _periodo_max_dia(periodo)
+    resumen = []
+    total_new = 0
     try:
         for cat, fname in RT_CATS:
-            data = _rt_descargar_categoria(cat, periodo)
-            tmp = os.path.join(dest, fname + '.tmp')
-            with open(tmp, 'w', encoding='utf-8') as out:
-                json.dump(data, out, ensure_ascii=False)
-            os.replace(tmp, os.path.join(dest, fname))   # reemplazo atómico
-            guardados.append(f'{fname} ({len(data)} filas)')
+            n_new, n_tot = _rt_actualizar_categoria(cat, fname, periodo)
+            total_new += n_new
+            if n_new:
+                resumen.append(f'{fname[:-5]} +{n_new} (total {n_tot})')
     except Exception as e:
         return redirect(url_for('competencia_v2.competencia_v2_page', periodo=periodo,
                                 msg=f'❌ Error bajando de Real Trends: {e}'))
-    # limpiar cache del período para que reprocese (igual que el upload manual)
+    if total_new == 0:
+        if hasta_antes:
+            msg = f'✅ Ya estás al día: no había días nuevos en Real Trends (datos cargados hasta {hasta_antes}).'
+        else:
+            msg = f'⚠️ Real Trends todavía no tiene datos para {_periodo_lbl(periodo)}.'
+        return redirect(url_for('competencia_v2.competencia_v2_page', periodo=periodo, msg=msg))
+    # hubo días nuevos: limpiar cache del período para que reprocese
     try:
         for old in os.listdir(DATA_DIR):
             if old.startswith(f'.cache_{periodo}_'):
                 os.remove(os.path.join(DATA_DIR, old))
     except Exception:
         pass
+    _, hasta_ahora, _ = _periodo_max_dia(periodo)
     return redirect(url_for('competencia_v2.competencia_v2_page', periodo=periodo,
-                            msg='✅ Actualizado desde Real Trends: ' + ', '.join(guardados)))
+                            msg=f'✅ Actualizado desde Real Trends (hasta {hasta_ahora}): ' + ', '.join(resumen)))
 
 
 # ── Parte 2: ventas detalladas por competidor (día × producto × cuota) ──
