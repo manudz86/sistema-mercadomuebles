@@ -44,6 +44,16 @@ table.cv th.sorted-desc::after{content:' \2193';opacity:1}
 
   {% if msg %}<div style="background:#e7f6ec;border-left:4px solid #198754;padding:8px 12px;border-radius:6px;margin:8px 0;font-size:13px">{{ msg }}</div>{% endif %}
 
+  <form method="POST" action="{{ url_for('competencia_v2.competencia_v2_actualizar_rt') }}"
+        style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin:8px 0 12px"
+        onsubmit="var b=this.querySelector('button');b.disabled=true;b.textContent='⏳ Actualizando… (puede tardar ~1 min)';">
+    <label style="font-size:12px;color:#5b6472">Período (AAAA-MM)<br>
+      <input name="periodo" value="{{ periodo_rt }}" required pattern="\d{4}-\d{2}"
+             style="padding:6px 8px;border:1px solid #c7ccd4;border-radius:7px;font-size:13px;width:110px"></label>
+    <button type="submit" style="background:#6f42c1;color:#fff;border:0;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">🔄 Actualizar desde Real Trends</button>
+    <span style="font-size:11.5px;color:#8a93a0;max-width:440px">Baja colchones, sommiers y almohadas (marca Cannon) directo del dashboard y reemplaza el período. No necesitás descargar ni subir nada a mano.</span>
+  </form>
+
   <details style="margin:8px 0 14px;background:#fff;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.06);padding:6px 12px">
     <summary style="cursor:pointer;font-weight:700;font-size:13px;color:#334">⬆️ Subir / actualizar datos de un período</summary>
     <form method="POST" action="{{ url_for('competencia_v2.competencia_v2_upload') }}" enctype="multipart/form-data" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin:10px 0 4px">

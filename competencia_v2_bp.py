@@ -534,6 +534,7 @@ def competencia_v2_page():
         periodo=periodo, periodos=pers, periodo_lbl={p: _periodo_lbl(p) for p in pers},
         vendor=vendor, vendor_nombre=VENDOR_META[vendor]['nombre'],
         vends=vends, vendor_meta=VENDOR_META, data=data, err=err,
+        periodo_rt=datetime.date.today().strftime('%Y-%m'),
         msg=request.args.get('msg'))
 
 
@@ -571,6 +572,128 @@ def competencia_v2_upload():
         pass
     msg = ('✅ Subido y reprocesando: ' + ', '.join(guardados)) if guardados else '⚠️ No se seleccionó ningún archivo.'
     return redirect(url_for('competencia_v2.competencia_v2_page', periodo=periodo, msg=msg))
+
+
+# ── Descarga automática desde Real Trends (dashboard Metabase público) ──────
+# Reemplaza la bajada+subida manual: pega a la API pública del dashboard y arma
+# los mismos archivos colchones/sommiers/almohadas.json del período (marca Cannon).
+RT_BASE     = 'https://bi.real-trends.com'
+RT_UUID     = '5577e03f-1073-4bde-ba41-208f93367355'
+RT_DASHCARD = 5469
+RT_CARD     = 3805
+# categoría (filtro string/contains del dashboard) → archivo destino
+RT_CATS = [
+    ('Hogar, Muebles y Jardín > Camas, Colchones y Accesorios > Colchones', 'colchones.json'),
+    ('Hogar, Muebles y Jardín > Camas, Colchones y Accesorios > Juegos de Sommier y Colchón', 'sommiers.json'),
+    ('Hogar, Muebles y Jardín > Camas, Colchones y Accesorios > Almohadas', 'almohadas.json'),
+]
+_RT_MESES_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+                'August', 'September', 'October', 'November', 'December']
+
+def _rt_params(cat, d0, d1):
+    key = os.getenv('RT_LLAVE_USUARIO', '')
+    return [
+        {"id": "e324683", "type": "string/=", "value": key, "target": ["variable", ["template-tag", "key"]]},
+        {"id": "79676eb", "type": "string/=", "value": "cannon", "target": ["variable", ["template-tag", "brand"]]},
+        {"id": "b0fcdf17", "type": "date/single", "value": d0, "target": ["variable", ["template-tag", "date_from"]]},
+        {"id": "d777633d", "type": "date/single", "value": d1, "target": ["variable", ["template-tag", "date_to"]]},
+        {"id": "93bb0263", "type": "string/contains", "value": cat, "target": ["dimension", ["template-tag", "category"], {"stage-number": 0}]},
+    ]
+
+def _rt_fetch(cat, d0, d1):
+    """Una llamada al endpoint de render del dashboard. Devuelve (cols, rows, truncado)."""
+    import requests
+    url = f"{RT_BASE}/api/public/dashboard/{RT_UUID}/dashcard/{RT_DASHCARD}/card/{RT_CARD}"
+    r = requests.get(url, params={'parameters': json.dumps(_rt_params(cat, d0, d1), ensure_ascii=False)},
+                     headers={'User-Agent': 'cannon/1.0'}, timeout=90)
+    r.raise_for_status()
+    d = (r.json() or {}).get('data') or {}
+    cols = [c.get('name') for c in d.get('cols', [])]
+    return cols, d.get('rows', []), d.get('rows_truncated')
+
+def _rt_day_txt(v):
+    """'2026-07-01T00:00:00Z' → 'July 1, 2026' (formato que espera el parser de día)."""
+    m = re.match(r'(\d{4})-(\d{2})-(\d{2})', str(v or ''))
+    if not m:
+        return str(v or '')
+    return f"{_RT_MESES_EN[int(m.group(2)) - 1]} {int(m.group(3))}, {int(m.group(1))}"
+
+def _rt_row_to_dict(cols, row):
+    """Fila (arrays del API) → dict con el formato del JSON manual.
+    Solo se normalizan los 3 campos que el sistema parsea de forma sensible:
+      - day:   ISO → 'Mes D, AAAA'
+      - price: el parser _price hace str.replace('.','') → un float (458000.0) se
+               rompería (×10); guardamos entero de pesos, sin separadores.
+      - sold_quantity: se lee con int(); dejamos entero.
+    El resto de los campos pasa igual que en la descarga manual."""
+    d = dict(zip(cols, row))
+    d['day'] = _rt_day_txt(d.get('day'))
+    try:
+        d['price'] = str(int(round(float(d.get('price') or 0))))
+    except (TypeError, ValueError):
+        pass
+    try:
+        d['sold_quantity'] = int(round(float(d.get('sold_quantity') or 0)))
+    except (TypeError, ValueError):
+        pass
+    return d
+
+def _rt_descargar_categoria(cat, periodo):
+    """Baja una categoría del período. Un pedido por mes; si el API trunca (tope de
+    2000 filas) rehace día por día para no perder ventas. Devuelve lista de dicts."""
+    import calendar
+    y, mo = int(periodo[:4]), int(periodo[5:7])
+    hoy = datetime.date.today()
+    d0 = datetime.date(y, mo, 1)
+    if hoy < d0:                       # período futuro: nada
+        return []
+    d1 = datetime.date(y, mo, calendar.monthrange(y, mo)[1])
+    if hoy < d1:                       # mes en curso: hasta hoy
+        d1 = hoy
+    cols, rows, trunc = _rt_fetch(cat, d0.isoformat(), d1.isoformat())
+    if not trunc:
+        return [_rt_row_to_dict(cols, r) for r in rows]
+    out = []                           # tope superado → día por día
+    dia = d0
+    while dia <= d1:
+        c, rws, _ = _rt_fetch(cat, dia.isoformat(), dia.isoformat())
+        out.extend(_rt_row_to_dict(c, r) for r in rws)
+        dia += datetime.timedelta(days=1)
+    return out
+
+@competencia_v2_bp.route('/admin/competencia-v2/actualizar-rt', methods=['POST'])
+def competencia_v2_actualizar_rt():
+    """Baja las 3 categorías del período desde Real Trends y las guarda como los
+    JSON del sistema (mismo efecto que subirlos a mano)."""
+    periodo = (request.form.get('periodo') or '').strip()
+    if not re.match(r'^\d{4}-\d{2}$', periodo):
+        return redirect(url_for('competencia_v2.competencia_v2_page', msg='Período inválido (usá AAAA-MM, ej. 2026-07)'))
+    if not os.getenv('RT_LLAVE_USUARIO'):
+        return redirect(url_for('competencia_v2.competencia_v2_page', periodo=periodo,
+                                msg='⚠️ Falta configurar RT_LLAVE_USUARIO en el servidor.'))
+    dest = os.path.join(DATA_DIR, periodo)
+    os.makedirs(dest, exist_ok=True)
+    guardados = []
+    try:
+        for cat, fname in RT_CATS:
+            data = _rt_descargar_categoria(cat, periodo)
+            tmp = os.path.join(dest, fname + '.tmp')
+            with open(tmp, 'w', encoding='utf-8') as out:
+                json.dump(data, out, ensure_ascii=False)
+            os.replace(tmp, os.path.join(dest, fname))   # reemplazo atómico
+            guardados.append(f'{fname} ({len(data)} filas)')
+    except Exception as e:
+        return redirect(url_for('competencia_v2.competencia_v2_page', periodo=periodo,
+                                msg=f'❌ Error bajando de Real Trends: {e}'))
+    # limpiar cache del período para que reprocese (igual que el upload manual)
+    try:
+        for old in os.listdir(DATA_DIR):
+            if old.startswith(f'.cache_{periodo}_'):
+                os.remove(os.path.join(DATA_DIR, old))
+    except Exception:
+        pass
+    return redirect(url_for('competencia_v2.competencia_v2_page', periodo=periodo,
+                            msg='✅ Actualizado desde Real Trends: ' + ', '.join(guardados)))
 
 
 # ── Parte 2: ventas detalladas por competidor (día × producto × cuota) ──
