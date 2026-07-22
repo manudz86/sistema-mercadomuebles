@@ -398,14 +398,33 @@ def get_productos_context():
         comp_stocks = [stock_real.get(sku, 0) for sku in s.get('_comp_skus', [])]
         s['stock_actual'] = min(comp_stocks) if comp_stocks else 0
 
-    # Recargos cuotas
+    # Recargos cuotas — reflejan los medios REALMENTE activos (igual que la tienda)
     coefs = _q("SELECT clave, valor FROM configuracion WHERE clave LIKE 'cuotas_%_coef'")
-    payway = {r['clave']: float(r['valor']) for r in coefs}
-    coef_3 = payway.get('cuotas_3_coef', 1.2)
-    coef_6 = payway.get('cuotas_6_coef', 1.4)
-    coef_12 = payway.get('cuotas_12_coef', 1.6)   # 12 cuotas (MercadoPago, solo online)
-    _m12 = _q("SELECT valor FROM configuracion WHERE clave='mp_12_enabled'")
-    mp_12_on = bool(_m12 and str(_m12[0]['valor']) == '1')
+    _cf = {r['clave']: float(r['valor']) for r in coefs}
+    coef_6  = _cf.get('cuotas_6_coef', 1.25)      # GetNet (6 cuotas)
+    coef_12 = _cf.get('cuotas_12_coef', 1.6)      # MercadoPago (12 cuotas, solo online)
+    flags = _q("SELECT clave, valor FROM configuracion WHERE clave IN ('payway_enabled','getnet_enabled','mp_3_enabled','mp_12_enabled')")
+    _fl = {r['clave']: str(r['valor']) for r in flags}
+    payway_on = _fl.get('payway_enabled', '1') == '1'    # Payway 3 cuotas
+    mp3_on    = _fl.get('mp_3_enabled', '0') == '1'       # MercadoPago 3 cuotas
+    getnet_on = _fl.get('getnet_enabled', '1') == '1'     # GetNet 6 cuotas
+    mp_12_on  = _fl.get('mp_12_enabled', '0') == '1'      # MercadoPago 12 cuotas
+    # 3 cuotas: MENOR coeficiente entre los medios de 3 cuotas ACTIVOS (Payway 3 / MP 3)
+    _c3 = []
+    if payway_on: _c3.append(_cf.get('cuotas_3_coef', 1.25))
+    if mp3_on:    _c3.append(_cf.get('cuotas_mp3_coef', 1.18))
+    coef_3_ef = min(_c3) if _c3 else None   # None → no hay 3 cuotas activas
+
+    def _cuotas_web_line(pf):
+        """Línea de cuotas para el contexto, SOLO con los medios activos."""
+        partes = []
+        if coef_3_ef is not None:
+            t3 = round(pf * coef_3_ef); partes.append(f"3 fijas de ${round(t3/3):,} (total ${t3:,})")
+        if getnet_on:
+            t6 = round(pf * coef_6);    partes.append(f"6 fijas de ${round(t6/6):,} (total ${t6:,})")
+        if mp_12_on:
+            t12 = round(pf * coef_12);  partes.append(f"12 fijas de ${round(t12/12):,} (total ${t12:,})")
+        return ("  Cuotas Web: " + " | ".join(partes)) if partes else None
 
     # Demora sin stock
     dem_row = _q("SELECT valor FROM configuracion WHERE clave = 'demora_sin_stock'")
@@ -444,18 +463,10 @@ def get_productos_context():
         lines.append(
             f"• {p['nombre']} (SKU:{p['sku']}) | {precio_str} | {stock_txt} | {link}"
         )
-        # Cuotas sobre precio web
-        total_3 = round(pf * coef_3)
-        total_6 = round(pf * coef_6)
-        cuota_3 = round(total_3 / 3)
-        cuota_6 = round(total_6 / 6)
-        cuotas_web = (f"  Cuotas Web: 3 fijas de ${cuota_3:,} (total ${total_3:,}) | "
-                      f"6 fijas de ${cuota_6:,} (total ${total_6:,})")
-        if mp_12_on:
-            total_12 = round(pf * coef_12)
-            cuota_12 = round(total_12 / 12)
-            cuotas_web += f" | 12 fijas de ${cuota_12:,} (total ${total_12:,})"
-        lines.append(cuotas_web)
+        # Cuotas sobre precio web (solo medios activos)
+        _cl = _cuotas_web_line(pf)
+        if _cl:
+            lines.append(_cl)
 
     lines.append("\n--- SOMMIERS / CONJUNTOS (colchón + base) ---")
     for p in sommiers:
@@ -473,18 +484,10 @@ def get_productos_context():
         lines.append(
             f"• {p['nombre']} (SKU:{p['sku']}) | {precio_str} | {stock_txt} | {link}"
         )
-        # Cuotas sobre precio web
-        total_3 = round(pf * coef_3)
-        total_6 = round(pf * coef_6)
-        cuota_3 = round(total_3 / 3)
-        cuota_6 = round(total_6 / 6)
-        cuotas_web = (f"  Cuotas Web: 3 fijas de ${cuota_3:,} (total ${total_3:,}) | "
-                      f"6 fijas de ${cuota_6:,} (total ${total_6:,})")
-        if mp_12_on:
-            total_12 = round(pf * coef_12)
-            cuota_12 = round(total_12 / 12)
-            cuotas_web += f" | 12 fijas de ${cuota_12:,} (total ${total_12:,})"
-        lines.append(cuotas_web)
+        # Cuotas sobre precio web (solo medios activos)
+        _cl = _cuotas_web_line(pf)
+        if _cl:
+            lines.append(_cl)
 
     # Almohadas — sección separada, sin cuotas (productos accesorios)
     if almohadas:
@@ -563,12 +566,16 @@ La fórmula es: patas (12cm) + base (21cm) + altura del colchón = altura total 
 - Sommier Sublime: 12 + 21 + 32 = 65cm total
 - Sommier Sublime Euro Pillow: 12 + 21 + 35 = 68cm total
 
+DOBLE FAZ / DAR VUELTA:
+- Todos los colchones Cannon con pillow top o euro pillow tienen la capa de acolchado de AMBOS lados: se pueden (y conviene) dar vuelta y rotar periódicamente para un desgaste parejo y mayor durabilidad. NUNCA digas que el pillow está de un solo lado ni que no se puede dar vuelta.
+
 MEDIDAS DISPONIBLES (según modelo): 80x190, 90x190, 100x190, 140x190, 150x190, 160x200, 180x200, 200x200
 
 ENVÍOS Y RETIRO:
 - Colchones y sommiers: Zipnova. Costo exacto se puede calcular con el código postal del cliente.
 - Almohadas: calculado por MercadoPago en el checkout.
 - CABA y GBA suelen ser más económicos que el interior del país.
+- COORDINACIÓN DE ENTREGA: en AMBA (CABA y Gran Buenos Aires) la entrega la hacemos con flete propio y SE COORDINA con el cliente, así que SÍ se puede acordar el día de entrega. En el interior del país el envío va por transporte y los tiempos los define la empresa (no se puede fijar un día puntual, aunque se puede estimar). Nunca prometas una fecha u hora exacta: en AMBA se coordina el día una vez hecha la compra.
 - IMPORTANTE: el envío es hasta la puerta de la calle (planta baja). NO incluye subida a departamento, piso ni acarreo interior. Si el cliente pregunta por subida o acarreo, aclarás esto directamente y sin derivar.
 - RETIRO EN LOCAL: todos los productos se pueden retirar sin costo en nuestro local.
   Dirección: Bahía Blanca 1777, Floresta, Ciudad de Buenos Aires.
@@ -679,6 +686,12 @@ PLACAS Y TABLEROS (melamina, aglomerado, fenólico, MDF, paneles ranurados):
 - Cuando el cliente pregunte o consulte por cualquiera de esos artículos, NO le digas que está equivocado ni que "solo vendemos colchones". Derivalo de forma amable al sector de placas de Cimater pasándole este teléfono tal cual: +54 9 11 5029-1777
 - NO uses [DERIVAR] en estos casos: ese sector lo atiende Cimater (no Mercado Muebles), así que no hay que avisar a un asesor nuestro. Solo pasale el teléfono como texto.
 - Ejemplo: "Las placas de melamina, MDF, fenólico y los paneles los maneja directamente el sector de placas de Cimater. Escribiles a este número y te asesoran: +54 9 11 5029-1777"
+
+PUBLICACIONES DE MERCADO LIBRE:
+- Este WhatsApp es solo para consultas de nuestra TIENDA WEB (mercadomuebles.com.ar) y del local. Las publicaciones de Mercado Libre son otro canal (precio, cuotas, stock o envíos pueden ser distintos) y NO se gestionan por acá.
+- Si el cliente manda un link de Mercado Libre o pregunta por una publicación de ML: NO cotices ni compares contra el precio de esa publicación. Aclarale amablemente que ese es otro canal de consulta y pasale este número tal cual: para consultas de publicaciones de Mercado Libre, escribí al +54 9 11 2627-5185 (lunes a viernes de 8 a 16.30hs).
+- Después de aclararlo, SÍ podés ofrecerle ayudarlo con ese mismo producto (o el equivalente) en nuestra tienda web, cotizándolo con nuestro precio si el cliente quiere.
+- NO uses [DERIVAR] en estos casos: solo pasás el número como texto.
 
 REGLAS CRÍTICAS — INCUMPLIRLAS ES UN ERROR GRAVE:
 1. NUNCA preguntes algo que el cliente ya respondió en esta conversación
