@@ -9296,6 +9296,73 @@ def obtener_permalinks_ml(mla_ids, access_token):
 
     return permalinks
 
+# ── Promociones ML (Fase 1 — lectura: SKU → publis + promos disponibles) ──
+@app.route('/promociones-ml')
+@login_required
+def promociones_ml():
+    return render_template('promociones_ml.html', sku_buscado='', publicaciones=None)
+
+
+@app.route('/promociones-ml/buscar', methods=['POST'])
+@login_required
+def promociones_ml_buscar():
+    sku = request.form.get('sku_buscar', '').strip().upper()
+    if not sku:
+        flash('Ingresá un SKU', 'warning')
+        return redirect(url_for('promociones_ml'))
+    access_token = cargar_ml_token()
+    if not access_token:
+        flash('❌ No hay token de ML configurado', 'danger')
+        return render_template('promociones_ml.html', sku_buscado=sku, publicaciones=[])
+    # SKU → MLAs (directo si es MLA/numérico, o desde sku_mla_mapeo)
+    if sku.startswith('MLA'):
+        mla_ids = [sku]
+    elif sku.isdigit():
+        mla_ids = [f'MLA{sku}']
+    else:
+        mla_ids = [x['mla_id'] for x in query_db(
+            "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku,))]
+    if not mla_ids:
+        flash(f'No se encontraron publicaciones para "{sku}"', 'warning')
+        return render_template('promociones_ml.html', sku_buscado=sku, publicaciones=[])
+    estado_map = {'active': 'Activa', 'paused': 'Pausada', 'closed': 'Cerrada',
+                  'under_review': 'En revisión', 'inactive': 'Inactiva'}
+    publicaciones = []
+    for mla in mla_ids:
+        pub = {'mla_id': mla, 'titulo': None, 'precio': None, 'estado': None,
+               'estado_raw': None, 'permalink': None, 'promos': [], 'promo_error': None, 'error': None}
+        try:
+            ri = ml_request('get', f'https://api.mercadolibre.com/items/{mla}', access_token,
+                            params={'attributes': 'id,title,price,status,permalink'})
+            if ri.status_code != 200:
+                pub['error'] = f'No se pudo leer la publicación (HTTP {ri.status_code})'
+                publicaciones.append(pub); continue
+            it = ri.json()
+            pub.update(titulo=it.get('title'), precio=it.get('price'),
+                       estado=estado_map.get(it.get('status'), it.get('status')),
+                       estado_raw=it.get('status'), permalink=it.get('permalink'))
+            rp = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/items/{mla}',
+                            access_token, params={'app_version': 'v2'})
+            data = rp.json() if rp.status_code == 200 else None
+            if isinstance(data, list):
+                for pr in data:
+                    lo = pr.get('min_discounted_price'); hi = pr.get('max_discounted_price')
+                    pub['promos'].append({
+                        'tipo': pr.get('type'), 'status': pr.get('status'), 'id': pr.get('id'),
+                        'name': pr.get('name') or '', 'price': pr.get('price'),
+                        'original_price': pr.get('original_price'), 'min': lo, 'max': hi,
+                        'sugerido': pr.get('suggested_discounted_price'),
+                        'finish_date': pr.get('finish_date'),
+                        'editable': lo is not None and hi is not None,
+                    })
+            else:
+                pub['promo_error'] = str(rp.status_code)
+        except Exception as e:
+            pub['error'] = f'Error consultando ML: {e}'
+        publicaciones.append(pub)
+    return render_template('promociones_ml.html', sku_buscado=sku, publicaciones=publicaciones)
+
+
 @app.route('/buscar-sku-ml', methods=['POST'])
 @login_required
 def buscar_sku_ml():

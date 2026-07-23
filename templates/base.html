@@ -309,6 +309,11 @@
                     </a>
                 </li>
                 <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'promociones_ml' %}active{% endif %}" href="/promociones-ml">
+                        <i class="bi bi-percent"></i> Promociones ML
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'auditoria_ml' %}active{% endif %}" href="/auditoria-ml">
                         <i class="bi bi-search"></i> Auditoría ML
                     </a>
@@ -555,6 +560,11 @@
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'cargar_stock_ml' %}active{% endif %}" href="/cargar-stock-ml">
                                 <i class="bi bi-box-seam"></i> Modificar Publis ML
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'promociones_ml' %}active{% endif %}" href="/promociones-ml">
+                                <i class="bi bi-percent"></i> Promociones ML
                             </a>
                         </li>
                         <li class="nav-item">
