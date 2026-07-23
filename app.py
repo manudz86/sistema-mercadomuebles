@@ -9300,7 +9300,8 @@ def obtener_permalinks_ml(mla_ids, access_token):
 def _promo_coefs():
     """(coef_3_efectivo, coef_6, coef_12, getnet_on, mp12_on) según medios activos."""
     coefs = {r['clave']: float(r['valor']) for r in query_db(
-        "SELECT clave, valor FROM configuracion WHERE clave LIKE 'cuotas_%_coef'")}
+        "SELECT clave, valor FROM configuracion WHERE clave IN "
+        "('cuotas_3_coef','cuotas_6_coef','cuotas_12_coef','cuotas_mp3_coef')")}
     flags = {r['clave']: str(r['valor']) for r in query_db(
         "SELECT clave, valor FROM configuracion WHERE clave IN "
         "('payway_enabled','getnet_enabled','mp_3_enabled','mp_12_enabled')")}
