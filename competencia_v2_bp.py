@@ -38,10 +38,11 @@ VENDOR_META = {
     'Ballester': {'nombre': 'Colchonería Ballester', 'alias': 'COLCHONERIA BALLESTER', 'seller_id': 658910977, 'tienda': 'Ballester'},
     'Bedpoint':  {'nombre': 'Bedpoint',             'alias': 'BEDPOINT',              'seller_id': 168211358, 'tienda': 'Bedpoint'},
     'Metymas':   {'nombre': 'Metymas',              'alias': 'METYMAS',               'seller_id': 105539832, 'tienda': 'Metymas'},
+    'SanMartin': {'nombre': 'Colchonería San Martín', 'alias': 'COLCHONERIA SAN MARTIN', 'seller_id': 69984816, 'tienda': 'SanMartin'},
     'Mercadomuebles': {'nombre': 'Mercadomuebles (vos)', 'alias': 'MERCADOMUEBLES (YO)', 'seller_id': MY_ID,   'tienda': None},
     'Milesi':    {'nombre': 'Milesi Hogar',         'alias': 'MILESI HOGAR',          'seller_id': None,      'tienda': None},
 }
-VENDORS_ORDEN = ['TMS', 'Ivana', 'Lanus', 'Ballester', 'Bedpoint', 'Metymas', 'Mercadomuebles']
+VENDORS_ORDEN = ['TMS', 'Ivana', 'Lanus', 'Ballester', 'Bedpoint', 'Metymas', 'SanMartin', 'Mercadomuebles']
 # En "Ventas Competidores" además se puede ver a vendedores de solo-almohadas (Milesi).
 VENDORS_VC = VENDORS_ORDEN + ['Milesi']
 # Períodos DINÁMICOS: cada subcarpeta YYYY-MM de DATA_DIR con colchones.json/sommiers.json.
