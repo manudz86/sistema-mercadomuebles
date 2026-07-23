@@ -9327,6 +9327,14 @@ def promociones_ml_buscar():
         return render_template('promociones_ml.html', sku_buscado=sku, publicaciones=[])
     estado_map = {'active': 'Activa', 'paused': 'Pausada', 'closed': 'Cerrada',
                   'under_review': 'En revisión', 'inactive': 'Inactiva'}
+
+    def _pct(orig, final):
+        """% de descuento sobre el precio de lista, 1 decimal (coma) — 'precio final' → % off."""
+        return f"{(orig - final) / orig * 100:.1f}".replace('.', ',') if (orig and final is not None) else None
+
+    def _baja(orig, final):
+        return (orig - final) if (orig and final is not None) else None
+
     publicaciones = []
     for mla in mla_ids:
         pub = {'mla_id': mla, 'titulo': None, 'precio': None, 'estado': None,
@@ -9347,13 +9355,20 @@ def promociones_ml_buscar():
             if isinstance(data, list):
                 for pr in data:
                     lo = pr.get('min_discounted_price'); hi = pr.get('max_discounted_price')
+                    orig = pr.get('original_price'); price = pr.get('price')
+                    sug = pr.get('suggested_discounted_price')
                     pub['promos'].append({
                         'tipo': pr.get('type'), 'status': pr.get('status'), 'id': pr.get('id'),
-                        'name': pr.get('name') or '', 'price': pr.get('price'),
-                        'original_price': pr.get('original_price'), 'min': lo, 'max': hi,
-                        'sugerido': pr.get('suggested_discounted_price'),
+                        'name': pr.get('name') or '', 'price': price,
+                        'original_price': orig, 'min': lo, 'max': hi, 'sugerido': sug,
                         'finish_date': pr.get('finish_date'),
                         'editable': lo is not None and hi is not None,
+                        # % de descuento (lo importante). hi=precio final más alto → menor %;
+                        # lo=precio final más bajo → mayor %.
+                        'pct_desde': _pct(orig, hi), 'pct_hasta': _pct(orig, lo),
+                        'pct_sug': _pct(orig, sug), 'pct_price': _pct(orig, price),
+                        'baja_desde': _baja(orig, hi), 'baja_hasta': _baja(orig, lo),
+                        'baja_price': _baja(orig, price),
                     })
             else:
                 pub['promo_error'] = str(rp.status_code)

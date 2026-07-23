@@ -62,7 +62,7 @@
               <thead class="table-light">
                 <tr>
                   <th>Tipo</th><th>Nombre</th><th>Estado</th>
-                  <th>Precio / Rango</th><th>Editable</th><th>Vence</th>
+                  <th>Descuento (%)</th><th>Editable</th><th>Vence</th>
                 </tr>
               </thead>
               <tbody>
@@ -79,15 +79,20 @@
                       <span class="badge bg-light text-dark border">{{ pr.status }}</span>
                     {% endif %}
                   </td>
-                  <td style="font-size:.85rem">
-                    {% if pr.status in ['started', 'active'] and pr.price %}
-                      <b>${{ '{:,.0f}'.format(pr.price)|replace(',', '.') }}</b>
-                      {% if pr.original_price %}<span class="text-muted"> (de ${{ '{:,.0f}'.format(pr.original_price)|replace(',', '.') }})</span>{% endif %}
+                  <td>
+                    {% if pr.status in ['started', 'active'] and pr.pct_price %}
+                      <span class="badge bg-success" style="font-size:.95rem">{{ pr.pct_price }}% OFF</span>
+                      <div class="text-muted" style="font-size:.76rem">
+                        bajás ${{ '{:,.0f}'.format(pr.baja_price)|replace(',', '.') }} · queda ${{ '{:,.0f}'.format(pr.price)|replace(',', '.') }}
+                      </div>
                     {% elif pr.editable %}
-                      rango ${{ '{:,.0f}'.format(pr.min)|replace(',', '.') }}–${{ '{:,.0f}'.format(pr.max)|replace(',', '.') }}
-                      {% if pr.sugerido %}<span class="text-muted"> · sug ${{ '{:,.0f}'.format(pr.sugerido)|replace(',', '.') }}</span>{% endif %}
-                    {% elif pr.price %}
-                      ${{ '{:,.0f}'.format(pr.price)|replace(',', '.') }} <span class="text-muted">(fijo por ML)</span>
+                      <span class="fw-bold" style="font-size:.95rem">{{ pr.pct_desde }}% – {{ pr.pct_hasta }}%</span>
+                      <div class="text-muted" style="font-size:.76rem">
+                        {% if pr.pct_sug %}sug {{ pr.pct_sug }}% · {% endif %}bajás ${{ '{:,.0f}'.format(pr.baja_desde)|replace(',', '.') }}–${{ '{:,.0f}'.format(pr.baja_hasta)|replace(',', '.') }}
+                      </div>
+                    {% elif pr.pct_price %}
+                      <span class="fw-bold" style="font-size:.95rem">{{ pr.pct_price }}% OFF</span>
+                      <div class="text-muted" style="font-size:.76rem">fijo por ML · queda ${{ '{:,.0f}'.format(pr.price)|replace(',', '.') }}</div>
                     {% else %}—{% endif %}
                   </td>
                   <td>
