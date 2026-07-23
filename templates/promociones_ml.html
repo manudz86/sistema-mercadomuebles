@@ -90,6 +90,12 @@
                       <div class="text-muted" style="font-size:.76rem">
                         {% if pr.pct_sug %}sug {{ pr.pct_sug }}% · {% endif %}bajás ${{ '{:,.0f}'.format(pr.baja_desde)|replace(',', '.') }}–${{ '{:,.0f}'.format(pr.baja_hasta)|replace(',', '.') }}
                       </div>
+                    {% elif pr.cofinanciada %}
+                      <span class="fw-bold" style="font-size:.95rem">{{ pr.pct_total }}% OFF</span>
+                      <span class="badge bg-warning text-dark ms-1" style="font-size:.68rem">co-financiada</span>
+                      <div class="text-muted" style="font-size:.76rem">
+                        a tu cargo <b>{{ pr.seller_pct }}%</b> + ML {{ pr.meli_pct }}%{% if pr.price %} · queda ${{ '{:,.0f}'.format(pr.price)|replace(',', '.') }}{% endif %}
+                      </div>
                     {% elif pr.pct_price %}
                       <span class="fw-bold" style="font-size:.95rem">{{ pr.pct_price }}% OFF</span>
                       <div class="text-muted" style="font-size:.76rem">fijo por ML · queda ${{ '{:,.0f}'.format(pr.price)|replace(',', '.') }}</div>

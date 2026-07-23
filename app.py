@@ -9357,6 +9357,11 @@ def promociones_ml_buscar():
                     lo = pr.get('min_discounted_price'); hi = pr.get('max_discounted_price')
                     orig = pr.get('original_price'); price = pr.get('price')
                     sug = pr.get('suggested_discounted_price')
+                    # Promos co-financiadas (SMART): ML exige un % a cargo del vendedor
+                    # y agrega otro % de su bolsillo (seller_percentage + meli_percentage).
+                    meli_p = pr.get('meli_percentage'); seller_p = pr.get('seller_percentage')
+                    cofin = meli_p is not None and seller_p is not None
+                    _fp = lambda x: (f"{x:.1f}".replace('.', ',') if x is not None else None)
                     pub['promos'].append({
                         'tipo': pr.get('type'), 'status': pr.get('status'), 'id': pr.get('id'),
                         'name': pr.get('name') or '', 'price': price,
@@ -9369,6 +9374,8 @@ def promociones_ml_buscar():
                         'pct_sug': _pct(orig, sug), 'pct_price': _pct(orig, price),
                         'baja_desde': _baja(orig, hi), 'baja_hasta': _baja(orig, lo),
                         'baja_price': _baja(orig, price),
+                        'cofinanciada': cofin, 'seller_pct': _fp(seller_p), 'meli_pct': _fp(meli_p),
+                        'pct_total': (_fp(seller_p + meli_p) if cofin else None),
                     })
             else:
                 pub['promo_error'] = str(rp.status_code)
