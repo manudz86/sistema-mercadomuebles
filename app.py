@@ -9296,25 +9296,143 @@ def obtener_permalinks_ml(mla_ids, access_token):
 
     return permalinks
 
-# ── Promociones ML (Fase 1 — lectura: SKU → publis + promos disponibles) ──
+# ── Promociones ML (Fase 1 — lectura: por publicación + por campaña) ──
+def _promo_coefs():
+    """(coef_3_efectivo, coef_6, coef_12, getnet_on, mp12_on) según medios activos."""
+    coefs = {r['clave']: float(r['valor']) for r in query_db(
+        "SELECT clave, valor FROM configuracion WHERE clave LIKE 'cuotas_%_coef'")}
+    flags = {r['clave']: str(r['valor']) for r in query_db(
+        "SELECT clave, valor FROM configuracion WHERE clave IN "
+        "('payway_enabled','getnet_enabled','mp_3_enabled','mp_12_enabled')")}
+    c3 = []
+    if flags.get('payway_enabled', '1') == '1': c3.append(coefs.get('cuotas_3_coef', 1.25))
+    if flags.get('mp_3_enabled', '0') == '1':   c3.append(coefs.get('cuotas_mp3_coef', 1.18))
+    return (min(c3) if c3 else None, coefs.get('cuotas_6_coef', 1.25), coefs.get('cuotas_12_coef', 1.6),
+            flags.get('getnet_enabled', '1') == '1', flags.get('mp_12_enabled', '0') == '1')
+
+
+def _costos_map(skus):
+    """{sku_ml: {contado, c3, c6, c12}} con el precio de lista de costos (productos_base.precio_base)
+    + cuotas. Normaliza la 'Z' final de variante. Los que no estén en productos_base no aparecen."""
+    skus = [s for s in set(skus) if s]
+    if not skus:
+        return {}
+    norm = {s: (s[:-1] if s.endswith('Z') else s) for s in skus}
+    bases = list(set(norm.values()))
+    ph = ','.join(['%s'] * len(bases))
+    # colchones / almohadas: precio_base directo
+    pb = {r['sku']: float(r['precio_base']) for r in query_db(
+        "SELECT sku, precio_base FROM productos_base WHERE sku IN ({})".format(ph), tuple(bases))
+        if r.get('precio_base')}
+    # sommiers (productos_compuestos): suma de componentes (precio_base × cantidad)
+    falt = [b for b in bases if b not in pb]
+    if falt:
+        for r in query_db(
+            "SELECT pc.sku AS sku, SUM(pb.precio_base * c.cantidad_necesaria) AS precio_sum "
+            "FROM productos_compuestos pc "
+            "JOIN componentes c ON c.producto_compuesto_id = pc.id "
+            "JOIN productos_base pb ON pb.id = c.producto_base_id "
+            "WHERE pc.sku IN ({}) GROUP BY pc.sku".format(','.join(['%s'] * len(falt))), tuple(falt)):
+            if r.get('precio_sum'):
+                pb[r['sku']] = float(r['precio_sum'])
+    c3ef, c6, c12, getnet_on, mp12_on = _promo_coefs()
+    out = {}
+    for s, base in norm.items():
+        p = pb.get(base)
+        if not p:
+            continue
+        out[s] = {'contado': round(p),
+                  'c3': (round(p * c3ef) if c3ef else None),
+                  'c6': (round(p * c6) if getnet_on else None),
+                  'c12': (round(p * c12) if mp12_on else None)}
+    return out
+
+
+def _promo_campanias(access_token):
+    """Lista de campañas del vendedor (para el dropdown)."""
+    try:
+        r = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/users/{ML_SELLER_ID}',
+                       access_token, params={'app_version': 'v2'})
+        if r.status_code == 200 and isinstance(r.json().get('results'), list):
+            return r.json()['results']
+    except Exception:
+        pass
+    return []
+
+
+def _promo_row(pr):
+    """Normaliza una promo (de /items o de una campaña) a los campos del template."""
+    lo = pr.get('min_discounted_price'); hi = pr.get('max_discounted_price')
+    orig = pr.get('original_price'); price = pr.get('price')
+    sug = pr.get('suggested_discounted_price')
+    meli_p = pr.get('meli_percentage'); seller_p = pr.get('seller_percentage')
+    cofin = meli_p is not None and seller_p is not None
+    pf = lambda x: (f"{x:.1f}".replace('.', ',') if x is not None else None)
+    pct = lambda o, f: (f"{(o - f) / o * 100:.1f}".replace('.', ',') if (o and f is not None) else None)
+    baja = lambda o, f: ((o - f) if (o and f is not None) else None)
+    return {
+        'tipo': pr.get('type'), 'status': pr.get('status'), 'id': pr.get('id'),
+        'name': pr.get('name') or '', 'price': price, 'original_price': orig,
+        'min': lo, 'max': hi, 'sugerido': sug, 'finish_date': pr.get('finish_date'),
+        'editable': lo is not None and hi is not None,
+        'pct_desde': pct(orig, hi), 'pct_hasta': pct(orig, lo),
+        'pct_sug': pct(orig, sug), 'pct_price': pct(orig, price),
+        'baja_desde': baja(orig, hi), 'baja_hasta': baja(orig, lo), 'baja_price': baja(orig, price),
+        'cofinanciada': cofin, 'seller_pct': pf(seller_p), 'meli_pct': pf(meli_p),
+        'pct_total': (pf(seller_p + meli_p) if cofin else None),
+        'seller_pct_num': seller_p,
+        # "lo que ponés vos": SMART → seller_percentage; editable (DEAL) → descuento mínimo exigido
+        'orden_pct': (seller_p if cofin else (round((orig - hi) / orig * 100, 1) if (orig and hi is not None) else None)),
+        'tu_pct': (pf(seller_p) if cofin else (pct(orig, hi) if (orig and hi is not None) else None)),
+    }
+
+
+def _cuotas_reales_map(access_token, mlas):
+    """{mla: 'texto cuotas'} con las cuotas reales de cada publi, en multiget de 20."""
+    from competencia_bp import _cuotas_publi, _campaign_from_tags
+    out = {}
+    for i in range(0, len(mlas), 20):
+        chunk = mlas[i:i + 20]
+        try:
+            r = ml_request('get', 'https://api.mercadolibre.com/items', access_token,
+                           params={'ids': ','.join(chunk), 'attributes': 'id,listing_type_id,tags'})
+            if r.status_code != 200:
+                continue
+            for w in r.json():
+                b = w.get('body') or {}
+                if b.get('id'):
+                    out[b['id']] = _cuotas_publi(b.get('listing_type_id'), _campaign_from_tags(b.get('tags')))
+        except Exception:
+            continue
+    return out
+
+
+_PROMO_ESTADO = {'active': 'Activa', 'paused': 'Pausada', 'closed': 'Cerrada',
+                 'under_review': 'En revisión', 'inactive': 'Inactiva'}
+
+
 @app.route('/promociones-ml')
 @login_required
 def promociones_ml():
-    return render_template('promociones_ml.html', sku_buscado='', publicaciones=None)
+    access_token = cargar_ml_token()
+    campanias = _promo_campanias(access_token) if access_token else []
+    return render_template('promociones_ml.html', active_tab='pub', campanias=campanias,
+                           sku_buscado='', publicaciones=None, campania_items=None, campania_sel='')
 
 
 @app.route('/promociones-ml/buscar', methods=['POST'])
 @login_required
 def promociones_ml_buscar():
     sku = request.form.get('sku_buscar', '').strip().upper()
+    access_token = cargar_ml_token()
+    campanias = _promo_campanias(access_token) if access_token else []
     if not sku:
         flash('Ingresá un SKU', 'warning')
         return redirect(url_for('promociones_ml'))
-    access_token = cargar_ml_token()
     if not access_token:
         flash('❌ No hay token de ML configurado', 'danger')
-        return render_template('promociones_ml.html', sku_buscado=sku, publicaciones=[])
-    # SKU → MLAs (directo si es MLA/numérico, o desde sku_mla_mapeo)
+        return render_template('promociones_ml.html', active_tab='pub', campanias=campanias,
+                               sku_buscado=sku, publicaciones=[], campania_items=None, campania_sel='')
     if sku.startswith('MLA'):
         mla_ids = [sku]
     elif sku.isdigit():
@@ -9324,21 +9442,19 @@ def promociones_ml_buscar():
             "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku,))]
     if not mla_ids:
         flash(f'No se encontraron publicaciones para "{sku}"', 'warning')
-        return render_template('promociones_ml.html', sku_buscado=sku, publicaciones=[])
-    estado_map = {'active': 'Activa', 'paused': 'Pausada', 'closed': 'Cerrada',
-                  'under_review': 'En revisión', 'inactive': 'Inactiva'}
-
-    def _pct(orig, final):
-        """% de descuento sobre el precio de lista, 1 decimal (coma) — 'precio final' → % off."""
-        return f"{(orig - final) / orig * 100:.1f}".replace('.', ',') if (orig and final is not None) else None
-
-    def _baja(orig, final):
-        return (orig - final) if (orig and final is not None) else None
-
+        return render_template('promociones_ml.html', active_tab='pub', campanias=campanias,
+                               sku_buscado=sku, publicaciones=[], campania_items=None, campania_sel='')
+    # sku de cada MLA (para el precio de costos) + costos
+    sku_de_mla = {r['mla_id']: r['sku'] for r in query_db(
+        "SELECT mla_id, sku FROM sku_mla_mapeo WHERE mla_id IN ({}) AND activo = TRUE".format(
+            ','.join(['%s'] * len(mla_ids))), tuple(mla_ids))}
+    costos = _costos_map(list(sku_de_mla.values()) or [sku])
     publicaciones = []
     for mla in mla_ids:
-        pub = {'mla_id': mla, 'titulo': None, 'precio': None, 'estado': None,
-               'estado_raw': None, 'permalink': None, 'promos': [], 'promo_error': None, 'error': None}
+        s = sku_de_mla.get(mla) or (sku if not sku.startswith('MLA') and not sku.isdigit() else None)
+        pub = {'mla_id': mla, 'sku': s, 'titulo': None, 'precio': None, 'estado': None,
+               'estado_raw': None, 'permalink': None, 'promos': [], 'promo_error': None,
+               'error': None, 'costo': costos.get(s)}
         try:
             ri = ml_request('get', f'https://api.mercadolibre.com/items/{mla}', access_token,
                             params={'attributes': 'id,title,price,status,permalink'})
@@ -9347,42 +9463,70 @@ def promociones_ml_buscar():
                 publicaciones.append(pub); continue
             it = ri.json()
             pub.update(titulo=it.get('title'), precio=it.get('price'),
-                       estado=estado_map.get(it.get('status'), it.get('status')),
+                       estado=_PROMO_ESTADO.get(it.get('status'), it.get('status')),
                        estado_raw=it.get('status'), permalink=it.get('permalink'))
             rp = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/items/{mla}',
                             access_token, params={'app_version': 'v2'})
             data = rp.json() if rp.status_code == 200 else None
             if isinstance(data, list):
-                for pr in data:
-                    lo = pr.get('min_discounted_price'); hi = pr.get('max_discounted_price')
-                    orig = pr.get('original_price'); price = pr.get('price')
-                    sug = pr.get('suggested_discounted_price')
-                    # Promos co-financiadas (SMART): ML exige un % a cargo del vendedor
-                    # y agrega otro % de su bolsillo (seller_percentage + meli_percentage).
-                    meli_p = pr.get('meli_percentage'); seller_p = pr.get('seller_percentage')
-                    cofin = meli_p is not None and seller_p is not None
-                    _fp = lambda x: (f"{x:.1f}".replace('.', ',') if x is not None else None)
-                    pub['promos'].append({
-                        'tipo': pr.get('type'), 'status': pr.get('status'), 'id': pr.get('id'),
-                        'name': pr.get('name') or '', 'price': price,
-                        'original_price': orig, 'min': lo, 'max': hi, 'sugerido': sug,
-                        'finish_date': pr.get('finish_date'),
-                        'editable': lo is not None and hi is not None,
-                        # % de descuento (lo importante). hi=precio final más alto → menor %;
-                        # lo=precio final más bajo → mayor %.
-                        'pct_desde': _pct(orig, hi), 'pct_hasta': _pct(orig, lo),
-                        'pct_sug': _pct(orig, sug), 'pct_price': _pct(orig, price),
-                        'baja_desde': _baja(orig, hi), 'baja_hasta': _baja(orig, lo),
-                        'baja_price': _baja(orig, price),
-                        'cofinanciada': cofin, 'seller_pct': _fp(seller_p), 'meli_pct': _fp(meli_p),
-                        'pct_total': (_fp(seller_p + meli_p) if cofin else None),
-                    })
+                pub['promos'] = [_promo_row(pr) for pr in data]
             else:
                 pub['promo_error'] = str(rp.status_code)
         except Exception as e:
             pub['error'] = f'Error consultando ML: {e}'
         publicaciones.append(pub)
-    return render_template('promociones_ml.html', sku_buscado=sku, publicaciones=publicaciones)
+    return render_template('promociones_ml.html', active_tab='pub', campanias=campanias,
+                           sku_buscado=sku, publicaciones=publicaciones, campania_items=None, campania_sel='')
+
+
+@app.route('/promociones-ml/campania', methods=['POST'])
+@login_required
+def promociones_ml_campania():
+    camp_id = (request.form.get('campania') or '').strip()
+    access_token = cargar_ml_token()
+    campanias = _promo_campanias(access_token) if access_token else []
+    if not access_token:
+        flash('❌ No hay token de ML configurado', 'danger')
+        return render_template('promociones_ml.html', active_tab='camp', campanias=campanias,
+                               campania_sel=camp_id, campania_items=[], publicaciones=None, sku_buscado='')
+    camp = next((c for c in campanias if c.get('id') == camp_id), None)
+    if not camp:
+        flash('Elegí una campaña', 'warning')
+        return render_template('promociones_ml.html', active_tab='camp', campanias=campanias,
+                               campania_sel='', campania_items=None, publicaciones=None, sku_buscado='')
+    ctype = camp.get('type')
+    # traer todos los ítems de la campaña (paginado)
+    items = []; off = 0
+    try:
+        while True:
+            r = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/promotions/{camp_id}/items',
+                           access_token, params={'promotion_type': ctype, 'app_version': 'v2',
+                                                 'limit': 50, 'offset': off})
+            if r.status_code != 200:
+                break
+            d = r.json(); res = d.get('results', []) or []
+            items.extend(res)
+            tot = d.get('paging', {}).get('total', len(res))
+            off += 50
+            if off >= tot or not res:
+                break
+    except Exception as e:
+        flash(f'Error trayendo la campaña: {e}', 'danger')
+    # filtrar a los mapeados a mis SKUs
+    rows = query_db("SELECT mla_id, sku, titulo_ml FROM sku_mla_mapeo WHERE activo = TRUE")
+    mapa = {r['mla_id']: r['sku'] for r in rows}
+    titulos = {r['mla_id']: r['titulo_ml'] for r in rows}
+    items = [it for it in items if it.get('id') in mapa]
+    costos = _costos_map([mapa[it['id']] for it in items])
+    cuotas = _cuotas_reales_map(access_token, [it['id'] for it in items])
+    filas = []
+    for it in items:
+        mla = it['id']; s = mapa.get(mla)
+        filas.append({'mla_id': mla, 'sku': s, 'titulo': titulos.get(mla),
+                      'promo': _promo_row(it), 'costo': costos.get(s), 'cuotas_real': cuotas.get(mla, '—')})
+    return render_template('promociones_ml.html', active_tab='camp', campanias=campanias,
+                           campania_sel=camp_id, campania_nombre=camp.get('name'), campania_tipo=ctype,
+                           campania_items=filas, publicaciones=None, sku_buscado='')
 
 
 @app.route('/buscar-sku-ml', methods=['POST'])

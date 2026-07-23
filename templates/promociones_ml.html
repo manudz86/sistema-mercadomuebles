@@ -1,121 +1,199 @@
 {% extends "base.html" %}
-
 {% block title %}Promociones ML{% endblock %}
+
+{% macro costo_cell(c) %}
+  {% if c %}
+    <b>${{ '{:,.0f}'.format(c.contado)|replace(',', '.') }}</b> <span class="text-muted" style="font-size:.7rem">contado</span>
+    <div class="text-muted" style="font-size:.7rem">
+      {% if c.c3 %}3c ${{ '{:,.0f}'.format(c.c3)|replace(',', '.') }}{% endif %}{% if c.c6 %} · 6c ${{ '{:,.0f}'.format(c.c6)|replace(',', '.') }}{% endif %}{% if c.c12 %} · 12c ${{ '{:,.0f}'.format(c.c12)|replace(',', '.') }}{% endif %}
+    </div>
+  {% else %}<span class="text-muted">—</span>{% endif %}
+{% endmacro %}
+
+{% macro promo_desc(pr) %}
+  {% if pr.status in ['started', 'active'] and pr.pct_price %}
+    <span class="badge bg-success" style="font-size:.9rem">{{ pr.pct_price }}% OFF</span>
+    <div class="text-muted" style="font-size:.72rem">bajás ${{ '{:,.0f}'.format(pr.baja_price)|replace(',', '.') }} · queda ${{ '{:,.0f}'.format(pr.price)|replace(',', '.') }}</div>
+  {% elif pr.editable %}
+    <span class="fw-bold" style="font-size:.9rem">{{ pr.pct_desde }}% – {{ pr.pct_hasta }}%</span>
+    <div class="text-muted" style="font-size:.72rem">{% if pr.pct_sug %}sug {{ pr.pct_sug }}% · {% endif %}bajás ${{ '{:,.0f}'.format(pr.baja_desde)|replace(',', '.') }}–${{ '{:,.0f}'.format(pr.baja_hasta)|replace(',', '.') }}</div>
+  {% elif pr.cofinanciada %}
+    <span class="fw-bold" style="font-size:.9rem">{{ pr.pct_total }}% OFF</span>
+    <span class="badge bg-warning text-dark ms-1" style="font-size:.66rem">co-financiada</span>
+    <div class="text-muted" style="font-size:.72rem">a tu cargo <b>{{ pr.seller_pct }}%</b> + ML {{ pr.meli_pct }}%{% if pr.price %} · queda ${{ '{:,.0f}'.format(pr.price)|replace(',', '.') }}{% endif %}</div>
+  {% elif pr.pct_price %}
+    <span class="fw-bold" style="font-size:.9rem">{{ pr.pct_price }}% OFF</span>
+    <div class="text-muted" style="font-size:.72rem">fijo por ML · queda ${{ '{:,.0f}'.format(pr.price)|replace(',', '.') }}</div>
+  {% else %}—{% endif %}
+{% endmacro %}
 
 {% block content %}
 <div class="container-fluid py-4">
-  <div class="row mb-3">
-    <div class="col">
-      <h3 class="mb-1"><i class="bi bi-percent"></i> Promociones ML</h3>
-      <p class="text-muted mb-0" style="font-size:.9rem">
-        Buscá por SKU y mirá las promociones disponibles en cada publicación, con sus rangos de precio.
-        <b>Solo lectura por ahora</b> — las acciones (aplicar / quitar / sumarse a campañas) vienen en el próximo paso.
-      </p>
-    </div>
+  <h3 class="mb-1"><i class="bi bi-percent"></i> Promociones ML</h3>
+  <p class="text-muted mb-3" style="font-size:.88rem">
+    <b>Solo lectura por ahora.</b> Mirá promos disponibles por publicación o explorá una campaña entera.
+    El precio de costos es tu precio de lista (de costos), contado + cuotas.
+  </p>
+
+  <ul class="nav nav-tabs mb-3" id="promoTabs">
+    <li class="nav-item"><a class="nav-link" href="#" data-tab="pub" onclick="return showTab('pub')"><i class="bi bi-upc-scan"></i> Por publicación</a></li>
+    <li class="nav-item"><a class="nav-link" href="#" data-tab="camp" onclick="return showTab('camp')"><i class="bi bi-megaphone"></i> Por campaña</a></li>
+  </ul>
+
+  <!-- ══ TAB POR PUBLICACIÓN ══ -->
+  <div id="pane-pub" class="promo-pane">
+    <form method="POST" action="/promociones-ml/buscar" class="row g-2 mb-4" style="max-width:540px">
+      <div class="col flex-grow-1">
+        <input type="text" name="sku_buscar" class="form-control" placeholder="SKU (ej. CEXP160) o MLA..."
+               value="{{ sku_buscado or '' }}" required>
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> Buscar</button>
+      </div>
+    </form>
+
+    {% if publicaciones is not none %}
+      {% if not publicaciones %}
+        <div class="alert alert-warning">No se encontraron publicaciones para "{{ sku_buscado }}".</div>
+      {% else %}
+        <p class="text-muted" style="font-size:.9rem">{{ publicaciones|length }} publicación(es) para <b>{{ sku_buscado }}</b>.</p>
+        {% for p in publicaciones %}
+        <div class="card shadow-sm mb-3">
+          <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+              <span class="badge bg-dark font-monospace">{{ p.mla_id }}</span>
+              {% if p.sku %}<span class="badge bg-info text-dark font-monospace">{{ p.sku }}</span>{% endif %}
+              {% if p.estado %}<span class="badge {{ 'bg-success' if p.estado_raw == 'active' else 'bg-secondary' }}">{{ p.estado }}</span>{% endif %}
+              <span>{{ p.titulo or '—' }}</span>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+              {% if p.precio is not none %}<span class="fw-bold">Publicado: ${{ '{:,.0f}'.format(p.precio)|replace(',', '.') }}</span>{% endif %}
+              <span style="font-size:.8rem">Costo: {{ costo_cell(p.costo) }}</span>
+              {% if p.permalink %}<a href="{{ p.permalink }}" target="_blank" class="btn btn-sm btn-outline-secondary" title="Ver en ML"><i class="bi bi-box-arrow-up-right"></i></a>{% endif %}
+            </div>
+          </div>
+          <div class="card-body p-0">
+            {% if p.error %}<div class="alert alert-danger m-3 mb-0">{{ p.error }}</div>
+            {% elif p.promo_error %}<div class="alert alert-warning m-3 mb-0">No se pudieron leer las promociones (error {{ p.promo_error }}).</div>
+            {% elif not p.promos %}<div class="text-muted p-3">Sin promociones disponibles para esta publicación.</div>
+            {% else %}
+            <div class="table-responsive">
+              <table class="table table-sm mb-0 align-middle">
+                <thead class="table-light"><tr><th>Tipo</th><th>Nombre</th><th>Estado</th><th>Descuento (%)</th><th>Editable</th><th>Vence</th></tr></thead>
+                <tbody>
+                  {% for pr in p.promos %}
+                  <tr class="{{ 'table-success' if pr.status in ['started', 'active'] else '' }}">
+                    <td><span class="font-monospace" style="font-size:.8rem">{{ pr.tipo }}</span></td>
+                    <td style="font-size:.85rem">{{ pr.name or '—' }}</td>
+                    <td>
+                      {% if pr.status in ['started', 'active'] %}<span class="badge bg-success">Activa</span>
+                      {% elif pr.status == 'candidate' %}<span class="badge bg-secondary">Disponible</span>
+                      {% else %}<span class="badge bg-light text-dark border">{{ pr.status }}</span>{% endif %}
+                    </td>
+                    <td>{{ promo_desc(pr) }}</td>
+                    <td>{% if pr.editable %}<span class="badge bg-info text-dark">Sí</span>{% else %}<span class="badge bg-light text-dark border">No</span>{% endif %}</td>
+                    <td style="font-size:.8rem">{{ pr.finish_date[:10] if pr.finish_date else '—' }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      {% endif %}
+    {% endif %}
   </div>
 
-  <form method="POST" action="/promociones-ml/buscar" class="row g-2 mb-4" style="max-width:540px">
-    <div class="col flex-grow-1">
-      <input type="text" name="sku_buscar" class="form-control" placeholder="SKU (ej. CEXP160) o MLA..."
-             value="{{ sku_buscado or '' }}" autofocus required>
-    </div>
-    <div class="col-auto">
-      <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> Buscar</button>
-    </div>
-  </form>
-
-  {% if publicaciones is not none %}
-    {% if not publicaciones %}
-      <div class="alert alert-warning">No se encontraron publicaciones para "{{ sku_buscado }}".</div>
-    {% else %}
-      <p class="text-muted" style="font-size:.9rem">{{ publicaciones|length }} publicación(es) para <b>{{ sku_buscado }}</b>.</p>
-      {% for p in publicaciones %}
-      <div class="card shadow-sm mb-3">
-        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-          <div class="d-flex flex-wrap align-items-center gap-2">
-            <span class="badge bg-dark font-monospace">{{ p.mla_id }}</span>
-            {% if p.estado %}
-              <span class="badge {{ 'bg-success' if p.estado_raw == 'active' else 'bg-secondary' }}">{{ p.estado }}</span>
-            {% endif %}
-            <span>{{ p.titulo or '—' }}</span>
-          </div>
-          <div class="d-flex align-items-center gap-2">
-            {% if p.precio is not none %}
-              <span class="fw-bold">Precio: ${{ '{:,.0f}'.format(p.precio)|replace(',', '.') }}</span>
-            {% endif %}
-            {% if p.permalink %}
-              <a href="{{ p.permalink }}" target="_blank" class="btn btn-sm btn-outline-secondary" title="Ver en ML">
-                <i class="bi bi-box-arrow-up-right"></i></a>
-            {% endif %}
-          </div>
-        </div>
-        <div class="card-body p-0">
-          {% if p.error %}
-            <div class="alert alert-danger m-3 mb-0">{{ p.error }}</div>
-          {% elif p.promo_error %}
-            <div class="alert alert-warning m-3 mb-0">No se pudieron leer las promociones (error {{ p.promo_error }}).</div>
-          {% elif not p.promos %}
-            <div class="text-muted p-3">Sin promociones disponibles para esta publicación.</div>
-          {% else %}
-          <div class="table-responsive">
-            <table class="table table-sm mb-0 align-middle">
-              <thead class="table-light">
-                <tr>
-                  <th>Tipo</th><th>Nombre</th><th>Estado</th>
-                  <th>Descuento (%)</th><th>Editable</th><th>Vence</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for pr in p.promos %}
-                <tr class="{{ 'table-success' if pr.status in ['started', 'active'] else '' }}">
-                  <td><span class="font-monospace" style="font-size:.82rem">{{ pr.tipo }}</span></td>
-                  <td style="font-size:.85rem">{{ pr.name or '—' }}</td>
-                  <td>
-                    {% if pr.status in ['started', 'active'] %}
-                      <span class="badge bg-success">Activa</span>
-                    {% elif pr.status == 'candidate' %}
-                      <span class="badge bg-secondary">Disponible</span>
-                    {% else %}
-                      <span class="badge bg-light text-dark border">{{ pr.status }}</span>
-                    {% endif %}
-                  </td>
-                  <td>
-                    {% if pr.status in ['started', 'active'] and pr.pct_price %}
-                      <span class="badge bg-success" style="font-size:.95rem">{{ pr.pct_price }}% OFF</span>
-                      <div class="text-muted" style="font-size:.76rem">
-                        bajás ${{ '{:,.0f}'.format(pr.baja_price)|replace(',', '.') }} · queda ${{ '{:,.0f}'.format(pr.price)|replace(',', '.') }}
-                      </div>
-                    {% elif pr.editable %}
-                      <span class="fw-bold" style="font-size:.95rem">{{ pr.pct_desde }}% – {{ pr.pct_hasta }}%</span>
-                      <div class="text-muted" style="font-size:.76rem">
-                        {% if pr.pct_sug %}sug {{ pr.pct_sug }}% · {% endif %}bajás ${{ '{:,.0f}'.format(pr.baja_desde)|replace(',', '.') }}–${{ '{:,.0f}'.format(pr.baja_hasta)|replace(',', '.') }}
-                      </div>
-                    {% elif pr.cofinanciada %}
-                      <span class="fw-bold" style="font-size:.95rem">{{ pr.pct_total }}% OFF</span>
-                      <span class="badge bg-warning text-dark ms-1" style="font-size:.68rem">co-financiada</span>
-                      <div class="text-muted" style="font-size:.76rem">
-                        a tu cargo <b>{{ pr.seller_pct }}%</b> + ML {{ pr.meli_pct }}%{% if pr.price %} · queda ${{ '{:,.0f}'.format(pr.price)|replace(',', '.') }}{% endif %}
-                      </div>
-                    {% elif pr.pct_price %}
-                      <span class="fw-bold" style="font-size:.95rem">{{ pr.pct_price }}% OFF</span>
-                      <div class="text-muted" style="font-size:.76rem">fijo por ML · queda ${{ '{:,.0f}'.format(pr.price)|replace(',', '.') }}</div>
-                    {% else %}—{% endif %}
-                  </td>
-                  <td>
-                    {% if pr.editable %}<span class="badge bg-info text-dark">Sí</span>
-                    {% else %}<span class="badge bg-light text-dark border">No</span>{% endif %}
-                  </td>
-                  <td style="font-size:.8rem">{{ pr.finish_date[:10] if pr.finish_date else '—' }}</td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          {% endif %}
-        </div>
+  <!-- ══ TAB POR CAMPAÑA ══ -->
+  <div id="pane-camp" class="promo-pane" style="display:none">
+    <form method="POST" action="/promociones-ml/campania" class="row g-2 mb-3" style="max-width:640px"
+          onsubmit="var b=this.querySelector('button');b.disabled=true;b.innerHTML='⏳ Cargando… (~40s)';">
+      <div class="col flex-grow-1">
+        <select name="campania" class="form-select" required>
+          <option value="">Elegí una campaña…</option>
+          {% for c in campanias %}
+          <option value="{{ c.id }}" {{ 'selected' if c.id == campania_sel else '' }}>{{ c.type }} — {{ c.name or c.id }}{% if c.status %} ({{ c.status }}){% endif %}</option>
+          {% endfor %}
+        </select>
       </div>
-      {% endfor %}
+      <div class="col-auto"><button type="submit" class="btn btn-primary"><i class="bi bi-list-ul"></i> Ver ítems</button></div>
+    </form>
+
+    {% if campania_items is not none %}
+      {% if not campania_items %}
+        <div class="alert alert-warning">Esa campaña no tiene publicaciones mapeadas a tus SKUs.</div>
+      {% else %}
+        <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
+          <span class="text-muted" style="font-size:.9rem"><b>{{ campania_nombre or campania_sel }}</b> ({{ campania_tipo }}) — {{ campania_items|length }} publicaciones tuyas</span>
+          <label style="font-size:.85rem">Filtrar tu % ≤ <input type="number" id="filtroTu" step="0.1" style="width:80px" class="form-control form-control-sm d-inline-block" oninput="filtrarCamp()"></label>
+          <span class="text-muted" style="font-size:.85rem"><span id="selCount">0</span> seleccionadas <span class="badge bg-light text-dark border">acciones: próximo paso</span></span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle" id="campTabla">
+            <thead class="table-light">
+              <tr>
+                <th><input type="checkbox" id="selAll" onclick="toggleAll(this)"></th>
+                <th>SKU</th><th>Producto</th>
+                <th style="cursor:pointer" onclick="ordenarTu()">Tu % <i class="bi bi-arrow-down-up" style="font-size:.7rem"></i></th>
+                <th>Descuento</th><th>Publicado</th><th>Con promo</th><th>Costo (lista)</th><th>Cuotas ML</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for f in campania_items %}
+              <tr data-orden="{{ f.promo.orden_pct if f.promo.orden_pct is not none else 999 }}">
+                <td><input type="checkbox" class="selItem" value="{{ f.mla_id }}" onclick="contarSel()"></td>
+                <td><span class="font-monospace" style="font-size:.8rem">{{ f.sku or '—' }}</span>
+                    <div class="text-muted font-monospace" style="font-size:.68rem">{{ f.mla_id }}</div></td>
+                <td style="font-size:.82rem;max-width:280px">{{ f.titulo or '—' }}</td>
+                <td class="fw-bold" style="font-size:.9rem">{{ f.promo.tu_pct or '—' }}%</td>
+                <td>{{ promo_desc(f.promo) }}</td>
+                <td>{% if f.promo.original_price %}${{ '{:,.0f}'.format(f.promo.original_price)|replace(',', '.') }}{% else %}—{% endif %}</td>
+                <td>{% if f.promo.price %}<b>${{ '{:,.0f}'.format(f.promo.price)|replace(',', '.') }}</b>{% else %}—{% endif %}</td>
+                <td style="font-size:.82rem">{{ costo_cell(f.costo) }}</td>
+                <td style="font-size:.78rem">{{ f.cuotas_real or '—' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    {% else %}
+      <p class="text-muted" style="font-size:.9rem">Elegí una campaña para ver todas tus publicaciones que participan, con tu % a cargo, el precio de costos y las cuotas reales. (La carga tarda ~40s porque trae las cuotas reales de cada publi.)</p>
     {% endif %}
-  {% endif %}
+  </div>
 </div>
+
+<script>
+function showTab(t){
+  document.querySelectorAll('.promo-pane').forEach(function(p){p.style.display='none';});
+  var pane=document.getElementById('pane-'+t); if(pane) pane.style.display='';
+  document.querySelectorAll('#promoTabs .nav-link').forEach(function(a){a.classList.toggle('active', a.dataset.tab===t);});
+  return false;
+}
+document.addEventListener('DOMContentLoaded', function(){ showTab('{{ active_tab or "pub" }}'); });
+
+// ── Campaña: selección ──
+function contarSel(){ var n=document.querySelectorAll('.selItem:checked').length; var e=document.getElementById('selCount'); if(e) e.textContent=n; }
+function toggleAll(cb){ document.querySelectorAll('#campTabla tbody tr:not([style*="display: none"]) .selItem').forEach(function(x){x.checked=cb.checked;}); contarSel(); }
+// ── Campaña: filtro por tu % ──
+function filtrarCamp(){
+  var v=parseFloat(document.getElementById('filtroTu').value);
+  document.querySelectorAll('#campTabla tbody tr').forEach(function(tr){
+    var o=parseFloat(tr.dataset.orden);
+    tr.style.display=(isNaN(v)||(!isNaN(o)&&o<=v))?'':'none';
+  });
+  contarSel();
+}
+// ── Campaña: ordenar por tu % ──
+var _tuAsc=true;
+function ordenarTu(){
+  var tb=document.querySelector('#campTabla tbody');
+  var rows=Array.prototype.slice.call(tb.querySelectorAll('tr'));
+  rows.sort(function(a,b){ var x=parseFloat(a.dataset.orden)||999, y=parseFloat(b.dataset.orden)||999; return _tuAsc?x-y:y-x; });
+  _tuAsc=!_tuAsc;
+  rows.forEach(function(r){tb.appendChild(r);});
+}
+</script>
 {% endblock %}
