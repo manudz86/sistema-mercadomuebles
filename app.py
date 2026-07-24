@@ -9545,6 +9545,7 @@ def promociones_ml_campania():
 def promociones_ml_aplicar():
     """Aplica un PRICE_DISCOUNT (promo propia) a una publicación. Opcionalmente
     cambia antes el precio de lista. Devuelve JSON (para actualizar la fila sin recargar)."""
+    import re
     from datetime import date as _date
     data = request.get_json(silent=True) or {}
     mla = (data.get('mla') or '').strip()
