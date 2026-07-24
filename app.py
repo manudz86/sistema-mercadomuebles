@@ -6939,7 +6939,7 @@ def dashboard_visual():
         # 7. ALMOHADAS (CON UBICACIONES DEP Y FULL)
         # =================================
         almohadas = []
-        almohadas_skus = ['CERVICAL', 'CLASICA', 'DORAL', 'DUAL', 'EXCLUSIVE', 'PLATINO', 'RENOVATION', 'SUBLIME']
+        almohadas_skus = ['CERVICAL', 'CLASICA', 'DORAL', 'DUAL', 'EXCLUSIVE', 'PLATINO', 'RENOVATION', 'SUBLIME', 'TRIANGULO']
         
         for sku in almohadas_skus:
             stock_dep = stock_dict.get(sku, 0)
@@ -6956,7 +6956,8 @@ def dashboard_visual():
                     'EXCLUSIVE': 'Almohada Exclusive',
                     'PLATINO': 'Almohada Platino',
                     'RENOVATION': 'Almohada Renovation',
-                    'SUBLIME': 'Almohada Sublime'
+                    'SUBLIME': 'Almohada Sublime',
+                    'TRIANGULO': 'Almohada Princess'
                 }
                 almohadas.append({
                     'nombre': nombre_map.get(sku, sku),
