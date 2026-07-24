@@ -9021,6 +9021,8 @@ def ml_request(method, url, access_token, json_data=None, params=None, max_retri
                 r = requests.get(url, headers=headers, params=params, timeout=15)
             elif method == 'post':
                 r = requests.post(url, headers=headers, json=json_data, timeout=15)
+            elif method == 'delete':
+                r = requests.delete(url, headers=headers, timeout=15)
             else:
                 r = requests.put(url, headers=headers, json=json_data, timeout=15)
 
@@ -9585,12 +9587,33 @@ def promociones_ml_aplicar():
     hoy = _date.today().isoformat()
     body = {'promotion_type': 'PRICE_DISCOUNT', 'deal_price': deal_price,
             'start_date': f'{hoy}T00:00:00', 'finish_date': f'{finish_date}T23:59:59'}
-    ra = ml_request('post', f'https://api.mercadolibre.com/seller-promotions/items/{mla}?app_version=v2',
-                    access_token, json_data=body)
-    try:
-        r = ra.json()
-    except Exception:
-        r = {}
+    post_url = f'https://api.mercadolibre.com/seller-promotions/items/{mla}?app_version=v2'
+
+    def _safe_json(resp):
+        try:
+            return resp.json()
+        except Exception:
+            return {}
+
+    ra = ml_request('post', post_url, access_token, json_data=body)
+    r = _safe_json(ra)
+    # EDICIÓN: si la publi ya tiene una promo activa, ML no la toma como "candidata"
+    # ("No candidates found for item"). La borramos (el DELETE es asíncrono) y
+    # reintentamos el POST cuando vuelve a estado candidate.
+    if ra.status_code not in (200, 201) and 'candidate' in str((r or {}).get('message', '')).lower():
+        ml_request('delete', f'https://api.mercadolibre.com/seller-promotions/items/{mla}'
+                             f'?promotion_type=PRICE_DISCOUNT&app_version=v2', access_token)
+        for _ in range(10):
+            time.sleep(1.5)
+            rg = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/items/{mla}',
+                            access_token, params={'app_version': 'v2'})
+            promos = _safe_json(rg)
+            pd = (next((p for p in promos if isinstance(p, dict) and p.get('type') == 'PRICE_DISCOUNT'), None)
+                  if isinstance(promos, list) else None)
+            if pd and pd.get('status') == 'candidate':
+                break
+        ra = ml_request('post', post_url, access_token, json_data=body)
+        r = _safe_json(ra)
     if ra.status_code in (200, 201):
         orig = orig_final or r.get('original_price')
         pct = None
