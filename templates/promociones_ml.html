@@ -64,6 +64,8 @@
               <span class="badge bg-dark font-monospace">{{ p.mla_id }}</span>
               {% if p.sku %}<span class="badge bg-info text-dark font-monospace">{{ p.sku }}</span>{% endif %}
               {% if p.estado %}<span class="badge {{ 'bg-success' if p.estado_raw == 'active' else 'bg-secondary' }}">{{ p.estado }}</span>{% endif %}
+              {% if p.catalogo %}<span class="badge bg-primary">Catálogo</span>{% else %}<span class="badge bg-light text-dark border">Propia</span>{% endif %}
+              {% if p.cuotas %}<span class="badge bg-light text-dark border">{{ p.cuotas }}</span>{% endif %}
               <span>{{ p.titulo or '—' }}</span>
             </div>
             <div class="d-flex align-items-center gap-3">

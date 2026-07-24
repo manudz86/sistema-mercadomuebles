@@ -9319,7 +9319,13 @@ def _costos_map(skus):
     skus = [s for s in set(skus) if s]
     if not skus:
         return {}
-    norm = {s: (s[:-1] if s.endswith('Z') else s) for s in skus}
+    def _pb_sku(s):
+        b = s[:-1] if s.endswith('Z') else s
+        # Compac: el precio de lista está en la variante _DEP (CCO140 → CCO140_DEP)
+        if (b.startswith('CCO') or b.startswith('CCP')) and not (b.endswith('_DEP') or b.endswith('_FULL')):
+            return b + '_DEP'
+        return b
+    norm = {s: _pb_sku(s) for s in skus}
     bases = list(set(norm.values()))
     ph = ','.join(['%s'] * len(bases))
     # colchones / almohadas: precio_base directo
@@ -9456,17 +9462,20 @@ def promociones_ml_buscar():
         s = sku_de_mla.get(mla) or (sku if not sku.startswith('MLA') and not sku.isdigit() else None)
         pub = {'mla_id': mla, 'sku': s, 'titulo': None, 'precio': None, 'estado': None,
                'estado_raw': None, 'permalink': None, 'promos': [], 'promo_error': None,
-               'error': None, 'costo': costos.get(s)}
+               'error': None, 'costo': costos.get(s), 'catalogo': None, 'cuotas': None}
         try:
             ri = ml_request('get', f'https://api.mercadolibre.com/items/{mla}', access_token,
-                            params={'attributes': 'id,title,price,status,permalink'})
+                            params={'attributes': 'id,title,price,status,permalink,catalog_listing,listing_type_id,tags'})
             if ri.status_code != 200:
                 pub['error'] = f'No se pudo leer la publicación (HTTP {ri.status_code})'
                 publicaciones.append(pub); continue
             it = ri.json()
+            from competencia_bp import _cuotas_publi as _cp, _campaign_from_tags as _cft
             pub.update(titulo=it.get('title'), precio=it.get('price'),
                        estado=_PROMO_ESTADO.get(it.get('status'), it.get('status')),
-                       estado_raw=it.get('status'), permalink=it.get('permalink'))
+                       estado_raw=it.get('status'), permalink=it.get('permalink'),
+                       catalogo=bool(it.get('catalog_listing')),
+                       cuotas=_cp(it.get('listing_type_id'), _cft(it.get('tags'))))
             rp = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/items/{mla}',
                             access_token, params={'app_version': 'v2'})
             data = rp.json() if rp.status_code == 200 else None
