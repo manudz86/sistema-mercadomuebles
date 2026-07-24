@@ -15435,7 +15435,7 @@ def job_completar_notas_mp():
                 FROM ventas
                 WHERE canal = 'tienda_web'
                   AND fecha_registro >= DATE_SUB(NOW(), INTERVAL 2 HOUR)
-                  AND (notas IS NULL OR notas NOT LIKE '%MPID:%')
+                  AND (notas IS NULL OR notas NOT LIKE '%%MPID:%%')
             """)
             if not ventas:
                 return
@@ -17702,7 +17702,7 @@ def rentabilidad():
     if canal_filter == 'ML':
         where_clauses.append("v.canal = 'Mercado Libre'")
     elif canal_filter == 'MP':
-        where_clauses.append("v.canal = 'Tienda Web' AND v.metodo_pago LIKE '%Mercadopago%'")
+        where_clauses.append("v.canal = 'Tienda Web' AND v.metodo_pago LIKE '%%Mercadopago%%'")
     elif canal_filter == 'GN':
         where_clauses.append("v.metodo_pago = 'GetNet'")
     elif canal_filter == 'PW':
