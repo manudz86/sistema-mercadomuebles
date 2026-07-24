@@ -9553,27 +9553,32 @@ def promociones_ml_aplicar():
     mla = (data.get('mla') or '').strip()
     if not mla:
         return jsonify({'ok': False, 'error': 'Falta la publicación'})
+    tipo = (data.get('promotion_type') or 'PRICE_DISCOUNT').strip().upper()
+    promotion_id = (data.get('promotion_id') or '').strip()
+    if tipo not in ('PRICE_DISCOUNT', 'DEAL', 'SMART'):
+        return jsonify({'ok': False, 'error': 'Tipo de promo no soportado'})
+    if tipo in ('DEAL', 'SMART') and not promotion_id:
+        return jsonify({'ok': False, 'error': 'Falta el id de la campaña'})
     access_token = cargar_ml_token()
     if not access_token:
         return jsonify({'ok': False, 'error': 'No hay token de ML configurado'})
-    try:
-        deal_price = int(round(float(data.get('deal_price'))))
-    except (TypeError, ValueError):
-        return jsonify({'ok': False, 'error': 'Precio con descuento inválido'})
-    if deal_price <= 0:
-        return jsonify({'ok': False, 'error': 'El precio con descuento debe ser mayor a 0'})
-    finish_date = (data.get('finish_date') or '').strip()
-    if not re.match(r'^\d{4}-\d{2}-\d{2}$', finish_date):
-        return jsonify({'ok': False, 'error': 'Fecha de vencimiento inválida'})
-    # 1) cambiar el precio de lista si el usuario lo pidió
+    deal_price = None
+    if tipo in ('PRICE_DISCOUNT', 'DEAL'):
+        try:
+            deal_price = int(round(float(data.get('deal_price'))))
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'error': 'Precio con descuento inválido'})
+        if deal_price <= 0:
+            return jsonify({'ok': False, 'error': 'El precio con descuento debe ser mayor a 0'})
+    # 1) cambiar el precio de lista si el usuario lo pidió (PRICE_DISCOUNT / DEAL)
     nuevo_precio = data.get('nuevo_precio')
     orig_final = None
-    if nuevo_precio not in (None, '', 0, '0'):
+    if tipo in ('PRICE_DISCOUNT', 'DEAL') and nuevo_precio not in (None, '', 0, '0'):
         try:
             np = int(round(float(nuevo_precio)))
         except (TypeError, ValueError):
             return jsonify({'ok': False, 'error': 'Precio de lista inválido'})
-        if np <= deal_price:
+        if deal_price and np <= deal_price:
             return jsonify({'ok': False, 'error': 'El precio de lista debe ser mayor al precio con descuento'})
         rp = ml_request('put', f'https://api.mercadolibre.com/items/{mla}', access_token, json_data={'price': np})
         if rp.status_code != 200:
@@ -9583,10 +9588,22 @@ def promociones_ml_aplicar():
                 err = {}
             return jsonify({'ok': False, 'error': f"No se pudo cambiar el precio de lista: {err.get('message', rp.status_code)}"})
         orig_final = np
-    # 2) aplicar el PRICE_DISCOUNT
-    hoy = _date.today().isoformat()
-    body = {'promotion_type': 'PRICE_DISCOUNT', 'deal_price': deal_price,
-            'start_date': f'{hoy}T00:00:00', 'finish_date': f'{finish_date}T23:59:59'}
+    # 2) armar el body + query de borrado según tipo
+    finish_date = None
+    if tipo == 'PRICE_DISCOUNT':
+        finish_date = (data.get('finish_date') or '').strip()
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', finish_date):
+            return jsonify({'ok': False, 'error': 'Fecha de vencimiento inválida'})
+        hoy = _date.today().isoformat()
+        body = {'promotion_type': 'PRICE_DISCOUNT', 'deal_price': deal_price,
+                'start_date': f'{hoy}T00:00:00', 'finish_date': f'{finish_date}T23:59:59'}
+        del_qs = 'promotion_type=PRICE_DISCOUNT'
+    elif tipo == 'DEAL':
+        body = {'promotion_type': 'DEAL', 'promotion_id': promotion_id, 'deal_price': deal_price}
+        del_qs = f'promotion_type=DEAL&promotion_id={promotion_id}'
+    else:  # SMART — el precio lo fija ML
+        body = {'promotion_type': 'SMART', 'promotion_id': promotion_id}
+        del_qs = f'promotion_type=SMART&promotion_id={promotion_id}'
     post_url = f'https://api.mercadolibre.com/seller-promotions/items/{mla}?app_version=v2'
 
     def _safe_json(resp):
@@ -9595,39 +9612,43 @@ def promociones_ml_aplicar():
         except Exception:
             return {}
 
+    def _find(promos, st=None):
+        if not isinstance(promos, list):
+            return None
+        for p in promos:
+            if isinstance(p, dict) and p.get('type') == tipo and (not promotion_id or p.get('id') == promotion_id):
+                if st is None or p.get('status') == st:
+                    return p
+        return None
+
     ra = ml_request('post', post_url, access_token, json_data=body)
     r = _safe_json(ra)
     # EDICIÓN: si la publi ya tiene una promo activa, ML no la toma como "candidata"
     # ("No candidates found for item"). La borramos (el DELETE es asíncrono) y
     # reintentamos el POST cuando vuelve a estado candidate.
     if ra.status_code not in (200, 201) and 'candidate' in str((r or {}).get('message', '')).lower():
-        ml_request('delete', f'https://api.mercadolibre.com/seller-promotions/items/{mla}'
-                             f'?promotion_type=PRICE_DISCOUNT&app_version=v2', access_token)
-        for _ in range(20):  # el borrado de ML es asíncrono (~5-30s); esperamos ~30s
+        ml_request('delete', f'https://api.mercadolibre.com/seller-promotions/items/{mla}?{del_qs}&app_version=v2', access_token)
+        for _ in range(20):  # el borrado de ML es asíncrono (~5-30s)
             time.sleep(1.5)
             rg = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/items/{mla}',
                             access_token, params={'app_version': 'v2'})
-            promos = _safe_json(rg)
-            pd = (next((p for p in promos if isinstance(p, dict) and p.get('type') == 'PRICE_DISCOUNT'), None)
-                  if isinstance(promos, list) else None)
-            if pd and pd.get('status') == 'candidate':
+            if _find(_safe_json(rg), 'candidate'):
                 break
         ra = ml_request('post', post_url, access_token, json_data=body)
         r = _safe_json(ra)
-        # si ML todavía no procesó el borrado, la promo anterior ya se quitó:
-        # avisamos para que reintente (un segundo click la aplica).
         if ra.status_code not in (200, 201) and 'candidate' in str((r or {}).get('message', '')).lower():
             return jsonify({'ok': False, 'error': 'Quité la promo anterior pero ML todavía la está '
-                            'procesando. Esperá unos segundos y tocá "Confirmar y aplicar" de nuevo.'})
+                            'procesando. Esperá unos segundos y tocá "Confirmar" de nuevo.'})
     if ra.status_code in (200, 201):
-        orig = orig_final or r.get('original_price')
+        orig = orig_final or (r.get('original_price') if isinstance(r, dict) else None)
+        precio_final = (r.get('price') if isinstance(r, dict) and r.get('price') else None) or deal_price
         pct = None
         try:
-            if orig:
-                pct = f"{(float(orig) - deal_price) / float(orig) * 100:.1f}".replace('.', ',')
+            if orig and precio_final:
+                pct = f"{(float(orig) - float(precio_final)) / float(orig) * 100:.1f}".replace('.', ',')
         except Exception:
             pass
-        return jsonify({'ok': True, 'deal_price': deal_price, 'original_price': orig,
+        return jsonify({'ok': True, 'tipo': tipo, 'deal_price': precio_final, 'original_price': orig,
                         'pct': pct, 'finish_date': finish_date})
     # error: armar mensaje legible con las causas de ML
     msg = (r.get('message') if isinstance(r, dict) else None) or f'HTTP {ra.status_code}'
@@ -9636,6 +9657,32 @@ def promociones_ml_aplicar():
         if detalle:
             msg = detalle
     return jsonify({'ok': False, 'error': msg})
+
+
+@app.route('/promociones-ml/quitar', methods=['POST'])
+@login_required
+def promociones_ml_quitar():
+    """Sale/quita una promo de una publicación (DELETE). El borrado de ML es asíncrono."""
+    data = request.get_json(silent=True) or {}
+    mla = (data.get('mla') or '').strip()
+    tipo = (data.get('promotion_type') or '').strip().upper()
+    promotion_id = (data.get('promotion_id') or '').strip()
+    if not mla or not tipo:
+        return jsonify({'ok': False, 'error': 'Faltan datos'})
+    access_token = cargar_ml_token()
+    if not access_token:
+        return jsonify({'ok': False, 'error': 'No hay token de ML configurado'})
+    qs = f'promotion_type={tipo}&app_version=v2'
+    if promotion_id:
+        qs += f'&promotion_id={promotion_id}'
+    rd = ml_request('delete', f'https://api.mercadolibre.com/seller-promotions/items/{mla}?{qs}', access_token)
+    if rd.status_code in (200, 204):
+        return jsonify({'ok': True})
+    try:
+        err = rd.json()
+    except Exception:
+        err = {}
+    return jsonify({'ok': False, 'error': err.get('message', f'HTTP {rd.status_code}')})
 
 
 @app.route('/buscar-sku-ml', methods=['POST'])

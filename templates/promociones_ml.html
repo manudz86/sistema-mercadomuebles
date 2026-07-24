@@ -84,11 +84,13 @@
                 <thead class="table-light"><tr><th>Tipo</th><th>Nombre</th><th>Estado</th><th>Descuento (%)</th><th>Editable</th><th>Vence</th><th>Acción</th></tr></thead>
                 <tbody>
                   {% for pr in p.promos %}
-                  <tr class="{{ 'table-success' if pr.status in ['started', 'active'] else '' }}"{% if pr.tipo == 'PRICE_DISCOUNT' %} id="promo-pd-{{ p.mla_id }}"{% endif %}>
+                  {% set activo = pr.status in ['started', 'active'] %}
+                  {% set rowid = 'promorow-' ~ p.mla_id ~ '-' ~ (pr.id or pr.tipo) %}
+                  <tr class="{{ 'table-success' if activo else '' }}" id="{{ rowid }}">
                     <td><span class="font-monospace" style="font-size:.8rem">{{ pr.tipo }}</span></td>
                     <td style="font-size:.85rem">{{ pr.name or '—' }}</td>
                     <td class="mp-estado">
-                      {% if pr.status in ['started', 'active'] %}<span class="badge bg-success">Activa</span>
+                      {% if activo %}<span class="badge bg-success">Activa</span>
                       {% elif pr.status == 'candidate' %}<span class="badge bg-secondary">Disponible</span>
                       {% else %}<span class="badge bg-light text-dark border">{{ pr.status }}</span>{% endif %}
                     </td>
@@ -96,9 +98,27 @@
                     <td>{% if pr.editable %}<span class="badge bg-info text-dark">Sí</span>{% else %}<span class="badge bg-light text-dark border">No</span>{% endif %}</td>
                     <td style="font-size:.8rem">{{ pr.finish_date[:10] if pr.finish_date else '—' }}</td>
                     <td>
-                      {% if pr.tipo == 'PRICE_DISCOUNT' %}
-                      <button class="btn btn-sm btn-primary mp-btn" onclick="abrirModalPromo('{{ p.mla_id }}', {{ pr.original_price or 0 }}, {{ pr.min or 0 }}, {{ pr.max or 0 }}, {{ pr.price or 0 }}, '{{ pr.status }}')">{{ 'Editar' if pr.status in ['started','active'] else 'Aplicar' }}</button>
-                      {% else %}<span class="text-muted" style="font-size:.72rem">próximo paso</span>{% endif %}
+                      <div class="d-flex gap-1 mp-acciones">
+                      {% if pr.tipo in ['PRICE_DISCOUNT', 'DEAL'] %}
+                        <button class="btn btn-sm btn-primary mp-btn"
+                          data-tipo="{{ pr.tipo }}" data-mla="{{ p.mla_id }}" data-pid="{{ pr.id or '' }}"
+                          data-orig="{{ pr.original_price or 0 }}" data-min="{{ pr.min or 0 }}" data-max="{{ pr.max or 0 }}"
+                          data-price="{{ pr.price or 0 }}" data-name="{{ pr.name or '' }}" data-status="{{ pr.status }}" data-row="{{ rowid }}"
+                          onclick="abrirModal(this)">{{ 'Editar' if activo else ('Aplicar' if pr.tipo == 'PRICE_DISCOUNT' else 'Participar') }}</button>
+                      {% elif pr.tipo == 'SMART' and not activo %}
+                        <button class="btn btn-sm btn-primary mp-btn"
+                          data-tipo="SMART" data-mla="{{ p.mla_id }}" data-pid="{{ pr.id or '' }}"
+                          data-orig="{{ pr.original_price or 0 }}" data-price="{{ pr.price or 0 }}"
+                          data-seller="{{ pr.seller_pct or '' }}" data-meli="{{ pr.meli_pct or '' }}" data-total="{{ pr.pct_total or '' }}"
+                          data-name="{{ pr.name or '' }}" data-status="{{ pr.status }}" data-row="{{ rowid }}"
+                          onclick="abrirModal(this)">Participar</button>
+                      {% endif %}
+                      {% if activo %}
+                        <button class="btn btn-sm btn-outline-danger"
+                          data-tipo="{{ pr.tipo }}" data-mla="{{ p.mla_id }}" data-pid="{{ pr.id or '' }}" data-row="{{ rowid }}"
+                          onclick="quitarPromo(this)">Salir</button>
+                      {% endif %}
+                      </div>
                     </td>
                   </tr>
                   {% endfor %}
@@ -172,36 +192,44 @@
   </div>
 </div>
 
-<!-- ══ MODAL: aplicar PRICE_DISCOUNT ══ -->
+<!-- ══ MODAL: aplicar / participar promo ══ -->
 <div id="modalPromo" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3000;">
   <div style="background:#fff;max-width:480px;margin:5% auto;border-radius:12px;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.3)">
-    <h5 class="mb-2"><i class="bi bi-percent"></i> Aplicar mi descuento</h5>
+    <h5 class="mb-2"><i class="bi bi-percent"></i> <span id="mp-titulo">Aplicar mi descuento</span></h5>
     <div id="mp-info" class="text-muted mb-3" style="font-size:.82rem"></div>
     <input type="hidden" id="mp-mla">
-    <div class="mb-3">
+
+    <div id="mp-lista-wrap" class="mb-3">
       <label class="form-label mb-1" style="font-size:.85rem">Precio de lista (original)</label>
       <input type="number" id="mp-lista" class="form-control form-control-sm" oninput="mpRecalc()">
       <div class="form-text" style="font-size:.72rem">Si lo cambiás, se actualiza el precio del producto en ML antes de aplicar la promo.</div>
     </div>
-    <div class="mb-2">
-      <label class="form-label mb-1" style="font-size:.85rem">Definí el descuento por:</label>
-      <div class="btn-group btn-group-sm w-100 mb-2">
-        <button type="button" id="mp-btn-pct" class="btn btn-outline-primary active" onclick="mpModo('pct')">Descuento %</button>
-        <button type="button" id="mp-btn-abs" class="btn btn-outline-primary" onclick="mpModo('abs')">Precio final $</button>
+
+    <div id="mp-desc-wrap">
+      <div class="mb-2">
+        <label class="form-label mb-1" style="font-size:.85rem">Definí el descuento por:</label>
+        <div class="btn-group btn-group-sm w-100 mb-2">
+          <button type="button" id="mp-btn-pct" class="btn btn-outline-primary active" onclick="mpModo('pct')">Descuento %</button>
+          <button type="button" id="mp-btn-abs" class="btn btn-outline-primary" onclick="mpModo('abs')">Precio final $</button>
+        </div>
+        <input type="number" step="0.1" id="mp-pct" class="form-control form-control-sm" placeholder="% de descuento sobre el precio de lista" oninput="mpRecalc()">
+        <input type="number" id="mp-abs" class="form-control form-control-sm" placeholder="precio final con descuento" style="display:none" oninput="mpRecalc()">
       </div>
-      <input type="number" step="0.1" id="mp-pct" class="form-control form-control-sm" placeholder="% de descuento sobre el precio de lista" oninput="mpRecalc()">
-      <input type="number" id="mp-abs" class="form-control form-control-sm" placeholder="precio final con descuento" style="display:none" oninput="mpRecalc()">
+      <div id="mp-preview" class="border rounded px-2 py-2 mb-2" style="font-size:.85rem;background:#f8f9fa"></div>
     </div>
-    <div id="mp-preview" class="border rounded px-2 py-2 mb-2" style="font-size:.85rem;background:#f8f9fa"></div>
-    <div class="mb-3">
+
+    <div id="mp-smart-wrap" class="border rounded px-2 py-2 mb-2" style="display:none;font-size:.85rem;background:#fff8e6"></div>
+
+    <div id="mp-vence-wrap" class="mb-3">
       <label class="form-label mb-1" style="font-size:.85rem">Vence</label>
       <input type="date" id="mp-finish" class="form-control form-control-sm">
       <div class="form-text" style="font-size:.72rem">Máximo 14 días (límite de ML).</div>
     </div>
+
     <div id="mp-error" class="alert alert-danger py-2 px-2 mb-2" style="display:none;font-size:.82rem"></div>
     <div class="d-flex justify-content-end gap-2">
       <button class="btn btn-sm btn-secondary" onclick="cerrarModalPromo()">Cancelar</button>
-      <button class="btn btn-sm btn-primary" id="mp-confirmar" onclick="mpConfirmar()">Confirmar y aplicar</button>
+      <button class="btn btn-sm btn-primary" id="mp-confirmar" onclick="mpConfirmar()">Confirmar</button>
     </div>
   </div>
 </div>
@@ -237,21 +265,40 @@ function ordenarTu(){
   rows.forEach(function(r){tb.appendChild(r);});
 }
 
-// ── Modal aplicar PRICE_DISCOUNT ──
-var _mp = {mla:'', orig:0, min:0, max:0, modo:'pct'};
+// ── Modal aplicar / participar promo (PRICE_DISCOUNT / DEAL / SMART) ──
+var _mp = {tipo:'', mla:'', pid:'', orig:0, min:0, max:0, modo:'pct', row:''};
 function fmt(n){ return Math.round(n).toLocaleString('es-AR'); }
-function abrirModalPromo(mla, orig, mn, mx, price, status){
-  _mp = {mla:mla, orig:orig||0, min:mn||0, max:mx||0, modo:'pct'};
-  document.getElementById('mp-mla').value = mla;
-  document.getElementById('mp-lista').value = orig ? Math.round(orig) : '';
-  document.getElementById('mp-pct').value = '';
-  document.getElementById('mp-abs').value = price ? Math.round(price) : '';
+function _show(id, on){ var e=document.getElementById(id); if(e) e.style.display = on?'':'none'; }
+
+function abrirModal(btn){
+  var d = btn.dataset;
+  _mp = {tipo:d.tipo, mla:d.mla, pid:d.pid||'', orig:parseFloat(d.orig)||0,
+         min:parseFloat(d.min)||0, max:parseFloat(d.max)||0, modo:'pct', row:d.row};
+  document.getElementById('mp-mla').value = d.mla;
   document.getElementById('mp-error').style.display='none';
-  var d = new Date(); d.setDate(d.getDate()+13);
-  document.getElementById('mp-finish').value = d.toISOString().slice(0,10);
-  var rango = (mn && mx) ? (' · rango permitido del precio final: $'+fmt(mn)+' a $'+fmt(mx)) : '';
-  document.getElementById('mp-info').innerHTML = 'Publicación <b>'+mla+'</b>'+rango;
-  mpModo('pct');
+  var esSmart = (d.tipo === 'SMART'), esPD = (d.tipo === 'PRICE_DISCOUNT');
+  var tit = {PRICE_DISCOUNT:'Aplicar mi descuento', DEAL:'Participar en '+(d.name||'la campaña'), SMART:'Participar en '+(d.name||'la campaña')};
+  document.getElementById('mp-titulo').textContent = tit[d.tipo] || 'Promo';
+  var rango = (_mp.min && _mp.max) ? (' · rango del precio final: $'+fmt(_mp.min)+' a $'+fmt(_mp.max)) : '';
+  document.getElementById('mp-info').innerHTML = 'Publicación <b>'+d.mla+'</b>'+rango;
+  _show('mp-lista-wrap', !esSmart);
+  _show('mp-desc-wrap', !esSmart);
+  _show('mp-smart-wrap', esSmart);
+  _show('mp-vence-wrap', esPD);
+  if(esSmart){
+    var precio = parseFloat(d.price)||0;
+    document.getElementById('mp-smart-wrap').innerHTML =
+      'Campaña <b>co-financiada</b> por ML — el precio lo fija ML.<br>'
+      + 'Precio final: <b>$'+fmt(precio)+'</b> · descuento total <b>'+(d.total||'?')+'%</b><br>'
+      + 'A tu cargo <b>'+(d.seller||'?')+'%</b> · pone ML '+(d.meli||'?')+'%';
+  } else {
+    document.getElementById('mp-lista').value = _mp.orig ? Math.round(_mp.orig) : '';
+    document.getElementById('mp-pct').value = '';
+    document.getElementById('mp-abs').value = (parseFloat(d.price)>0) ? Math.round(parseFloat(d.price)) : '';
+    if(esPD){ var dd=new Date(); dd.setDate(dd.getDate()+13); document.getElementById('mp-finish').value = dd.toISOString().slice(0,10); }
+    mpModo('pct');
+  }
+  document.getElementById('mp-confirmar').textContent = esSmart ? 'Confirmar y participar' : (d.tipo==='DEAL' ? 'Confirmar y participar' : 'Confirmar y aplicar');
   document.getElementById('modalPromo').style.display='block';
 }
 function cerrarModalPromo(){ document.getElementById('modalPromo').style.display='none'; }
@@ -274,45 +321,82 @@ function mpDeal(){
   return isNaN(a)?null:Math.round(a);
 }
 function mpRecalc(){
+  if(_mp.tipo==='SMART') return;
   var lista = parseFloat(document.getElementById('mp-lista').value)||0;
   var deal = mpDeal();
   var box = document.getElementById('mp-preview');
   if(deal===null || !lista){ box.innerHTML='<span class="text-muted">Ingresá el descuento…</span>'; return; }
-  var pct = (lista-deal)/lista*100;
-  var warn = '';
+  var pct = (lista-deal)/lista*100, warn='';
   if(_mp.min && _mp.max && Math.round(lista)===Math.round(_mp.orig) && (deal < _mp.min || deal > _mp.max)){
     warn = ' <span class="text-danger">(fuera del rango permitido)</span>';
   }
   box.innerHTML = 'Precio final: <b>$'+fmt(deal)+'</b> · descuento <b>'+pct.toFixed(1).replace('.',',')+'%</b>'+warn;
 }
 function mpConfirmar(){
-  var deal = mpDeal();
-  var lista = parseFloat(document.getElementById('mp-lista').value)||0;
   var err = document.getElementById('mp-error');
-  if(deal===null || deal<=0){ err.textContent='Ingresá un descuento válido.'; err.style.display='block'; return; }
-  var body = {mla:_mp.mla, deal_price:deal, finish_date:document.getElementById('mp-finish').value};
-  if(Math.round(lista) !== Math.round(_mp.orig)) body.nuevo_precio = Math.round(lista);
-  var btn = document.getElementById('mp-confirmar');
-  btn.disabled=true; btn.textContent='Aplicando…'; err.style.display='none';
+  var body = {mla:_mp.mla, promotion_type:_mp.tipo};
+  if(_mp.pid) body.promotion_id = _mp.pid;
+  if(_mp.tipo !== 'SMART'){
+    var deal = mpDeal(), lista = parseFloat(document.getElementById('mp-lista').value)||0;
+    if(deal===null || deal<=0){ err.textContent='Ingresá un descuento válido.'; err.style.display='block'; return; }
+    body.deal_price = deal;
+    if(Math.round(lista) !== Math.round(_mp.orig)) body.nuevo_precio = Math.round(lista);
+    if(_mp.tipo==='PRICE_DISCOUNT') body.finish_date = document.getElementById('mp-finish').value;
+  }
+  var btn = document.getElementById('mp-confirmar'), txt = btn.textContent;
+  btn.disabled=true; btn.textContent='Procesando… (puede tardar)'; err.style.display='none';
   fetch('/promociones-ml/aplicar', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(d){
-      btn.disabled=false; btn.textContent='Confirmar y aplicar';
-      if(d.ok){ mpAplicada(_mp.mla, d); cerrarModalPromo(); }
+      btn.disabled=false; btn.textContent=txt;
+      if(d.ok){ mpAplicada(_mp.row, d); cerrarModalPromo(); }
       else { err.textContent = d.error||'No se pudo aplicar'; err.style.display='block'; }
     })
-    .catch(function(e){ btn.disabled=false; btn.textContent='Confirmar y aplicar'; err.textContent='Error de red: '+e; err.style.display='block'; });
+    .catch(function(e){ btn.disabled=false; btn.textContent=txt; err.textContent='Error de red: '+e; err.style.display='block'; });
 }
-function mpAplicada(mla, d){
-  var tr = document.getElementById('promo-pd-'+mla);
-  if(!tr) return;
+function mpAplicada(rowid, d){
+  var tr = document.getElementById(rowid); if(!tr) return;
   tr.classList.add('table-success');
   var est = tr.querySelector('.mp-estado');
   if(est) est.innerHTML = '<span class="badge bg-success">Activa</span> <span style="color:#198754;font-weight:bold">✔</span>';
   var desc = tr.querySelector('.mp-desc');
-  if(desc) desc.innerHTML = '<span class="badge bg-success" style="font-size:.9rem">'+(d.pct||'?')+'% OFF</span><div class="text-muted" style="font-size:.72rem">queda $'+fmt(d.deal_price)+(d.finish_date?(' · vence '+d.finish_date):'')+'</div>';
-  var btn = tr.querySelector('.mp-btn');
-  if(btn) btn.textContent='Editar';
+  if(desc){
+    var l = '<span class="badge bg-success" style="font-size:.9rem">'+(d.pct||'?')+'% OFF</span>';
+    if(d.deal_price) l += '<div class="text-muted" style="font-size:.72rem">queda $'+fmt(d.deal_price)+(d.finish_date?(' · vence '+d.finish_date):'')+'</div>';
+    desc.innerHTML = l;
+  }
+  var cont = tr.querySelector('.mp-acciones'), btn = tr.querySelector('.mp-btn');
+  if(d.tipo==='SMART'){ if(btn) btn.remove(); }
+  else if(btn) btn.textContent='Editar';
+  if(cont && !tr.querySelector('.mp-salir')){
+    var b=document.createElement('button');
+    b.className='btn btn-sm btn-outline-danger mp-salir'; b.textContent='Salir';
+    b.dataset.tipo=d.tipo; b.dataset.mla=_mp.mla; b.dataset.pid=_mp.pid||''; b.dataset.row=rowid;
+    b.setAttribute('onclick','quitarPromo(this)');
+    cont.appendChild(b);
+  }
+}
+function quitarPromo(btn){
+  if(!confirm('¿Salir de esta promoción? ML tarda unos segundos en procesarlo.')) return;
+  var d = btn.dataset, txt = btn.textContent;
+  btn.disabled=true; btn.textContent='Saliendo…';
+  fetch('/promociones-ml/quitar', {method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({mla:d.mla, promotion_type:d.tipo, promotion_id:d.pid||''})})
+    .then(function(r){return r.json();})
+    .then(function(dd){
+      btn.disabled=false; btn.textContent=txt;
+      if(dd.ok){
+        var tr=document.getElementById(d.row);
+        if(tr){
+          tr.classList.remove('table-success');
+          var est=tr.querySelector('.mp-estado');
+          if(est) est.innerHTML='<span class="badge bg-secondary">Disponible</span> <span class="text-muted" style="font-size:.7rem">(quitándose…)</span>';
+          var mb=tr.querySelector('.mp-btn'); if(mb) mb.textContent=(d.tipo==='PRICE_DISCOUNT'?'Aplicar':'Participar');
+          btn.remove();
+        }
+      } else { alert('No se pudo salir: '+(dd.error||'')); }
+    })
+    .catch(function(e){ btn.disabled=false; btn.textContent=txt; alert('Error de red: '+e); });
 }
 </script>
 {% endblock %}
