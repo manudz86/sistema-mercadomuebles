@@ -12039,7 +12039,7 @@ def exportar_reposicion():
     """, tuple(base_params))
 
     # Consolidar sumando directos + combos
-    SKUS_ALMOHADA = {'CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE'}
+    SKUS_ALMOHADA = {'CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE','TRIANGULO','TRIANGULOX2'}
     
     def _tipo_producto(sku):
         s = sku.upper()
@@ -14226,9 +14226,9 @@ def email_hot_masivo():
 
 # SKUs de almohadas a excluir de actualización ML
 SKUS_ALMOHADA = {
-    'CERVICAL', 'CLASICA', 'DORAL', 'DUAL', 'EXCLUSIVE', 'PLATINO',
+    'CERVICAL', 'CLASICA', 'DORAL', 'DUAL', 'EXCLUSIVE', 'PLATINO', 'TRIANGULO',
     'PRUEBA', 'RENOVATION', 'SUBLIME', 'DORALX2', 'DUALX2',
-    'EXCLUSIVEX2', 'PLATINOX2', 'PLATINOX4',
+    'EXCLUSIVEX2', 'PLATINOX2', 'PLATINOX4', 'TRIANGULOX2',
     # combos con almohada como ÚNICO componente de sommier (CEX140+2 SÍ se actualiza)
 }
 
@@ -14536,7 +14536,7 @@ def _importar_orden_automatica(orden, access_token):
             items_bd.append({'sku': sku_norm, 'cantidad': cantidad_final, 'precio': item['precio']})
 
         # Auto-agregar PLATINO si el título contiene "almohada" y el SKU no es almohada
-        SKUS_ALMOHADA_PURAS = {'CERVICAL','CLASICA','DORAL','DUAL','EXCLUSIVE','PLATINO','RENOVATION','SUBLIME'}
+        SKUS_ALMOHADA_PURAS = {'CERVICAL','CLASICA','DORAL','DUAL','EXCLUSIVE','PLATINO','RENOVATION','SUBLIME','TRIANGULO'}
         platino_a_agregar = 0
         for item in orden_data['items']:
             sku_ml = item.get('sku', '').upper()
@@ -14691,7 +14691,7 @@ def _importar_orden_automatica(orden, access_token):
         ubicacion_despacho = 'FULL' if metodo_envio == 'Full' else 'DEP'
         # Flex → Delega si todos los productos son almohadas o compac (igual que flujo manual)
         if metodo_envio == 'Flex':
-            SKUS_ALM = {'CERVICAL','CLASICA','DORAL','DUAL','EXCLUSIVE','PLATINO','RENOVATION','SUBLIME'}
+            SKUS_ALM = {'CERVICAL','CLASICA','DORAL','DUAL','EXCLUSIVE','PLATINO','RENOVATION','SUBLIME','TRIANGULO'}
             es_todo_alm_o_compac = all(
                 item['sku'].upper().startswith('CCO') or
                 '_DEP' in item['sku'].upper() or
@@ -19578,7 +19578,7 @@ def _armar_bultos_cotizador(skus_lista):
     cur.execute(f"SELECT id, sku FROM productos_compuestos WHERE sku IN ({placeholders})", skus)
     compuestos_map = {r['sku']: r['id'] for r in cur.fetchall()}
 
-    SKUS_ALMOHADA = {'CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE'}
+    SKUS_ALMOHADA = {'CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE','TRIANGULO','TRIANGULOX2'}
 
     for item in skus_lista:
         sku      = item['sku'].strip().upper()
