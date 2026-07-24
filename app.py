@@ -9531,6 +9531,75 @@ def promociones_ml_campania():
                            campania_items=filas, publicaciones=None, sku_buscado='')
 
 
+@app.route('/promociones-ml/aplicar', methods=['POST'])
+@login_required
+def promociones_ml_aplicar():
+    """Aplica un PRICE_DISCOUNT (promo propia) a una publicación. Opcionalmente
+    cambia antes el precio de lista. Devuelve JSON (para actualizar la fila sin recargar)."""
+    from datetime import date as _date
+    data = request.get_json(silent=True) or {}
+    mla = (data.get('mla') or '').strip()
+    if not mla:
+        return jsonify({'ok': False, 'error': 'Falta la publicación'})
+    access_token = cargar_ml_token()
+    if not access_token:
+        return jsonify({'ok': False, 'error': 'No hay token de ML configurado'})
+    try:
+        deal_price = int(round(float(data.get('deal_price'))))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'Precio con descuento inválido'})
+    if deal_price <= 0:
+        return jsonify({'ok': False, 'error': 'El precio con descuento debe ser mayor a 0'})
+    finish_date = (data.get('finish_date') or '').strip()
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', finish_date):
+        return jsonify({'ok': False, 'error': 'Fecha de vencimiento inválida'})
+    # 1) cambiar el precio de lista si el usuario lo pidió
+    nuevo_precio = data.get('nuevo_precio')
+    orig_final = None
+    if nuevo_precio not in (None, '', 0, '0'):
+        try:
+            np = int(round(float(nuevo_precio)))
+        except (TypeError, ValueError):
+            return jsonify({'ok': False, 'error': 'Precio de lista inválido'})
+        if np <= deal_price:
+            return jsonify({'ok': False, 'error': 'El precio de lista debe ser mayor al precio con descuento'})
+        rp = ml_request('put', f'https://api.mercadolibre.com/items/{mla}', access_token, json_data={'price': np})
+        if rp.status_code != 200:
+            try:
+                err = rp.json()
+            except Exception:
+                err = {}
+            return jsonify({'ok': False, 'error': f"No se pudo cambiar el precio de lista: {err.get('message', rp.status_code)}"})
+        orig_final = np
+    # 2) aplicar el PRICE_DISCOUNT
+    hoy = _date.today().isoformat()
+    body = {'promotion_type': 'PRICE_DISCOUNT', 'deal_price': deal_price,
+            'start_date': f'{hoy}T00:00:00', 'finish_date': f'{finish_date}T23:59:59'}
+    ra = ml_request('post', f'https://api.mercadolibre.com/seller-promotions/items/{mla}?app_version=v2',
+                    access_token, json_data=body)
+    try:
+        r = ra.json()
+    except Exception:
+        r = {}
+    if ra.status_code in (200, 201):
+        orig = orig_final or r.get('original_price')
+        pct = None
+        try:
+            if orig:
+                pct = f"{(float(orig) - deal_price) / float(orig) * 100:.1f}".replace('.', ',')
+        except Exception:
+            pass
+        return jsonify({'ok': True, 'deal_price': deal_price, 'original_price': orig,
+                        'pct': pct, 'finish_date': finish_date})
+    # error: armar mensaje legible con las causas de ML
+    msg = (r.get('message') if isinstance(r, dict) else None) or f'HTTP {ra.status_code}'
+    if isinstance(r, dict) and r.get('cause'):
+        detalle = '; '.join(c.get('error_message', '') for c in r['cause'] if c.get('error_message'))
+        if detalle:
+            msg = detalle
+    return jsonify({'ok': False, 'error': msg})
+
+
 @app.route('/buscar-sku-ml', methods=['POST'])
 @login_required
 def buscar_sku_ml():

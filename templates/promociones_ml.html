@@ -79,20 +79,25 @@
             {% else %}
             <div class="table-responsive">
               <table class="table table-sm mb-0 align-middle">
-                <thead class="table-light"><tr><th>Tipo</th><th>Nombre</th><th>Estado</th><th>Descuento (%)</th><th>Editable</th><th>Vence</th></tr></thead>
+                <thead class="table-light"><tr><th>Tipo</th><th>Nombre</th><th>Estado</th><th>Descuento (%)</th><th>Editable</th><th>Vence</th><th>Acción</th></tr></thead>
                 <tbody>
                   {% for pr in p.promos %}
-                  <tr class="{{ 'table-success' if pr.status in ['started', 'active'] else '' }}">
+                  <tr class="{{ 'table-success' if pr.status in ['started', 'active'] else '' }}"{% if pr.tipo == 'PRICE_DISCOUNT' %} id="promo-pd-{{ p.mla_id }}"{% endif %}>
                     <td><span class="font-monospace" style="font-size:.8rem">{{ pr.tipo }}</span></td>
                     <td style="font-size:.85rem">{{ pr.name or '—' }}</td>
-                    <td>
+                    <td class="mp-estado">
                       {% if pr.status in ['started', 'active'] %}<span class="badge bg-success">Activa</span>
                       {% elif pr.status == 'candidate' %}<span class="badge bg-secondary">Disponible</span>
                       {% else %}<span class="badge bg-light text-dark border">{{ pr.status }}</span>{% endif %}
                     </td>
-                    <td>{{ promo_desc(pr) }}</td>
+                    <td class="mp-desc">{{ promo_desc(pr) }}</td>
                     <td>{% if pr.editable %}<span class="badge bg-info text-dark">Sí</span>{% else %}<span class="badge bg-light text-dark border">No</span>{% endif %}</td>
                     <td style="font-size:.8rem">{{ pr.finish_date[:10] if pr.finish_date else '—' }}</td>
+                    <td>
+                      {% if pr.tipo == 'PRICE_DISCOUNT' %}
+                      <button class="btn btn-sm btn-primary mp-btn" onclick="abrirModalPromo('{{ p.mla_id }}', {{ pr.original_price or 0 }}, {{ pr.min or 0 }}, {{ pr.max or 0 }}, {{ pr.price or 0 }}, '{{ pr.status }}')">{{ 'Editar' if pr.status in ['started','active'] else 'Aplicar' }}</button>
+                      {% else %}<span class="text-muted" style="font-size:.72rem">próximo paso</span>{% endif %}
+                    </td>
                   </tr>
                   {% endfor %}
                 </tbody>
@@ -165,6 +170,40 @@
   </div>
 </div>
 
+<!-- ══ MODAL: aplicar PRICE_DISCOUNT ══ -->
+<div id="modalPromo" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3000;">
+  <div style="background:#fff;max-width:480px;margin:5% auto;border-radius:12px;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+    <h5 class="mb-2"><i class="bi bi-percent"></i> Aplicar mi descuento</h5>
+    <div id="mp-info" class="text-muted mb-3" style="font-size:.82rem"></div>
+    <input type="hidden" id="mp-mla">
+    <div class="mb-3">
+      <label class="form-label mb-1" style="font-size:.85rem">Precio de lista (original)</label>
+      <input type="number" id="mp-lista" class="form-control form-control-sm" oninput="mpRecalc()">
+      <div class="form-text" style="font-size:.72rem">Si lo cambiás, se actualiza el precio del producto en ML antes de aplicar la promo.</div>
+    </div>
+    <div class="mb-2">
+      <label class="form-label mb-1" style="font-size:.85rem">Definí el descuento por:</label>
+      <div class="btn-group btn-group-sm w-100 mb-2">
+        <button type="button" id="mp-btn-pct" class="btn btn-outline-primary active" onclick="mpModo('pct')">Descuento %</button>
+        <button type="button" id="mp-btn-abs" class="btn btn-outline-primary" onclick="mpModo('abs')">Precio final $</button>
+      </div>
+      <input type="number" step="0.1" id="mp-pct" class="form-control form-control-sm" placeholder="% de descuento sobre el precio de lista" oninput="mpRecalc()">
+      <input type="number" id="mp-abs" class="form-control form-control-sm" placeholder="precio final con descuento" style="display:none" oninput="mpRecalc()">
+    </div>
+    <div id="mp-preview" class="border rounded px-2 py-2 mb-2" style="font-size:.85rem;background:#f8f9fa"></div>
+    <div class="mb-3">
+      <label class="form-label mb-1" style="font-size:.85rem">Vence</label>
+      <input type="date" id="mp-finish" class="form-control form-control-sm">
+      <div class="form-text" style="font-size:.72rem">Máximo 14 días (límite de ML).</div>
+    </div>
+    <div id="mp-error" class="alert alert-danger py-2 px-2 mb-2" style="display:none;font-size:.82rem"></div>
+    <div class="d-flex justify-content-end gap-2">
+      <button class="btn btn-sm btn-secondary" onclick="cerrarModalPromo()">Cancelar</button>
+      <button class="btn btn-sm btn-primary" id="mp-confirmar" onclick="mpConfirmar()">Confirmar y aplicar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 function showTab(t){
   document.querySelectorAll('.promo-pane').forEach(function(p){p.style.display='none';});
@@ -194,6 +233,84 @@ function ordenarTu(){
   rows.sort(function(a,b){ var x=parseFloat(a.dataset.orden)||999, y=parseFloat(b.dataset.orden)||999; return _tuAsc?x-y:y-x; });
   _tuAsc=!_tuAsc;
   rows.forEach(function(r){tb.appendChild(r);});
+}
+
+// ── Modal aplicar PRICE_DISCOUNT ──
+var _mp = {mla:'', orig:0, min:0, max:0, modo:'pct'};
+function fmt(n){ return Math.round(n).toLocaleString('es-AR'); }
+function abrirModalPromo(mla, orig, mn, mx, price, status){
+  _mp = {mla:mla, orig:orig||0, min:mn||0, max:mx||0, modo:'pct'};
+  document.getElementById('mp-mla').value = mla;
+  document.getElementById('mp-lista').value = orig ? Math.round(orig) : '';
+  document.getElementById('mp-pct').value = '';
+  document.getElementById('mp-abs').value = price ? Math.round(price) : '';
+  document.getElementById('mp-error').style.display='none';
+  var d = new Date(); d.setDate(d.getDate()+13);
+  document.getElementById('mp-finish').value = d.toISOString().slice(0,10);
+  var rango = (mn && mx) ? (' · rango permitido del precio final: $'+fmt(mn)+' a $'+fmt(mx)) : '';
+  document.getElementById('mp-info').innerHTML = 'Publicación <b>'+mla+'</b>'+rango;
+  mpModo('pct');
+  document.getElementById('modalPromo').style.display='block';
+}
+function cerrarModalPromo(){ document.getElementById('modalPromo').style.display='none'; }
+function mpModo(m){
+  _mp.modo=m;
+  document.getElementById('mp-pct').style.display = m==='pct'?'':'none';
+  document.getElementById('mp-abs').style.display = m==='abs'?'':'none';
+  document.getElementById('mp-btn-pct').classList.toggle('active', m==='pct');
+  document.getElementById('mp-btn-abs').classList.toggle('active', m==='abs');
+  mpRecalc();
+}
+function mpDeal(){
+  var lista = parseFloat(document.getElementById('mp-lista').value)||0;
+  if(_mp.modo==='pct'){
+    var p = parseFloat(document.getElementById('mp-pct').value);
+    if(isNaN(p)||!lista) return null;
+    return Math.round(lista*(1-p/100));
+  }
+  var a = parseFloat(document.getElementById('mp-abs').value);
+  return isNaN(a)?null:Math.round(a);
+}
+function mpRecalc(){
+  var lista = parseFloat(document.getElementById('mp-lista').value)||0;
+  var deal = mpDeal();
+  var box = document.getElementById('mp-preview');
+  if(deal===null || !lista){ box.innerHTML='<span class="text-muted">Ingresá el descuento…</span>'; return; }
+  var pct = (lista-deal)/lista*100;
+  var warn = '';
+  if(_mp.min && _mp.max && Math.round(lista)===Math.round(_mp.orig) && (deal < _mp.min || deal > _mp.max)){
+    warn = ' <span class="text-danger">(fuera del rango permitido)</span>';
+  }
+  box.innerHTML = 'Precio final: <b>$'+fmt(deal)+'</b> · descuento <b>'+pct.toFixed(1).replace('.',',')+'%</b>'+warn;
+}
+function mpConfirmar(){
+  var deal = mpDeal();
+  var lista = parseFloat(document.getElementById('mp-lista').value)||0;
+  var err = document.getElementById('mp-error');
+  if(deal===null || deal<=0){ err.textContent='Ingresá un descuento válido.'; err.style.display='block'; return; }
+  var body = {mla:_mp.mla, deal_price:deal, finish_date:document.getElementById('mp-finish').value};
+  if(Math.round(lista) !== Math.round(_mp.orig)) body.nuevo_precio = Math.round(lista);
+  var btn = document.getElementById('mp-confirmar');
+  btn.disabled=true; btn.textContent='Aplicando…'; err.style.display='none';
+  fetch('/promociones-ml/aplicar', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      btn.disabled=false; btn.textContent='Confirmar y aplicar';
+      if(d.ok){ mpAplicada(_mp.mla, d); cerrarModalPromo(); }
+      else { err.textContent = d.error||'No se pudo aplicar'; err.style.display='block'; }
+    })
+    .catch(function(e){ btn.disabled=false; btn.textContent='Confirmar y aplicar'; err.textContent='Error de red: '+e; err.style.display='block'; });
+}
+function mpAplicada(mla, d){
+  var tr = document.getElementById('promo-pd-'+mla);
+  if(!tr) return;
+  tr.classList.add('table-success');
+  var est = tr.querySelector('.mp-estado');
+  if(est) est.innerHTML = '<span class="badge bg-success">Activa</span> <span style="color:#198754;font-weight:bold">✔</span>';
+  var desc = tr.querySelector('.mp-desc');
+  if(desc) desc.innerHTML = '<span class="badge bg-success" style="font-size:.9rem">'+(d.pct||'?')+'% OFF</span><div class="text-muted" style="font-size:.72rem">queda $'+fmt(d.deal_price)+(d.finish_date?(' · vence '+d.finish_date):'')+'</div>';
+  var btn = tr.querySelector('.mp-btn');
+  if(btn) btn.textContent='Editar';
 }
 </script>
 {% endblock %}
