@@ -9603,7 +9603,7 @@ def promociones_ml_aplicar():
     if ra.status_code not in (200, 201) and 'candidate' in str((r or {}).get('message', '')).lower():
         ml_request('delete', f'https://api.mercadolibre.com/seller-promotions/items/{mla}'
                              f'?promotion_type=PRICE_DISCOUNT&app_version=v2', access_token)
-        for _ in range(10):
+        for _ in range(20):  # el borrado de ML es asíncrono (~5-30s); esperamos ~30s
             time.sleep(1.5)
             rg = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/items/{mla}',
                             access_token, params={'app_version': 'v2'})
@@ -9614,6 +9614,11 @@ def promociones_ml_aplicar():
                 break
         ra = ml_request('post', post_url, access_token, json_data=body)
         r = _safe_json(ra)
+        # si ML todavía no procesó el borrado, la promo anterior ya se quitó:
+        # avisamos para que reintente (un segundo click la aplica).
+        if ra.status_code not in (200, 201) and 'candidate' in str((r or {}).get('message', '')).lower():
+            return jsonify({'ok': False, 'error': 'Quité la promo anterior pero ML todavía la está '
+                            'procesando. Esperá unos segundos y tocá "Confirmar y aplicar" de nuevo.'})
     if ra.status_code in (200, 201):
         orig = orig_final or r.get('original_price')
         pct = None
