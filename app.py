@@ -6716,7 +6716,7 @@ def guardar_venta():
                 import threading
                 def _nueva_venta_ml_bg():
                     try:
-                        actualizar_publicaciones_ml_con_progreso(skus_afectados)
+                        _sync_ml_por_venta(skus_afectados)
                     except Exception as e_ml:
                         print(f"[AUTO-ML] Error actualizando ML tras nueva venta manual: {e_ml}")
                 threading.Thread(target=_nueva_venta_ml_bg, daemon=True).start()
