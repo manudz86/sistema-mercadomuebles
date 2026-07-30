@@ -5971,14 +5971,14 @@ def pago_payway():
     # ── Sincronizar publicaciones ML en background ────────────────────────────
     try:
         import threading
-        from app import actualizar_publicaciones_ml_con_progreso, _extraer_skus_base_de_items
+        from app import _sync_ml_por_venta, _extraer_skus_base_de_items
         skus_afectados = _extraer_skus_base_de_items(
             [{'sku': it['sku'], 'cantidad': it['cantidad']} for it in cart_items] if cart_items else []
         )
         if skus_afectados:
             def _sync_ml_payway():
                 try:
-                    actualizar_publicaciones_ml_con_progreso(skus_afectados)
+                    _sync_ml_por_venta(skus_afectados)
                 except Exception as e_ml:
                     logger.warning(f"[TIENDA-ML] Error sync ML Payway: {e_ml}")
             threading.Thread(target=_sync_ml_payway, daemon=True).start()
@@ -7309,14 +7309,14 @@ def webhook_mp():
     # ── Sincronizar publicaciones ML en background ────────────────────────────
     try:
         import threading
-        from app import actualizar_publicaciones_ml_con_progreso, _extraer_skus_base_de_items
+        from app import _sync_ml_por_venta, _extraer_skus_base_de_items
         skus_afectados = _extraer_skus_base_de_items(
             [{'sku': it['sku'], 'cantidad': it['cantidad']} for it in cart_items] if cart_items else []
         )
         if skus_afectados:
             def _sync_ml():
                 try:
-                    actualizar_publicaciones_ml_con_progreso(skus_afectados)
+                    _sync_ml_por_venta(skus_afectados)
                 except Exception as e_ml:
                     logger.warning(f"[TIENDA-ML] Error sync ML: {e_ml}")
             threading.Thread(target=_sync_ml, daemon=True).start()
@@ -7656,14 +7656,14 @@ def webhook_getnet():
     # ── Sincronizar publicaciones ML en background ────────────────────────────
     try:
         import threading
-        from app import actualizar_publicaciones_ml_con_progreso, _extraer_skus_base_de_items
+        from app import _sync_ml_por_venta, _extraer_skus_base_de_items
         skus_afectados = _extraer_skus_base_de_items(
             [{'sku': it['sku'], 'cantidad': it['cantidad']} for it in cart_items] if cart_items else []
         )
         if skus_afectados:
             def _sync_ml_getnet():
                 try:
-                    actualizar_publicaciones_ml_con_progreso(skus_afectados)
+                    _sync_ml_por_venta(skus_afectados)
                 except Exception as e_ml:
                     logger.warning(f"[TIENDA-ML] Error sync ML GetNet: {e_ml}")
             threading.Thread(target=_sync_ml_getnet, daemon=True).start()
