@@ -2531,7 +2531,7 @@ def cancelar_venta(venta_id):
                 import threading
                 def _cancel_ml_bg():
                     try:
-                        actualizar_publicaciones_ml_con_progreso(skus_afectados)
+                        _sync_ml_por_venta(skus_afectados)
                     except Exception as e_ml:
                         print(f"[AUTO-ML] Error actualizando ML tras cancelación: {e_ml}")
                 threading.Thread(target=_cancel_ml_bg, daemon=True).start()
@@ -2636,7 +2636,7 @@ def eliminar_venta(venta_id):
             if skus_afectados:
                 def _elim_ml_bg():
                     try:
-                        actualizar_publicaciones_ml_con_progreso(skus_afectados)
+                        _sync_ml_por_venta(skus_afectados)
                     except Exception as e_ml:
                         print(f"[AUTO-ML] Error actualizando ML tras eliminación: {e_ml}")
                 threading.Thread(target=_elim_ml_bg, daemon=True).start()
@@ -3744,7 +3744,7 @@ def editar_venta(venta_id):
                     import threading
                     def _editar_venta_ml_bg():
                         try:
-                            actualizar_publicaciones_ml_con_progreso(skus_afectados)
+                            _sync_ml_por_venta(skus_afectados)
                         except Exception as e_ml:
                             print(f"[AUTO-ML] Error actualizando ML tras editar venta: {e_ml}")
                     threading.Thread(target=_editar_venta_ml_bg, daemon=True).start()
@@ -14449,6 +14449,77 @@ def _quitar_demora_ml(mla_id, access_token):
     return ok
 
 
+# ── Sync de stock de ALMOHADAS a ML (menos PLATINO) ──────────────────────────
+# Las almohadas están excluidas del sync genérico. Este mapa explícito lleva
+# cada SKU de publicación (single, alias o combo X2) a su base y cuántas unidades
+# representa. Se empuja: single = disponible-2 ; combo = piso(disponible/2)-2
+# (margen de seguridad de 2 unidades). PLATINO/PLATINOX2 NO se sincronizan.
+ALMOHADA_SYNC = {
+    # single (1 unidad)
+    'DORAL':        ('DORAL',      1),
+    'DUAL':         ('DUAL',       1),
+    'CLASICA':      ('CLASICA',    1),
+    'CERVICAL':     ('CERVICAL',   1),
+    'SUBLIME':      ('SUBLIME',    1),
+    'TRIANGULO':    ('TRIANGULO',  1),
+    'EXCLUSIVE':    ('EXCLUSIVE',  1),
+    'RENOVATIONAL': ('RENOVATION', 1),   # alias de ML → base RENOVATION
+    # combos X2 (2 unidades por publicación)
+    'DORALX2':      ('DORAL',      2),
+    'DUALX2':       ('DUAL',       2),
+    'EXCLUSIVEX2':  ('EXCLUSIVE',  2),
+    'TRIANGULOX2':  ('TRIANGULO',  2),
+    'CLASICAX2':    ('CLASICA',    2),
+}
+ALMOHADA_MARGEN = 2
+
+def _sync_almohadas_ml(skus_afectados):
+    """Empuja a ML el stock de las almohadas afectadas (menos PLATINO), con margen
+    de seguridad. Se llama en los mismos eventos de venta que el sync de colchones."""
+    if not skus_afectados:
+        return
+    afectados = {str(s).upper() for s in skus_afectados}
+    # Solo trabajar si alguna base de almohada está entre los afectados
+    bases_afectadas = {base for (_sku, (base, _u)) in ALMOHADA_SYNC.items() if base in afectados}
+    if not bases_afectadas:
+        return
+    access_token = cargar_ml_token()
+    if not access_token:
+        print("[AUTO-ML][ALM] Sin access_token, abortando.")
+        return
+    try:
+        stock_todos = calcular_stock_por_sku()
+    except Exception as e:
+        print(f"[AUTO-ML][ALM] Error calculando stock: {e}")
+        return
+    for sku_publi, (base, units) in ALMOHADA_SYNC.items():
+        if base not in bases_afectadas:
+            continue
+        disp = int(stock_todos.get(base, {}).get('stock_disponible', 0) or 0)
+        qty = (disp if units == 1 else disp // units) - ALMOHADA_MARGEN
+        qty = max(0, qty)
+        try:
+            pubs = query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku_publi,))
+        except Exception as e:
+            print(f"[AUTO-ML][ALM] Error buscando MLAs de {sku_publi}: {e}")
+            continue
+        for pub in pubs:
+            mla = pub['mla_id']
+            ok, msg = actualizar_stock_ml(mla, qty, access_token)
+            print(f"[AUTO-ML][ALM] {sku_publi} (base {base} disp={disp}) → {mla} stock={qty}: {'✅' if ok else '❌'} {msg}")
+            time.sleep(0.4)
+
+
+def _sync_ml_por_venta(skus_afectados):
+    """Wrapper para eventos de VENTA (importar/cancelar/eliminar/editar):
+    sincroniza colchones+sommiers+compac (sync genérico) y además almohadas."""
+    actualizar_publicaciones_ml_con_progreso(skus_afectados)
+    try:
+        _sync_almohadas_ml(skus_afectados)
+    except Exception as e:
+        print(f"[AUTO-ML][ALM] Error en sync almohadas: {e}")
+
+
 def actualizar_publicaciones_ml(skus_base_afectados):
     """
     Dado un set de SKUs base que cambiaron disponible, actualiza en ML
@@ -15117,7 +15188,7 @@ def job_auto_importar_ml():
             # Actualizar publicaciones ML si hubo cambios
             if skus_base_afectados:
                 print(f"[AUTO-ML] Actualizando ML para SKUs: {skus_base_afectados}")
-                actualizar_publicaciones_ml_con_progreso(skus_base_afectados)
+                _sync_ml_por_venta(skus_base_afectados)
 
         except Exception as e:
             import traceback
