@@ -14473,6 +14473,41 @@ ALMOHADA_SYNC = {
 }
 ALMOHADA_MARGEN = 2
 
+def _push_stock_ml_una(mla, qty, access_token):
+    """Empuja stock a UNA publicación. Intenta el PUT normal (available_quantity);
+    si la publi es Full / de inventario centralizado (falla el PUT), cae al endpoint
+    user-products/stock/type/selling_address (con x-version, igual que Compac)."""
+    ok, msg = actualizar_stock_ml(mla, qty, access_token)
+    if ok:
+        return True, msg
+    try:
+        import requests as _req
+        h = {'Authorization': f'Bearer {access_token}'}
+        it = _req.get(f'https://api.mercadolibre.com/items/{mla}', headers=h,
+                      params={'attributes': 'user_product_id'}, timeout=10).json()
+        up = it.get('user_product_id')
+        if not up:
+            return False, msg
+        sr = _req.get(f'https://api.mercadolibre.com/user-products/{up}/stock', headers=h, timeout=10)
+        locs = (sr.json() or {}).get('locations', [])
+        if not any(l.get('type') == 'selling_address' for l in locs):
+            return False, f'{msg} (sin selling_address)'
+        xv = sr.headers.get('x-version', '1')
+        url = f'https://api.mercadolibre.com/user-products/{up}/stock/type/selling_address'
+        pr = _req.put(url, headers={**h, 'Content-Type': 'application/json', 'x-version': str(xv)},
+                      json={'quantity': int(qty)}, timeout=10)
+        if pr.status_code == 409:  # x-version vencida → releer y reintentar una vez
+            xv2 = _req.get(f'https://api.mercadolibre.com/user-products/{up}/stock',
+                           headers=h, timeout=10).headers.get('x-version', '1')
+            pr = _req.put(url, headers={**h, 'Content-Type': 'application/json', 'x-version': str(xv2)},
+                          json={'quantity': int(qty)}, timeout=10)
+        if pr.status_code in (200, 204):
+            return True, f'selling_address={qty}'
+        return False, f'{msg} / SA HTTP {pr.status_code}'
+    except Exception as e:
+        return False, f'{msg} / {e}'
+
+
 def _sync_almohadas_ml(skus_afectados):
     """Empuja a ML el stock de las almohadas afectadas (menos PLATINO), con margen
     de seguridad. Se llama en los mismos eventos de venta que el sync de colchones."""
@@ -14505,7 +14540,7 @@ def _sync_almohadas_ml(skus_afectados):
             continue
         for pub in pubs:
             mla = pub['mla_id']
-            ok, msg = actualizar_stock_ml(mla, qty, access_token)
+            ok, msg = _push_stock_ml_una(mla, qty, access_token)
             print(f"[AUTO-ML][ALM] {sku_publi} (base {base} disp={disp}) → {mla} stock={qty}: {'✅' if ok else '❌'} {msg}")
             time.sleep(0.4)
 
