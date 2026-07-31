@@ -8272,7 +8272,10 @@ def ml_seleccionar_orden(orden_id):
             sku_ml_original = item['sku']
             if sku_ml_original:
                 sku_a_usar, cant_override = normalizar_sku_ml(sku_ml_original)
-                cantidad_final = cant_override if cant_override > 0 else item['cantidad']
+                cantidad_final = (item['cantidad'] * cant_override) if cant_override > 0 else item['cantidad']
+                # Precio por unidad base: si el SKU es un pack (override>0), el precio de ML
+                # viene por pack → lo dividimos para que cantidad×precio = total real de la orden.
+                precio_final = round(item['precio'] / cant_override) if cant_override > 0 else item['precio']
                 existe, tipo, nombre = verificar_sku_en_bd(sku_a_usar)
 
                 # Auto-mapeo Compac: CCO{medida} → CCO{medida}_FULL o CCO{medida}_DEP
@@ -8290,7 +8293,7 @@ def ml_seleccionar_orden(orden_id):
                         'sku_bd': sku_a_usar,
                         'titulo': item['titulo'],
                         'cantidad': cantidad_final,
-                        'precio': item['precio'],
+                        'precio': precio_final,
                         'nombre_bd': nombre
                     })
                 else:
@@ -14776,7 +14779,10 @@ def _importar_orden_automatica(orden, access_token):
             if not sku_norm:
                 print(f"[AUTO-ML] Orden {orden_id}: item sin SKU, requiere mapeo manual")
                 return False, []
-            cantidad_final = cant_override if cant_override > 0 else item['cantidad']
+            cantidad_final = (item['cantidad'] * cant_override) if cant_override > 0 else item['cantidad']
+            # Precio por unidad base: si es un pack (override>0), ML da el precio por pack →
+            # lo dividimos para que cantidad×precio = total real de la orden.
+            precio_final = round(item['precio'] / cant_override) if cant_override > 0 else item['precio']
             # Mapear compac según ubicacion_despacho (se determina después del shipping,
             # pero podemos pre-calcular basándonos en el logistic_type del shipment)
             # El mapeo final se hace más abajo cuando ya tenemos ubicacion_despacho
@@ -14793,7 +14799,7 @@ def _importar_orden_automatica(orden, access_token):
             elif not existe:
                 print(f"[AUTO-ML] Orden {orden_id}: SKU {sku_norm} no existe en BD, requiere mapeo manual")
                 return False, []
-            items_bd.append({'sku': sku_norm, 'cantidad': cantidad_final, 'precio': item['precio']})
+            items_bd.append({'sku': sku_norm, 'cantidad': cantidad_final, 'precio': precio_final})
 
         # Auto-agregar PLATINO si el título contiene "almohada" y el SKU no es almohada
         SKUS_ALMOHADA_PURAS = {'CERVICAL','CLASICA','DORAL','DUAL','EXCLUSIVE','PLATINO','RENOVATION','SUBLIME','TRIANGULO'}
