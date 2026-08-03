@@ -5831,6 +5831,13 @@ def pago_payway():
     ))
     venta_id = cur2.lastrowid
 
+    # Guardar el email del comprador (para lista de marketing / newsletter)
+    try:
+        cur2.execute("UPDATE ventas SET email_cliente=%s WHERE id=%s",
+                     ((email_cliente or '').strip() or None, venta_id))
+    except Exception as _e_mail:
+        logger.warning(f"[TIENDA] No se pudo guardar email_cliente: {_e_mail}")
+
     # ── Datos de factura (Factura A) ──────────────────────────────────────────
     _fdt, _fdn, _ftt = _factura_fields(cli)
     if _fdt:
@@ -7135,6 +7142,13 @@ def webhook_mp():
         ))
         venta_id = cursor.lastrowid
 
+        # Guardar el email del comprador (para lista de marketing / newsletter)
+        try:
+            cursor.execute("UPDATE ventas SET email_cliente=%s WHERE id=%s",
+                           ((email_cliente or '').strip() or None, venta_id))
+        except Exception as _e_mail:
+            logger.warning(f"[TIENDA] No se pudo guardar email_cliente: {_e_mail}")
+
         # ── Datos de factura (Factura A) ──────────────────────────────────────
         _fdt, _fdn, _ftt = _factura_fields(cli)
         if _fdt:
@@ -7510,6 +7524,13 @@ def webhook_getnet():
             notas_extra, cli.get('_origen_first'), cli.get('_origen_last'), fecha_now, fecha_now,
         ))
         venta_id = cursor.lastrowid
+
+        # Guardar el email del comprador (para lista de marketing / newsletter)
+        try:
+            cursor.execute("UPDATE ventas SET email_cliente=%s WHERE id=%s",
+                           ((email_cliente or '').strip() or None, venta_id))
+        except Exception as _e_mail:
+            logger.warning(f"[TIENDA] No se pudo guardar email_cliente: {_e_mail}")
 
         # ── Datos de factura (Factura A) ──────────────────────────────────────
         _fdt, _fdn, _ftt = _factura_fields(cli)
