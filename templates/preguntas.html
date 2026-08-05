@@ -66,6 +66,7 @@
       </div>
 
       <div class="mt-2 p-2 bg-light rounded">
+        {% if p.comprador_nick %}<div class="small text-muted mb-1"><i class="bi bi-person-circle"></i> {{ p.comprador_nick }}</div>{% endif %}
         <i class="bi bi-question-circle text-primary"></i> {{ p.texto }}
       </div>
 

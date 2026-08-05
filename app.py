@@ -16186,11 +16186,18 @@ def _crear_tabla_ml_reclamos():
 
 
 def _parse_ml_datetime(s):
-    """Convierte fecha ISO de ML (2024-09-11T22:39:00.000-04:00) a 'YYYY-MM-DD HH:MM:SS' o None."""
+    """Convierte fecha ISO de ML (2024-09-11T22:39:00.000-04:00) a hora Argentina
+    (UTC-3) en formato 'YYYY-MM-DD HH:MM:SS' o None. ML manda la fecha con su propio
+    offset (-04:00), así que hay que convertirla a -03:00 para mostrar la hora local."""
     if not s:
         return None
+    from datetime import timezone, timedelta
+    import re as _re
     try:
-        return datetime.fromisoformat(s).strftime('%Y-%m-%d %H:%M:%S')
+        # Python 3.10 no parsea nanosegundos (ML manda .56812789) → truncar la fracción a 6 dígitos
+        s2 = _re.sub(r'(\.\d{6})\d+', r'\1', s)
+        dt = datetime.fromisoformat(s2)
+        return dt.astimezone(timezone(timedelta(hours=-3))).strftime('%Y-%m-%d %H:%M:%S')
     except Exception:
         try:
             return s.replace('T', ' ')[:19]
@@ -16804,6 +16811,7 @@ REGLAS:
 - Si con la información disponible NO podés responder con certeza la pregunta (te falta el dato), NO inventes ni escribas que no sabés: devolvé EXACTAMENTE el texto "[SIN_RESPUESTA]" y nada más (sin saludo ni cierre).
 - NUNCA incluyas (penaliza Mercado Libre):
 {prohibido}
+- REGLA CRÍTICA — NUNCA pongas la dirección exacta del local (calle ni número) en la respuesta, aunque el comprador la pida. Como MÁXIMO, indicá la ZONA y el horario: estamos en Floresta, CABA, y atendemos de lunes a viernes de 8 a 12 y de 14 a 16.30hs. Nada de dirección exacta.
 
 ENVÍO DE ESTA PUBLICACIÓN ({tipo_envio}):
 {envio}
@@ -16856,19 +16864,29 @@ def _sync_preguntas(access_token=None):
             continue
         item_id = q.get('item_id')
         comprador = str(q.get('from', {}).get('id') or '')
+        # Apodo del comprador: la pregunta solo trae el id → lo resolvemos por /users
+        comprador_nick = None
+        if comprador:
+            try:
+                ru = ml_request('get', f'https://api.mercadolibre.com/users/{comprador}',
+                                access_token, params={'attributes': 'nickname'})
+                if ru.status_code == 200:
+                    comprador_nick = (ru.json() or {}).get('nickname')
+            except Exception:
+                pass
         ctx = _pregunta_item_ctx(item_id, access_token)
         historial = _pregunta_historial(item_id, comprador, access_token, excluir_qid=qid)
         execute_db("""
             INSERT INTO ml_preguntas
                 (question_id, item_id, item_titulo, sku, precio, stock, tipo_publi, cuotas,
-                 texto, comprador_id, fecha_pregunta, historial, status, synced_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'UNANSWERED',NOW())
+                 texto, comprador_id, comprador_nick, fecha_pregunta, historial, status, synced_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'UNANSWERED',NOW())
             ON DUPLICATE KEY UPDATE status='UNANSWERED', synced_at=NOW(),
                 item_titulo=VALUES(item_titulo), sku=VALUES(sku), precio=VALUES(precio),
                 stock=VALUES(stock), tipo_publi=VALUES(tipo_publi), cuotas=VALUES(cuotas),
-                historial=VALUES(historial)
+                comprador_nick=VALUES(comprador_nick), historial=VALUES(historial)
         """, (qid, item_id, (ctx['titulo'] or '')[:255], ctx['sku'], ctx['precio'], ctx['stock'],
-              ctx['tipo_publi'], ctx['cuotas'], q.get('text', ''), comprador,
+              ctx['tipo_publi'], ctx['cuotas'], q.get('text', ''), comprador, comprador_nick,
               _parse_ml_datetime(q.get('date_created')), historial))
         sugerida = _sugerir_respuesta(q.get('text', ''), ctx['sku'], ctx['titulo'], ctx['precio'],
                                       ctx['stock'], ctx['tipo_publi'], ctx['cuotas'])
@@ -16908,7 +16926,9 @@ def preguntas():
     else:
         where = "WHERE status='UNANSWERED'"
     rows = query_db(f"SELECT * FROM ml_preguntas {where} ORDER BY fecha_pregunta DESC LIMIT 200")
-    ahora = datetime.now()
+    # Hora Argentina (UTC-3): el VPS corre en UTC, así que datetime.now() daría +3h de atraso.
+    from datetime import timezone as _tz, timedelta as _td
+    ahora = datetime.now(_tz(_td(hours=-3))).replace(tzinfo=None)
     for r in rows:
         fp = r.get('fecha_pregunta')
         r['atraso'] = _humanizar_atraso(ahora - fp) if fp else None
