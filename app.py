@@ -9560,15 +9560,30 @@ def promociones_ml_aplicar():
     tipo = (data.get('promotion_type') or 'PRICE_DISCOUNT').strip().upper()
     promotion_id = (data.get('promotion_id') or '').strip()
     offer_id = (data.get('offer_id') or '').strip()
-    if tipo not in ('PRICE_DISCOUNT', 'DEAL', 'SMART'):
+    if tipo not in ('PRICE_DISCOUNT', 'DEAL', 'SMART', 'PRICE_MATCHING'):
         return jsonify({'ok': False, 'error': 'Tipo de promo no soportado'})
-    if tipo in ('DEAL', 'SMART') and not promotion_id:
+    if tipo in ('DEAL', 'SMART', 'PRICE_MATCHING') and not promotion_id:
         return jsonify({'ok': False, 'error': 'Falta el id de la campaña'})
-    if tipo == 'SMART' and not offer_id:
-        return jsonify({'ok': False, 'error': 'Falta el offer_id (ref_id) de la campaña SMART'})
     access_token = cargar_ml_token()
     if not access_token:
         return jsonify({'ok': False, 'error': 'No hay token de ML configurado'})
+    # SMART / PRICE_MATCHING: el precio lo fija ML. Requieren offer_id (ref_id del
+    # candidato). Si no vino (ej. desde el modo campaña, que no devuelve ref_id),
+    # lo resolvemos leyendo el candidato de la propia publicación.
+    if tipo in ('SMART', 'PRICE_MATCHING') and not offer_id:
+        try:
+            rg = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/items/{mla}',
+                            access_token, params={'app_version': 'v2'})
+            for p in (rg.json() or []):
+                if isinstance(p, dict) and p.get('type') == tipo and \
+                   (not promotion_id or p.get('id') == promotion_id) and p.get('ref_id'):
+                    offer_id = p['ref_id']
+                    break
+        except Exception:
+            pass
+        if not offer_id:
+            return jsonify({'ok': False, 'error': 'No encontré la oferta candidata (ref_id) de esta '
+                            'publicación para esa campaña. Puede que ya esté activa o que no aplique.'})
     deal_price = None
     if tipo in ('PRICE_DISCOUNT', 'DEAL'):
         try:
@@ -9608,9 +9623,9 @@ def promociones_ml_aplicar():
     elif tipo == 'DEAL':
         body = {'promotion_type': 'DEAL', 'promotion_id': promotion_id, 'deal_price': deal_price}
         del_qs = f'promotion_type=DEAL&promotion_id={promotion_id}'
-    else:  # SMART — el precio lo fija ML; requiere offer_id (el ref_id del candidato)
-        body = {'promotion_type': 'SMART', 'promotion_id': promotion_id, 'offer_id': offer_id}
-        del_qs = f'promotion_type=SMART&promotion_id={promotion_id}'
+    else:  # SMART / PRICE_MATCHING — el precio lo fija ML; requiere offer_id (ref_id del candidato)
+        body = {'promotion_type': tipo, 'promotion_id': promotion_id, 'offer_id': offer_id}
+        del_qs = f'promotion_type={tipo}&promotion_id={promotion_id}'
     post_url = f'https://api.mercadolibre.com/seller-promotions/items/{mla}?app_version=v2'
 
     def _safe_json(resp):

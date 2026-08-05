@@ -105,9 +105,9 @@
                           data-orig="{{ pr.original_price or 0 }}" data-min="{{ pr.min or 0 }}" data-max="{{ pr.max or 0 }}"
                           data-price="{{ pr.price or 0 }}" data-name="{{ pr.name or '' }}" data-status="{{ pr.status }}" data-row="{{ rowid }}"
                           onclick="abrirModal(this)">{{ 'Editar' if activo else ('Aplicar' if pr.tipo == 'PRICE_DISCOUNT' else 'Participar') }}</button>
-                      {% elif pr.tipo == 'SMART' and not activo %}
+                      {% elif pr.tipo in ['SMART', 'PRICE_MATCHING'] and not activo %}
                         <button class="btn btn-sm btn-primary mp-btn"
-                          data-tipo="SMART" data-mla="{{ p.mla_id }}" data-pid="{{ pr.id or '' }}" data-offer="{{ pr.ref_id or '' }}"
+                          data-tipo="{{ pr.tipo }}" data-mla="{{ p.mla_id }}" data-pid="{{ pr.id or '' }}" data-offer="{{ pr.ref_id or '' }}"
                           data-orig="{{ pr.original_price or 0 }}" data-price="{{ pr.price or 0 }}"
                           data-seller="{{ pr.seller_pct or '' }}" data-meli="{{ pr.meli_pct or '' }}" data-total="{{ pr.pct_total or '' }}"
                           data-name="{{ pr.name or '' }}" data-status="{{ pr.status }}" data-row="{{ rowid }}"
@@ -155,7 +155,14 @@
         <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
           <span class="text-muted" style="font-size:.9rem"><b>{{ campania_nombre or campania_sel }}</b> ({{ campania_tipo }}) — {{ campania_items|length }} publicaciones tuyas</span>
           <label style="font-size:.85rem">Filtrar tu % ≤ <input type="number" id="filtroTu" step="0.1" style="width:80px" class="form-control form-control-sm d-inline-block" oninput="filtrarCamp()"></label>
-          <span class="text-muted" style="font-size:.85rem"><span id="selCount">0</span> seleccionadas <span class="badge bg-light text-dark border">acciones: próximo paso</span></span>
+          <span class="text-muted" style="font-size:.85rem"><span id="selCount">0</span> seleccionadas</span>
+          {% if campania_tipo in ['SMART', 'PRICE_MATCHING'] %}
+            <button type="button" id="btnParticipar" class="btn btn-sm btn-primary" onclick="participarSel()" disabled>
+              <i class="bi bi-lightning-charge"></i> Participar con seleccionadas
+            </button>
+          {% else %}
+            <span class="badge bg-light text-dark border">Activar en lote: solo campañas de precio fijo (SMART / Gánale a la competencia)</span>
+          {% endif %}
         </div>
         <div class="table-responsive">
           <table class="table table-sm table-hover align-middle" id="campTabla">
@@ -244,7 +251,14 @@ function showTab(t){
 document.addEventListener('DOMContentLoaded', function(){ showTab('{{ active_tab or "pub" }}'); });
 
 // ── Campaña: selección ──
-function contarSel(){ var n=document.querySelectorAll('.selItem:checked').length; var e=document.getElementById('selCount'); if(e) e.textContent=n; }
+var CAMP_ID = {{ (campania_sel or '')|tojson }};
+var CAMP_TIPO = {{ (campania_tipo or '')|tojson }};
+var CAMP_NOMBRE = {{ (campania_nombre or campania_sel or '')|tojson }};
+function contarSel(){
+  var n=document.querySelectorAll('.selItem:checked').length;
+  var e=document.getElementById('selCount'); if(e) e.textContent=n;
+  var b=document.getElementById('btnParticipar'); if(b) b.disabled=(n===0);
+}
 function toggleAll(cb){ document.querySelectorAll('#campTabla tbody tr:not([style*="display: none"]) .selItem').forEach(function(x){x.checked=cb.checked;}); contarSel(); }
 // ── Campaña: filtro por tu % ──
 function filtrarCamp(){
@@ -264,6 +278,41 @@ function ordenarTu(){
   _tuAsc=!_tuAsc;
   rows.forEach(function(r){tb.appendChild(r);});
 }
+// ── Campaña: participar en lote (SMART / PRICE_MATCHING — precio fijo por ML) ──
+function marcarCampFila(tr, ok, d){
+  if(!tr) return;
+  tr.classList.remove('table-success','table-danger');
+  tr.classList.add(ok ? 'table-success' : 'table-danger');
+  var cell = tr.children[4]; // columna "Descuento"
+  if(ok && cell){
+    var l = '<span class="badge bg-success">Activada ✔</span>';
+    if(d && d.deal_price) l += '<div class="text-muted" style="font-size:.72rem">queda $'+fmt(d.deal_price)+'</div>';
+    cell.innerHTML = l;
+  } else if(cell){
+    cell.setAttribute('title', (d && d.error) || 'error');
+  }
+}
+async function participarSel(){
+  var sel = Array.prototype.slice.call(document.querySelectorAll('.selItem:checked'));
+  if(!sel.length) return;
+  if(!confirm('¿Participar en «'+CAMP_NOMBRE+'» con '+sel.length+' publicación(es)?\nEl precio lo fija ML (promo de precio fijo, co-financiada).')) return;
+  var btn = document.getElementById('btnParticipar'), txt = btn.innerHTML;
+  btn.disabled = true;
+  var ok=0, fail=0;
+  for(var k=0; k<sel.length; k++){
+    var cb = sel[k], mla = cb.value, tr = cb.closest('tr');
+    btn.innerHTML = 'Procesando '+(k+1)+'/'+sel.length+'…';
+    try{
+      var r = await fetch('/promociones-ml/aplicar', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({mla:mla, promotion_type:CAMP_TIPO, promotion_id:CAMP_ID})});
+      var d = await r.json();
+      if(d.ok){ ok++; marcarCampFila(tr, true, d); cb.checked=false; }
+      else { fail++; marcarCampFila(tr, false, d); }
+    }catch(e){ fail++; marcarCampFila(tr, false, {error:String(e)}); }
+  }
+  btn.innerHTML = txt; contarSel();
+  alert('Listo.\nActivadas: '+ok+'\nCon error: '+fail);
+}
 
 // ── Modal aplicar / participar promo (PRICE_DISCOUNT / DEAL / SMART) ──
 var _mp = {tipo:'', mla:'', pid:'', orig:0, min:0, max:0, modo:'pct', row:''};
@@ -276,16 +325,18 @@ function abrirModal(btn){
          min:parseFloat(d.min)||0, max:parseFloat(d.max)||0, modo:'pct', row:d.row};
   document.getElementById('mp-mla').value = d.mla;
   document.getElementById('mp-error').style.display='none';
-  var esSmart = (d.tipo === 'SMART'), esPD = (d.tipo === 'PRICE_DISCOUNT');
-  var tit = {PRICE_DISCOUNT:'Aplicar mi descuento', DEAL:'Participar en '+(d.name||'la campaña'), SMART:'Participar en '+(d.name||'la campaña')};
+  var esFijo = (d.tipo === 'SMART' || d.tipo === 'PRICE_MATCHING'), esPD = (d.tipo === 'PRICE_DISCOUNT');
+  var tit = {PRICE_DISCOUNT:'Aplicar mi descuento', DEAL:'Participar en '+(d.name||'la campaña'),
+             SMART:'Participar en '+(d.name||'la campaña'),
+             PRICE_MATCHING:'Participar en '+(d.name||'¡Gánale a la competencia!')};
   document.getElementById('mp-titulo').textContent = tit[d.tipo] || 'Promo';
   var rango = (_mp.min && _mp.max) ? (' · rango del precio final: $'+fmt(_mp.min)+' a $'+fmt(_mp.max)) : '';
   document.getElementById('mp-info').innerHTML = 'Publicación <b>'+d.mla+'</b>'+rango;
-  _show('mp-lista-wrap', !esSmart);
-  _show('mp-desc-wrap', !esSmart);
-  _show('mp-smart-wrap', esSmart);
+  _show('mp-lista-wrap', !esFijo);
+  _show('mp-desc-wrap', !esFijo);
+  _show('mp-smart-wrap', esFijo);
   _show('mp-vence-wrap', esPD);
-  if(esSmart){
+  if(esFijo){
     var precio = parseFloat(d.price)||0;
     document.getElementById('mp-smart-wrap').innerHTML =
       'Campaña <b>co-financiada</b> por ML — el precio lo fija ML.<br>'
@@ -298,7 +349,7 @@ function abrirModal(btn){
     if(esPD){ var dd=new Date(); dd.setDate(dd.getDate()+13); document.getElementById('mp-finish').value = dd.toISOString().slice(0,10); }
     mpModo('pct');
   }
-  document.getElementById('mp-confirmar').textContent = esSmart ? 'Confirmar y participar' : (d.tipo==='DEAL' ? 'Confirmar y participar' : 'Confirmar y aplicar');
+  document.getElementById('mp-confirmar').textContent = (esFijo || d.tipo==='DEAL') ? 'Confirmar y participar' : 'Confirmar y aplicar';
   document.getElementById('modalPromo').style.display='block';
 }
 function cerrarModalPromo(){ document.getElementById('modalPromo').style.display='none'; }
@@ -321,7 +372,7 @@ function mpDeal(){
   return isNaN(a)?null:Math.round(a);
 }
 function mpRecalc(){
-  if(_mp.tipo==='SMART') return;
+  if(_mp.tipo==='SMART' || _mp.tipo==='PRICE_MATCHING') return;
   var lista = parseFloat(document.getElementById('mp-lista').value)||0;
   var deal = mpDeal();
   var box = document.getElementById('mp-preview');
@@ -334,10 +385,11 @@ function mpRecalc(){
 }
 function mpConfirmar(){
   var err = document.getElementById('mp-error');
+  var esFijo = (_mp.tipo==='SMART' || _mp.tipo==='PRICE_MATCHING');
   var body = {mla:_mp.mla, promotion_type:_mp.tipo};
   if(_mp.pid) body.promotion_id = _mp.pid;
-  if(_mp.tipo === 'SMART') body.offer_id = _mp.offer;
-  if(_mp.tipo !== 'SMART'){
+  if(esFijo) body.offer_id = _mp.offer;
+  if(!esFijo){
     var deal = mpDeal(), lista = parseFloat(document.getElementById('mp-lista').value)||0;
     if(deal===null || deal<=0){ err.textContent='Ingresá un descuento válido.'; err.style.display='block'; return; }
     body.deal_price = deal;
@@ -367,7 +419,7 @@ function mpAplicada(rowid, d){
     desc.innerHTML = l;
   }
   var cont = tr.querySelector('.mp-acciones'), btn = tr.querySelector('.mp-btn');
-  if(d.tipo==='SMART'){ if(btn) btn.remove(); }
+  if(d.tipo==='SMART' || d.tipo==='PRICE_MATCHING'){ if(btn) btn.remove(); }
   else if(btn) btn.textContent='Editar';
   if(cont && !tr.querySelector('.mp-salir')){
     var b=document.createElement('button');
