@@ -2228,8 +2228,11 @@ def sku_conjunto_a_colchon(sku):
 
 def get_fotos_producto(sku):
     """
-    Busca fotos en /static/img/productos/<SKU>/
-    Si no encuentra, intenta sin sufijo _DEP/_FULL.
+    Devuelve las fotos de la tienda para un SKU.
+    1) Primero mira la tabla productos_fotos (la que gestiona el catálogo:
+       los nombres pueden ser numerados o tipo hash) respetando el orden.
+    2) Si no hay filas, cae al método viejo: archivos numerados 1.jpg..9.jpg.
+    En ambos casos prueba también sin sufijo _DEP/_FULL.
     """
     fotos = []
     try:
@@ -2241,16 +2244,38 @@ def get_fotos_producto(sku):
                 skus_a_probar.append(sku[:-len(sufijo)])
                 break
 
+        # 1) Tabla productos_fotos (fuente que usa el botón del catálogo)
         for sku_intento in skus_a_probar:
-            carpeta = os.path.join(current_app.root_path, 'static', 'img', 'productos', sku_intento)
-            if os.path.isdir(carpeta):
-                for i in range(1, 10):
-                    for ext in ['jpg', 'jpeg', 'png', 'webp']:
-                        nombre = f'{i}.{ext}'
-                        if os.path.exists(os.path.join(carpeta, nombre)):
-                            fotos.append(url_for('static', filename=f'img/productos/{sku_intento}/{nombre}'))
-                if fotos:
-                    break
+            try:
+                db = get_db(); cur = db.cursor()
+                cur.execute(
+                    "SELECT filename FROM productos_fotos WHERE sku=%s ORDER BY orden, id",
+                    (sku_intento,)
+                )
+                rows = cur.fetchall()
+                cur.close(); db.close()
+            except Exception:
+                rows = []
+            for r in rows:
+                fn = r['filename']
+                ruta = os.path.join(current_app.root_path, 'static', 'img', 'productos', sku_intento, fn)
+                if os.path.exists(ruta):
+                    fotos.append(url_for('static', filename=f'img/productos/{sku_intento}/{fn}'))
+            if fotos:
+                break
+
+        # 2) Fallback: archivos numerados 1.jpg..9.jpg
+        if not fotos:
+            for sku_intento in skus_a_probar:
+                carpeta = os.path.join(current_app.root_path, 'static', 'img', 'productos', sku_intento)
+                if os.path.isdir(carpeta):
+                    for i in range(1, 10):
+                        for ext in ['jpg', 'jpeg', 'png', 'webp']:
+                            nombre = f'{i}.{ext}'
+                            if os.path.exists(os.path.join(carpeta, nombre)):
+                                fotos.append(url_for('static', filename=f'img/productos/{sku_intento}/{nombre}'))
+                    if fotos:
+                        break
     except Exception:
         pass
 
