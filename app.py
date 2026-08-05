@@ -14508,7 +14508,15 @@ def _push_stock_ml_una(mla, qty, access_token):
                           json={'quantity': int(qty)}, timeout=10)
         if pr.status_code in (200, 204):
             return True, f'selling_address={qty}'
-        return False, f'{msg} / SA HTTP {pr.status_code}'
+        # Fulfillment-only: ML gestiona el stock desde Full, no se puede tocar el
+        # selling_address → se omite sin marcarlo como error (no es un fallo real).
+        try:
+            emsg = (pr.json() or {}).get('message', '') or ''
+        except Exception:
+            emsg = (pr.text or '')[:150]
+        if pr.status_code == 400 and 'fulfillment' in emsg.lower():
+            return None, 'omitida (fulfillment-only, la gestiona ML)'
+        return False, f'{msg} / SA HTTP {pr.status_code}: {emsg}'
     except Exception as e:
         return False, f'{msg} / {e}'
 
@@ -14546,7 +14554,8 @@ def _sync_almohadas_ml(skus_afectados):
         for pub in pubs:
             mla = pub['mla_id']
             ok, msg = _push_stock_ml_una(mla, qty, access_token)
-            print(f"[AUTO-ML][ALM] {sku_publi} (base {base} disp={disp}) → {mla} stock={qty}: {'✅' if ok else '❌'} {msg}")
+            marca = '⏭️' if ok is None else ('✅' if ok else '❌')
+            print(f"[AUTO-ML][ALM] {sku_publi} (base {base} disp={disp}) → {mla} stock={qty}: {marca} {msg}")
             time.sleep(0.4)
 
 
