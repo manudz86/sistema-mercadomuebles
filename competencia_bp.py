@@ -118,7 +118,7 @@ def _crear_tablas():
             catalog_product_id VARCHAR(30),
             cp              VARCHAR(10) DEFAULT '1425',
             cp_label        VARCHAR(20) DEFAULT 'CABA',
-            seller_id       INT,
+            seller_id       BIGINT,
             seller_nick     VARCHAR(100),
             item_id         VARCHAR(20),
             precio          DECIMAL(12,2),
