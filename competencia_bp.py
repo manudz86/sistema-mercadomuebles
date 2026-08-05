@@ -339,7 +339,8 @@ def _snapshot_catalogo(sku, catalog_id):
     _comp_dedup = {}
     for r in all_results:
         sid = r.get('seller_id')
-        if sid == MY_SELLER_ID or sid not in COMPETIDORES:
+        # Traer TODOS los vendedores del catálogo (antes solo los de la lista blanca COMPETIDORES)
+        if sid == MY_SELLER_ID:
             continue
         lt = r.get('listing_type_id', '')
         sale_terms = r.get('sale_terms', [])
