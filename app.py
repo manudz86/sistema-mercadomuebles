@@ -6939,7 +6939,7 @@ def dashboard_visual():
         # 7. ALMOHADAS (CON UBICACIONES DEP Y FULL)
         # =================================
         almohadas = []
-        almohadas_skus = ['CERVICAL', 'CLASICA', 'DORAL', 'DUAL', 'EXCLUSIVE', 'PLATINO', 'RENOVATION', 'SUBLIME', 'TRIANGULO']
+        almohadas_skus = ['CERVICAL', 'CLASICA', 'DORAL', 'DUAL', 'EXCLUSIVE', 'PLATINO', 'RENOVATION', 'SUBLIME', 'TRIANGULO', 'CONTOUR']
         
         for sku in almohadas_skus:
             stock_dep = stock_dict.get(sku, 0)
@@ -6957,7 +6957,8 @@ def dashboard_visual():
                     'PLATINO': 'Almohada Platino',
                     'RENOVATION': 'Almohada Renovation',
                     'SUBLIME': 'Almohada Sublime',
-                    'TRIANGULO': 'Almohada Princess'
+                    'TRIANGULO': 'Almohada Princess',
+                    'CONTOUR': 'Almohada Contour'
                 }
                 almohadas.append({
                     'nombre': nombre_map.get(sku, sku),
@@ -12196,7 +12197,7 @@ def exportar_reposicion():
     """, tuple(base_params))
 
     # Consolidar sumando directos + combos
-    SKUS_ALMOHADA = {'CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE','TRIANGULO','TRIANGULOX2'}
+    SKUS_ALMOHADA = {'CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE','TRIANGULO','TRIANGULOX2','CONTOUR'}
     
     def _tipo_producto(sku):
         s = sku.upper()
@@ -14383,7 +14384,7 @@ def email_hot_masivo():
 
 # SKUs de almohadas a excluir de actualización ML
 SKUS_ALMOHADA = {
-    'CERVICAL', 'CLASICA', 'DORAL', 'DUAL', 'EXCLUSIVE', 'PLATINO', 'TRIANGULO',
+    'CERVICAL', 'CLASICA', 'DORAL', 'DUAL', 'EXCLUSIVE', 'PLATINO', 'TRIANGULO', 'CONTOUR',
     'PRUEBA', 'RENOVATION', 'SUBLIME', 'DORALX2', 'DUALX2',
     'EXCLUSIVEX2', 'PLATINOX2', 'PLATINOX4', 'TRIANGULOX2',
     # combos con almohada como ÚNICO componente de sommier (CEX140+2 SÍ se actualiza)
@@ -14465,6 +14466,7 @@ ALMOHADA_SYNC = {
     'CERVICAL':     ('CERVICAL',   1),
     'SUBLIME':      ('SUBLIME',    1),
     'TRIANGULO':    ('TRIANGULO',  1),
+    'CONTOUR':      ('CONTOUR',    1),
     'EXCLUSIVE':    ('EXCLUSIVE',  1),
     'RENOVATIONAL': ('RENOVATION', 1),   # alias de ML → base RENOVATION
     # combos X2 (2 unidades por publicación)
@@ -14802,7 +14804,7 @@ def _importar_orden_automatica(orden, access_token):
             items_bd.append({'sku': sku_norm, 'cantidad': cantidad_final, 'precio': precio_final})
 
         # Auto-agregar PLATINO si el título contiene "almohada" y el SKU no es almohada
-        SKUS_ALMOHADA_PURAS = {'CERVICAL','CLASICA','DORAL','DUAL','EXCLUSIVE','PLATINO','RENOVATION','SUBLIME','TRIANGULO'}
+        SKUS_ALMOHADA_PURAS = {'CERVICAL','CLASICA','DORAL','DUAL','EXCLUSIVE','PLATINO','RENOVATION','SUBLIME','TRIANGULO','CONTOUR'}
         platino_a_agregar = 0
         for item in orden_data['items']:
             sku_ml = item.get('sku', '').upper()
@@ -14957,7 +14959,7 @@ def _importar_orden_automatica(orden, access_token):
         ubicacion_despacho = 'FULL' if metodo_envio == 'Full' else 'DEP'
         # Flex → Delega si todos los productos son almohadas o compac (igual que flujo manual)
         if metodo_envio == 'Flex':
-            SKUS_ALM = {'CERVICAL','CLASICA','DORAL','DUAL','EXCLUSIVE','PLATINO','RENOVATION','SUBLIME','TRIANGULO'}
+            SKUS_ALM = {'CERVICAL','CLASICA','DORAL','DUAL','EXCLUSIVE','PLATINO','RENOVATION','SUBLIME','TRIANGULO','CONTOUR'}
             es_todo_alm_o_compac = all(
                 item['sku'].upper().startswith('CCO') or
                 '_DEP' in item['sku'].upper() or
@@ -19844,7 +19846,7 @@ def _armar_bultos_cotizador(skus_lista):
     cur.execute(f"SELECT id, sku FROM productos_compuestos WHERE sku IN ({placeholders})", skus)
     compuestos_map = {r['sku']: r['id'] for r in cur.fetchall()}
 
-    SKUS_ALMOHADA = {'CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE','TRIANGULO','TRIANGULOX2'}
+    SKUS_ALMOHADA = {'CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE','TRIANGULO','TRIANGULOX2','CONTOUR'}
 
     for item in skus_lista:
         sku      = item['sku'].strip().upper()

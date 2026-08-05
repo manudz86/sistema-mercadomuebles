@@ -5,7 +5,7 @@
 
   <div class="d-flex align-items-center gap-2 mb-4">
     <a href="{{ url_for('productos_lista') }}" class="btn btn-sm btn-outline-secondary">← Productos</a>
-    <a href="{{ url_for('productos_editar', pid=producto.id) }}" class="btn btn-sm btn-outline-secondary">✏️ Editar datos</a>
+    <a href="{{ url_for('productos_editar', sku=producto.sku) }}" class="btn btn-sm btn-outline-secondary">✏️ Editar datos</a>
     <h5 class="mb-0 fw-bold ms-2">🖼️ Fotos — {{ producto.nombre }}</h5>
     <span class="badge bg-secondary ms-1">{{ producto.sku }}</span>
   </div>

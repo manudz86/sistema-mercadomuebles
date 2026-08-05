@@ -3044,6 +3044,7 @@ def detalle(sku_url):
         desc_s = _aplicar_extra_hot(float(prod_simple.get('descuento_catalogo') or 0), 0)
         precio_s = float(prod_simple['precio_base'] or 0)
         precio_venta_s = precio_s * (1 - desc_s/100) if desc_s else precio_s
+        _alm_desc = ALMOHADAS_DESC.get(prod_simple['sku'].upper(), {})
         cursor.close()
         db.close()
         return render_template('tienda/detalle.html',
@@ -3072,8 +3073,8 @@ def detalle(sku_url):
             },
             relacionados = [],
             demora_dias = 0,
-            desc_bajada = '',
-            desc_bullets = [],
+            desc_bajada = _alm_desc.get('bajada', ''),
+            desc_bullets = _alm_desc.get('bullets', []),
             specs = {},
             patas_sommier = None,
             altura_total_sommier = None,
@@ -3736,6 +3737,40 @@ almohadas_list = ['CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL',
 SKUS_OFERTA = ['CTR80', 'SEXP140', 'CREP140', 'SPR14020', 'SSUP160', 'SEX200', 'CEX100', 'SEXP100', 'CEX200']
 
 # ── Descripciones y specs por modelo ──────────────────────────────────────────
+# Descripciones de almohadas para la ficha de producto (keyed por SKU).
+# El branch de almohadas de detalle() las busca acá (antes salían vacías).
+ALMOHADAS_DESC = {
+    'TRIANGULO': {
+        'bajada': ('La Almohada Cannon Apoya Espalda Triangular es el complemento ideal para quienes '
+                   'buscan mejorar su postura y bienestar. Fabricada 100% en espuma de poliuretano, su '
+                   'diseño anatómico triangular se adapta a la forma del cuerpo y brinda un soporte óptimo '
+                   'para la espalda. Ideal para leer, descansar o relajarte con la mejor comodidad.'),
+        'bullets': [
+            '100% espuma de poliuretano',
+            'Diseño anatómico triangular que mejora la postura',
+            'Funda de tela de algodón, suave al tacto y lavable',
+            'Antibacteriana, antihongos y antiácaros (hipoalergénica)',
+            'Favorece la relajación muscular y un mejor descanso',
+            'Medidas: 50 cm ancho x 30 cm alto x 28 cm profundidad',
+        ],
+    },
+    'CONTOUR': {
+        'bajada': ('Almohada Contour DreamsBamboo: soporte ergonómico cervical para un descanso más cómodo '
+                   'y reparador. Su diseño cervical acompaña naturalmente la forma del cuello y la cabeza, '
+                   'ayudando a mejorar la postura al dormir y a reducir tensiones desde la primera noche. '
+                   'Funda con fibra de bambú, suave, respirable y con confort térmico.'),
+        'bullets': [
+            'Soporte ergonómico cervical',
+            'Mejora la postura y reduce la tensión en cuello y hombros',
+            'Funda con fibra de bambú: suave, respirable y agradable al tacto',
+            'Malla lateral respirable: libera el calor y mantiene una temperatura más fresca',
+            'Firmeza media-alta con contención y alivio de presión',
+            'Ideal para dormir de lado; distribuye el peso de forma equilibrada',
+            'Medida única 70 x 50 cm',
+        ],
+    },
+}
+
 DESCRIPCIONES_MODELO = {
     'tropical': {
         'bajada': 'La mejor relación calidad-precio para uso diario. Ideal para dormitorios secundarios, estudiantiles o quien busca comodidad sin complicaciones.',
