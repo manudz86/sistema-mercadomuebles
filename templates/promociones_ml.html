@@ -107,7 +107,7 @@
                           onclick="abrirModal(this)">{{ 'Editar' if activo else ('Aplicar' if pr.tipo == 'PRICE_DISCOUNT' else 'Participar') }}</button>
                       {% elif pr.tipo == 'SMART' and not activo %}
                         <button class="btn btn-sm btn-primary mp-btn"
-                          data-tipo="SMART" data-mla="{{ p.mla_id }}" data-pid="{{ pr.id or '' }}"
+                          data-tipo="SMART" data-mla="{{ p.mla_id }}" data-pid="{{ pr.id or '' }}" data-offer="{{ pr.ref_id or '' }}"
                           data-orig="{{ pr.original_price or 0 }}" data-price="{{ pr.price or 0 }}"
                           data-seller="{{ pr.seller_pct or '' }}" data-meli="{{ pr.meli_pct or '' }}" data-total="{{ pr.pct_total or '' }}"
                           data-name="{{ pr.name or '' }}" data-status="{{ pr.status }}" data-row="{{ rowid }}"
@@ -272,7 +272,7 @@ function _show(id, on){ var e=document.getElementById(id); if(e) e.style.display
 
 function abrirModal(btn){
   var d = btn.dataset;
-  _mp = {tipo:d.tipo, mla:d.mla, pid:d.pid||'', orig:parseFloat(d.orig)||0,
+  _mp = {tipo:d.tipo, mla:d.mla, pid:d.pid||'', offer:d.offer||'', orig:parseFloat(d.orig)||0,
          min:parseFloat(d.min)||0, max:parseFloat(d.max)||0, modo:'pct', row:d.row};
   document.getElementById('mp-mla').value = d.mla;
   document.getElementById('mp-error').style.display='none';
@@ -336,6 +336,7 @@ function mpConfirmar(){
   var err = document.getElementById('mp-error');
   var body = {mla:_mp.mla, promotion_type:_mp.tipo};
   if(_mp.pid) body.promotion_id = _mp.pid;
+  if(_mp.tipo === 'SMART') body.offer_id = _mp.offer;
   if(_mp.tipo !== 'SMART'){
     var deal = mpDeal(), lista = parseFloat(document.getElementById('mp-lista').value)||0;
     if(deal===null || deal<=0){ err.textContent='Ingresá un descuento válido.'; err.style.display='block'; return; }

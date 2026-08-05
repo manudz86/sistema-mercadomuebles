@@ -9394,7 +9394,7 @@ def _promo_row(pr):
         'baja_desde': baja(orig, hi), 'baja_hasta': baja(orig, lo), 'baja_price': baja(orig, price),
         'cofinanciada': cofin, 'seller_pct': pf(seller_p), 'meli_pct': pf(meli_p),
         'pct_total': (pf(seller_p + meli_p) if cofin else None),
-        'seller_pct_num': seller_p,
+        'seller_pct_num': seller_p, 'ref_id': pr.get('ref_id'),
         # "lo que ponés vos": SMART → seller_percentage; editable (DEAL) → descuento mínimo exigido
         'orden_pct': (seller_p if cofin else (round((orig - hi) / orig * 100, 1) if (orig and hi is not None) else None)),
         'tu_pct': (pf(seller_p) if cofin else (pct(orig, hi) if (orig and hi is not None) else None)),
@@ -9559,10 +9559,13 @@ def promociones_ml_aplicar():
         return jsonify({'ok': False, 'error': 'Falta la publicación'})
     tipo = (data.get('promotion_type') or 'PRICE_DISCOUNT').strip().upper()
     promotion_id = (data.get('promotion_id') or '').strip()
+    offer_id = (data.get('offer_id') or '').strip()
     if tipo not in ('PRICE_DISCOUNT', 'DEAL', 'SMART'):
         return jsonify({'ok': False, 'error': 'Tipo de promo no soportado'})
     if tipo in ('DEAL', 'SMART') and not promotion_id:
         return jsonify({'ok': False, 'error': 'Falta el id de la campaña'})
+    if tipo == 'SMART' and not offer_id:
+        return jsonify({'ok': False, 'error': 'Falta el offer_id (ref_id) de la campaña SMART'})
     access_token = cargar_ml_token()
     if not access_token:
         return jsonify({'ok': False, 'error': 'No hay token de ML configurado'})
@@ -9605,8 +9608,8 @@ def promociones_ml_aplicar():
     elif tipo == 'DEAL':
         body = {'promotion_type': 'DEAL', 'promotion_id': promotion_id, 'deal_price': deal_price}
         del_qs = f'promotion_type=DEAL&promotion_id={promotion_id}'
-    else:  # SMART — el precio lo fija ML
-        body = {'promotion_type': 'SMART', 'promotion_id': promotion_id}
+    else:  # SMART — el precio lo fija ML; requiere offer_id (el ref_id del candidato)
+        body = {'promotion_type': 'SMART', 'promotion_id': promotion_id, 'offer_id': offer_id}
         del_qs = f'promotion_type=SMART&promotion_id={promotion_id}'
     post_url = f'https://api.mercadolibre.com/seller-promotions/items/{mla}?app_version=v2'
 
