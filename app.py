@@ -8128,38 +8128,25 @@ def ml_importar_ordenes():
         flash(f'❌ Error al obtener órdenes de ML: {result}', 'error')
         return redirect(url_for('ventas_activas'))
     
-    # 🔧 FILTRO ARREGLADO
+    # Dedup por ID EXACTO de la orden (no por ventana de fecha): buscamos en la BD
+    # justamente los IDs que ML nos devolvió. Así una orden ya importada con
+    # fecha_venta vieja no se vuelve a ofrecer para mapeo manual.
     ordenes_importadas = set()
     try:
-        # Buscar en TODAS las ventas (no solo las que empiezan con ML-)
-        # porque el numero_venta puede estar en cualquier formato
-        todas_ventas = query_db('''
-            SELECT id, numero_venta, fecha_venta, canal, mla_code 
-            FROM ventas 
-            ORDER BY fecha_venta DESC 
-            LIMIT 200
-        ''')
-        
-        print(f"\n📊 DEBUG FILTRO DE DUPLICADOS:")
-        print(f"Total ventas en BD (últimas 200): {len(todas_ventas)}")
-        
-        # Revisar cada venta y ver si el numero_venta contiene un ID de ML
-        for venta in todas_ventas:
-            numero = venta['numero_venta']
-            
-            # Extraer números del numero_venta
-            # Puede ser: "ML-2000015174126338", "2000015174126338", etc.
-            import re
-            numeros = re.findall(r'\d+', numero)
-            
-            for num in numeros:
-                # Los IDs de ML tienen 16 dígitos y empiezan con 2000
-                if len(num) == 16 and num.startswith('2000'):
-                    ordenes_importadas.add(num)
-                    print(f"   ✅ Encontrado: {numero} → ID ML: {num}")
-        
-        print(f"\n✅ Total IDs de ML ya importados: {len(ordenes_importadas)}\n")
-        
+        import re
+        ids_ml = [str(o['id']) for o in result]
+        if ids_ml:
+            candidatos = [f"ML-{i}" for i in ids_ml] + ids_ml
+            ph = ','.join(['%s'] * len(candidatos))
+            filas = query_db(
+                f"SELECT numero_venta FROM ventas WHERE numero_venta IN ({ph})",
+                tuple(candidatos)
+            )
+            for venta in (filas or []):
+                for num in re.findall(r'\d+', venta['numero_venta'] or ''):
+                    if len(num) == 16 and num.startswith('2000'):
+                        ordenes_importadas.add(num)
+        print(f"[MANUAL-ML] Ya importadas (de {len(ids_ml)} órdenes ML): {len(ordenes_importadas)}")
     except Exception as e:
         print(f"⚠️ Error al obtener órdenes importadas: {e}")
         import traceback
@@ -15207,19 +15194,24 @@ def job_auto_importar_ml():
                 print(f"[AUTO-ML] Error obteniendo órdenes: {result}")
                 return
 
-            # Obtener IDs ya importados
+            # Dedup por ID EXACTO (no por ventana de fecha): buscamos en la BD
+            # justamente los IDs que ML devolvió, así una orden ya importada con
+            # fecha_venta vieja no se reintenta cada ciclo (evita el "Duplicate entry").
             import re as _re
             ordenes_importadas = set()
             try:
-                todas_ventas = query_db('''
-                    SELECT numero_venta FROM ventas
-                    ORDER BY fecha_venta DESC LIMIT 300
-                ''')
-                for v in todas_ventas:
-                    nums = _re.findall(r'\d+', v['numero_venta'] or '')
-                    for n in nums:
-                        if len(n) == 16 and n.startswith('2000'):
-                            ordenes_importadas.add(n)
+                ids_ml = [str(o['id']) for o in result]
+                if ids_ml:
+                    candidatos = [f"ML-{i}" for i in ids_ml] + ids_ml
+                    ph = ','.join(['%s'] * len(candidatos))
+                    filas = query_db(
+                        f"SELECT numero_venta FROM ventas WHERE numero_venta IN ({ph})",
+                        tuple(candidatos)
+                    )
+                    for v in (filas or []):
+                        for n in _re.findall(r'\d+', v['numero_venta'] or ''):
+                            if len(n) == 16 and n.startswith('2000'):
+                                ordenes_importadas.add(n)
             except Exception as e:
                 print(f"[AUTO-ML] Error cargando importadas: {e}")
 
