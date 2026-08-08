@@ -102,6 +102,35 @@
         </div>
     </div>
 
+    <!-- Agregar catálogo manual a monitorear -->
+    <div class="card mb-3 shadow-sm">
+        <div class="card-body py-2">
+            <a class="fw-bold text-decoration-none small" data-bs-toggle="collapse" href="#panelManual" role="button">
+                <i class="bi bi-plus-circle me-1"></i>Agregar catálogo a monitorear (manual)
+            </a>
+            <div class="collapse mt-2" id="panelManual">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold mb-1">SKU</label>
+                        <input type="text" id="man-sku" class="form-control form-control-sm" placeholder="Ej: SREP160">
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small fw-bold mb-1">Catálogo (ID MLA o URL)</label>
+                        <input type="text" id="man-cat" class="form-control form-control-sm" placeholder="Ej: MLA15539870 o la URL del catálogo">
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-primary btn-sm w-100" onclick="agregarManual()" id="man-btn">
+                            <i class="bi bi-plus-lg me-1"></i>Agregar
+                        </button>
+                    </div>
+                </div>
+                <div id="man-msg" class="small mt-2"></div>
+                <div class="text-muted small mt-1">Se monitorea en la próxima corrida del job (2×/día). Para verlo ya, usá "Actualizar SKU" con ese SKU.</div>
+                <div id="man-lista" class="mt-2"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Leyenda -->
     <div class="d-flex gap-2 flex-wrap mb-3 align-items-center" style="font-size:.78rem">
         <span class="badge badge-flex rounded-pill px-2">FLEX</span>
@@ -149,7 +178,76 @@ let _lastRows = [];
 let _filtrosDisponibles = {};
 
 document.addEventListener('DOMContentLoaded', cargarDatos);
+document.addEventListener('DOMContentLoaded', cargarManuales);
 document.getElementById('sku-input').addEventListener('keydown', e => { if (e.key==='Enter') cargarDatos(); });
+
+// ── Catálogos manuales ────────────────────────────────────────────────
+function cargarManuales() {
+    fetch('/admin/competencia/catalogo/lista')
+        .then(r => r.json())
+        .then(d => {
+            const cont = document.getElementById('man-lista');
+            if (!d.ok || !d.items || !d.items.length) {
+                cont.innerHTML = '<span class="text-muted small">No hay catálogos manuales cargados.</span>';
+                return;
+            }
+            let h = '<table class="table table-sm table-borderless mb-0" style="font-size:.8rem"><tbody>';
+            d.items.forEach(it => {
+                h += `<tr>
+                    <td class="fw-bold">${it.sku}</td>
+                    <td><span class="font-monospace">${it.catalog}</span></td>
+                    <td class="text-muted">${it.fecha}</td>
+                    <td class="text-end"><button class="btn btn-outline-danger btn-sm py-0 px-1"
+                        onclick="quitarManual('${it.sku}')" title="Quitar">🗑️</button></td>
+                </tr>`;
+            });
+            h += '</tbody></table>';
+            cont.innerHTML = h;
+        })
+        .catch(() => {});
+}
+
+function agregarManual() {
+    const sku = document.getElementById('man-sku').value.trim().toUpperCase();
+    const cat = document.getElementById('man-cat').value.trim();
+    const msg = document.getElementById('man-msg');
+    const btn = document.getElementById('man-btn');
+    if (!sku || !cat) { msg.innerHTML = '<span class="text-danger">Completá el SKU y el catálogo.</span>'; return; }
+    btn.disabled = true;
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    msg.innerHTML = '';
+    fetch('/admin/competencia/catalogo/agregar', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sku, catalog: cat})
+    })
+    .then(r => r.json())
+    .then(d => {
+        btn.disabled = false; btn.innerHTML = orig;
+        if (d.ok) {
+            msg.innerHTML = `<span class="text-success">✅ Agregado <b>${d.sku}</b> → ${d.catalog}${d.nombre ? ' · ' + d.nombre : ''}</span>`;
+            document.getElementById('man-sku').value = '';
+            document.getElementById('man-cat').value = '';
+            cargarManuales();
+        } else {
+            msg.innerHTML = `<span class="text-danger">❌ ${d.error || 'No se pudo agregar'}</span>`;
+        }
+    })
+    .catch(e => { btn.disabled = false; btn.innerHTML = orig; msg.innerHTML = '<span class="text-danger">Error de red</span>'; });
+}
+
+function quitarManual(sku) {
+    if (!confirm(`¿Quitar ${sku} del monitoreo manual?`)) return;
+    fetch('/admin/competencia/catalogo/quitar', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({sku})
+    })
+    .then(r => r.json())
+    .then(d => { if (d.ok) cargarManuales(); else alert('No se pudo quitar: ' + (d.error || '')); })
+    .catch(() => alert('Error de red'));
+}
 
 function cargarDatos() {
     const sku    = document.getElementById('sku-input').value.trim().toUpperCase();

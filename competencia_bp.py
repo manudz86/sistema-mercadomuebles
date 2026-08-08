@@ -143,6 +143,12 @@ def _crear_tablas():
             cur.execute(f"ALTER TABLE competencia_snapshots ADD COLUMN {col} {defn}")
         except Exception:
             pass
+    # sku_catalog_map: marca 'manual' para catálogos cargados a mano (se monitorean
+    # aunque el SKU no esté en la lista automática de sku_mla_mapeo).
+    try:
+        cur.execute("ALTER TABLE sku_catalog_map ADD COLUMN manual TINYINT DEFAULT 0")
+    except Exception:
+        pass
     # Fix ENUM → VARCHAR for envio_tipo (allows COLECTA)
     try:
         cur.execute("ALTER TABLE competencia_snapshots MODIFY COLUMN envio_tipo VARCHAR(20)")
@@ -381,7 +387,20 @@ def _get_skus_monitorear():
                  AND (sku NOT LIKE 'CCO%' OR sku = 'CCO140')
                  AND (sku LIKE 'C%' OR sku LIKE 'S%')
                  ORDER BY sku""")
-    return [r['sku'] for r in rows]
+    skus = [r['sku'] for r in rows]
+    # Sumar los catálogos cargados a mano (manual=1), sin aplicarles los filtros
+    # automáticos. Se agregan al final y se deduplican respetando el orden.
+    try:
+        man = _q("SELECT sku FROM sku_catalog_map WHERE manual=1 AND sku IS NOT NULL ORDER BY sku")
+        vistos = {s.upper() for s in skus}
+        for r in (man or []):
+            s = (r['sku'] or '').strip()
+            if s and s.upper() not in vistos:
+                skus.append(s)
+                vistos.add(s.upper())
+    except Exception:
+        pass
+    return skus
 
 # ── Agente principal ──────────────────────────────────────────────
 def correr_agente(skus_filtro=None, delay_entre_skus=60):
@@ -476,6 +495,60 @@ def job_competencia():
 @competencia_bp.route('/admin/competencia')
 def competencia_page():
     return render_template('competencia.html')
+
+# ── Catálogos manuales (cargados a mano para monitorear) ──────────────
+@competencia_bp.route('/admin/competencia/catalogo/lista')
+def competencia_catalogo_lista():
+    try:
+        rows = _q("""SELECT sku, catalog_product_id, actualizado_at
+                     FROM sku_catalog_map WHERE manual=1 ORDER BY sku""")
+        return jsonify({'ok': True, 'items': [
+            {'sku': r['sku'], 'catalog': r['catalog_product_id'],
+             'fecha': r['actualizado_at'].strftime('%d/%m/%Y %H:%M') if r.get('actualizado_at') else ''}
+            for r in (rows or [])
+        ]})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+
+@competencia_bp.route('/admin/competencia/catalogo/agregar', methods=['POST'])
+def competencia_catalogo_agregar():
+    import re as _re
+    data = request.get_json() or {}
+    sku = (data.get('sku') or '').strip().upper()
+    cat_in = (data.get('catalog') or '').strip()
+    if not sku or not cat_in:
+        return jsonify({'ok': False, 'error': 'Completá el SKU y el catálogo'})
+    # Aceptar el ID pegado directo o una URL de ML (extraer MLAxxxxxxxx)
+    m = _re.search(r'(ML[A-Z]\d{6,})', cat_in.upper())
+    cat_id = m.group(1) if m else cat_in.upper()
+    if not _re.match(r'^ML[A-Z]\d{6,}$', cat_id):
+        return jsonify({'ok': False, 'error': f'"{cat_in}" no parece un catálogo válido (ej: MLA15539870)'})
+    # Validar contra ML que el catálogo exista
+    prod = _ml(f"https://api.mercadolibre.com/products/{cat_id}")
+    if not prod or not prod.get('id'):
+        return jsonify({'ok': False, 'error': f'No encontré el catálogo {cat_id} en Mercado Libre'})
+    nombre = prod.get('name') or ''
+    cat_domain = prod.get('domain_id')
+    try:
+        _exec("""INSERT INTO sku_catalog_map (sku, catalog_product_id, category_id, manual)
+                 VALUES (%s,%s,%s,1)
+                 ON DUPLICATE KEY UPDATE catalog_product_id=%s, category_id=%s, manual=1""",
+              (sku, cat_id, cat_domain, cat_id, cat_domain))
+    except Exception as e:
+        return jsonify({'ok': False, 'error': f'Error guardando: {e}'})
+    return jsonify({'ok': True, 'sku': sku, 'catalog': cat_id, 'nombre': nombre})
+
+@competencia_bp.route('/admin/competencia/catalogo/quitar', methods=['POST'])
+def competencia_catalogo_quitar():
+    data = request.get_json() or {}
+    sku = (data.get('sku') or '').strip().upper()
+    if not sku:
+        return jsonify({'ok': False, 'error': 'Falta el SKU'})
+    try:
+        _exec("DELETE FROM sku_catalog_map WHERE sku=%s AND manual=1", (sku,))
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+    return jsonify({'ok': True})
 
 @competencia_bp.route('/admin/competencia/correr', methods=['POST'])
 def competencia_correr():
