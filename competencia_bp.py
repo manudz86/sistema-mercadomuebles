@@ -149,6 +149,10 @@ def _crear_tablas():
         cur.execute("ALTER TABLE sku_catalog_map ADD COLUMN manual TINYINT DEFAULT 0")
     except Exception:
         pass
+    try:
+        cur.execute("ALTER TABLE sku_catalog_map MODIFY COLUMN category_id VARCHAR(60)")
+    except Exception:
+        pass
     # Fix ENUM → VARCHAR for envio_tipo (allows COLECTA)
     try:
         cur.execute("ALTER TABLE competencia_snapshots MODIFY COLUMN envio_tipo VARCHAR(20)")
@@ -528,12 +532,14 @@ def competencia_catalogo_agregar():
     if not prod or not prod.get('id'):
         return jsonify({'ok': False, 'error': f'No encontré el catálogo {cat_id} en Mercado Libre'})
     nombre = prod.get('name') or ''
-    cat_domain = prod.get('domain_id')
+    # Guardar el category_id real (corto; puede venir None). OJO: NO usar domain_id,
+    # que puede superar el ancho de la columna (ej. MLA-BOX_SPRING_AND_MATTRESS_KITS).
+    cat_cat = prod.get('category_id')
     try:
         _exec("""INSERT INTO sku_catalog_map (sku, catalog_product_id, category_id, manual)
                  VALUES (%s,%s,%s,1)
                  ON DUPLICATE KEY UPDATE catalog_product_id=%s, category_id=%s, manual=1""",
-              (sku, cat_id, cat_domain, cat_id, cat_domain))
+              (sku, cat_id, cat_cat, cat_id, cat_cat))
     except Exception as e:
         return jsonify({'ok': False, 'error': f'Error guardando: {e}'})
     return jsonify({'ok': True, 'sku': sku, 'catalog': cat_id, 'nombre': nombre})
