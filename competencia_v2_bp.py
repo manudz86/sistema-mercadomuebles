@@ -581,39 +581,36 @@ def competencia_v2_upload():
 # ── Descarga automática desde Real Trends (dashboard Metabase público) ──────
 # Reemplaza la bajada+subida manual: pega a la API pública del dashboard y arma
 # los mismos archivos colchones/sommiers/almohadas.json del período (marca Cannon).
-RT_BASE     = 'https://bi.real-trends.com'
-RT_UUID     = '5577e03f-1073-4bde-ba41-208f93367355'
-RT_DASHCARD = 5469
-RT_CARD     = 3805
-# categoría (filtro string/contains del dashboard) → archivo destino
+RT_BASE = 'https://marketpro.real-trends.com'   # Market Pro v2 (reemplaza el viejo bi.real-trends.com)
+# category_id de Market Pro → archivo destino
 RT_CATS = [
-    ('Hogar, Muebles y Jardín > Camas, Colchones y Accesorios > Colchones', 'colchones.json'),
-    ('Hogar, Muebles y Jardín > Camas, Colchones y Accesorios > Juegos de Sommier y Colchón', 'sommiers.json'),
-    ('Hogar, Muebles y Jardín > Camas, Colchones y Accesorios > Almohadas', 'almohadas.json'),
+    (1612, 'colchones.json'),   # Colchones
+    (1611, 'sommiers.json'),    # Juegos de Sommier y Colchón
+    (7969, 'almohadas.json'),   # Almohadas
 ]
 _RT_MESES_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
                 'August', 'September', 'October', 'November', 'December']
 
-def _rt_params(cat, d0, d1):
-    key = os.getenv('RT_LLAVE_USUARIO', '')
-    return [
-        {"id": "e324683", "type": "string/=", "value": key, "target": ["variable", ["template-tag", "key"]]},
-        {"id": "79676eb", "type": "string/=", "value": "cannon", "target": ["variable", ["template-tag", "brand"]]},
-        {"id": "b0fcdf17", "type": "date/single", "value": d0, "target": ["variable", ["template-tag", "date_from"]]},
-        {"id": "d777633d", "type": "date/single", "value": d1, "target": ["variable", ["template-tag", "date_to"]]},
-        {"id": "93bb0263", "type": "string/contains", "value": cat, "target": ["dimension", ["template-tag", "category"], {"stage-number": 0}]},
-    ]
-
-def _rt_fetch(cat, d0, d1):
-    """Una llamada al endpoint de render del dashboard. Devuelve (cols, rows, truncado)."""
+def _rt_fetch(cat_id, d0, d1):
+    """Una llamada al full-download de Market Pro v2. Auth por cookie de sesión.
+    Devuelve (results, truncado). include_attributes=true trae los atributos ML
+    en el mismo formato que la descarga manual vieja (drop-in)."""
     import requests
-    url = f"{RT_BASE}/api/public/dashboard/{RT_UUID}/dashcard/{RT_DASHCARD}/card/{RT_CARD}"
-    r = requests.get(url, params={'parameters': json.dumps(_rt_params(cat, d0, d1), ensure_ascii=False)},
-                     headers={'User-Agent': 'cannon/1.0'}, timeout=90)
+    sid = os.getenv('RT_SESSIONID', '').strip()
+    if not sid:
+        raise RuntimeError('Falta RT_SESSIONID (cookie de sesión de Real Trends) en el servidor.')
+    r = requests.get(f"{RT_BASE}/api/reports/full-download/",
+                     params={'category_id': cat_id, 'date_from': d0, 'date_to': d1,
+                             'brand': 'cannon', 'include_attributes': 'true'},
+                     headers={'User-Agent': 'cannon/1.0', 'Accept': '*/*'},
+                     cookies={'sessionid': sid}, timeout=180)
+    if r.status_code in (401, 403):
+        raise RuntimeError('Sesión de Real Trends vencida — recapturá el sessionid (cookie) y actualizalo en el server.')
     r.raise_for_status()
-    d = (r.json() or {}).get('data') or {}
-    cols = [c.get('name') for c in d.get('cols', [])]
-    return cols, d.get('rows', []), d.get('rows_truncated')
+    if 'application/json' not in (r.headers.get('content-type') or ''):
+        raise RuntimeError('Real Trends no devolvió JSON (¿sesión vencida?) — recapturá el sessionid.')
+    d = r.json() or {}
+    return d.get('results', []), bool(d.get('truncated'))
 
 def _rt_day_txt(v):
     """'2026-07-01T00:00:00Z' → 'July 1, 2026' (formato que espera el parser de día)."""
@@ -622,15 +619,25 @@ def _rt_day_txt(v):
         return str(v or '')
     return f"{_RT_MESES_EN[int(m.group(2)) - 1]} {int(m.group(3))}, {int(m.group(1))}"
 
-def _rt_row_to_dict(cols, row):
-    """Fila (arrays del API) → dict con el formato del JSON manual.
-    Solo se normalizan los 3 campos que el sistema parsea de forma sensible:
-      - day:   ISO → 'Mes D, AAAA'
-      - price: el parser _price hace str.replace('.','') → un float (458000.0) se
-               rompería (×10); guardamos entero de pesos, sin separadores.
-      - sold_quantity: se lee con int(); dejamos entero.
-    El resto de los campos pasa igual que en la descarga manual."""
-    d = dict(zip(cols, row))
+def _rt_inst_code(t):
+    """installment_type de Market Pro ('6 cuotas sin interés') → código que espera
+    el parser ('6_installments_no_interest'). 'Sin cuotas' → 'no_installments'."""
+    t = (t or '').strip().lower()
+    if not t or 'sin cuota' in t:
+        return 'no_installments'
+    m = re.search(r'(\d+)', t)
+    return f"{m.group(1)}_installments_no_interest" if m else 'no_installments'
+
+def _rt_norm(d):
+    """Fila de Market Pro v2 (dict) → formato del sistema. Solo se ajustan los campos
+    que el parser lee de forma sensible; el resto (incl. attributes, mismo formato)
+    pasa igual:
+      - day:   'AAAA-MM-DD' → 'Mes D, AAAA'
+      - price: float → entero en string (el parser hace str.replace('.',''))
+      - sold_quantity: float → int
+      - installments: derivado de installment_type (el parser lee el código)
+      - is_catalog_product: 'Sí'/'No' → 'yes'/'no'"""
+    d = dict(d)
     d['day'] = _rt_day_txt(d.get('day'))
     try:
         d['price'] = str(int(round(float(d.get('price') or 0))))
@@ -640,6 +647,8 @@ def _rt_row_to_dict(cols, row):
         d['sold_quantity'] = int(round(float(d.get('sold_quantity') or 0)))
     except (TypeError, ValueError):
         pass
+    d['installments'] = _rt_inst_code(d.get('installment_type'))
+    d['is_catalog_product'] = 'yes' if str(d.get('is_catalog_product') or '').strip().lower() in ('sí', 'si', 'yes', 'true', '1') else 'no'
     return d
 
 def _rt_descargar_categoria(cat, periodo):
@@ -654,14 +663,14 @@ def _rt_descargar_categoria(cat, periodo):
     d1 = datetime.date(y, mo, calendar.monthrange(y, mo)[1])
     if hoy < d1:                       # mes en curso: hasta hoy
         d1 = hoy
-    cols, rows, trunc = _rt_fetch(cat, d0.isoformat(), d1.isoformat())
+    results, trunc = _rt_fetch(cat, d0.isoformat(), d1.isoformat())
     if not trunc:
-        return [_rt_row_to_dict(cols, r) for r in rows]
+        return [_rt_norm(x) for x in results]
     out = []                           # tope superado → día por día
     dia = d0
     while dia <= d1:
-        c, rws, _ = _rt_fetch(cat, dia.isoformat(), dia.isoformat())
-        out.extend(_rt_row_to_dict(c, r) for r in rws)
+        rws, _ = _rt_fetch(cat, dia.isoformat(), dia.isoformat())
+        out.extend(_rt_norm(x) for x in rws)
         dia += datetime.timedelta(days=1)
     return out
 
@@ -729,8 +738,8 @@ def _rt_actualizar_categoria(cat, fname, periodo):
     nuevos = []
     dia = start
     while dia <= d1:
-        c, rows, _ = _rt_fetch(cat, dia.isoformat(), dia.isoformat())
-        nuevos.extend(_rt_row_to_dict(c, r) for r in rows)
+        rows, _ = _rt_fetch(cat, dia.isoformat(), dia.isoformat())
+        nuevos.extend(_rt_norm(r) for r in rows)
         dia += datetime.timedelta(days=1)
     if not nuevos:                                 # nada nuevo → no se toca el archivo
         return 0, len(existing)
@@ -744,9 +753,9 @@ def competencia_v2_actualizar_rt():
     periodo = (request.form.get('periodo') or '').strip()
     if not re.match(r'^\d{4}-\d{2}$', periodo):
         return redirect(url_for('competencia_v2.competencia_v2_page', msg='Período inválido (usá AAAA-MM, ej. 2026-07)'))
-    if not os.getenv('RT_LLAVE_USUARIO'):
+    if not os.getenv('RT_SESSIONID'):
         return redirect(url_for('competencia_v2.competencia_v2_page', periodo=periodo,
-                                msg='⚠️ Falta configurar RT_LLAVE_USUARIO en el servidor.'))
+                                msg='⚠️ Falta configurar RT_SESSIONID (sesión de Real Trends) en el servidor.'))
     _, hasta_antes, _ = _periodo_max_dia(periodo)
     resumen = []
     total_new = 0
@@ -775,6 +784,45 @@ def competencia_v2_actualizar_rt():
     _, hasta_ahora, _ = _periodo_max_dia(periodo)
     return redirect(url_for('competencia_v2.competencia_v2_page', periodo=periodo,
                             msg=f'✅ Actualizado desde Real Trends (hasta {hasta_ahora}): ' + ', '.join(resumen)))
+
+
+def job_actualizar_rt():
+    """Job diario (13:30 AR): actualiza incrementalmente el período actual desde
+    Market Pro v2 — baja SOLO los días nuevos y los agrega. Corre en un solo worker
+    (GET_LOCK de MySQL) para no dispararse 5 veces (una por worker de gunicorn)."""
+    import datetime as _dt
+    if not os.getenv('RT_SESSIONID'):
+        print('[RT-JOB] sin RT_SESSIONID — saltando.')
+        return
+    try:
+        from competencia_bp import _adquirir_lock, _liberar_lock
+    except Exception as e:
+        print(f'[RT-JOB] no pude importar el lock: {e}')
+        return
+    db, cur, got = _adquirir_lock('rt_update_job', timeout=3)
+    if not got:
+        if db:
+            _liberar_lock(db, cur, 'rt_update_job')
+        return
+    try:
+        periodo = _dt.date.today().strftime('%Y-%m')
+        total_new = 0
+        for cat, fname in RT_CATS:
+            try:
+                n_new, _ = _rt_actualizar_categoria(cat, fname, periodo)
+                total_new += n_new
+            except Exception as e:
+                print(f'[RT-JOB] {fname}: {e}')
+        if total_new:                       # hubo días nuevos → limpiar cache del período
+            try:
+                for old in os.listdir(DATA_DIR):
+                    if old.startswith(f'.cache_{periodo}_'):
+                        os.remove(os.path.join(DATA_DIR, old))
+            except Exception:
+                pass
+        print(f'[RT-JOB] período {periodo}: +{total_new} filas nuevas')
+    finally:
+        _liberar_lock(db, cur, 'rt_update_job')
 
 
 # ── Parte 2: ventas detalladas por competidor (día × producto × cuota) ──
