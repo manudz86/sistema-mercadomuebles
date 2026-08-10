@@ -17457,12 +17457,14 @@ def iniciar_scheduler():
             print(f"[COMPETENCIA] Error registrando jobs: {e}")
 
         # Competencia V2 — descarga automática desde Real Trends (Market Pro v2).
-        # 16:30 UTC = 13:30 hora Argentina. Trae solo los días nuevos del período actual.
+        # 16:30 UTC = 13:30 hora Argentina. Trae solo los días nuevos del período actual;
+        # si no hay datos nuevos, reintenta cada 1 hora (hasta 8 veces).
         try:
-            from competencia_v2_bp import job_actualizar_rt
-            scheduler.add_job(job_actualizar_rt, 'cron', hour=16, minute=30,
+            import competencia_v2_bp as _cv2
+            _cv2._SCHEDULER = scheduler        # para que el job pueda reprogramar reintentos
+            scheduler.add_job(_cv2.job_actualizar_rt, 'cron', hour=16, minute=30,
                              id='job_rt_update_diario', replace_existing=True)
-            print("[COMPETENCIA-V2] Job Real Trends agendado: 16:30 UTC (13:30 AR)")
+            print("[COMPETENCIA-V2] Job Real Trends agendado: 16:30 UTC (13:30 AR), reintento c/1h si no hay datos")
         except Exception as e:
             print(f"[COMPETENCIA-V2] Error registrando job RT: {e}")
 

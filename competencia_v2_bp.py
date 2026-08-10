@@ -591,6 +591,28 @@ RT_CATS = [
 _RT_MESES_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
                 'August', 'September', 'October', 'November', 'December']
 
+def _rt_guardar_sessionid(new_sid):
+    """Persiste el sessionid (rotado por el server) en config/.env y en el entorno.
+    La sesión de Market Pro es 'rolling': se renueva ~12 días en cada request, así
+    que guardándola en cada corrida se mantiene viva sola mientras el job funcione."""
+    os.environ['RT_SESSIONID'] = new_sid
+    try:
+        path = os.path.join(APP_DIR, 'config', '.env')
+        lines = open(path).read().splitlines() if os.path.exists(path) else []
+        done = False
+        for i, l in enumerate(lines):
+            if l.startswith('RT_SESSIONID='):
+                lines[i] = f'RT_SESSIONID={new_sid}'
+                done = True
+        if not done:
+            lines.append(f'RT_SESSIONID={new_sid}')
+        tmp = path + '.tmp'
+        with open(tmp, 'w') as f:
+            f.write('\n'.join(lines) + '\n')
+        os.replace(tmp, path)
+    except Exception as e:
+        print(f'[RT] no pude persistir sessionid: {e}')
+
 def _rt_fetch(cat_id, d0, d1):
     """Una llamada al full-download de Market Pro v2. Auth por cookie de sesión.
     Devuelve (results, truncado). include_attributes=true trae los atributos ML
@@ -609,6 +631,13 @@ def _rt_fetch(cat_id, d0, d1):
     r.raise_for_status()
     if 'application/json' not in (r.headers.get('content-type') or ''):
         raise RuntimeError('Real Trends no devolvió JSON (¿sesión vencida?) — recapturá el sessionid.')
+    # Sesión rolling: si el server devolvió un sessionid nuevo, lo persistimos.
+    try:
+        new_sid = r.cookies.get('sessionid')
+        if new_sid and new_sid != sid:
+            _rt_guardar_sessionid(new_sid)
+    except Exception:
+        pass
     d = r.json() or {}
     return d.get('results', []), bool(d.get('truncated'))
 
@@ -786,10 +815,14 @@ def competencia_v2_actualizar_rt():
                             msg=f'✅ Actualizado desde Real Trends (hasta {hasta_ahora}): ' + ', '.join(resumen)))
 
 
-def job_actualizar_rt():
+_SCHEDULER = None        # lo setea app.py al iniciar el scheduler (para reprogramar reintentos)
+_RT_RETRY_MAX = 8        # reintentos horarios si no hay datos nuevos (13:30 → ~21:30 AR)
+
+def job_actualizar_rt(intento=0):
     """Job diario (13:30 AR): actualiza incrementalmente el período actual desde
     Market Pro v2 — baja SOLO los días nuevos y los agrega. Corre en un solo worker
-    (GET_LOCK de MySQL) para no dispararse 5 veces (una por worker de gunicorn)."""
+    (GET_LOCK de MySQL) para no dispararse 5 veces (una por worker de gunicorn).
+    Si NO hay días nuevos, se reprograma para reintentar en 1 hora (hasta _RT_RETRY_MAX)."""
     import datetime as _dt
     if not os.getenv('RT_SESSIONID'):
         print('[RT-JOB] sin RT_SESSIONID — saltando.')
@@ -820,7 +853,18 @@ def job_actualizar_rt():
                         os.remove(os.path.join(DATA_DIR, old))
             except Exception:
                 pass
-        print(f'[RT-JOB] período {periodo}: +{total_new} filas nuevas')
+            print(f'[RT-JOB] período {periodo}: +{total_new} filas nuevas (intento {intento}) — OK')
+        elif intento < _RT_RETRY_MAX and _SCHEDULER is not None:
+            # sin datos nuevos → reintentar en 1 hora
+            run = _dt.datetime.utcnow() + _dt.timedelta(hours=1)
+            try:
+                _SCHEDULER.add_job(job_actualizar_rt, 'date', run_date=run,
+                                   args=[intento + 1], id='job_rt_retry', replace_existing=True)
+                print(f'[RT-JOB] período {periodo}: sin datos nuevos — reintento #{intento + 1} ~{run:%H:%M} UTC')
+            except Exception as e:
+                print(f'[RT-JOB] no pude agendar reintento: {e}')
+        else:
+            print(f'[RT-JOB] período {periodo}: sin datos nuevos — tope de reintentos alcanzado (intento {intento})')
     finally:
         _liberar_lock(db, cur, 'rt_update_job')
 
