@@ -7256,8 +7256,8 @@ def normalizar_sku_ml(sku_ml):
     if sku_up in SKU_MAP:
         return SKU_MAP[sku_up]
 
-    # Quitar Z del final
-    if sku_up.endswith('Z'):
+    # Quitar Z o + del final (variantes del mismo SKU base: Z=envío, +=con almohada)
+    if sku_up.endswith('Z') or sku_up.endswith('+'):
         return sku_ml[:-1], 0
 
     return sku_ml, 0
