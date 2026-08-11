@@ -14650,6 +14650,20 @@ def actualizar_publicaciones_ml(skus_base_afectados):
         except Exception as e:
             print(f"[AUTO-ML] Error actualizando sin Z de {sku}: {e}")
 
+        # ── Publicaciones CON + (variante con almohada: mismo stock que la base, SIN demora) ──
+        try:
+            pubs_mas = query_db(
+                "SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE",
+                (sku + '+',)
+            )
+            for pub in pubs_mas:
+                mla = pub['mla_id']
+                ok, msg = actualizar_stock_ml(mla, disponible, access_token)
+                print(f"[AUTO-ML] {sku}+ → {mla} stock={disponible}: {'✅' if ok else '❌'} {msg}")
+                time.sleep(0.5)
+        except Exception as e:
+            print(f"[AUTO-ML] Error actualizando + de {sku}: {e}")
+
         # ── Publicaciones CON Z (solo si aplica lógica Z) ────────────
         if not _aplica_logica_z(sku):
             continue
@@ -15462,6 +15476,7 @@ def actualizar_publicaciones_ml_con_progreso(skus_base_afectados):
         try:
             pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku,)))
             pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku + 'Z',)))
+            pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku + '+',)))
             combos = query_db('''SELECT pc.sku FROM productos_compuestos pc
                 JOIN componentes c ON c.producto_compuesto_id = pc.id
                 JOIN productos_base pb ON c.producto_base_id = pb.id
@@ -15469,6 +15484,7 @@ def actualizar_publicaciones_ml_con_progreso(skus_base_afectados):
             for combo in combos:
                 pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (combo['sku'],)))
                 pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (combo['sku'] + 'Z',)))
+                pubs_count += len(query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (combo['sku'] + '+',)))
         except Exception:
             pass
 
@@ -15548,6 +15564,23 @@ def actualizar_publicaciones_ml_con_progreso(skus_base_afectados):
                 time.sleep(0.1)
         except Exception as e:
             resultados_err.append(f"Error sin Z {sku}: {e}")
+
+        # Con + (variante con almohada: mismo stock que la base, SIN demora)
+        try:
+            pubs_mas = query_db("SELECT mla_id FROM sku_mla_mapeo WHERE sku = %s AND activo = TRUE", (sku + '+',))
+            for pub in pubs_mas:
+                mla = pub['mla_id']
+                ok, msg = actualizar_stock_ml(mla, disponible, access_token)
+                if ok:
+                    resultados_ok.append(f"{sku}+ → {mla} stock={disponible}")
+                else:
+                    resultados_err.append(f"{mla}: {msg}")
+                done += 1
+                _ml_progress_save({'running': True, 'total': pubs_count or 1, 'done': done,
+                                   'ok': resultados_ok[:], 'errors': resultados_err[:], 'skus': list(skus_base_afectados)})
+                time.sleep(0.1)
+        except Exception as e:
+            resultados_err.append(f"Error con + {sku}: {e}")
 
         # Con Z
         if not _aplica_logica_z(sku):
