@@ -2887,7 +2887,8 @@ def cancelar_ventas_multiple():
         cursor = conn.cursor()
         
         ventas_procesadas = 0
-        
+        ventas_ok_ids = []
+
         for venta_id in venta_ids:
             try:
                 # Verificar que exista y esté pendiente
@@ -2906,15 +2907,38 @@ def cancelar_ventas_multiple():
                 ''', (venta_id,))
                 
                 ventas_procesadas += 1
-            
+                ventas_ok_ids.append(venta_id)
+
             except Exception as e:
                 print(f"⚠️ Error al procesar venta {venta_id}: {str(e)}")
                 continue
-        
+
         conn.commit()
         cursor.close()
         conn.close()
-        
+
+        # Re-sincronizar ML — cancelar ventas activas libera disponible (incluye almohadas)
+        try:
+            if ventas_ok_ids:
+                _ph = ','.join(['%s'] * len(ventas_ok_ids))
+                _items_ml = query_db(
+                    f"SELECT sku, cantidad FROM items_venta WHERE venta_id IN ({_ph})",
+                    tuple(ventas_ok_ids)
+                )
+                skus_afectados = _extraer_skus_base_de_items(
+                    [{'sku': i['sku'], 'cantidad': i['cantidad']} for i in _items_ml]
+                )
+                if skus_afectados:
+                    import threading
+                    def _cancel_mult_ml_bg():
+                        try:
+                            _sync_ml_por_venta(skus_afectados)
+                        except Exception as e_ml:
+                            print(f"[AUTO-ML] Error actualizando ML tras cancelación múltiple: {e_ml}")
+                    threading.Thread(target=_cancel_mult_ml_bg, daemon=True).start()
+        except Exception as e_ml:
+            print(f"[AUTO-ML] Error actualizando ML tras cancelación múltiple: {e_ml}")
+
         if ventas_procesadas == 0:
             flash('❌ No se pudieron cancelar las ventas seleccionadas', 'error')
         else:
@@ -5638,7 +5662,7 @@ def cargar_stock():
             skus_cargados = {item['sku'] for item in items}
             def _update_ml_bg():
                 try:
-                    actualizar_publicaciones_ml_con_progreso(skus_cargados)
+                    _sync_ml_por_venta(skus_cargados)
                 except Exception as e_ml:
                     print(f"[AUTO-ML] Error actualizando ML tras carga stock: {e_ml}")
             threading.Thread(target=_update_ml_bg, daemon=True).start()
@@ -5903,7 +5927,7 @@ def guardar_stock():
                 import threading
                 def _guardar_stock_ml_bg():
                     try:
-                        actualizar_publicaciones_ml_con_progreso(skus_cargados)
+                        _sync_ml_por_venta(skus_cargados)
                     except Exception as e_ml:
                         print(f"[AUTO-ML] Error actualizando ML tras carga stock: {e_ml}")
                 threading.Thread(target=_guardar_stock_ml_bg, daemon=True).start()
@@ -5991,7 +6015,7 @@ def bajar_stock_guardar():
             skus_bajados = {sku for _, sku in bajas}
             def _update_ml_bg():
                 try:
-                    actualizar_publicaciones_ml_con_progreso(skus_bajados)
+                    _sync_ml_por_venta(skus_bajados)
                 except Exception as e_ml:
                     print(f"[AUTO-ML] Error ML tras baja stock: {e_ml}")
             threading.Thread(target=_update_ml_bg, daemon=True).start()
@@ -6254,7 +6278,7 @@ def transferir_stock_guardar():
                 if skus_dep_transferidos:
                     def _transfer_ml_bg():
                         try:
-                            actualizar_publicaciones_ml_con_progreso(skus_dep_transferidos)
+                            _sync_ml_por_venta(skus_dep_transferidos)
                         except Exception as e_ml:
                             print(f"[AUTO-ML] Error actualizando ML tras transferencia: {e_ml}")
                     threading.Thread(target=_transfer_ml_bg, daemon=True).start()
