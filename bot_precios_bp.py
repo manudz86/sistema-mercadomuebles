@@ -524,7 +524,8 @@ TOOLS = [
                 }
             },
             "required": ["cambios"]
-        }
+        },
+        "cache_control": {"type": "ephemeral"}
     }
 ]
 
@@ -598,6 +599,27 @@ def _blocks_to_dicts(blocks):
                            "name": b.name, "input": b.input})
     return result
 
+def _mark_cache(messages):
+    """Prompt caching 'rodante': deja un único breakpoint de caché al final del
+    último mensaje. Así todo el prefijo (system + tools + historial previo) se lee
+    de caché (~10% del costo) en vez de re-cobrarse entero en cada iteración.
+    Primero limpia cualquier marcador previo para no pasarnos de 4 breakpoints."""
+    for m in messages:
+        c = m.get('content')
+        if isinstance(c, list):
+            for blk in c:
+                if isinstance(blk, dict):
+                    blk.pop('cache_control', None)
+    if not messages:
+        return
+    last = messages[-1]
+    c = last.get('content')
+    if isinstance(c, str):
+        last['content'] = [{"type": "text", "text": c,
+                            "cache_control": {"type": "ephemeral"}}]
+    elif isinstance(c, list) and c and isinstance(c[-1], dict):
+        c[-1]['cache_control'] = {"type": "ephemeral"}
+
 # ── ROUTES ────────────────────────────────────────────────────────
 
 @bot_precios_bp.route('/admin/bot-precios')
@@ -612,6 +634,7 @@ def bot_precios_chat():
     client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
 
     for _ in range(15):
+        _mark_cache(messages)   # breakpoint de caché rodante al final del historial
         resp = client.messages.create(
             model='claude-sonnet-4-5',
             max_tokens=4096,
