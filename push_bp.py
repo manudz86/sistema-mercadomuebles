@@ -86,6 +86,54 @@ def enviar_push(titulo, cuerpo, url='/', tag='cannon'):
     return enviados
 
 
+def notificar_nueva_venta(venta_id):
+    """Notifica una nueva venta a los iPhone suscriptos: canal + artículo + importe.
+    Deriva el canal del campo 'canal' de la venta (ML / WEB / EXT). Corre en
+    background y nunca rompe el flujo del que la llama."""
+    import threading
+
+    def _bg():
+        try:
+            db = _db(); cur = db.cursor()
+            cur.execute("SELECT canal, importe_total FROM ventas WHERE id=%s", (venta_id,))
+            v = cur.fetchone()
+            if not v:
+                cur.close(); db.close(); return
+            cur.execute("""
+                SELECT iv.cantidad, COALESCE(pb.nombre, pc.nombre, iv.sku) AS nombre
+                FROM items_venta iv
+                LEFT JOIN productos_base pb        ON pb.sku = iv.sku
+                LEFT JOIN productos_compuestos pc  ON pc.sku = iv.sku
+                WHERE iv.venta_id = %s AND iv.precio_unitario > 0
+                ORDER BY iv.precio_unitario DESC
+            """, (venta_id,))
+            items = cur.fetchall()
+            cur.close(); db.close()
+
+            canal = (v.get('canal') or '').lower()
+            if 'libre' in canal:
+                lbl = 'ML'
+            elif 'web' in canal or 'tienda' in canal:
+                lbl = 'WEB'
+            else:
+                lbl = 'EXT'
+
+            if items:
+                p0 = items[0]
+                resumen = f"{int(p0['cantidad'])} {p0['nombre']}"
+                if len(items) > 1:
+                    resumen += f" +{len(items) - 1} más"
+            else:
+                resumen = "venta"
+            importe = float(v.get('importe_total') or 0)
+            cuerpo = f"{resumen} por ${importe:,.0f}".replace(',', '.') if importe else resumen
+            enviar_push(f"🛒 Nueva venta {lbl}", cuerpo, '/ventas/activas', f'venta-{venta_id}')
+        except Exception as e:
+            print(f"[PUSH] notificar_nueva_venta error: {e}")
+
+    threading.Thread(target=_bg, daemon=True).start()
+
+
 @push_bp.route('/push/public-key')
 def push_public_key():
     return jsonify({'key': os.getenv('VAPID_PUBLIC_KEY', '')})

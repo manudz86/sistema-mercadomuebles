@@ -6728,6 +6728,11 @@ def guardar_venta():
         cursor.close()
         conn.close()
 
+        try:
+            notificar_nueva_venta(venta_id)   # push a los iPhone suscriptos
+        except Exception:
+            pass
+
         # ========================================
         # 9.5. SINCRONIZAR PUBLICACIONES ML (background)
         # ========================================
@@ -12656,7 +12661,7 @@ app.register_blueprint(competencia_scraper_bp)
 from competencia_v2_bp import competencia_v2_bp
 app.register_blueprint(competencia_v2_bp)
 
-from push_bp import push_bp, enviar_push
+from push_bp import push_bp, enviar_push, notificar_nueva_venta
 app.register_blueprint(push_bp)
 
 @app.route('/sw.js')
@@ -15202,6 +15207,10 @@ def _importar_orden_automatica(orden, access_token):
                 print(f"[AUTO-ML] Error detectando alertas: {e}")
 
             print(f"[AUTO-ML] ✅ Venta importada: {mla_code}")
+            try:
+                notificar_nueva_venta(venta_id)   # push a los iPhone suscriptos
+            except Exception:
+                pass
             return True, items_bd
 
         except Exception as e:

@@ -35,6 +35,7 @@ from email.mime.multipart import MIMEMultipart
 import unicodedata
 import re
 from utils import log_evento
+from push_bp import notificar_nueva_venta
 
 logger = logging.getLogger(__name__)
 
@@ -5921,6 +5922,10 @@ def pago_payway():
     db.commit()
     cur2.close()
     try:
+        notificar_nueva_venta(venta_id)   # push a los iPhone suscriptos
+    except Exception:
+        pass
+    try:
         from app import enviar_whatsapp
         tel = (telefono_cliente or '').strip().replace('+','').replace(' ','').replace('-','')
         if tel:
@@ -7236,6 +7241,10 @@ def webhook_mp():
                     VALUES (%s, %s, %s, %s)
                 """, (venta_id, it['sku'], it['cantidad'], _precio_aj))
         db.commit()
+        try:
+            notificar_nueva_venta(venta_id)   # push a los iPhone suscriptos
+        except Exception:
+            pass
         # ── Meta CAPI Purchase (server-side) ──────────────────────────────────
         try:
             enviar_capi_purchase(
@@ -7619,6 +7628,10 @@ def webhook_getnet():
             )
 
         db.commit()
+        try:
+            notificar_nueva_venta(venta_id)   # push a los iPhone suscriptos
+        except Exception:
+            pass
         # ── Meta CAPI Purchase (server-side) ──────────────────────────────────
         try:
             enviar_capi_purchase(
