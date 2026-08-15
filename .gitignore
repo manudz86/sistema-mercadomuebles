@@ -28,3 +28,4 @@ static/img/productos/
 
 # Backups locales (regla "backup antes de editar")
 backups/
+config/vapid_private.pem

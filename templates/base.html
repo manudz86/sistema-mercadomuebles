@@ -798,6 +798,69 @@
         }
     </script>
 
+    <!-- Notificaciones push (solo en la PWA instalada en la home del iPhone) -->
+    <button id="btn-push" onclick="activarPush()"
+        style="display:none;position:fixed;bottom:14px;right:14px;z-index:9999;
+               background:#2c3e50;color:#fff;border:none;border-radius:24px;
+               padding:10px 16px;font-size:14px;box-shadow:0 3px 10px rgba(0,0,0,.3)">
+        🔔 Activar notificaciones
+    </button>
+    <script>
+    function _pushStandalone(){
+        return window.matchMedia('(display-mode: standalone)').matches
+            || window.navigator.standalone === true;   // iOS Safari home-screen
+    }
+    function _b64ToUint8(base64){
+        const pad = '='.repeat((4 - base64.length % 4) % 4);
+        const b = (base64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+        const raw = atob(b); const arr = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+        return arr;
+    }
+    async function activarPush(){
+        const btn = document.getElementById('btn-push');
+        try {
+            if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+                alert('Este dispositivo/navegador no soporta notificaciones.'); return;
+            }
+            const perm = await Notification.requestPermission();
+            if (perm !== 'granted') { alert('No diste permiso para notificaciones.'); return; }
+            const reg = await navigator.serviceWorker.ready;
+            const key = (await (await fetch('/push/public-key')).json()).key;
+            let sub = await reg.pushManager.getSubscription();
+            if (!sub) {
+                sub = await reg.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: _b64ToUint8(key)
+                });
+            }
+            const r = await fetch('/push/subscribe', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(sub)
+            }).then(x => x.json());
+            if (r.ok) { btn.textContent = '🔔 Notificaciones activas'; }
+            else { alert('No se pudo registrar: ' + (r.error || '')); }
+        } catch (e) { alert('Error activando notificaciones: ' + e); }
+    }
+    // Mostrar el botón SOLO si es la PWA instalada (no en pestañas de escritorio)
+    document.addEventListener('DOMContentLoaded', async () => {
+        if (!_pushStandalone()) return;
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+        const btn = document.getElementById('btn-push');
+        if (!btn) return;
+        btn.style.display = 'inline-block';
+        try {
+            const reg = await navigator.serviceWorker.ready;
+            const sub = await reg.pushManager.getSubscription();
+            if (sub && Notification.permission === 'granted') {
+                btn.textContent = '🔔 Notificaciones activas';
+                // re-registrar por las dudas (endpoints pueden rotar)
+                fetch('/push/subscribe', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(sub)});
+            }
+        } catch (e) {}
+    });
+    </script>
+
     {% block extra_js %}{% endblock %}
 </body>
 </html>

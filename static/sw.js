@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cannon-v1';
+const CACHE_NAME = 'cannon-v2';
 const STATIC_ASSETS = [
     '/',
     '/static/loguito_fav.png',
@@ -46,5 +46,36 @@ self.addEventListener('fetch', event => {
     // Páginas: network first, fallback a cache
     event.respondWith(
         fetch(event.request).catch(() => caches.match(event.request))
+    );
+});
+
+// ── Web Push: mostrar la notificación cuando llega ──────────────────
+self.addEventListener('push', event => {
+    let data = {};
+    try { data = event.data ? event.data.json() : {}; }
+    catch (e) { data = { title: 'Cannon', body: (event.data ? event.data.text() : '') }; }
+    const title = data.title || 'Mercadomuebles';
+    const options = {
+        body: data.body || '',
+        icon: '/static/loguito_fav.png',
+        badge: '/static/loguito_fav.png',
+        tag: data.tag || 'cannon',
+        renotify: true,
+        data: { url: data.url || '/' }
+    };
+    event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// ── Click en la notificación: abrir/enfocar la pantalla correcta ────
+self.addEventListener('notificationclick', event => {
+    event.notification.close();
+    const target = (event.notification.data && event.notification.data.url) || '/';
+    event.waitUntil(
+        clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+            for (const c of list) {
+                if ('focus' in c) { try { c.navigate(target); } catch (e) {} return c.focus(); }
+            }
+            if (clients.openWindow) return clients.openWindow(target);
+        })
     );
 });

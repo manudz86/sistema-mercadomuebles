@@ -12656,6 +12656,9 @@ app.register_blueprint(competencia_scraper_bp)
 from competencia_v2_bp import competencia_v2_bp
 app.register_blueprint(competencia_v2_bp)
 
+from push_bp import push_bp, enviar_push
+app.register_blueprint(push_bp)
+
 from whatsapp_bp import whatsapp_bp
 app.register_blueprint(whatsapp_bp)
 
