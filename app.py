@@ -12659,6 +12659,17 @@ app.register_blueprint(competencia_v2_bp)
 from push_bp import push_bp, enviar_push
 app.register_blueprint(push_bp)
 
+@app.route('/sw.js')
+def _service_worker_root():
+    """Sirve el service worker desde la raíz para que su scope sea '/' (controla
+    toda la app, necesario para el Web Push). El archivo real vive en static/."""
+    from flask import send_from_directory
+    resp = send_from_directory(os.path.join(app.root_path, 'static'), 'sw.js')
+    resp.headers['Content-Type'] = 'application/javascript'
+    resp.headers['Service-Worker-Allowed'] = '/'
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
+
 from whatsapp_bp import whatsapp_bp
 app.register_blueprint(whatsapp_bp)
 

@@ -792,19 +792,27 @@
     <!-- PWA Service Worker -->
     <script>
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/static/sw.js')
-                .then(() => console.log('SW registrado'))
+            navigator.serviceWorker.register('/sw.js', {scope: '/'})
+                .then(() => console.log('SW registrado (scope /)'))
                 .catch(e => console.log('SW error:', e));
+            // Limpiar el SW viejo con scope /static/ (versiones previas)
+            navigator.serviceWorker.getRegistrations().then(rs => {
+                rs.forEach(r => { if (r.scope && r.scope.endsWith('/static/')) r.unregister(); });
+            }).catch(() => {});
         }
     </script>
 
     <!-- Notificaciones push (solo en la PWA instalada en la home del iPhone) -->
-    <button id="btn-push" onclick="activarPush()"
-        style="display:none;position:fixed;bottom:14px;right:14px;z-index:9999;
-               background:#2c3e50;color:#fff;border:none;border-radius:24px;
-               padding:10px 16px;font-size:14px;box-shadow:0 3px 10px rgba(0,0,0,.3)">
-        🔔 Activar notificaciones
-    </button>
+    <div id="push-bar" style="display:none;position:fixed;bottom:14px;right:14px;z-index:9999;
+               background:#2c3e50;color:#fff;border-radius:24px;
+               box-shadow:0 3px 10px rgba(0,0,0,.3);align-items:center">
+        <button onclick="activarPush()"
+            style="background:none;border:none;color:#fff;padding:10px 6px 10px 16px;font-size:14px;cursor:pointer">
+            🔔 Activar notificaciones
+        </button>
+        <button onclick="document.getElementById('push-bar').style.display='none'" title="Ocultar"
+            style="background:none;border:none;color:#aab4c0;padding:10px 14px 10px 4px;font-size:15px;cursor:pointer">✕</button>
+    </div>
     <script>
     function _pushStandalone(){
         return window.matchMedia('(display-mode: standalone)').matches
@@ -817,46 +825,48 @@
         for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
         return arr;
     }
+    async function _getReg(){
+        await navigator.serviceWorker.register('/sw.js', {scope: '/'});
+        return await navigator.serviceWorker.ready;   // ahora resuelve (scope /)
+    }
     async function activarPush(){
-        const btn = document.getElementById('btn-push');
         try {
             if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
                 alert('Este dispositivo/navegador no soporta notificaciones.'); return;
             }
             const perm = await Notification.requestPermission();
             if (perm !== 'granted') { alert('No diste permiso para notificaciones.'); return; }
-            const reg = await navigator.serviceWorker.ready;
+            const reg = await _getReg();
             const key = (await (await fetch('/push/public-key')).json()).key;
             let sub = await reg.pushManager.getSubscription();
-            if (!sub) {
-                sub = await reg.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: _b64ToUint8(key)
-                });
-            }
+            if (!sub) sub = await reg.pushManager.subscribe({
+                userVisibleOnly: true, applicationServerKey: _b64ToUint8(key)
+            });
             const r = await fetch('/push/subscribe', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(sub)
             }).then(x => x.json());
-            if (r.ok) { btn.textContent = '🔔 Notificaciones activas'; }
-            else { alert('No se pudo registrar: ' + (r.error || '')); }
+            if (r.ok) {
+                document.getElementById('push-bar').style.display = 'none';
+                alert('✅ Notificaciones activadas. Te va a llegar un aviso cuando entre una venta.');
+            } else {
+                alert('No se pudo registrar: ' + (r.error || ''));
+            }
         } catch (e) { alert('Error activando notificaciones: ' + e); }
     }
-    // Mostrar el botón SOLO si es la PWA instalada (no en pestañas de escritorio)
+    // Mostrar la barra SOLO en la PWA instalada Y si todavía NO está suscripto
     document.addEventListener('DOMContentLoaded', async () => {
         if (!_pushStandalone()) return;
         if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
-        const btn = document.getElementById('btn-push');
-        if (!btn) return;
-        btn.style.display = 'inline-block';
         try {
-            const reg = await navigator.serviceWorker.ready;
+            const reg = await _getReg();
             const sub = await reg.pushManager.getSubscription();
             if (sub && Notification.permission === 'granted') {
-                btn.textContent = '🔔 Notificaciones activas';
-                // re-registrar por las dudas (endpoints pueden rotar)
+                // ya suscripto → re-registrar por las dudas y NO mostrar el botón
                 fetch('/push/subscribe', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(sub)});
+                return;
             }
+            document.getElementById('push-bar').style.display = 'flex';
         } catch (e) {}
     });
     </script>
