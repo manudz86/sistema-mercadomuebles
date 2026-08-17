@@ -1460,6 +1460,10 @@ metodo_pago, importe_total, importe_abonado,
             WHERE estado_entrega = 'pendiente'
         '''
         params = []
+        # Filtro: solo ventas canceladas en ML (todavía activas en el sistema)
+        filtro_solo_canceladas = request.args.get('solo_canceladas', '').strip() in ('1', 'true', 'on')
+        if filtro_solo_canceladas:
+            query += ' AND cancelada_en_ml = 1'
         
         # Filtro: Búsqueda de texto (apodo, nombre, productos)
         if filtro_buscar:
@@ -1540,8 +1544,14 @@ metodo_pago, importe_total, importe_abonado,
         except Exception:
             auto_import_activo = True
 
-        return render_template('ventas_activas.html', 
+        # Contador de ventas canceladas en ML (para el cartel de arriba)
+        _row_canc = query_one("SELECT COUNT(*) AS c FROM ventas WHERE estado_entrega='pendiente' AND cancelada_en_ml=1")
+        n_canceladas = _row_canc['c'] if _row_canc else 0
+
+        return render_template('ventas_activas.html',
                              ventas=ventas,
+                             n_canceladas=n_canceladas,
+                             filtro_solo_canceladas=filtro_solo_canceladas,
                              filtro_buscar=filtro_buscar,
                              filtro_tipo_entrega=filtro_tipo_entrega,
                              filtro_metodo_envio=filtro_metodo_envio,
@@ -2546,8 +2556,10 @@ def cancelar_venta(venta_id):
     finally:
         cursor.close()
         conn.close()
-    
-    return redirect(url_for('ventas_activas'))
+
+    # Volver a la MISMA vista filtrada (para seguir cancelando de a una)
+    _qs = request.form.get('_return_qs', '') or ''
+    return redirect('/ventas/activas' + _qs)
 
 @app.route('/ventas/activas/<int:venta_id>/quitar-demora', methods=['POST'])
 @login_required

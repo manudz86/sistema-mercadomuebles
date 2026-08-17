@@ -130,6 +130,24 @@
     </div>
 </div>
 
+{% if n_canceladas and n_canceladas > 0 %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2 py-2 mb-3">
+    <span>
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        {% if filtro_solo_canceladas %}
+            Mostrando <strong>{{ n_canceladas }}</strong> venta{{ 's' if n_canceladas != 1 }} <strong>cancelada{{ 's' if n_canceladas != 1 }} en ML</strong> (todavía activas). Cancelalas de a una — el filtro se mantiene.
+        {% else %}
+            Hay <strong>{{ n_canceladas }}</strong> venta{{ 's' if n_canceladas != 1 }} <strong>cancelada{{ 's' if n_canceladas != 1 }} en ML</strong> que siguen activas en el sistema.
+        {% endif %}
+    </span>
+    {% if filtro_solo_canceladas %}
+        <a href="/ventas/activas" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle"></i> Ver todas</a>
+    {% else %}
+        <a href="/ventas/activas?solo_canceladas=1" class="btn btn-sm btn-warning"><i class="bi bi-funnel"></i> Ver y cancelar</a>
+    {% endif %}
+</div>
+{% endif %}
+
 <!-- FILTROS DESKTOP (sin cambios) -->
 <div class="card mb-3 d-none d-md-block">
     <div class="card-body">
@@ -1000,6 +1018,12 @@ document.getElementById('btnConfirmar').addEventListener('click', function() {
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = `/ventas/activas/${ventaIdActual}/${accionActual}`;
+    // Preservar los filtros actuales (ej. ?solo_canceladas=1) al volver
+    const qsInput = document.createElement('input');
+    qsInput.type = 'hidden';
+    qsInput.name = '_return_qs';
+    qsInput.value = window.location.search || '';
+    form.appendChild(qsInput);
     document.body.appendChild(form);
     form.submit();
 });
