@@ -15903,6 +15903,21 @@ def _rechequear_orden_ml(venta_id, orden_id, access_token, venta_actual):
             updates['direccion_entrega'] = dir_nueva
             dir_actual = dir_nueva  # actualizar para evaluación final
 
+        # Tipo de entrega: si al importar quedó SIN método (el sistema la muestra como
+        # "Retiro") pero ML ahora indica un ENVÍO con método, corregirla a envío. Esto
+        # cubre la carrera típica: la orden entra antes de que ML arme el shipment.
+        # SOLO actúa con metodo_envio vacío → nunca pisa ventas ya clasificadas ni
+        # ediciones manuales.
+        metodo_envio_prev = (venta_actual.get('metodo_envio') or '').strip()
+        metodo_envio_ml_nuevo = (shipping.get('metodo_envio', '') if shipping else '').strip()
+        if (not metodo_envio_prev) and shipping and shipping.get('tiene_envio') and metodo_envio_ml_nuevo:
+            updates['tipo_entrega'] = 'envio'
+            updates['metodo_envio'] = metodo_envio_ml_nuevo
+            if dir_nueva and not dir_actual:
+                updates['direccion_entrega'] = dir_nueva
+                dir_actual = dir_nueva  # para evaluación final
+            print(f"[RECHECK-ML] Venta {venta_id}: corregido retiro→envío ({metodo_envio_ml_nuevo})")
+
         # Notas: solo si las actuales son IDÉNTICAS a las originales (sin ediciones manuales)
         notas_actuales = (venta_actual.get('notas') or '')
         notas_orig = (venta_actual.get('notas_auto_orig') or '')
