@@ -5208,7 +5208,11 @@ def facturar_multiple_excel():
             ids_con_flete = {int(i) for i in ids_con_flete_str.split(',') if i.strip()}
 
         placeholders = ', '.join(['%s'] * len(venta_ids))
-        ventas = query_db(f'SELECT * FROM ventas WHERE id IN ({placeholders}) ORDER BY id DESC', tuple(venta_ids))
+        # Respetar el ORDEN en que el usuario seleccionó las ventas (viene en ?ids=)
+        ventas = query_db(
+            f'SELECT * FROM ventas WHERE id IN ({placeholders}) ORDER BY FIELD(id, {placeholders})',
+            tuple(venta_ids) + tuple(venta_ids)
+        )
 
         if not ventas:
             flash('❌ No se encontraron ventas', 'error')

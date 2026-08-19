@@ -901,6 +901,7 @@ function actualizarContador() {
 function limpiarSeleccion() {
     document.querySelectorAll('.venta-checkbox').forEach(cb => cb.checked = false);
     document.getElementById('selectAll').checked = false;
+    _selOrden = [];
     actualizarContador();
 }
 
@@ -947,8 +948,23 @@ function facturarIndividual(ventaId, metodoEnvio) {
 }
 
 // Facturar múltiple: usa los checkboxes individuales de cada venta
+// Registrar el ORDEN en que se van tildando las ventas (para facturar en ese orden)
+var _selOrden = [];
+document.addEventListener('change', function(e){
+    var t = e.target;
+    if (t && t.classList && t.classList.contains('venta-checkbox')) {
+        var id = t.value;
+        if (t.checked) { if (_selOrden.indexOf(id) === -1) _selOrden.push(id); }
+        else { _selOrden = _selOrden.filter(function(x){ return x !== id; }); }
+    }
+});
+
 function facturarMultiple() {
-    const ids = Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value);
+    // IDs en el ORDEN en que el usuario los fue tildando (no en el orden del listado)
+    var checked = new Set(Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value));
+    var ids = _selOrden.filter(function(id){ return checked.has(id); });
+    // Fallback: cualquier tildado que no quedó registrado (ej. "Seleccionar todo") va al final en orden del listado
+    Array.from(document.querySelectorAll('.venta-checkbox:checked')).forEach(function(cb){ if (ids.indexOf(cb.value) === -1) ids.push(cb.value); });
     if (ids.length === 0) { alert('Seleccioná al menos una venta'); return; }
     
     // Recopilar qué ventas tienen el flete marcado
@@ -983,6 +999,7 @@ function agregarFiltrosAlForm(form) {
 // Reset checkboxes al cargar
 window.addEventListener('load', function() {
     document.querySelectorAll('.venta-checkbox, #selectAll').forEach(cb => cb.checked = false);
+    _selOrden = [];
     if (typeof actualizarContador === 'function') actualizarContador();
 });
 // ── TRACKING ME2 ──
