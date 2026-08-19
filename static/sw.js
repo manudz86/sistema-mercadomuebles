@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cannon-v2';
+const CACHE_NAME = 'cannon-v3';
 const STATIC_ASSETS = [
     '/',
     '/static/loguito_fav.png',
@@ -27,6 +27,11 @@ self.addEventListener('activate', event => {
 
 // Fetch: network first para páginas, cache first para estáticos
 self.addEventListener('fetch', event => {
+    // No interceptar métodos con body (POST/PUT/DELETE/PATCH): en iOS el SW
+    // puede perder el body del request (ej. subida multipart de fotos).
+    // Que vayan directo a la red para que el body llegue intacto.
+    if (event.request.method !== 'GET') return;
+
     const url = new URL(event.request.url);
 
     // Assets estáticos: cache first
