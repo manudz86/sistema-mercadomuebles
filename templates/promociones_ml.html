@@ -115,7 +115,7 @@
                       {% endif %}
                       {% if activo %}
                         <button class="btn btn-sm btn-outline-danger"
-                          data-tipo="{{ pr.tipo }}" data-mla="{{ p.mla_id }}" data-pid="{{ pr.id or '' }}" data-row="{{ rowid }}"
+                          data-tipo="{{ pr.tipo }}" data-mla="{{ p.mla_id }}" data-pid="{{ pr.id or '' }}" data-offer="{{ pr.ref_id or '' }}" data-row="{{ rowid }}"
                           onclick="quitarPromo(this)">Salir</button>
                       {% endif %}
                       </div>
@@ -424,7 +424,7 @@ function mpAplicada(rowid, d){
   if(cont && !tr.querySelector('.mp-salir')){
     var b=document.createElement('button');
     b.className='btn btn-sm btn-outline-danger mp-salir'; b.textContent='Salir';
-    b.dataset.tipo=d.tipo; b.dataset.mla=_mp.mla; b.dataset.pid=_mp.pid||''; b.dataset.row=rowid;
+    b.dataset.tipo=d.tipo; b.dataset.mla=_mp.mla; b.dataset.pid=_mp.pid||''; b.dataset.offer=_mp.offer||''; b.dataset.row=rowid;
     b.setAttribute('onclick','quitarPromo(this)');
     cont.appendChild(b);
   }
@@ -434,7 +434,7 @@ function quitarPromo(btn){
   var d = btn.dataset, txt = btn.textContent;
   btn.disabled=true; btn.textContent='Saliendo…';
   fetch('/promociones-ml/quitar', {method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({mla:d.mla, promotion_type:d.tipo, promotion_id:d.pid||''})})
+    body:JSON.stringify({mla:d.mla, promotion_type:d.tipo, promotion_id:d.pid||'', offer_id:d.offer||''})})
     .then(function(r){return r.json();})
     .then(function(dd){
       btn.disabled=false; btn.textContent=txt;

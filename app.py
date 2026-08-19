@@ -9721,6 +9721,7 @@ def promociones_ml_quitar():
     mla = (data.get('mla') or '').strip()
     tipo = (data.get('promotion_type') or '').strip().upper()
     promotion_id = (data.get('promotion_id') or '').strip()
+    offer_id = (data.get('offer_id') or '').strip()
     if not mla or not tipo:
         return jsonify({'ok': False, 'error': 'Faltan datos'})
     access_token = cargar_ml_token()
@@ -9729,6 +9730,9 @@ def promociones_ml_quitar():
     qs = f'promotion_type={tipo}&app_version=v2'
     if promotion_id:
         qs += f'&promotion_id={promotion_id}'
+    # PRE_NEGOTIATED (y otras) exigen el offer_id (= ref_id de la promo) para salir
+    if offer_id:
+        qs += f'&offer_id={offer_id}'
     rd = ml_request('delete', f'https://api.mercadolibre.com/seller-promotions/items/{mla}?{qs}', access_token)
     if rd.status_code in (200, 204):
         return jsonify({'ok': True})
