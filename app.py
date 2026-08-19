@@ -188,15 +188,20 @@ def parsear_filtro_multi(valor_request):
     """
     Convierte un valor de filtro recibido por GET en una lista limpia de valores.
     Acepta tanto 'Flex,Delega' (separado por comas) como una lista request.args.getlist().
+    Aplana: cada elemento puede venir a su vez con comas (ej. el hidden del celu manda
+    'Colecta,Delega' como UN solo elemento de getlist), así que se separa igual.
     Devuelve [] si no hay nada.
     """
     if not valor_request:
         return []
-    if isinstance(valor_request, list):
-        items = valor_request
-    else:
-        items = str(valor_request).split(',')
-    return [x.strip() for x in items if x and x.strip()]
+    items = valor_request if isinstance(valor_request, list) else [valor_request]
+    out = []
+    for it in items:
+        for parte in str(it).split(','):
+            parte = parte.strip()
+            if parte:
+                out.append(parte)
+    return out
 
 def construir_in_clause(valores, columna):
     """
