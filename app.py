@@ -9802,8 +9802,73 @@ def _participar_campania_una(access_token, mla, tipo, promotion_id):
 
 @app.route('/promociones-ml/aplicar-lote', methods=['POST'])
 @login_required
+def _participar_lightning_una(access_token, mla, promotion_id):
+    """Une UNA publicación a una campaña LIGHTNING (oferta relámpago).
+    A diferencia de SMART, la relámpago tiene RANGO de descuento y exige comprometer
+    stock. Se usa el MENOR descuento exigido (max_discounted_price) y el MÁXIMO stock
+    permitido (tope del rango). Devuelve dict {ok, tipo, deal_price, original_price, pct, stock, error}."""
+    def _safe_json(resp):
+        try:
+            return resp.json()
+        except Exception:
+            return {}
+
+    # candidato de esta publi para esta relámpago
+    cand = None
+    try:
+        rg = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/items/{mla}',
+                        access_token, params={'app_version': 'v2'})
+        for p in (_safe_json(rg) or []):
+            if isinstance(p, dict) and p.get('type') == 'LIGHTNING' and \
+               p.get('id') == promotion_id and p.get('status') == 'candidate' and p.get('ref_id'):
+                cand = p
+                break
+    except Exception:
+        pass
+    if not cand:
+        return {'ok': False, 'error': 'Sin candidato LIGHTNING (ya activa o no aplica)'}
+
+    # precio: menor descuento exigido (máximo precio permitido)
+    maxp = cand.get('max_discounted_price')
+    if not maxp:
+        return {'ok': False, 'error': 'La relámpago no informó rango de precio'}
+    deal_price = int(round(float(maxp)))
+
+    # stock: máximo permitido dentro del rango (ML rechaza el tope exacto → tope-1)
+    st = cand.get('stock') or {}
+    smin = st.get('min'); smax = st.get('max')
+    if smin is None or smax is None:
+        return {'ok': False, 'error': 'La relámpago no informó rango de stock'}
+    stock_commit = int(smax) - 1
+    if stock_commit <= int(smin):
+        return {'ok': False, 'error': f'Rango de stock muy chico ({smin}-{smax})'}
+
+    body = {'promotion_type': 'LIGHTNING', 'promotion_id': promotion_id,
+            'deal_price': deal_price, 'offer_id': cand['ref_id'], 'stock': stock_commit}
+    ra = ml_request('post', f'https://api.mercadolibre.com/seller-promotions/items/{mla}?app_version=v2',
+                    access_token, json_data=body)
+    r = _safe_json(ra)
+    if ra.status_code in (200, 201):
+        orig = r.get('original_price') if isinstance(r, dict) else None
+        precio_final = (r.get('price') if isinstance(r, dict) else None) or deal_price
+        pct = None
+        try:
+            if orig and precio_final:
+                pct = f"{(float(orig) - float(precio_final)) / float(orig) * 100:.1f}".replace('.', ',')
+        except Exception:
+            pass
+        return {'ok': True, 'tipo': 'LIGHTNING', 'deal_price': precio_final,
+                'original_price': orig, 'pct': pct, 'stock': stock_commit}
+    msg = (r.get('message') if isinstance(r, dict) else None) or f'HTTP {ra.status_code}'
+    if isinstance(r, dict) and r.get('cause'):
+        detalle = '; '.join(c.get('error_message', '') for c in r['cause'] if c.get('error_message'))
+        if detalle:
+            msg = detalle
+    return {'ok': False, 'error': msg}
+
+
 def promociones_ml_aplicar_lote():
-    """Participación MASIVA en una campaña de precio fijo (SMART / PRICE_MATCHING).
+    """Participación MASIVA en una campaña de precio fijo (SMART / PRICE_MATCHING / LIGHTNING).
     Procesa un lote de publicaciones en paralelo (pool interno) dentro de UN solo
     request → ocupa un único worker de Gunicorn y deja libres los demás para la tienda."""
     from concurrent.futures import ThreadPoolExecutor
@@ -9813,8 +9878,8 @@ def promociones_ml_aplicar_lote():
     promotion_id = (data.get('promotion_id') or '').strip()
     if not isinstance(mlas, list) or not mlas:
         return jsonify({'ok': False, 'error': 'Faltan publicaciones'})
-    if tipo not in ('SMART', 'PRICE_MATCHING'):
-        return jsonify({'ok': False, 'error': 'El lote solo soporta campañas de precio fijo (SMART/PRICE_MATCHING)'})
+    if tipo not in ('SMART', 'PRICE_MATCHING', 'LIGHTNING'):
+        return jsonify({'ok': False, 'error': 'El lote solo soporta campañas de precio fijo (SMART / PRICE_MATCHING / LIGHTNING)'})
     if not promotion_id:
         return jsonify({'ok': False, 'error': 'Falta el id de la campaña'})
     access_token = cargar_ml_token()
@@ -9831,6 +9896,8 @@ def promociones_ml_aplicar_lote():
 
     def _una(mla):
         try:
+            if tipo == 'LIGHTNING':
+                return mla, _participar_lightning_una(access_token, mla, promotion_id)
             return mla, _participar_campania_una(access_token, mla, tipo, promotion_id)
         except Exception as e:
             return mla, {'ok': False, 'error': str(e)}

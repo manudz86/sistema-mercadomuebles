@@ -156,12 +156,12 @@
           <span class="text-muted" style="font-size:.9rem"><b>{{ campania_nombre or campania_sel }}</b> ({{ campania_tipo }}) — {{ campania_items|length }} publicaciones tuyas</span>
           <label style="font-size:.85rem">Filtrar tu % ≤ <input type="number" id="filtroTu" step="0.1" style="width:80px" class="form-control form-control-sm d-inline-block" oninput="filtrarCamp()"></label>
           <span class="text-muted" style="font-size:.85rem"><span id="selCount">0</span> seleccionadas</span>
-          {% if campania_tipo in ['SMART', 'PRICE_MATCHING'] %}
+          {% if campania_tipo in ['SMART', 'PRICE_MATCHING', 'LIGHTNING'] %}
             <button type="button" id="btnParticipar" class="btn btn-sm btn-primary" onclick="participarSel()" disabled>
               <i class="bi bi-lightning-charge"></i> Participar con seleccionadas
             </button>
           {% else %}
-            <span class="badge bg-light text-dark border">Activar en lote: solo campañas de precio fijo (SMART / Gánale a la competencia)</span>
+            <span class="badge bg-light text-dark border">Activar en lote: solo campañas de precio fijo (SMART / Gánale a la competencia / Relámpago)</span>
           {% endif %}
         </div>
         <div class="table-responsive">
@@ -295,10 +295,14 @@ function marcarCampFila(tr, ok, d){
 async function participarSel(){
   var sel = Array.prototype.slice.call(document.querySelectorAll('.selItem:checked'));
   if(!sel.length) return;
-  if(!confirm('¿Participar en «'+CAMP_NOMBRE+'» con '+sel.length+' publicación(es)?\nEl precio lo fija ML (promo de precio fijo, co-financiada).')) return;
+  var esLight = (CAMP_TIPO === 'LIGHTNING');
+  var msgConf = esLight
+    ? '¿Participar en la relámpago «'+CAMP_NOMBRE+'» con '+sel.length+' publicación(es)?\nSe usa el MENOR descuento exigido y se compromete el MÁXIMO stock permitido por cada publi.'
+    : '¿Participar en «'+CAMP_NOMBRE+'» con '+sel.length+' publicación(es)?\nEl precio lo fija ML (promo de precio fijo, co-financiada).';
+  if(!confirm(msgConf)) return;
   var btn = document.getElementById('btnParticipar'), txt = btn.innerHTML;
   btn.disabled = true;
-  var esFijo = (CAMP_TIPO === 'SMART' || CAMP_TIPO === 'PRICE_MATCHING');
+  var esFijo = (CAMP_TIPO === 'SMART' || CAMP_TIPO === 'PRICE_MATCHING' || CAMP_TIPO === 'LIGHTNING');
   var ok=0, fail=0;
 
   if(esFijo){
