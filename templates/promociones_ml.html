@@ -81,7 +81,7 @@
             {% else %}
             <div class="table-responsive">
               <table class="table table-sm mb-0 align-middle">
-                <thead class="table-light"><tr><th>Tipo</th><th>Nombre</th><th>Estado</th><th>Descuento (%)</th><th>Editable</th><th>Vence</th><th>Acción</th></tr></thead>
+                <thead class="table-light"><tr><th>Tipo</th><th>Nombre</th><th>Estado</th><th>Descuento (%)</th><th>Editable</th><th>Vigencia (AR)</th><th>Acción</th></tr></thead>
                 <tbody>
                   {% for pr in p.promos %}
                   {% set activo = pr.status in ['started', 'active'] %}
@@ -96,7 +96,7 @@
                     </td>
                     <td class="mp-desc">{{ promo_desc(pr) }}</td>
                     <td>{% if pr.editable %}<span class="badge bg-info text-dark">Sí</span>{% else %}<span class="badge bg-light text-dark border">No</span>{% endif %}</td>
-                    <td style="font-size:.8rem">{{ pr.finish_date[:10] if pr.finish_date else '—' }}</td>
+                    <td style="font-size:.78rem">{% if pr.f_inicio or pr.f_fin %}{{ pr.f_inicio or '—' }}<br>→ {{ pr.f_fin or '—' }}{% else %}{{ pr.finish_date[:10] if pr.finish_date else '—' }}{% endif %}</td>
                     <td>
                       <div class="d-flex gap-1 mp-acciones">
                       {% if pr.tipo in ['PRICE_DISCOUNT', 'DEAL'] %}
@@ -141,7 +141,7 @@
         <select name="campania" class="form-select" required>
           <option value="">Elegí una campaña…</option>
           {% for c in campanias %}
-          <option value="{{ c.id }}" {{ 'selected' if c.id == campania_sel else '' }}>{{ c.type }} — {{ c.name or c.id }}{% if c.status %} ({{ c.status }}){% endif %}</option>
+          <option value="{{ c.id }}" {{ 'selected' if c.id == campania_sel else '' }}>{{ c.type }} — {{ c.name or c.id }}{% if c.status %} ({{ c.status }}){% endif %}{% if c.f_inicio or c.f_fin %} · {{ c.f_inicio or '?' }} → {{ c.f_fin or '?' }}{% endif %}</option>
           {% endfor %}
         </select>
       </div>
@@ -153,7 +153,8 @@
         <div class="alert alert-warning">Esa campaña no tiene publicaciones mapeadas a tus SKUs.</div>
       {% else %}
         <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
-          <span class="text-muted" style="font-size:.9rem"><b>{{ campania_nombre or campania_sel }}</b> ({{ campania_tipo }}) — {{ campania_items|length }} publicaciones tuyas</span>
+          <span class="text-muted" style="font-size:.9rem"><b>{{ campania_nombre or campania_sel }}</b> ({{ campania_tipo }}) — {{ campania_items|length }} publicaciones tuyas
+          {% if campania_inicio or campania_fin %}<br>🗓️ Inicia <b>{{ campania_inicio or '—' }}</b> · Termina <b>{{ campania_fin or '—' }}</b>{% if campania_deadline %} · Deadline para sumar: {{ campania_deadline }}{% endif %} <span class="text-muted">(hora AR)</span>{% elif campania_tipo == 'LIGHTNING' %}<br><span class="text-warning">⚡ Relámpago: ML no informa la fecha/hora por API</span>{% endif %}</span>
           <label style="font-size:.85rem">Filtrar tu % ≤ <input type="number" id="filtroTu" step="0.1" style="width:80px" class="form-control form-control-sm d-inline-block" oninput="filtrarCamp()"></label>
           <span class="text-muted" style="font-size:.85rem"><span id="selCount">0</span> seleccionadas</span>
           {% if campania_tipo in ['SMART', 'PRICE_MATCHING', 'LIGHTNING'] %}

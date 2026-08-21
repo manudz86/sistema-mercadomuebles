@@ -9405,14 +9405,33 @@ def _promo_campanias(access_token):
         r = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/users/{ML_SELLER_ID}',
                        access_token, params={'app_version': 'v2'})
         if r.status_code == 200 and isinstance(r.json().get('results'), list):
-            return r.json()['results']
+            camps = r.json()['results']
+            for c in camps:  # fechas formateadas en hora AR para el template
+                c['f_inicio']   = _promo_fecha_ar(c.get('start_date'))
+                c['f_fin']      = _promo_fecha_ar(c.get('finish_date'))
+                c['f_deadline'] = _promo_fecha_ar(c.get('deadline_date'))
+            return camps
     except Exception:
         pass
     return []
 
 
-def _promo_row(pr):
-    """Normaliza una promo (de /items o de una campaña) a los campos del template."""
+def _promo_fecha_ar(iso):
+    """ISO UTC de ML → string en hora Argentina (UTC-3).
+    Ej: '2026-08-28T03:00:00Z' → '28/08 00:00'. Devuelve None si no hay fecha."""
+    if not iso:
+        return None
+    try:
+        from datetime import datetime, timezone, timedelta
+        dt = datetime.strptime(str(iso)[:19], '%Y-%m-%dT%H:%M:%S').replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone(timedelta(hours=-3))).strftime('%d/%m %H:%M')
+    except Exception:
+        return None
+
+
+def _promo_row(pr, camp_fechas=None):
+    """Normaliza una promo (de /items o de una campaña) a los campos del template.
+    camp_fechas: dict {id_campaña: {inicio, fin, deadline}} para inyectar fechas."""
     lo = pr.get('min_discounted_price'); hi = pr.get('max_discounted_price')
     orig = pr.get('original_price'); price = pr.get('price')
     sug = pr.get('suggested_discounted_price')
@@ -9421,10 +9440,14 @@ def _promo_row(pr):
     pf = lambda x: (f"{x:.1f}".replace('.', ',') if x is not None else None)
     pct = lambda o, f: (f"{(o - f) / o * 100:.1f}".replace('.', ',') if (o and f is not None) else None)
     baja = lambda o, f: ((o - f) if (o and f is not None) else None)
+    _f = (camp_fechas or {}).get(pr.get('id')) or {}
     return {
         'tipo': pr.get('type'), 'status': pr.get('status'), 'id': pr.get('id'),
         'name': pr.get('name') or '', 'price': price, 'original_price': orig,
         'min': lo, 'max': hi, 'sugerido': sug, 'finish_date': pr.get('finish_date'),
+        'f_inicio': _f.get('inicio'),
+        'f_fin': _f.get('fin') or _promo_fecha_ar(pr.get('finish_date')),
+        'f_deadline': _f.get('deadline'),
         'editable': lo is not None and hi is not None,
         'pct_desde': pct(orig, hi), 'pct_hasta': pct(orig, lo),
         'pct_sug': pct(orig, sug), 'pct_price': pct(orig, price),
@@ -9477,6 +9500,8 @@ def promociones_ml_buscar():
     sku = request.form.get('sku_buscar', '').strip().upper()
     access_token = cargar_ml_token()
     campanias = _promo_campanias(access_token) if access_token else []
+    _camp_fechas = {c['id']: {'inicio': c.get('f_inicio'), 'fin': c.get('f_fin'),
+                              'deadline': c.get('f_deadline')} for c in campanias}
     if not sku:
         flash('Ingresá un SKU', 'warning')
         return redirect(url_for('promociones_ml'))
@@ -9523,7 +9548,7 @@ def promociones_ml_buscar():
                             access_token, params={'app_version': 'v2'})
             data = rp.json() if rp.status_code == 200 else None
             if isinstance(data, list):
-                pub['promos'] = [_promo_row(pr) for pr in data]
+                pub['promos'] = [_promo_row(pr, _camp_fechas) for pr in data]
             else:
                 pub['promo_error'] = str(rp.status_code)
         except Exception as e:
@@ -9581,13 +9606,17 @@ def promociones_ml_campania():
     items = [it for it in items if it.get('id') in mapa]
     costos = _costos_map([mapa[it['id']] for it in items])
     cuotas = _cuotas_reales_map(access_token, [it['id'] for it in items])
+    _camp_fechas = {c['id']: {'inicio': c.get('f_inicio'), 'fin': c.get('f_fin'),
+                              'deadline': c.get('f_deadline')} for c in campanias}
     filas = []
     for it in items:
         mla = it['id']; s = mapa.get(mla)
         filas.append({'mla_id': mla, 'sku': s, 'titulo': titulos.get(mla),
-                      'promo': _promo_row(it), 'costo': costos.get(s), 'cuotas_real': cuotas.get(mla, '—')})
+                      'promo': _promo_row(it, _camp_fechas), 'costo': costos.get(s), 'cuotas_real': cuotas.get(mla, '—')})
     return render_template('promociones_ml.html', active_tab='camp', campanias=campanias,
                            campania_sel=camp_id, campania_nombre=camp.get('name'), campania_tipo=ctype,
+                           campania_inicio=camp.get('f_inicio'), campania_fin=camp.get('f_fin'),
+                           campania_deadline=camp.get('f_deadline'),
                            campania_items=filas, publicaciones=None, sku_buscado='')
 
 
