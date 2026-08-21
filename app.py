@@ -9566,6 +9566,14 @@ def promociones_ml_campania():
                 break
     except Exception as e:
         flash(f'Error trayendo la campaña: {e}', 'danger')
+    # ML repite cada publi muchas veces en campañas SMART/PRICE_MATCHING (filas
+    # idénticas) → deduplicar por MLA para no mostrar/participar dos veces.
+    _vistos = set(); items_unicos = []
+    for it in items:
+        iid = it.get('id')
+        if iid and iid not in _vistos:
+            _vistos.add(iid); items_unicos.append(it)
+    items = items_unicos
     # filtrar a los mapeados a mis SKUs
     rows = query_db("SELECT mla_id, sku, titulo_ml FROM sku_mla_mapeo WHERE activo = TRUE")
     mapa = {r['mla_id']: r['sku'] for r in rows}
