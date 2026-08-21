@@ -60,9 +60,9 @@
         <div class="card-body py-2">
             <div class="row g-2 align-items-end">
                 <div class="col-md-2">
-                    <label class="form-label small fw-bold mb-1">SKU específico</label>
+                    <label class="form-label small fw-bold mb-1">SKU o catálogo</label>
                     <input type="text" id="sku-input" class="form-control form-control-sm"
-                           placeholder="Ej: CDOP160">
+                           placeholder="Ej: CDOP160 o MLA123456">
                 </div>
                 <div class="col-md-2">
                     <label class="form-label small fw-bold mb-1">Tipo</label>
@@ -493,6 +493,7 @@ function renderTabla(rows) {
 <div class="sku-header d-flex justify-content-between align-items-center">
   <span>${tipoLabel} <strong>${sku}</strong>
     <span class="badge bg-light text-dark ms-2" style="font-size:.7rem">${meta.modelo} ${meta.medida}cm</span>
+    ${catalogId ? `<span class="font-monospace text-white-50 ms-2" style="font-size:.72rem">${catalogId}</span>` : ''}
   </span>
   ${catalogId ? `<a href="https://www.mercadolibre.com.ar/p/${catalogId}" target="_blank"
       class="btn btn-sm btn-outline-light py-0 px-2" style="font-size:.75rem">

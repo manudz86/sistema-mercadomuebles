@@ -598,7 +598,11 @@ def competencia_datos():
     params = [ultima_fecha]
 
     if sku_filtro:
-        where += " AND s.sku = %s"; params.append(sku_filtro)
+        # Buscar por SKU o por catálogo (acepta el ID pegado directo o una URL de ML)
+        m = re.search(r'(ML[A-Z]\d{6,})', sku_filtro)
+        cat_maybe = m.group(1) if m else sku_filtro
+        where += " AND (s.sku = %s OR s.catalog_product_id = %s)"
+        params.extend([sku_filtro, cat_maybe])
     if tipo_filtro:
         where += " AND s.tipo = %s"; params.append(tipo_filtro)
     if modelo_filtro:
