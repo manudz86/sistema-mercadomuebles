@@ -298,19 +298,53 @@ async function participarSel(){
   if(!confirm('¿Participar en «'+CAMP_NOMBRE+'» con '+sel.length+' publicación(es)?\nEl precio lo fija ML (promo de precio fijo, co-financiada).')) return;
   var btn = document.getElementById('btnParticipar'), txt = btn.innerHTML;
   btn.disabled = true;
+  var esFijo = (CAMP_TIPO === 'SMART' || CAMP_TIPO === 'PRICE_MATCHING');
   var ok=0, fail=0;
-  for(var k=0; k<sel.length; k++){
-    var cb = sel[k], mla = cb.value, tr = cb.closest('tr');
-    btn.innerHTML = 'Procesando '+(k+1)+'/'+sel.length+'…';
-    try{
-      var r = await fetch('/promociones-ml/aplicar', {method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({mla:mla, promotion_type:CAMP_TIPO, promotion_id:CAMP_ID})});
-      var d = await r.json();
-      if(d.ok){ ok++; marcarCampFila(tr, true, d); cb.checked=false; }
-      else { fail++; marcarCampFila(tr, false, d); }
-    }catch(e){ fail++; marcarCampFila(tr, false, {error:String(e)}); }
+
+  if(esFijo){
+    // Precio fijo: lote en backend (procesa en paralelo). Mandamos en tandas para
+    // ver progreso y acotar cada request. Mapa mla -> fila para marcar el resultado.
+    var mapa = {};
+    sel.forEach(function(cb){ mapa[cb.value] = {cb:cb, tr:cb.closest('tr')}; });
+    var mlas = sel.map(function(cb){ return cb.value; });
+    var total = mlas.length, CHUNK = 20;
+    for(var i=0; i<mlas.length; i+=CHUNK){
+      var lote = mlas.slice(i, i+CHUNK);
+      btn.innerHTML = 'Procesando '+Math.min(i+lote.length, total)+'/'+total+'…';
+      try{
+        var r = await fetch('/promociones-ml/aplicar-lote', {method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({mlas:lote, promotion_type:CAMP_TIPO, promotion_id:CAMP_ID})});
+        var d = await r.json();
+        if(d.ok && d.resultados){
+          lote.forEach(function(mla){
+            var res = d.resultados[mla] || {ok:false, error:'sin respuesta'};
+            var ref = mapa[mla];
+            if(res.ok){ ok++; if(ref){ marcarCampFila(ref.tr, true, res); ref.cb.checked=false; } }
+            else { fail++; if(ref) marcarCampFila(ref.tr, false, res); }
+          });
+        } else {
+          lote.forEach(function(mla){ fail++; var ref=mapa[mla]; if(ref) marcarCampFila(ref.tr, false, {error:(d.error||'error del lote')}); });
+        }
+      }catch(e){
+        lote.forEach(function(mla){ fail++; var ref=mapa[mla]; if(ref) marcarCampFila(ref.tr, false, {error:String(e)}); });
+      }
+    }
+  } else {
+    // Otros tipos (ej. DEAL): flujo secuencial de siempre.
+    for(var k=0; k<sel.length; k++){
+      var cb = sel[k], mla = cb.value, tr = cb.closest('tr');
+      btn.innerHTML = 'Procesando '+(k+1)+'/'+sel.length+'…';
+      try{
+        var r2 = await fetch('/promociones-ml/aplicar', {method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({mla:mla, promotion_type:CAMP_TIPO, promotion_id:CAMP_ID})});
+        var d2 = await r2.json();
+        if(d2.ok){ ok++; marcarCampFila(tr, true, d2); cb.checked=false; }
+        else { fail++; marcarCampFila(tr, false, d2); }
+      }catch(e){ fail++; marcarCampFila(tr, false, {error:String(e)}); }
+    }
   }
-  btn.innerHTML = txt; contarSel();
+
+  btn.innerHTML = txt; btn.disabled = false; contarSel();
   alert('Listo.\nActivadas: '+ok+'\nCon error: '+fail);
 }
 

@@ -9718,6 +9718,124 @@ def promociones_ml_aplicar():
     return jsonify({'ok': False, 'error': msg})
 
 
+def _participar_campania_una(access_token, mla, tipo, promotion_id):
+    """Une UNA publicación a una campaña de precio fijo (SMART / PRICE_MATCHING).
+    El precio lo fija ML. Devuelve dict {ok, tipo, deal_price, original_price, pct, error}.
+    Pensado para correr en paralelo (thread pool) desde el endpoint de lote."""
+    def _safe_json(resp):
+        try:
+            return resp.json()
+        except Exception:
+            return {}
+
+    # 1) resolver offer_id (ref_id del candidato de esta publi para esta campaña)
+    offer_id = None
+    try:
+        rg = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/items/{mla}',
+                        access_token, params={'app_version': 'v2'})
+        for p in (_safe_json(rg) or []):
+            if isinstance(p, dict) and p.get('type') == tipo and \
+               (not promotion_id or p.get('id') == promotion_id) and p.get('ref_id'):
+                offer_id = p['ref_id']
+                break
+    except Exception:
+        pass
+    if not offer_id:
+        return {'ok': False, 'error': 'Sin oferta candidata (puede que ya esté activa o no aplique)'}
+
+    body = {'promotion_type': tipo, 'promotion_id': promotion_id, 'offer_id': offer_id}
+    del_qs = f'promotion_type={tipo}&promotion_id={promotion_id}'
+    post_url = f'https://api.mercadolibre.com/seller-promotions/items/{mla}?app_version=v2'
+
+    def _find_candidate(promos):
+        for p in (promos or []):
+            if isinstance(p, dict) and p.get('type') == tipo and \
+               (not promotion_id or p.get('id') == promotion_id) and p.get('status') == 'candidate':
+                return p
+        return None
+
+    ra = ml_request('post', post_url, access_token, json_data=body)
+    r = _safe_json(ra)
+    # Si la publi ya tiene una promo activa, ML no la toma como candidata. La borramos
+    # (borrado asíncrono) y reintentamos cuando vuelve a estado candidate. Acotado a
+    # ~12s: corre en un thread del pool, así que no bloquea a las demás publis.
+    if ra.status_code not in (200, 201) and 'candidate' in str((r or {}).get('message', '')).lower():
+        ml_request('delete', f'https://api.mercadolibre.com/seller-promotions/items/{mla}?{del_qs}&app_version=v2', access_token)
+        for _ in range(8):
+            time.sleep(1.5)
+            rg = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/items/{mla}',
+                            access_token, params={'app_version': 'v2'})
+            cand = _find_candidate(_safe_json(rg))
+            if cand:
+                if cand.get('ref_id'):
+                    body['offer_id'] = cand['ref_id']
+                break
+        ra = ml_request('post', post_url, access_token, json_data=body)
+        r = _safe_json(ra)
+
+    if ra.status_code in (200, 201):
+        orig = r.get('original_price') if isinstance(r, dict) else None
+        precio_final = (r.get('price') if isinstance(r, dict) else None)
+        pct = None
+        try:
+            if orig and precio_final:
+                pct = f"{(float(orig) - float(precio_final)) / float(orig) * 100:.1f}".replace('.', ',')
+        except Exception:
+            pass
+        return {'ok': True, 'tipo': tipo, 'deal_price': precio_final, 'original_price': orig, 'pct': pct}
+
+    msg = (r.get('message') if isinstance(r, dict) else None) or f'HTTP {ra.status_code}'
+    if isinstance(r, dict) and r.get('cause'):
+        detalle = '; '.join(c.get('error_message', '') for c in r['cause'] if c.get('error_message'))
+        if detalle:
+            msg = detalle
+    return {'ok': False, 'error': msg}
+
+
+@app.route('/promociones-ml/aplicar-lote', methods=['POST'])
+@login_required
+def promociones_ml_aplicar_lote():
+    """Participación MASIVA en una campaña de precio fijo (SMART / PRICE_MATCHING).
+    Procesa un lote de publicaciones en paralelo (pool interno) dentro de UN solo
+    request → ocupa un único worker de Gunicorn y deja libres los demás para la tienda."""
+    from concurrent.futures import ThreadPoolExecutor
+    data = request.get_json(silent=True) or {}
+    mlas = data.get('mlas') or []
+    tipo = (data.get('promotion_type') or '').strip().upper()
+    promotion_id = (data.get('promotion_id') or '').strip()
+    if not isinstance(mlas, list) or not mlas:
+        return jsonify({'ok': False, 'error': 'Faltan publicaciones'})
+    if tipo not in ('SMART', 'PRICE_MATCHING'):
+        return jsonify({'ok': False, 'error': 'El lote solo soporta campañas de precio fijo (SMART/PRICE_MATCHING)'})
+    if not promotion_id:
+        return jsonify({'ok': False, 'error': 'Falta el id de la campaña'})
+    access_token = cargar_ml_token()
+    if not access_token:
+        return jsonify({'ok': False, 'error': 'No hay token de ML configurado'})
+
+    # Deduplicar y acotar el lote por request (el frontend manda en tandas)
+    vistos, limpio = set(), []
+    for m in mlas:
+        m = str(m).strip()
+        if m and m not in vistos:
+            vistos.add(m); limpio.append(m)
+    limpio = limpio[:30]
+
+    def _una(mla):
+        try:
+            return mla, _participar_campania_una(access_token, mla, tipo, promotion_id)
+        except Exception as e:
+            return mla, {'ok': False, 'error': str(e)}
+
+    resultados = {}
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        for mla, res in ex.map(_una, limpio):
+            resultados[mla] = res
+    ok = sum(1 for r in resultados.values() if r.get('ok'))
+    return jsonify({'ok': True, 'resultados': resultados,
+                    'ok_count': ok, 'fail_count': len(resultados) - ok})
+
+
 @app.route('/promociones-ml/quitar', methods=['POST'])
 @login_required
 def promociones_ml_quitar():
