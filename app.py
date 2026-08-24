@@ -17195,6 +17195,25 @@ Escribí solo el texto de la respuesta (sin comillas)."""
 
 
 def _sync_preguntas(access_token=None):
+    """Wrapper con lock entre workers: solo UN worker corre el sync+push por vez.
+    Los 5 workers de gunicorn arrancan su propio scheduler; sin este lock, todos
+    detectan la misma pregunta nueva y mandan el push → llegan notificaciones duplicadas."""
+    try:
+        from competencia_bp import _adquirir_lock, _liberar_lock
+    except Exception:
+        return _sync_preguntas_inner(access_token)
+    db, cur, got = _adquirir_lock('sync_preguntas', timeout=0)
+    if not got:
+        if db:
+            _liberar_lock(db, cur, 'sync_preguntas')
+        return  # otro worker ya está sincronizando
+    try:
+        _sync_preguntas_inner(access_token)
+    finally:
+        _liberar_lock(db, cur, 'sync_preguntas')
+
+
+def _sync_preguntas_inner(access_token=None):
     """Upsert de preguntas sin responder; marca como ANSWERED las que ya no figuran."""
     if access_token is None:
         access_token = cargar_ml_token()
