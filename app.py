@@ -17107,6 +17107,21 @@ def _humanizar_atraso(delta):
     return f"hace {m}m"
 
 
+_PREGUNTAS_CONOCIMIENTO_DEFAULT = """ENVÍOS — aplicá según el TIPO de producto y el SKU:
+1) ALMOHADAS: si el precio de la publicación es MAYOR a $33.000 → envío GRATIS. Si es $33.000 o menos → el costo de envío ya figura en la propia publicación (el comprador lo ve ahí).
+2) COLCHONES COMPAC (los que dicen "Compac"): envío GRATIS a todo el país.
+3) PLACAS (tipo MD18100 y similares): NO hacemos cortes NI envíos.
+4) RESTO DE COLCHONES Y SOMMIERS — mirá el SKU:
+   • SKU que TERMINA en Z: el costo de envío figura en la publicación según el código postal. Si no le figura, que toque "Calcular cuándo llega", ingrese su código postal y ahí ve el importe y la demora.
+   • SKU que NO termina en Z: envío GRATIS solo en CABA y el primer cordón del AMBA. Para el resto de las zonas, pedile código postal + ciudad + provincia y decile que se lo cotizás (NO des un precio ni un plazo inventado).
+Nunca inventes un costo ni un tiempo de envío.
+
+RETIRO: todos los colchones se pueden retirar por el local.
+UBICACIÓN: estamos en Floresta, CABA. Horario: lunes a viernes de 8 a 12 y de 14 a 16:30. NUNCA des la dirección exacta (calle/número).
+FERIADOS: no trabajamos los feriados nacionales.
+GARANTÍA: los colchones y sommiers tienen 5 años de garantía Cannon."""
+
+
 def _preguntas_reglas():
     """Reglas del bot de preguntas (desde configuracion.preguntas_reglas, con defaults)."""
     reglas = {
@@ -17114,6 +17129,7 @@ def _preguntas_reglas():
         'cierre': 'Cualquier consulta, estamos a tu disposición, Matías de MercadoMuebles.',
         'tono': 'Cordial, claro, rioplatense y conciso. Si no podés responder con la info disponible, decí que lo verificás; nunca inventes datos.',
         'prohibido': [], 'envio_me1': '', 'envio_flex': '',
+        'conocimiento': _PREGUNTAS_CONOCIMIENTO_DEFAULT,
     }
     try:
         row = query_one("SELECT valor FROM configuracion WHERE clave='preguntas_reglas'")
@@ -17125,6 +17141,36 @@ def _preguntas_reglas():
     except Exception:
         pass
     return reglas
+
+
+def _ejemplos_relevantes(pregunta_texto, sku=None, k=10):
+    """Elige los k ejemplos MÁS RELEVANTES (no los últimos) para no encarecer el prompt.
+    Puntúa por palabras compartidas con la pregunta + bonus si es el mismo SKU; completa
+    con los más recientes si faltan. Devuelve lista de dicts {pregunta, respuesta}."""
+    import re as _re
+    pool = query_db("SELECT pregunta, respuesta, sku FROM preguntas_ejemplos "
+                    "ORDER BY id DESC LIMIT 300") or []
+    if not pool:
+        return []
+    def toks(s):
+        return set(t for t in _re.findall(r'[a-záéíóúñ0-9]{4,}', (s or '').lower()))
+    qt = toks(pregunta_texto)
+    sku_u = str(sku).upper() if sku else None
+    scored = []
+    for idx, e in enumerate(pool):
+        sc = len(qt & toks(e.get('pregunta')))
+        if sku_u and e.get('sku') and str(e['sku']).upper() == sku_u:
+            sc += 3
+        scored.append((sc, idx, e))
+    scored.sort(key=lambda x: (-x[0], x[1]))   # score desc, luego más reciente
+    top = [e for sc, _, e in scored if sc > 0][:k]
+    if len(top) < k:                            # completar con recientes
+        for sc, _, e in scored:
+            if e not in top:
+                top.append(e)
+            if len(top) >= k:
+                break
+    return top
 
 
 def _sugerir_respuesta(pregunta_texto, sku=None, titulo=None, precio=None, stock=None,
@@ -17139,14 +17185,14 @@ def _sugerir_respuesta(pregunta_texto, sku=None, titulo=None, precio=None, stock
         return None
     reglas = _preguntas_reglas()
     con_z = bool(sku) and str(sku).upper().endswith('Z')
-    envio = reglas['envio_me1'] if con_z else reglas['envio_flex']
-    tipo_envio = 'Mercado Envíos 1 (ME1)' if con_z else 'Flex'
+    conocimiento = (reglas.get('conocimiento') or '').strip()
+    # Ejemplos RELEVANTES a esta pregunta (no los últimos 15) — acotado para no encarecer.
     ejemplos = ''
     try:
-        ex = query_db("SELECT pregunta, respuesta FROM preguntas_ejemplos ORDER BY id DESC LIMIT 15") or []
+        ex = _ejemplos_relevantes(pregunta_texto, sku, k=10)
         if ex:
-            ejemplos = "\n\nEJEMPLOS DE RESPUESTAS ANTERIORES (imitá este estilo y criterio):\n" + \
-                "\n".join(f"P: {e['pregunta']}\nR: {e['respuesta']}" for e in reversed(ex))
+            ejemplos = "EJEMPLOS DE RESPUESTAS ANTERIORES (imitá el estilo y el criterio):\n" + \
+                "\n".join(f"P: {e['pregunta']}\nR: {e['respuesta']}" for e in ex)
     except Exception:
         pass
     prohibido = "\n".join(f"- {x}" for x in (reglas.get('prohibido') or []))
@@ -17158,18 +17204,18 @@ REGLAS:
 - Tono: {reglas['tono']}
 - Respondé SOLO la pregunta concreta, con la info disponible. No inventes medidas, stock ni plazos.
 - Si con la información disponible NO podés responder con certeza la pregunta (te falta el dato), NO inventes ni escribas que no sabés: devolvé EXACTAMENTE el texto "[SIN_RESPUESTA]" y nada más (sin saludo ni cierre).
+- NUNCA inventes un costo ni un plazo de envío: aplicá las REGLAS DE ENVÍO de abajo; si corresponde cotizar, pedí código postal + ciudad + provincia y decí que lo cotizás.
 - NUNCA incluyas (penaliza Mercado Libre):
 {prohibido}
 - REGLA CRÍTICA — NUNCA pongas la dirección exacta del local (calle ni número) en la respuesta, aunque el comprador la pida. Como MÁXIMO, indicá la ZONA y el horario: estamos en Floresta, CABA, y atendemos de lunes a viernes de 8 a 12 y de 14 a 16.30hs. Nada de dirección exacta.
 
-ENVÍO DE ESTA PUBLICACIÓN ({tipo_envio}):
-{envio}
+REGLAS DE ENVÍO Y NEGOCIO (PRIORITARIO — aplicalas siempre):
+{conocimiento}
 
 CONOCIMIENTO DE PRODUCTO (Cannon):
-{CATALOGO_INFO}
-{ejemplos}"""
+{CATALOGO_INFO}"""
     ctx = f"""DATOS DE LA PUBLICACIÓN:
-- SKU: {sku or '-'}
+- SKU: {sku or '-'} ({'termina en Z' if con_z else 'NO termina en Z'})
 - Título: {titulo or '-'}
 - Precio: {precio if precio is not None else '-'}
 - Stock: {stock if stock is not None else '-'}
@@ -17179,11 +17225,16 @@ CONOCIMIENTO DE PRODUCTO (Cannon):
 PREGUNTA DEL COMPRADOR:
 {pregunta_texto}
 
-Escribí solo el texto de la respuesta (sin comillas)."""
+Determiná el envío según las REGLAS DE ENVÍO (mirá si es almohada / Compac / placa / otro, y si el SKU termina en Z). Escribí solo el texto de la respuesta (sin comillas)."""
+    # Bloque estático (reglas + conocimiento + producto) → cacheado (paga ~10%).
+    # Los ejemplos van en un bloque aparte porque cambian; son chicos.
+    system_blocks = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+    if ejemplos:
+        system_blocks.append({"type": "text", "text": ejemplos})
     try:
         client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
         resp = client.messages.create(model='claude-sonnet-4-5', max_tokens=700,
-                                       system=system, messages=[{'role': 'user', 'content': ctx}])
+                                       system=system_blocks, messages=[{'role': 'user', 'content': ctx}])
         texto = ''.join(b.text for b in resp.content if getattr(b, 'type', '') == 'text').strip()
         # Si el bot no sabe, deja la sugerencia en blanco (para aprender de tu respuesta)
         if not texto or 'SIN_RESPUESTA' in texto.upper():
@@ -17393,6 +17444,7 @@ def preguntas_reglas():
             'prohibido': [x.strip() for x in (request.form.get('prohibido', '') or '').splitlines() if x.strip()],
             'envio_me1': request.form.get('envio_me1', '').strip(),
             'envio_flex': request.form.get('envio_flex', '').strip(),
+            'conocimiento': request.form.get('conocimiento', '').strip(),
         }
         execute_db("INSERT INTO configuracion (clave,valor) VALUES ('preguntas_reglas',%s) "
                    "ON DUPLICATE KEY UPDATE valor=VALUES(valor)",

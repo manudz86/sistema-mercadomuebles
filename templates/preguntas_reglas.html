@@ -35,7 +35,13 @@
     </div>
 
     <div class="mb-3">
-      <label class="form-label fw-semibold">🚚 Envío ME1 (publicaciones con SKU con Z)</label>
+      <label class="form-label fw-semibold">📋 Reglas de envío y negocio (bloque principal que usa el bot)</label>
+      <textarea name="conocimiento" class="form-control" rows="16">{{ reglas.conocimiento }}</textarea>
+      <div class="form-text">Árbol de envíos (almohadas / Compac / placas / SKU con o sin Z) + retiro, feriados, garantía y ubicación. Es lo que el bot aplica siempre. Los campos "Envío ME1/Flex" de abajo quedaron de la versión anterior y ya no se inyectan.</div>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label fw-semibold text-muted">🚚 Envío ME1 (legacy — ya no se usa)</label>
       <textarea name="envio_me1" class="form-control" rows="4">{{ reglas.envio_me1 }}</textarea>
     </div>
 
