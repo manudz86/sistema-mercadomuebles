@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cannon-v3';
+const CACHE_NAME = 'cannon-v4';
 const STATIC_ASSETS = [
     '/',
     '/static/loguito_fav.png',
@@ -68,6 +68,13 @@ self.addEventListener('push', event => {
         renotify: true,
         data: { url: data.url || '/' }
     };
+    // Badge del ícono en la home (cantidad): actualizar aunque la app esté cerrada
+    if (typeof data.badge_count === 'number' && 'setAppBadge' in self.navigator) {
+        try {
+            if (data.badge_count > 0) self.navigator.setAppBadge(data.badge_count);
+            else self.navigator.clearAppBadge();
+        } catch (e) {}
+    }
     event.waitUntil(self.registration.showNotification(title, options));
 });
 

@@ -175,6 +175,13 @@
         .bottom-nav a i { font-size: 1.3rem; }
         .bottom-nav a.active, .bottom-nav a:hover { color: #3498db; }
         .bottom-nav a span { line-height: 1; }
+        .bottom-nav .nav-badge {
+            position: absolute; top: 2px; left: 50%; margin-left: 6px;
+            min-width: 17px; height: 17px; padding: 0 4px;
+            background: #ff3b30; color: #fff; border-radius: 9px;
+            font-size: 11px; font-weight: 700; line-height: 17px; text-align: center;
+            box-shadow: 0 0 0 2px #fff;
+        }
 
         /* ── MOBILE CONTENT ADJUSTMENTS ── */
         @media (max-width: 767px) {
@@ -751,10 +758,13 @@
             <i class="bi bi-grid-3x3"></i>
             <span>Stock</span>
         </a>
-        <a href="/ventas/proceso"
-           class="{% if request.endpoint == 'ventas_proceso' %}active{% endif %}">
-            <i class="bi bi-box-seam"></i>
-            <span>Envíos</span>
+        <a href="/preguntas"
+           class="{% if request.endpoint == 'preguntas' %}active{% endif %}" style="position:relative">
+            <i class="bi bi-chat-left-dots"></i>
+            <span>Preguntas</span>
+            {% if preguntas_pendientes_count and preguntas_pendientes_count > 0 %}
+            <span class="nav-badge">{{ preguntas_pendientes_count if preguntas_pendientes_count < 100 else '99+' }}</span>
+            {% endif %}
         </a>
         <a href="/ventas/activas"
            class="{% if request.endpoint == 'ventas_activas' %}active{% endif %}">
@@ -800,6 +810,15 @@
                 rs.forEach(r => { if (r.scope && r.scope.endsWith('/static/')) r.unregister(); });
             }).catch(() => {});
         }
+        // Badge del ícono en la home: reflejar las preguntas sin responder al abrir/navegar
+        (function(){
+            try {
+                var n = parseInt('{{ preguntas_pendientes_count or 0 }}', 10) || 0;
+                if ('setAppBadge' in navigator) {
+                    if (n > 0) navigator.setAppBadge(n); else navigator.clearAppBadge();
+                }
+            } catch (e) {}
+        })();
     </script>
 
     <!-- Notificaciones push (solo en la PWA instalada en la home del iPhone) -->

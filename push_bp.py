@@ -46,16 +46,22 @@ def _crear_tabla():
 _crear_tabla()
 
 
-def enviar_push(titulo, cuerpo, url='/', tag='cannon'):
+def enviar_push(titulo, cuerpo, url='/', tag='cannon', badge=None):
     """Envía una notificación a todas las suscripciones. Borra las muertas (404/410).
-    Devuelve cuántas se enviaron OK. Es seguro llamarlo desde threads/background."""
+    Devuelve cuántas se enviaron OK. Es seguro llamarlo desde threads/background.
+    badge: si se pasa, el service worker pone ese número en el ícono de la home (iOS)."""
     from pywebpush import webpush, WebPushException
     if not os.path.exists(VAPID_PRIVATE):
         print("[PUSH] Falta config/vapid_private.pem — no se envía.")
         return 0
     email = os.getenv('VAPID_ADMIN_EMAIL', 'mailto:admin@mercadomuebles.com.ar')
-    payload = json.dumps({'title': titulo, 'body': cuerpo, 'url': url, 'tag': tag},
-                         ensure_ascii=False)
+    _payload = {'title': titulo, 'body': cuerpo, 'url': url, 'tag': tag}
+    if badge is not None:
+        try:
+            _payload['badge_count'] = int(badge)
+        except (TypeError, ValueError):
+            pass
+    payload = json.dumps(_payload, ensure_ascii=False)
     enviados = 0
     try:
         db = _db(); cur = db.cursor()
@@ -130,6 +136,34 @@ def notificar_nueva_venta(venta_id):
             enviar_push(f"🛒 Nueva venta {lbl}", cuerpo, '/ventas/activas', f'venta-{venta_id}')
         except Exception as e:
             print(f"[PUSH] notificar_nueva_venta error: {e}")
+
+    threading.Thread(target=_bg, daemon=True).start()
+
+
+def notificar_nueva_pregunta(nuevas, total):
+    """Notifica preguntas NUEVAS de ML y actualiza el badge del ícono (total sin responder).
+    nuevas: lista de (texto, producto). total: cantidad sin responder tras el sync.
+    Corre en background y nunca rompe el flujo del que la llama."""
+    import threading
+
+    def _bg():
+        try:
+            n = len(nuevas) if nuevas else 0
+            if n <= 0:
+                return
+            if n == 1:
+                texto, prod = nuevas[0]
+                cuerpo = ('"' + (texto or '').strip()[:90] + '"') if (texto or '').strip() else 'Nueva pregunta'
+                if prod:
+                    cuerpo += ' · ' + str(prod)[:45]
+                titulo = '❓ Nueva pregunta en ML'
+            else:
+                titulo = f'❓ {n} preguntas nuevas en ML'
+                prods = [str(p)[:35] for (_, p) in nuevas[:3] if p]
+                cuerpo = ' · '.join(prods) if prods else 'Tenés preguntas sin responder'
+            enviar_push(titulo, cuerpo, '/preguntas', 'preguntas', badge=total)
+        except Exception as e:
+            print(f"[PUSH] notificar_nueva_pregunta error: {e}")
 
     threading.Thread(target=_bg, daemon=True).start()
 

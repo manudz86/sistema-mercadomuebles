@@ -17202,6 +17202,7 @@ def _sync_preguntas(access_token=None):
         return
     qs = _preguntas_search(access_token, 'UNANSWERED')
     vistos = set()
+    nuevas = []   # (texto, producto) de las preguntas recién ingresadas → push + badge
     for q in qs:
         qid = q.get('id')
         if not qid:
@@ -17241,11 +17242,21 @@ def _sync_preguntas(access_token=None):
                                       ctx['stock'], ctx['tipo_publi'], ctx['cuotas'])
         if sugerida:
             execute_db("UPDATE ml_preguntas SET respuesta_sugerida=%s WHERE question_id=%s", (sugerida, qid))
+        nuevas.append((q.get('text', '') or '', ctx.get('titulo') or ctx.get('sku') or ''))
     # Las que estaban pendientes en DB y ya no vienen sin responder -> respondidas/cerradas
     pend = query_db("SELECT question_id FROM ml_preguntas WHERE status='UNANSWERED'") or []
     for r in pend:
         if r['question_id'] not in vistos:
             execute_db("UPDATE ml_preguntas SET status='ANSWERED' WHERE question_id=%s", (r['question_id'],))
+    # Push + badge en el ícono de la home por cada pregunta nueva (total sin responder)
+    if nuevas:
+        try:
+            pc = query_one("SELECT COUNT(*) AS c FROM ml_preguntas WHERE status='UNANSWERED'")
+            total = pc['c'] if pc else len(nuevas)
+            from push_bp import notificar_nueva_pregunta
+            notificar_nueva_pregunta(nuevas, total)
+        except Exception as e:
+            print(f"[PUSH] preguntas nuevas: {e}")
 
 
 def _responder_pregunta_ml(access_token, question_id, texto):
