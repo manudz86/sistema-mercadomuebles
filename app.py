@@ -9866,9 +9866,9 @@ def _participar_lightning_una(access_token, mla, promotion_id):
     smin = st.get('min'); smax = st.get('max')
     if smin is None or smax is None:
         return {'ok': False, 'error': 'La relámpago no informó rango de stock'}
-    stock_commit = int(smax) - 1
-    if stock_commit <= int(smin):
-        return {'ok': False, 'error': f'Rango de stock muy chico ({smin}-{smax})'}
+    stock_commit = int(smax)   # máximo permitido: ML acepta el tope del rango
+    if stock_commit < int(smin) or stock_commit < 1:
+        return {'ok': False, 'error': f'Rango de stock inválido ({smin}-{smax})'}
 
     body = {'promotion_type': 'LIGHTNING', 'promotion_id': promotion_id,
             'deal_price': deal_price, 'offer_id': cand['ref_id'], 'stock': stock_commit}
