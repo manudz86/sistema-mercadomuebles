@@ -613,24 +613,61 @@ def _rt_guardar_sessionid(new_sid):
     except Exception as e:
         print(f'[RT] no pude persistir sessionid: {e}')
 
+def _rt_login():
+    """Obtiene un sessionid FRESCO logueando con la llave de usuario (RT_LLAVE_USUARIO)
+    en Market Pro (/api/auth/login/ con {"key": llave}) y lo persiste. Así el sistema
+    se re-autentica solo cuando la sesión vence — sin capturar cookies a mano."""
+    import requests
+    llave = os.getenv('RT_LLAVE_USUARIO', '').strip()
+    if not llave:
+        raise RuntimeError('Falta RT_LLAVE_USUARIO para re-loguear en Real Trends.')
+    s = requests.Session()
+    s.headers['User-Agent'] = 'cannon/1.0'
+    try:
+        s.get(f'{RT_BASE}/', timeout=20)   # obtener csrftoken
+    except Exception:
+        pass
+    h = {'Content-Type': 'application/json', 'Referer': f'{RT_BASE}/login'}
+    if s.cookies.get('csrftoken'):
+        h['X-CSRFToken'] = s.cookies.get('csrftoken')
+    r = s.post(f'{RT_BASE}/api/auth/login/', json={'key': llave}, headers=h, timeout=30)
+    if r.status_code != 200:
+        raise RuntimeError(f'No pude re-loguear en Real Trends (HTTP {r.status_code}). Revisá RT_LLAVE_USUARIO.')
+    new_sid = s.cookies.get('sessionid')
+    if not new_sid:
+        raise RuntimeError('Real Trends no devolvió sessionid al loguear con la llave.')
+    _rt_guardar_sessionid(new_sid)
+    return new_sid
+
+
 def _rt_fetch(cat_id, d0, d1):
     """Una llamada al full-download de Market Pro v2. Auth por cookie de sesión.
-    Devuelve (results, truncado). include_attributes=true trae los atributos ML
-    en el mismo formato que la descarga manual vieja (drop-in)."""
+    Si la sesión está vencida, se re-loguea solo con la llave (RT_LLAVE_USUARIO) y
+    reintenta una vez. Devuelve (results, truncado)."""
     import requests
+
+    def _do(sid):
+        return requests.get(f"{RT_BASE}/api/reports/full-download/",
+                            params={'category_id': cat_id, 'date_from': d0, 'date_to': d1,
+                                    'brand': 'cannon', 'include_attributes': 'true'},
+                            headers={'User-Agent': 'cannon/1.0', 'Accept': '*/*'},
+                            cookies={'sessionid': sid}, timeout=180)
+
+    def _vencida(resp):
+        return resp is None or resp.status_code in (401, 403) or \
+            'application/json' not in (resp.headers.get('content-type') or '')
+
     sid = os.getenv('RT_SESSIONID', '').strip()
-    if not sid:
-        raise RuntimeError('Falta RT_SESSIONID (cookie de sesión de Real Trends) en el servidor.')
-    r = requests.get(f"{RT_BASE}/api/reports/full-download/",
-                     params={'category_id': cat_id, 'date_from': d0, 'date_to': d1,
-                             'brand': 'cannon', 'include_attributes': 'true'},
-                     headers={'User-Agent': 'cannon/1.0', 'Accept': '*/*'},
-                     cookies={'sessionid': sid}, timeout=180)
+    r = _do(sid) if sid else None
+    if _vencida(r):
+        # Sesión vencida (o sin sessionid) → re-loguear con la llave y reintentar
+        sid = _rt_login()
+        r = _do(sid)
     if r.status_code in (401, 403):
-        raise RuntimeError('Sesión de Real Trends vencida — recapturá el sessionid (cookie) y actualizalo en el server.')
+        raise RuntimeError('Sesión de Real Trends vencida y el re-login con la llave falló — revisá RT_LLAVE_USUARIO.')
     r.raise_for_status()
     if 'application/json' not in (r.headers.get('content-type') or ''):
-        raise RuntimeError('Real Trends no devolvió JSON (¿sesión vencida?) — recapturá el sessionid.')
+        raise RuntimeError('Real Trends no devolvió JSON (¿sesión vencida?).')
     # Sesión rolling: si el server devolvió un sessionid nuevo, lo persistimos.
     try:
         new_sid = r.cookies.get('sessionid')
