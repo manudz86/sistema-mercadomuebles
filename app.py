@@ -9829,8 +9829,6 @@ def _participar_campania_una(access_token, mla, tipo, promotion_id):
     return {'ok': False, 'error': msg}
 
 
-@app.route('/promociones-ml/aplicar-lote', methods=['POST'])
-@login_required
 def _participar_lightning_una(access_token, mla, promotion_id):
     """Une UNA publicación a una campaña LIGHTNING (oferta relámpago).
     A diferencia de SMART, la relámpago tiene RANGO de descuento y exige comprometer
@@ -9896,6 +9894,8 @@ def _participar_lightning_una(access_token, mla, promotion_id):
     return {'ok': False, 'error': msg}
 
 
+@app.route('/promociones-ml/aplicar-lote', methods=['POST'])
+@login_required
 def promociones_ml_aplicar_lote():
     """Participación MASIVA en una campaña de precio fijo (SMART / PRICE_MATCHING / LIGHTNING).
     Procesa un lote de publicaciones en paralelo (pool interno) dentro de UN solo
