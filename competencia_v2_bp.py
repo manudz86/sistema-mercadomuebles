@@ -935,8 +935,10 @@ def _ventas_detalle(periodo, vendor):
             if q <= 0: continue
             title_full = r.get('title') or ''
             pvend = _price(r.get('price'))
+            _cat = str(r.get('catalog_product_id') or '').strip()
+            _cat = ('MLA' + _cat) if (_cat and not _cat.upper().startswith('MLA')) else _cat.upper()
             base = {'dia': _dia_corto(r.get('day')), 'dia_sort': _dia_sort(r.get('day')),
-                    'title': title_full[:70], 'title_full': title_full,
+                    'title': title_full[:70], 'title_full': title_full, 'catalog': _cat,
                     'tipo': tipo, 'u': q, 'gmv': q * pvend, 'pvend': pvend}
             if tipo == 'almohada':
                 # match por modelo; el competidor puede vender packs → comparo por unidad

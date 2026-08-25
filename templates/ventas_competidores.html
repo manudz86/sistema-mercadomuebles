@@ -70,7 +70,7 @@ td.mio{font-weight:700}td.diff{font-weight:800;text-align:right}
 
   <div class="tbox"><table class="vc" id="tabla">
     <thead><tr>
-      <th>Día</th><th>Producto</th><th>Modelo</th><th>Medida</th><th>SKU</th><th>Cuota</th>
+      <th>Día</th><th>Producto</th><th>Modelo</th><th>Medida</th><th>SKU</th><th>Catálogo</th><th>Cuota</th>
       <th class="sortable" onclick="sortBy('u',this)">U</th><th class="sortable" onclick="sortBy('gmv',this)">GMV</th><th>Precio vendido</th><th>Precio actual {{ vendor_nombre }}</th><th>MI precio</th><th class="sortable" onclick="sortBy('d',this)">Δ%</th>
     </tr></thead>
     <tbody>
@@ -81,6 +81,7 @@ td.mio{font-weight:700}td.diff{font-weight:800;text-align:right}
       <td>{{ r.model }}</td>
       <td>{{ r.medida }}</td>
       <td class="sku">{{ r.sku }}</td>
+      <td>{% if r.catalog %}<a href="https://www.mercadolibre.com.ar/p/{{ r.catalog }}" target="_blank" rel="noopener" style="white-space:nowrap">{{ r.catalog }}</a>{% else %}<span style="color:#aaa">—</span>{% endif %}</td>
       <td>{{ r.tier_lbl }}</td>
       <td class="num">{{ r.u }}</td>
       <td class="num">${{ '{:,.0f}'.format(r.gmv)|replace(',','.') }}</td>
