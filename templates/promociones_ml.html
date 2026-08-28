@@ -157,12 +157,12 @@
           {% if campania_inicio or campania_fin %}<br>🗓️ Inicia <b>{{ campania_inicio or '—' }}</b> · Termina <b>{{ campania_fin or '—' }}</b>{% if campania_deadline %} · Deadline para sumar: {{ campania_deadline }}{% endif %} <span class="text-muted">(hora AR)</span>{% elif campania_tipo == 'LIGHTNING' %}<br><span class="text-warning">⚡ Relámpago: ML no informa la fecha/hora por API</span>{% endif %}</span>
           <label style="font-size:.85rem">Filtrar tu % ≤ <input type="number" id="filtroTu" step="0.1" style="width:80px" class="form-control form-control-sm d-inline-block" oninput="filtrarCamp()"></label>
           <span class="text-muted" style="font-size:.85rem"><span id="selCount">0</span> seleccionadas</span>
-          {% if campania_tipo in ['SMART', 'PRICE_MATCHING', 'LIGHTNING'] %}
+          {% if campania_tipo in ['SMART', 'PRICE_MATCHING', 'LIGHTNING', 'DEAL'] %}
             <button type="button" id="btnParticipar" class="btn btn-sm btn-primary" onclick="participarSel()" disabled>
               <i class="bi bi-lightning-charge"></i> Participar con seleccionadas
             </button>
           {% else %}
-            <span class="badge bg-light text-dark border">Activar en lote: solo campañas de precio fijo (SMART / Gánale a la competencia / Relámpago)</span>
+            <span class="badge bg-light text-dark border">Activar en lote: SMART / Gánale a la competencia / Relámpago / Oferta (DEAL)</span>
           {% endif %}
         </div>
         <div class="table-responsive">
@@ -297,13 +297,18 @@ async function participarSel(){
   var sel = Array.prototype.slice.call(document.querySelectorAll('.selItem:checked'));
   if(!sel.length) return;
   var esLight = (CAMP_TIPO === 'LIGHTNING');
-  var msgConf = esLight
-    ? '¿Participar en la relámpago «'+CAMP_NOMBRE+'» con '+sel.length+' publicación(es)?\nSe usa el MENOR descuento exigido y se compromete el MÁXIMO stock permitido por cada publi.'
-    : '¿Participar en «'+CAMP_NOMBRE+'» con '+sel.length+' publicación(es)?\nEl precio lo fija ML (promo de precio fijo, co-financiada).';
+  var esDeal = (CAMP_TIPO === 'DEAL');
+  var msgConf;
+  if(esLight)
+    msgConf = '¿Participar en la relámpago «'+CAMP_NOMBRE+'» con '+sel.length+' publicación(es)?\nSe usa el MENOR descuento exigido y se compromete el MÁXIMO stock permitido por cada publi.';
+  else if(esDeal)
+    msgConf = '¿Participar en la oferta «'+CAMP_NOMBRE+'» con '+sel.length+' publicación(es)?\nSe aplica el MENOR descuento exigido por cada publi (mejor margen).';
+  else
+    msgConf = '¿Participar en «'+CAMP_NOMBRE+'» con '+sel.length+' publicación(es)?\nEl precio lo fija ML (promo de precio fijo, co-financiada).';
   if(!confirm(msgConf)) return;
   var btn = document.getElementById('btnParticipar'), txt = btn.innerHTML;
   btn.disabled = true;
-  var esFijo = (CAMP_TIPO === 'SMART' || CAMP_TIPO === 'PRICE_MATCHING' || CAMP_TIPO === 'LIGHTNING');
+  var esFijo = (CAMP_TIPO === 'SMART' || CAMP_TIPO === 'PRICE_MATCHING' || CAMP_TIPO === 'LIGHTNING' || CAMP_TIPO === 'DEAL');
   var ok=0, fail=0;
 
   if(esFijo){
