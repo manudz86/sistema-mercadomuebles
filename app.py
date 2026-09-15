@@ -6547,6 +6547,20 @@ def nueva_venta():
 
 
 
+def _num_form(valor, default=0.0, entero=False):
+    """Convierte un valor del formulario a número de forma segura.
+    Un campo vacío ('') o inválido NO rompe: devuelve el default.
+    (El default de request.form.get() solo aplica si la clave NO existe; cuando
+    existe vacía, float('') lanzaba ValueError y tiraba la venta entera.)"""
+    try:
+        s = str(valor if valor is not None else '').strip().replace(',', '.')
+        if not s:
+            return int(default) if entero else float(default)
+        return int(float(s)) if entero else float(s)
+    except (TypeError, ValueError):
+        return int(default) if entero else float(default)
+
+
 @app.route('/nueva-venta/guardar', methods=['POST'])
 @login_required
 def guardar_venta():
@@ -6612,21 +6626,28 @@ def guardar_venta():
             if key.startswith('productos[') and key.endswith('[sku]'):
                 index = key.split('[')[1].split(']')[0]
                 sku = productos_form.get(f'productos[{index}][sku]', [None])[0]
-                cantidad = int(productos_form.get(f'productos[{index}][cantidad]', [0])[0])
-                precio = float(productos_form.get(f'productos[{index}][precio]', [0])[0])
+                cantidad = _num_form(productos_form.get(f'productos[{index}][cantidad]', [0])[0], 0, entero=True)
+                precio = _num_form(productos_form.get(f'productos[{index}][precio]', [0])[0], 0)
                 if sku and cantidad > 0:
                     importe_total += cantidad * precio
         
         print(f"✅ importe_total calculado desde items: ${importe_total}")
-        
+
+        # Aviso si quedó en 0: casi siempre es un precio vacío en el formulario.
+        # Mejor frenar acá que guardar una venta sin importe (pasó con VENTA-...374).
+        if importe_total <= 0:
+            flash('⚠️ El total de la venta da $0. Revisá que los productos tengan '
+                  'precio y cantidad cargados.', 'warning')
+            return redirect(url_for('nueva_venta'))
+
         # ========================================
         # 4. PAGO
         # ========================================
         metodo_pago = request.form.get('metodo_pago')
-        pago_mercadopago  = float(request.form.get('pago_mercadopago', 0))
-        pago_efectivo     = float(request.form.get('pago_efectivo', 0))
-        pago_transferencia = float(request.form.get('pago_transferencia', 0))
-        pago_tarjeta      = float(request.form.get('pago_tarjeta', 0))
+        pago_mercadopago  = _num_form(request.form.get('pago_mercadopago'), 0)
+        pago_efectivo     = _num_form(request.form.get('pago_efectivo'), 0)
+        pago_transferencia = _num_form(request.form.get('pago_transferencia'), 0)
+        pago_tarjeta      = _num_form(request.form.get('pago_tarjeta'), 0)
         
         # Para Flete Propio y Zippin de ML, el cliente paga productos + flete por MP
         if canal == 'Mercado Libre' and metodo_envio in ['Flete Propio', 'Zippin'] and costo_flete > 0:
@@ -6658,7 +6679,16 @@ def guardar_venta():
         
         if ml_billing_data:
             billing_info = extraer_billing_info_ml(ml_billing_data)
-        
+        else:
+            # Venta externa/manual: la condición fiscal y el documento vienen del formulario
+            _cond_fiscal = (request.form.get('condicion_fiscal') or 'Consumidor Final').strip()
+            _doc_num = (request.form.get('dni_cliente') or '').strip()
+            billing_info['taxpayer_type'] = _cond_fiscal
+            if _doc_num:
+                billing_info['doc_number'] = _doc_num
+                billing_info['doc_type'] = 'DNI' if _cond_fiscal == 'Consumidor Final' else 'CUIT'
+        dni_cliente = (request.form.get('dni_cliente') or '').strip() or None
+
         # ========================================
         # 6. OBSERVACIONES Y ESTADO
         # ========================================
@@ -6672,7 +6702,7 @@ def guardar_venta():
         cursor.execute('''
             INSERT INTO ventas (
                 numero_venta, fecha_venta, canal, mla_code,
-                nombre_cliente, telefono_cliente,
+                nombre_cliente, telefono_cliente, dni_cliente,
                 tipo_entrega, metodo_envio, ubicacion_despacho,
                 zona_envio, direccion_entrega, responsable_entrega,
                 costo_flete, metodo_pago, importe_total, importe_abonado,
@@ -6682,12 +6712,12 @@ def guardar_venta():
                 factura_taxpayer_type, factura_city, factura_street,
                 factura_state, factura_zip_code
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 %s, %s, %s, %s, %s, %s, %s, %s
             )
         ''', (
             numero_venta, fecha_venta, canal, mla_code,
-            nombre_cliente, telefono_cliente,
+            nombre_cliente, telefono_cliente, dni_cliente,
             tipo_entrega, metodo_envio, ubicacion_despacho,
             zona_envio, direccion_entrega, responsable_entrega,
             costo_flete, metodo_pago, importe_total, importe_abonado,
@@ -6714,8 +6744,8 @@ def guardar_venta():
             if key.startswith('productos[') and key.endswith('[sku]'):
                 index = key.split('[')[1].split(']')[0]
                 sku = productos_form.get(f'productos[{index}][sku]', [None])[0]
-                cantidad = int(productos_form.get(f'productos[{index}][cantidad]', [0])[0])
-                precio = float(productos_form.get(f'productos[{index}][precio]', [0])[0])
+                cantidad = _num_form(productos_form.get(f'productos[{index}][cantidad]', [0])[0], 0, entero=True)
+                precio = _num_form(productos_form.get(f'productos[{index}][precio]', [0])[0], 0)
                 
                 if sku and cantidad > 0:
                     cursor.execute('''
@@ -6736,7 +6766,7 @@ def guardar_venta():
                 if key.startswith('productos[') and key.endswith('[sku]'):
                     index = key.split('[')[1].split(']')[0]
                     sku = productos_form.get(f'productos[{index}][sku]', [None])[0]
-                    cantidad = int(productos_form.get(f'productos[{index}][cantidad]', [0])[0])
+                    cantidad = _num_form(productos_form.get(f'productos[{index}][cantidad]', [0])[0], 0, entero=True)
                     if sku and cantidad > 0:
                         items_vendidos_lista.append({'sku': sku, 'cantidad': cantidad})
             
@@ -6931,6 +6961,7 @@ def dashboard_visual():
                 'BASE_SAB': get_datos(f'BASE_SAB{medida}'),
                 'CEX': get_datos(f'CEX{medida}'),
                 'CEXP': get_datos(f'CEXP{medida}'),
+                'CEXEP': get_datos(f'CEXEP{medida}'),
                 'BASE_CHOC': get_datos(f'BASE_CHOC{medida}'),
                 'CPR23': get_datos(f'CPR{medida}23'),
                 'CRE': get_datos(f'CRE{medida}'),
@@ -8317,7 +8348,7 @@ def ml_seleccionar_orden(orden_id):
                 existe, tipo, nombre = verificar_sku_en_bd(sku_a_usar)
 
                 # Auto-mapeo Compac: CCO{medida} → CCO{medida}_FULL o CCO{medida}_DEP
-                if not existe and sku_a_usar.upper().startswith('CCO') and '_' not in sku_a_usar:
+                if not existe and sku_a_usar.upper().startswith(('CCO', 'CCP')) and '_' not in sku_a_usar:
                     sufijo = '_FULL' if es_full_ml else '_DEP'
                     sku_compac = sku_a_usar.upper() + sufijo
                     existe, tipo, nombre = verificar_sku_en_bd(sku_compac)
@@ -9611,8 +9642,16 @@ def promociones_ml_campania():
     filas = []
     for it in items:
         mla = it['id']; s = mapa.get(mla)
+        _st = (it.get('status') or '').lower()
         filas.append({'mla_id': mla, 'sku': s, 'titulo': titulos.get(mla),
-                      'promo': _promo_row(it, _camp_fechas), 'costo': costos.get(s), 'cuotas_real': cuotas.get(mla, '—')})
+                      'promo': _promo_row(it, _camp_fechas), 'costo': costos.get(s),
+                      'cuotas_real': cuotas.get(mla, '—'),
+                      # estado real de ESTA publi en la campaña + su ventana propia:
+                      # en relámpago/PRE_NEGOTIATED cada oferta tiene su día y hora.
+                      'estado': _st,
+                      'ya_participa': _st in ('pending', 'started', 'active'),
+                      'f_ini_item': _promo_fecha_ar(it.get('start_date')),
+                      'f_fin_item': _promo_fecha_ar(it.get('end_date'))})
     return render_template('promociones_ml.html', active_tab='camp', campanias=campanias,
                            campania_sel=camp_id, campania_nombre=camp.get('name'), campania_tipo=ctype,
                            campania_inicio=camp.get('f_inicio'), campania_fin=camp.get('f_fin'),
@@ -9634,9 +9673,9 @@ def promociones_ml_aplicar():
     tipo = (data.get('promotion_type') or 'PRICE_DISCOUNT').strip().upper()
     promotion_id = (data.get('promotion_id') or '').strip()
     offer_id = (data.get('offer_id') or '').strip()
-    if tipo not in ('PRICE_DISCOUNT', 'DEAL', 'SMART', 'PRICE_MATCHING'):
+    if tipo not in ('PRICE_DISCOUNT', 'DEAL', 'SMART', 'PRICE_MATCHING', 'PRE_NEGOTIATED'):
         return jsonify({'ok': False, 'error': 'Tipo de promo no soportado'})
-    if tipo in ('DEAL', 'SMART', 'PRICE_MATCHING') and not promotion_id:
+    if tipo in ('DEAL', 'SMART', 'PRICE_MATCHING', 'PRE_NEGOTIATED') and not promotion_id:
         return jsonify({'ok': False, 'error': 'Falta el id de la campaña'})
     access_token = cargar_ml_token()
     if not access_token:
@@ -9644,7 +9683,7 @@ def promociones_ml_aplicar():
     # SMART / PRICE_MATCHING: el precio lo fija ML. Requieren offer_id (ref_id del
     # candidato). Si no vino (ej. desde el modo campaña, que no devuelve ref_id),
     # lo resolvemos leyendo el candidato de la propia publicación.
-    if tipo in ('SMART', 'PRICE_MATCHING') and not offer_id:
+    if tipo in ('SMART', 'PRICE_MATCHING', 'PRE_NEGOTIATED') and not offer_id:
         try:
             rg = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/items/{mla}',
                             access_token, params={'app_version': 'v2'})
@@ -9959,8 +9998,8 @@ def promociones_ml_aplicar_lote():
     promotion_id = (data.get('promotion_id') or '').strip()
     if not isinstance(mlas, list) or not mlas:
         return jsonify({'ok': False, 'error': 'Faltan publicaciones'})
-    if tipo not in ('SMART', 'PRICE_MATCHING', 'LIGHTNING', 'DEAL'):
-        return jsonify({'ok': False, 'error': 'El lote soporta SMART / PRICE_MATCHING / LIGHTNING / DEAL'})
+    if tipo not in ('SMART', 'PRICE_MATCHING', 'LIGHTNING', 'DEAL', 'PRE_NEGOTIATED'):
+        return jsonify({'ok': False, 'error': 'El lote soporta SMART / PRICE_MATCHING / LIGHTNING / DEAL / PRE_NEGOTIATED'})
     if not promotion_id:
         return jsonify({'ok': False, 'error': 'Falta el id de la campaña'})
     access_token = cargar_ml_token()
@@ -10022,6 +10061,115 @@ def promociones_ml_quitar():
     except Exception:
         err = {}
     return jsonify({'ok': False, 'error': err.get('message', f'HTTP {rd.status_code}')})
+
+
+def _quitar_promo_una(access_token, mla, tipo, promotion_id, offer_id=''):
+    """Saca UNA publicación de una promo. Pensado para el pool del lote."""
+    qs = f'promotion_type={tipo}&app_version=v2'
+    if promotion_id:
+        qs += f'&promotion_id={promotion_id}'
+    if offer_id:
+        qs += f'&offer_id={offer_id}'
+    rd = ml_request('delete', f'https://api.mercadolibre.com/seller-promotions/items/{mla}?{qs}', access_token)
+    if rd.status_code in (200, 204):
+        return {'ok': True}
+    try:
+        err = rd.json()
+    except Exception:
+        err = {}
+    return {'ok': False, 'error': err.get('message', f'HTTP {rd.status_code}')}
+
+
+@app.route('/promociones-ml/quitar-lote', methods=['POST'])
+@login_required
+def promociones_ml_quitar_lote():
+    """Sale de varias promos de una (DELETE en paralelo, pool interno).
+    items = [{mla, promotion_type, promotion_id, offer_id}, ...]"""
+    from concurrent.futures import ThreadPoolExecutor
+    data = request.get_json(silent=True) or {}
+    items = data.get('items') or []
+    if not isinstance(items, list) or not items:
+        return jsonify({'ok': False, 'error': 'Nada para quitar'})
+    items = items[:30]
+    access_token = cargar_ml_token()
+    if not access_token:
+        return jsonify({'ok': False, 'error': 'No hay token de ML configurado'})
+
+    def _una(it):
+        mla = (it.get('mla') or '').strip()
+        key = f"{mla}|{(it.get('promotion_id') or '').strip()}"
+        try:
+            if not mla or not (it.get('promotion_type') or '').strip():
+                return key, {'ok': False, 'error': 'Faltan datos'}
+            return key, _quitar_promo_una(access_token, mla,
+                                          (it.get('promotion_type') or '').strip().upper(),
+                                          (it.get('promotion_id') or '').strip(),
+                                          (it.get('offer_id') or '').strip())
+        except Exception as e:
+            return key, {'ok': False, 'error': str(e)}
+
+    resultados = {}
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        for k, res in ex.map(_una, items):
+            resultados[k] = res
+    ok = sum(1 for r in resultados.values() if r.get('ok'))
+    return jsonify({'ok': True, 'resultados': resultados,
+                    'ok_count': ok, 'fail_count': len(resultados) - ok})
+
+
+@app.route('/promociones-ml/activas')
+@login_required
+def promociones_ml_activas():
+    """Devuelve JSON con TODAS las promos ya aplicadas (activas o pendientes).
+    Usa el filtro status del endpoint de ML (status=started / pending), que evita
+    paginar campañas enteras: ~2 llamadas por campaña en vez de decenas."""
+    access_token = cargar_ml_token()
+    if not access_token:
+        return jsonify({'ok': False, 'error': 'No hay token de ML configurado'})
+    campanias = _promo_campanias(access_token)
+    rows = query_db("SELECT mla_id, sku, titulo_ml FROM sku_mla_mapeo WHERE activo = TRUE") or []
+    mapa = {r['mla_id']: r['sku'] for r in rows}
+    titulos = {r['mla_id']: r['titulo_ml'] for r in rows}
+    activas = []
+    for c in campanias:
+        cid, ctype = c.get('id'), c.get('type')
+        if not cid or not ctype:
+            continue
+        vistos = set()
+        for st_f in ('started', 'pending'):
+            off = 0
+            while True:
+                r = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/promotions/{cid}/items',
+                               access_token, params={'promotion_type': ctype, 'app_version': 'v2',
+                                                     'status': st_f, 'limit': 50, 'offset': off})
+                if r.status_code != 200:
+                    break
+                d = r.json() or {}
+                res = d.get('results') or []
+                for it in res:
+                    mla = it.get('id')
+                    st = (it.get('status') or '').lower()
+                    if not mla or mla in vistos:
+                        continue
+                    vistos.add(mla)
+                    activas.append({
+                        'mla_id': mla, 'sku': mapa.get(mla) or '', 'titulo': titulos.get(mla) or '',
+                        'campania': c.get('name') or cid, 'promotion_id': cid, 'tipo': ctype,
+                        'estado': st,
+                        'precio': it.get('price'), 'original': it.get('original_price'),
+                        'offer_id': it.get('offer_id') or it.get('ref_id') or '',
+                        'seller_pct': it.get('seller_percentage'),
+                        'f_ini': _promo_fecha_ar(it.get('start_date')),
+                        'f_fin': _promo_fecha_ar(it.get('end_date')),
+                    })
+                tot = d.get('paging', {}).get('total', len(res))
+                off += 50
+                if off >= tot or not res:
+                    break
+    activas.sort(key=lambda x: (x['campania'], x['sku'] or '', x['mla_id']))
+    n_act = sum(1 for a in activas if a['estado'] in ('started', 'active'))
+    return jsonify({'ok': True, 'items': activas, 'total': len(activas),
+                    'activas': n_act, 'pendientes': len(activas) - n_act})
 
 
 @app.route('/buscar-sku-ml', methods=['POST'])
@@ -11637,6 +11785,113 @@ def quitar_demora_masivo():
                            sku_buscado=sku,
                            publicaciones=_recargar_publicaciones(sku, access_token, pubs_actuales=pubs_json),
                            es_sku_con_z=sku.endswith('Z'))
+
+
+# ============================================================================
+# MAPEO MANUAL SKU ↔ MLA (alta rápida desde Cargar Stock ML)
+# ============================================================================
+
+@app.route('/mapeo-sku-mla/agregar', methods=['POST'])
+@login_required
+def mapeo_sku_mla_agregar():
+    """Alta manual de publicaciones al mapeo SKU↔MLA.
+    Acepta uno o varios MLA (separados por coma/espacio/salto de línea) y un SKU.
+    Valida contra ML: que exista, que sea nuestra y avisa si el seller_sku difiere."""
+    import re as _re
+    data = request.get_json(silent=True) or {}
+    sku = (data.get('sku') or '').strip().upper()
+    mlas_raw = (data.get('mlas') or '').upper()
+    if not sku:
+        return jsonify({'ok': False, 'error': 'Falta el SKU'})
+    mlas = []
+    for m in _re.findall(r'MLA\d{6,}', mlas_raw):
+        if m not in mlas:
+            mlas.append(m)
+    if not mlas:
+        return jsonify({'ok': False, 'error': 'No encontré ningún MLA válido (ej: MLA123456789)'})
+    if len(mlas) > 30:
+        return jsonify({'ok': False, 'error': 'Máximo 30 publicaciones por vez'})
+
+    # El SKU debe existir en el sistema.
+    # Compac/Compac Plus (CCO/CCP) se mapean SIN sufijo, pero en productos_base
+    # viven como _DEP/_FULL → aceptar si existe alguna de esas variantes.
+    existe_sku, _tipo, _nombre = verificar_sku_en_bd(sku)
+    if not existe_sku and sku.startswith(('CCO', 'CCP')) and not sku.endswith(('_DEP', '_FULL')):
+        existe_sku = verificar_sku_en_bd(sku + '_DEP')[0] or verificar_sku_en_bd(sku + '_FULL')[0]
+    if not existe_sku:
+        return jsonify({'ok': False, 'error': f'El SKU {sku} no existe en el sistema (productos_base ni compuestos)'})
+
+    access_token = cargar_ml_token()
+    if not access_token:
+        return jsonify({'ok': False, 'error': 'No hay token de ML configurado'})
+
+    resultados = []
+    for mla in mlas:
+        r = ml_request('get', f'https://api.mercadolibre.com/items/{mla}', access_token,
+                       params={'attributes': 'id,title,status,price,seller_id,catalog_product_id,'
+                                             'seller_custom_field,attributes'})
+        if r.status_code != 200:
+            resultados.append({'mla': mla, 'ok': False, 'msg': f'No existe en ML (HTTP {r.status_code})'})
+            continue
+        it = r.json()
+        if it.get('seller_id') != ML_SELLER_ID:
+            resultados.append({'mla': mla, 'ok': False, 'msg': 'La publicación NO es de tu cuenta'})
+            continue
+        sku_ml = (it.get('seller_custom_field') or '')
+        if not sku_ml:
+            sku_ml = next((a.get('value_name') for a in (it.get('attributes') or [])
+                           if a.get('id') == 'SELLER_SKU'), '') or ''
+        titulo = (it.get('title') or '')[:255]
+        aviso = ''
+        if sku_ml and sku_ml.strip().upper() != sku:
+            aviso = f' ⚠️ en ML el SKU figura como {sku_ml.strip().upper()}'
+        try:
+            execute_db("""INSERT INTO sku_mla_mapeo (sku, mla_id, titulo_ml, activo)
+                          VALUES (%s,%s,%s,1)
+                          ON DUPLICATE KEY UPDATE titulo_ml=VALUES(titulo_ml), activo=1""",
+                       (sku, mla, titulo))
+            # Si estaba en la lista de "cerradas", sacarla (el usuario la está agregando a propósito)
+            try:
+                execute_db("DELETE FROM mla_excluidos WHERE mla_id=%s", (mla,))
+            except Exception:
+                pass
+            resultados.append({'mla': mla, 'ok': True,
+                               'msg': f'{titulo[:48]} · {str(it.get("status"))}{aviso}'})
+        except Exception as e:
+            resultados.append({'mla': mla, 'ok': False, 'msg': f'Error guardando: {e}'})
+
+    ok_n = sum(1 for x in resultados if x['ok'])
+    total = query_one("SELECT COUNT(*) c FROM sku_mla_mapeo WHERE sku=%s AND activo=1", (sku,))
+    return jsonify({'ok': True, 'sku': sku, 'agregadas': ok_n,
+                    'fallidas': len(resultados) - ok_n,
+                    'total_sku': (total or {}).get('c', 0),
+                    'resultados': resultados})
+
+
+@app.route('/mapeo-sku-mla/listar')
+@login_required
+def mapeo_sku_mla_listar():
+    """Publicaciones mapeadas a un SKU (para ver/controlar desde la misma pantalla)."""
+    sku = (request.args.get('sku') or '').strip().upper()
+    if not sku:
+        return jsonify({'ok': False, 'error': 'Falta el SKU'})
+    rows = query_db("SELECT mla_id, titulo_ml, activo FROM sku_mla_mapeo WHERE sku=%s ORDER BY mla_id", (sku,)) or []
+    return jsonify({'ok': True, 'sku': sku, 'items': rows})
+
+
+@app.route('/mapeo-sku-mla/quitar', methods=['POST'])
+@login_required
+def mapeo_sku_mla_quitar():
+    """Desactiva (no borra) una publicación del mapeo."""
+    data = request.get_json(silent=True) or {}
+    mla = (data.get('mla') or '').strip().upper()
+    if not mla:
+        return jsonify({'ok': False, 'error': 'Falta el MLA'})
+    try:
+        execute_db("UPDATE sku_mla_mapeo SET activo=0 WHERE mla_id=%s", (mla,))
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
 
 
 # ============================================================================
@@ -14172,6 +14427,45 @@ def nota_pedido_pdf(venta_id):
         story.append(Paragraph(f'<b>Teléfono:</b> {venta["telefono_cliente"]}', st_normal))
     story.append(Spacer(1, 8))
 
+    # ── FACTURACIÓN (destacado: qué tipo de factura hay que emitir) ──
+    _tax = (venta.get('factura_taxpayer_type') or '').strip()
+    _doc_t = (venta.get('factura_doc_type') or '').strip()
+    _doc_n = (venta.get('factura_doc_number') or venta.get('dni_cliente') or '').strip()
+    if not _tax:
+        # Sin dato explícito: en ML/web sin datos de Factura A es Consumidor Final
+        _tax = 'Consumidor Final' if (venta.get('canal') or '') != 'Fuera de ML' else 'CONSULTAR'
+    _tax_norm = _tax.upper()
+    if 'MONOTRIBUT' in _tax_norm:
+        _cond, _fac, _color = 'Responsable Monotributo', 'FACTURA A', colors.HexColor('#0b6b3a')
+    elif 'INSCRIPTO' in _tax_norm:
+        _cond, _fac, _color = 'Responsable Inscripto', 'FACTURA A', colors.HexColor('#0b6b3a')
+    elif 'EXENTO' in _tax_norm:
+        _cond, _fac, _color = 'Exento', 'FACTURA A', colors.HexColor('#0b6b3a')
+    elif 'CONSULTAR' in _tax_norm:
+        _cond, _fac, _color = 'SIN DATO — CONSULTAR', '⚠ VERIFICAR', colors.HexColor('#b00000')
+    else:
+        _cond, _fac, _color = 'Consumidor Final', 'FACTURA B', colors.HexColor('#1a1a2e')
+    _doc_lbl = _doc_t if _doc_t else ('CUIT' if _fac == 'FACTURA A' else 'DNI')
+    _doc_txt = f'{_doc_lbl}: {_doc_n}' if _doc_n else (
+        'CUIT: (falta)' if _fac == 'FACTURA A' else 'Sin documento')
+    st_fac_big = ParagraphStyle('facbig', fontSize=13, fontName='Helvetica-Bold', textColor=_color)
+    st_fac_sub = ParagraphStyle('facsub', fontSize=10, fontName='Helvetica-Bold', textColor=colors.HexColor('#333333'))
+    _t_fac = Table([
+        [Paragraph(f'{_fac} — {_cond}', st_fac_big)],
+        [Paragraph(_doc_txt, st_fac_sub)],
+    ], colWidths=[18.6*cm])
+    _t_fac.setStyle(TableStyle([
+        ('BOX', (0,0), (-1,-1), 1.5, _color),
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#fff9e6') if _fac != 'FACTURA B' else colors.HexColor('#f2f4f8')),
+        ('LEFTPADDING', (0,0), (-1,-1), 10), ('RIGHTPADDING', (0,0), (-1,-1), 10),
+        ('TOPPADDING', (0,0), (-1,-1), 6), ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+    ]))
+    story.append(Paragraph('FACTURACIÓN', st_h))
+    story.append(_t_fac)
+    if venta.get('factura_business_name'):
+        story.append(Paragraph(f'<b>Razón social:</b> {venta["factura_business_name"]}', st_normal))
+    story.append(Spacer(1, 8))
+
     # Entrega
     story.append(Paragraph('ENTREGA', st_h))
     tipo = venta.get('tipo_entrega', '')
@@ -14741,7 +15035,7 @@ SKUS_ALMOHADA = {
 
 # SKUs compac a excluir
 def _es_compac(sku):
-    return sku.upper().startswith('CCO')
+    return sku.upper().startswith(('CCO', 'CCP'))
 
 # SKU de almohada pura (no combos mixtos)
 def _es_almohada(sku):
@@ -14761,7 +15055,7 @@ def _aplica_logica_z(sku):
     sku = sku.upper()
     if sku.startswith('S'):
         return True
-    if sku.startswith('C') and not sku.startswith('CCO'):
+    if sku.startswith('C') and not sku.startswith(('CCO', 'CCP')):
         import re
         # Buscar el primer grupo de dígitos que sea el ancho (80, 90, 100, 140, 150, 160, 180, 200)
         nums = re.findall(r'\d+', sku)
@@ -15161,8 +15455,8 @@ def _importar_orden_automatica(orden, access_token):
             # pero podemos pre-calcular basándonos en el logistic_type del shipment)
             # El mapeo final se hace más abajo cuando ya tenemos ubicacion_despacho
             existe, tipo, nombre = verificar_sku_en_bd(sku_norm)
-            # Para compac, buscar con sufijo _DEP o _FULL si el SKU base no existe
-            if not existe and sku_norm.upper().startswith('CCO'):
+            # Para compac (CCO) y compac plus (CCP), buscar con sufijo _DEP o _FULL
+            if not existe and sku_norm.upper().startswith(('CCO', 'CCP')):
                 existe_dep, _, _ = verificar_sku_en_bd(sku_norm + '_DEP')
                 existe_full, _, _ = verificar_sku_en_bd(sku_norm + '_FULL')
                 if existe_dep or existe_full:
@@ -15333,7 +15627,7 @@ def _importar_orden_automatica(orden, access_token):
         if metodo_envio == 'Flex':
             SKUS_ALM = {'CERVICAL','CLASICA','DORAL','DUAL','EXCLUSIVE','PLATINO','RENOVATION','SUBLIME','TRIANGULO','CONTOUR'}
             es_todo_alm_o_compac = all(
-                item['sku'].upper().startswith('CCO') or
+                item['sku'].upper().startswith(('CCO', 'CCP')) or
                 '_DEP' in item['sku'].upper() or
                 '_FULL' in item['sku'].upper() or
                 any(a in item['sku'].upper() for a in SKUS_ALM)
@@ -15372,7 +15666,7 @@ def _importar_orden_automatica(orden, access_token):
         # Mapear SKUs compac a _DEP o _FULL ahora que conocemos ubicacion_despacho
         sufijo = '_FULL' if ubicacion_despacho == 'FULL' else '_DEP'
         items_bd = [
-            dict(item, sku=item['sku'] + sufijo) if item['sku'].upper().startswith('CCO') and '_DEP' not in item['sku'] and '_FULL' not in item['sku'] else item
+            dict(item, sku=item['sku'] + sufijo) if item['sku'].upper().startswith(('CCO', 'CCP')) and '_DEP' not in item['sku'] and '_FULL' not in item['sku'] else item
             for item in items_bd
         ]
         costo_flete = float(shipping.get('costo_envio', 0) or 0)
@@ -15876,7 +16170,7 @@ def actualizar_publicaciones_ml_con_progreso(skus_base_afectados):
         if _es_almohada(sku):
             continue
         # Compac _DEP → actualizar selling_address en ML
-        if '_DEP' in sku.upper() and sku.upper().startswith('CCO'):
+        if '_DEP' in sku.upper() and sku.upper().startswith(('CCO', 'CCP')):
             disponible = max(0, stock_todos.get(sku, {}).get('stock_disponible', 0))
             try:
                 actualizar_stock_compac_dep_ml(sku, disponible, access_token)
@@ -15888,7 +16182,7 @@ def actualizar_publicaciones_ml_con_progreso(skus_base_afectados):
                                'ok': resultados_ok[:], 'errors': resultados_err[:], 'skus': list(skus_base_afectados)})
             continue
         # Compac _FULL → ML lo gestiona solo
-        if '_FULL' in sku.upper() and sku.upper().startswith('CCO'):
+        if '_FULL' in sku.upper() and sku.upper().startswith(('CCO', 'CCP')):
             print(f"[AUTO-ML] {sku} es FULL, ML gestiona el stock solo")
             continue
         # Compac base sin sufijo → también saltar
@@ -18085,8 +18379,8 @@ def _get_precio_costos_sku(sku, porcentajes_ml=None, recargo_flex=0, recargo_alm
             sku_check = sku_up.replace('_DEP', '').replace('_FULL', '')
             # CTR80 — caso especial, solo prontopago
             if sku_check == 'CTR80': return 'ctr80'
-            # Compac — caso especial, solo prontopago
-            if sku_check in ('CCO80','CCO100','CCO140','CCO160'): return 'compac'
+            # Compac y Compac Plus — caso especial, solo prontopago
+            if sku_check in ('CCO80','CCO100','CCO140','CCO160','CCP80','CCP100','CCP140','CCP160'): return 'compac'
             # Bases primero — para que BASE_SUBL no caiga en sublime
             if sku_up.startswith('BASE_') or desc.startswith('SOM') or desc.startswith('BASE'): return 'bases'
             if sku_up in ('CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE'): return 'almohadas'
@@ -18094,6 +18388,7 @@ def _get_precio_costos_sku(sku, porcentajes_ml=None, recargo_flex=0, recargo_alm
             if 'EUROPILLOW' in desc:
                 if 'SUBLIME' in desc: return 'sublime_europillow'
                 if 'RENOVATION' in desc: return 'renovation_europillow'
+                if 'EXCLUSIVE' in desc: return 'exclusive_europillow'
             if 'PILLOW' in desc or 'PIL' in desc:
                 if 'EXCLUSIVE' in desc: return 'exclusive_pillow'
                 if 'DORAL' in desc: return 'doral_pillow'
@@ -18127,7 +18422,8 @@ def _get_precio_costos_sku(sku, porcentajes_ml=None, recargo_flex=0, recargo_alm
             ctr80_override = float(ctr80_row['valor']) if ctr80_row and ctr80_row.get('valor') else 0
             if ctr80_override > 0:
                 precio_cannon = ctr80_override
-        elif sku_check_override in ('CCO80', 'CCO100', 'CCO140', 'CCO160'):
+        elif sku_check_override in ('CCO80', 'CCO100', 'CCO140', 'CCO160',
+                                    'CCP80', 'CCP100', 'CCP140', 'CCP160'):
             cco_row = query_one(
                 "SELECT valor FROM configuracion WHERE clave = %s",
                 (sku_check_override.lower() + '_precio_cannon',)
@@ -18271,9 +18567,9 @@ def _build_precio_costos_map():
         # Override CTR80
         ctr80_row = query_one("SELECT valor FROM configuracion WHERE clave = 'ctr80_precio_cannon'")
         ctr80_override = float(ctr80_row['valor']) if ctr80_row and ctr80_row.get('valor') else 0
-        # Override Compac (CCO80/100/140/160) — mismo comportamiento que CTR80
+        # Override Compac y Compac Plus (CCO/CCP 80/100/140/160) — mismo comportamiento que CTR80
         cco_overrides = {}
-        for _r in query_db("SELECT clave, valor FROM configuracion WHERE clave IN ('cco80_precio_cannon','cco100_precio_cannon','cco140_precio_cannon','cco160_precio_cannon')"):
+        for _r in query_db("SELECT clave, valor FROM configuracion WHERE clave IN ('cco80_precio_cannon','cco100_precio_cannon','cco140_precio_cannon','cco160_precio_cannon','ccp80_precio_cannon','ccp100_precio_cannon','ccp140_precio_cannon','ccp160_precio_cannon')"):
             try: cco_overrides[_r['clave']] = float(_r['valor']) if _r.get('valor') else 0
             except: cco_overrides[_r['clave']] = 0
 
@@ -18295,7 +18591,8 @@ def _build_precio_costos_map():
             clave = None
             if sku_check == 'CTR80':
                 clave = 'ctr80'
-            elif sku_check in ('CCO80', 'CCO100', 'CCO140', 'CCO160'):
+            elif sku_check in ('CCO80', 'CCO100', 'CCO140', 'CCO160',
+                               'CCP80', 'CCP100', 'CCP140', 'CCP160'):
                 clave = 'compac'
             elif sku_up.startswith('BASE_') or desc.startswith('SOM') or desc.startswith('BASE'):
                 clave = 'bases'
@@ -18337,14 +18634,15 @@ def _build_precio_costos_map():
                 precio_cannon, desc_linea_aplicar, desc_cliente_aplicar, desc_adi_aplicar, prontopago_pct, multiplicador
             ) / 1000) * 1000
             mapa[sku] = precio
-        # Agregar CCO sintéticos si tienen override (no están en cannon_productos)
-        for medida_cco in ('80','100','140','160'):
-            sku_cco = f'CCO{medida_cco}'
-            if sku_cco in mapa:
-                continue
-            _cco_val = cco_overrides.get(f'cco{medida_cco}_precio_cannon', 0)
-            if _cco_val > 0:
-                mapa[sku_cco] = round(_calcular_precio_lista(_cco_val, 0, 0, 0, prontopago_pct, multiplicador) / 1000) * 1000
+        # Agregar CCO/CCP sintéticos si tienen override (no están en cannon_productos)
+        for _pref in ('CCO', 'CCP'):
+            for medida_cco in ('80','100','140','160'):
+                sku_cco = f'{_pref}{medida_cco}'
+                if sku_cco in mapa:
+                    continue
+                _cco_val = cco_overrides.get(f'{_pref.lower()}{medida_cco}_precio_cannon', 0)
+                if _cco_val > 0:
+                    mapa[sku_cco] = round(_calcular_precio_lista(_cco_val, 0, 0, 0, prontopago_pct, multiplicador) / 1000) * 1000
         # Agregar sommiers — primero los de conjunto_configuracion
         conjuntos = query_db("SELECT colchon_sku, base_sku_default, cantidad_bases FROM conjunto_configuracion WHERE activo=1")
         for c in conjuntos:
@@ -19146,11 +19444,12 @@ def costos_descuentos():
                 return jsonify(ok=True)
             except Exception as e:
                 return jsonify(ok=False, error=str(e))
-        # Overrides de precios Compac (CCO80/100/140/160)
+        # Overrides de precios Compac (CCO80/100/140/160) y Compac Plus (CCP80/100/140/160)
         if 'cco_precios' in data:
             try:
+                _validos = ('cco80','cco100','cco140','cco160','ccp80','ccp100','ccp140','ccp160')
                 for sku_low, valor in (data.get('cco_precios') or {}).items():
-                    if sku_low not in ('cco80','cco100','cco140','cco160'):
+                    if sku_low not in _validos:
                         continue
                     execute_db("""
                         INSERT INTO configuracion (clave, valor) VALUES (%s, %s)
@@ -19180,7 +19479,7 @@ def costos_descuentos():
     ctr80_row = query_one("SELECT valor FROM configuracion WHERE clave = 'ctr80_precio_cannon'")
     ctr80_precio = float(ctr80_row['valor']) if ctr80_row and ctr80_row.get('valor') else 0
     cco_precios = {}
-    for _r in query_db("SELECT clave, valor FROM configuracion WHERE clave IN ('cco80_precio_cannon','cco100_precio_cannon','cco140_precio_cannon','cco160_precio_cannon')"):
+    for _r in query_db("SELECT clave, valor FROM configuracion WHERE clave IN ('cco80_precio_cannon','cco100_precio_cannon','cco140_precio_cannon','cco160_precio_cannon','ccp80_precio_cannon','ccp100_precio_cannon','ccp140_precio_cannon','ccp160_precio_cannon')"):
         cco_precios[_r['clave']] = _r['valor'] or ''
     return render_template('costos_descuentos.html', descuentos=rows,
                            ctr80_precio=ctr80_precio, cco_precios=cco_precios)

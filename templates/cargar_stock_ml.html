@@ -124,6 +124,44 @@
         </div>
     </div>
 
+    <!-- MAPEO MANUAL SKU ↔ MLA -->
+    <div class="card mb-3 shadow-sm border-success">
+        <div class="card-header bg-success bg-opacity-10 d-flex justify-content-between align-items-center"
+             style="cursor:pointer" onclick="toggleMapeo()">
+            <span><i class="bi bi-link-45deg me-2"></i><strong>Mapear publicaciones a un SKU</strong></span>
+            <i class="bi bi-chevron-down" id="chevron-mapeo"></i>
+        </div>
+        <div class="card-body" id="panel-mapeo" style="display:none">
+            <p class="text-muted small mb-3">
+                Pegá uno o varios <strong>MLA</strong> y el <strong>SKU</strong> al que pertenecen. El sistema valida
+                contra ML que existan y sean de tu cuenta, guarda el título y las suma al mapeo
+                (así entran en la sincronización de stock). Si en ML el SKU figura distinto, te avisa.
+            </p>
+            <div class="row g-2 align-items-start">
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold">SKU</label>
+                    <input type="text" class="form-control form-control-sm" id="map_sku"
+                           placeholder="Ej: SEXEP140" style="text-transform:uppercase">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small fw-bold">MLA (uno o varios)</label>
+                    <textarea class="form-control form-control-sm" id="map_mlas" rows="3"
+                              placeholder="MLA3901701854, MLA3901701858&#10;MLA3901433342"></textarea>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold d-block">&nbsp;</label>
+                    <button class="btn btn-success btn-sm w-100 mb-2" onclick="guardarMapeo()">
+                        <i class="bi bi-plus-circle"></i> Agregar al mapeo
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm w-100" onclick="verMapeo()">
+                        <i class="bi bi-list-ul"></i> Ver publis del SKU
+                    </button>
+                </div>
+            </div>
+            <div id="msg-mapeo" class="mt-2"></div>
+        </div>
+    </div>
+
     <!-- BUSCADOR -->
     <div class="card mb-4 shadow-sm">
         <div class="card-body">
@@ -941,6 +979,66 @@ function toggleMlZSinStock() {
     const visible = panel.style.display !== 'none';
     panel.style.display = visible ? 'none' : 'block';
     chevron.className = visible ? 'bi bi-chevron-down' : 'bi bi-chevron-up';
+}
+
+// ── Mapeo manual SKU ↔ MLA ──────────────────────────────────────────
+function toggleMapeo() {
+    const panel = document.getElementById('panel-mapeo');
+    const chevron = document.getElementById('chevron-mapeo');
+    const visible = panel.style.display !== 'none';
+    panel.style.display = visible ? 'none' : 'block';
+    chevron.className = visible ? 'bi bi-chevron-down' : 'bi bi-chevron-up';
+}
+
+async function guardarMapeo() {
+    const sku  = (document.getElementById('map_sku').value || '').trim().toUpperCase();
+    const mlas = (document.getElementById('map_mlas').value || '').trim();
+    const msg  = document.getElementById('msg-mapeo');
+    if (!sku || !mlas) { msg.innerHTML = '<div class="alert alert-warning py-2 mb-0">Completá el SKU y al menos un MLA.</div>'; return; }
+    msg.innerHTML = '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Validando en ML…</div>';
+    try {
+        const r = await fetch('/mapeo-sku-mla/agregar', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({sku: sku, mlas: mlas})
+        });
+        const d = await r.json();
+        if (!d.ok) { msg.innerHTML = `<div class="alert alert-danger py-2 mb-0">❌ ${d.error || 'Error'}</div>`; return; }
+        let h = `<div class="alert alert-${d.fallidas ? 'warning' : 'success'} py-2 mb-2">
+                   ✅ Agregadas: <b>${d.agregadas}</b>${d.fallidas ? ` · ❌ Con error: <b>${d.fallidas}</b>` : ''}
+                   · <b>${d.sku}</b> ahora tiene <b>${d.total_sku}</b> publicaciones</div>`;
+        h += '<ul class="list-unstyled small mb-0">' + d.resultados.map(x =>
+              `<li class="${x.ok ? 'text-success' : 'text-danger'}">${x.ok ? '✅' : '❌'} <code>${x.mla}</code> — ${x.msg}</li>`
+             ).join('') + '</ul>';
+        msg.innerHTML = h;
+        if (d.agregadas) document.getElementById('map_mlas').value = '';
+    } catch (e) {
+        msg.innerHTML = `<div class="alert alert-danger py-2 mb-0">Error de red: ${e}</div>`;
+    }
+}
+
+async function verMapeo() {
+    const sku = (document.getElementById('map_sku').value || '').trim().toUpperCase();
+    const msg = document.getElementById('msg-mapeo');
+    if (!sku) { msg.innerHTML = '<div class="alert alert-warning py-2 mb-0">Ingresá un SKU.</div>'; return; }
+    const r = await fetch('/mapeo-sku-mla/listar?sku=' + encodeURIComponent(sku));
+    const d = await r.json();
+    if (!d.ok) { msg.innerHTML = `<div class="alert alert-danger py-2 mb-0">${d.error}</div>`; return; }
+    if (!d.items.length) { msg.innerHTML = `<div class="alert alert-secondary py-2 mb-0">${sku} no tiene publicaciones mapeadas.</div>`; return; }
+    msg.innerHTML = `<div class="small mb-1"><b>${sku}</b> — ${d.items.filter(i=>i.activo).length} activa(s) de ${d.items.length}</div>`
+      + '<ul class="list-unstyled small mb-0">' + d.items.map(i =>
+          `<li class="${i.activo ? '' : 'text-muted text-decoration-line-through'}">
+             <code>${i.mla_id}</code> ${(i.titulo_ml || '').substring(0,54)}
+             ${i.activo ? `<a href="#" class="ms-1 text-danger" onclick="quitarMapeo('${i.mla_id}');return false;" title="Quitar del mapeo">✕</a>` : '<span class="badge bg-secondary">inactiva</span>'}
+           </li>`).join('') + '</ul>';
+}
+
+async function quitarMapeo(mla) {
+    if (!confirm('¿Quitar ' + mla + ' del mapeo? (se desactiva, no se borra)')) return;
+    await fetch('/mapeo-sku-mla/quitar', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({mla: mla})
+    });
+    verMapeo();
 }
 
 async function guardarMlZSinStock() {

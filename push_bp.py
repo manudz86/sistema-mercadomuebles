@@ -101,7 +101,7 @@ def notificar_nueva_venta(venta_id):
     def _bg():
         try:
             db = _db(); cur = db.cursor()
-            cur.execute("SELECT canal, importe_total FROM ventas WHERE id=%s", (venta_id,))
+            cur.execute("SELECT canal, importe_total, numero_venta FROM ventas WHERE id=%s", (venta_id,))
             v = cur.fetchone()
             if not v:
                 cur.close(); db.close(); return
@@ -116,13 +116,24 @@ def notificar_nueva_venta(venta_id):
             items = cur.fetchall()
             cur.close(); db.close()
 
-            canal = (v.get('canal') or '').lower()
-            if 'libre' in canal:
+            # El canal se puede editar DESPUÉS de crear la venta (y el push sale al
+            # instante), así que la etiqueta se deriva del NÚMERO de venta, que se
+            # fija al crearla y no cambia. El canal queda solo como respaldo.
+            num = (v.get('numero_venta') or '').upper()
+            if num.startswith('ML-'):
                 lbl = 'ML'
-            elif 'web' in canal or 'tienda' in canal:
+            elif num.startswith(('MP-', 'GN-', 'PW-')):
                 lbl = 'WEB'
-            else:
+            elif num.startswith('VENTA-'):
                 lbl = 'EXT'
+            else:
+                canal = (v.get('canal') or '').lower()
+                if 'libre' in canal:
+                    lbl = 'ML'
+                elif 'web' in canal or 'tienda' in canal:
+                    lbl = 'WEB'
+                else:
+                    lbl = 'EXT'
 
             if items:
                 p0 = items[0]

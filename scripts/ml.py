@@ -175,6 +175,46 @@ def main():
         from _common import imprimir_tabla
         imprimir_tabla(filas, max_ancho=26)
 
+    elif cmd == 'flex':
+        # Estado de Flex (me2/self_service) de todas las publis de uno o más SKU.
+        # Lee shipping.tags: self_service_in = activo, self_service_available = se
+        # puede activar, lost_me2_by_dimensions = bloqueado por medidas, [] = ML no
+        # lo habilita en ese catálogo.
+        if not rest:
+            print('Uso: flex SKU1[,SKU2,...]'); return 1
+        skus = [s.strip().upper() for s in rest[0].replace(' ', '').split(',') if s.strip()]
+        db = conectar_db(); cur = db.cursor()
+        ph = ','.join(['%s'] * len(skus))
+        cur.execute(f"SELECT mla_id, sku FROM sku_mla_mapeo WHERE activo=TRUE AND sku IN ({ph})", skus)
+        pares = cur.fetchall(); cur.close(); db.close()
+        ids = [p['mla_id'] for p in pares]
+        sk = {p['mla_id']: p['sku'] for p in pares}
+        filas = []
+        for j in range(0, len(ids), 20):
+            r = _get('/items', token, {'ids': ','.join(ids[j:j + 20]),
+                                       'attributes': 'id,status,shipping,catalog_product_id'})
+            for w in (r.json() or []):
+                b = w.get('body') or {}
+                sh = b.get('shipping') or {}
+                tags = sh.get('tags') or []
+                if 'self_service_in' in tags:
+                    estado = 'ACTIVO'
+                elif 'self_service_available' in tags:
+                    estado = 'SE PUEDE'
+                elif 'lost_me2_by_dimensions' in tags:
+                    estado = 'bloqueado x medidas'
+                elif not tags:
+                    estado = 'sin tags (ML no lo habilita)'
+                else:
+                    estado = ','.join(tags)
+                filas.append({'sku': sk.get(b.get('id')), 'mla': b.get('id'),
+                              'estado_publi': b.get('status'),
+                              'logistic': sh.get('logistic_type'), 'mode': sh.get('mode'),
+                              'flex': estado, 'catalogo': b.get('catalog_product_id')})
+        filas.sort(key=lambda x: (x['sku'] or '', x['flex']))
+        from _common import imprimir_tabla
+        imprimir_tabla(filas, max_ancho=30)
+
     elif cmd == 'orden':
         if not rest:
             print('Falta el número de orden'); return 1

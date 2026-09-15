@@ -38,7 +38,15 @@
   <ul class="nav nav-tabs mb-3" id="promoTabs">
     <li class="nav-item"><a class="nav-link" href="#" data-tab="pub" onclick="return showTab('pub')"><i class="bi bi-upc-scan"></i> Por publicación</a></li>
     <li class="nav-item"><a class="nav-link" href="#" data-tab="camp" onclick="return showTab('camp')"><i class="bi bi-megaphone"></i> Por campaña</a></li>
+    <li class="nav-item"><a class="nav-link" href="#" data-tab="act" onclick="return showTab('act')"><i class="bi bi-check2-square"></i> Activas / Pendientes</a></li>
   </ul>
+  <style>
+    /* Solapas compactas y en una sola línea (scroll lateral en celular) */
+    #promoTabs{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+    #promoTabs::-webkit-scrollbar{display:none;}
+    #promoTabs .nav-link{white-space:nowrap;font-size:.86rem;padding:.45rem .7rem;}
+    @media(max-width:520px){ #promoTabs .nav-link{font-size:.8rem;padding:.4rem .55rem;} }
+  </style>
 
   <!-- ══ TAB POR PUBLICACIÓN ══ -->
   <div id="pane-pub" class="promo-pane">
@@ -56,7 +64,16 @@
       {% if not publicaciones %}
         <div class="alert alert-warning">No se encontraron publicaciones para "{{ sku_buscado }}".</div>
       {% else %}
-        <p class="text-muted" style="font-size:.9rem">{{ publicaciones|length }} publicación(es) para <b>{{ sku_buscado }}</b>.</p>
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span class="text-muted" style="font-size:.9rem">{{ publicaciones|length }} publicación(es) para <b>{{ sku_buscado }}</b>.</span>
+          <select class="form-select form-select-sm" style="width:auto"
+                  onchange="filtrarEstado(this, '#pane-pub table')">
+            <option value="">Todas las promos</option>
+            <option value="activa">Solo activas</option>
+            <option value="pending">Solo pendientes</option>
+            <option value="disponible">Solo disponibles</option>
+          </select>
+        </div>
         {% for p in publicaciones %}
         <div class="card shadow-sm mb-3">
           <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
@@ -86,7 +103,8 @@
                   {% for pr in p.promos %}
                   {% set activo = pr.status in ['started', 'active'] %}
                   {% set rowid = 'promorow-' ~ p.mla_id ~ '-' ~ (pr.id or pr.tipo) %}
-                  <tr class="{{ 'table-success' if activo else '' }}" id="{{ rowid }}">
+                  <tr class="{{ 'table-success' if activo else '' }}" id="{{ rowid }}"
+                      data-estado="{{ 'activa' if activo else ('pending' if pr.status == 'pending' else 'disponible') }}">
                     <td><span class="font-monospace" style="font-size:.8rem">{{ pr.tipo }}</span></td>
                     <td style="font-size:.85rem">{{ pr.name or '—' }}</td>
                     <td class="mp-estado">
@@ -105,7 +123,7 @@
                           data-orig="{{ pr.original_price or 0 }}" data-min="{{ pr.min or 0 }}" data-max="{{ pr.max or 0 }}"
                           data-price="{{ pr.price or 0 }}" data-name="{{ pr.name or '' }}" data-status="{{ pr.status }}" data-row="{{ rowid }}"
                           onclick="abrirModal(this)">{{ 'Editar' if activo else ('Aplicar' if pr.tipo == 'PRICE_DISCOUNT' else 'Participar') }}</button>
-                      {% elif pr.tipo in ['SMART', 'PRICE_MATCHING'] and not activo %}
+                      {% elif pr.tipo in ['SMART', 'PRICE_MATCHING', 'PRE_NEGOTIATED'] and not activo %}
                         <button class="btn btn-sm btn-primary mp-btn"
                           data-tipo="{{ pr.tipo }}" data-mla="{{ p.mla_id }}" data-pid="{{ pr.id or '' }}" data-offer="{{ pr.ref_id or '' }}"
                           data-orig="{{ pr.original_price or 0 }}" data-price="{{ pr.price or 0 }}"
@@ -154,15 +172,22 @@
       {% else %}
         <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
           <span class="text-muted" style="font-size:.9rem"><b>{{ campania_nombre or campania_sel }}</b> ({{ campania_tipo }}) — {{ campania_items|length }} publicaciones tuyas
-          {% if campania_inicio or campania_fin %}<br>🗓️ Inicia <b>{{ campania_inicio or '—' }}</b> · Termina <b>{{ campania_fin or '—' }}</b>{% if campania_deadline %} · Deadline para sumar: {{ campania_deadline }}{% endif %} <span class="text-muted">(hora AR)</span>{% elif campania_tipo == 'LIGHTNING' %}<br><span class="text-warning">⚡ Relámpago: ML no informa la fecha/hora por API</span>{% endif %}</span>
+          {% if campania_inicio or campania_fin %}<br>🗓️ Ventana de la campaña: <b>{{ campania_inicio or '—' }}</b> → <b>{{ campania_fin or '—' }}</b>{% if campania_deadline %} · Deadline para sumar: {{ campania_deadline }}{% endif %} <span class="text-muted">(hora AR)</span>{% elif campania_tipo == 'LIGHTNING' %}<br><span class="text-warning">⚡ Relámpago: ML no informa la fecha/hora por API</span>{% endif %}
+          {% if campania_tipo in ['PRE_NEGOTIATED', 'LIGHTNING'] %}<br><span class="text-primary" style="font-size:.82rem">⚡ Ojo: es una <b>relámpago</b> — cada publicación tiene su propio día y horario (🕒 en cada fila), no toda la ventana de arriba.</span>{% endif %}</span>
           <label style="font-size:.85rem">Filtrar tu % ≤ <input type="number" id="filtroTu" step="0.1" style="width:80px" class="form-control form-control-sm d-inline-block" oninput="filtrarCamp()"></label>
+          <select class="form-select form-select-sm" style="width:auto" onchange="filtrarEstado(this, '#campTabla')">
+            <option value="">Todas</option>
+            <option value="activa">Solo activas</option>
+            <option value="pending">Solo pendientes</option>
+            <option value="disponible">Disponibles para sumar</option>
+          </select>
           <span class="text-muted" style="font-size:.85rem"><span id="selCount">0</span> seleccionadas</span>
-          {% if campania_tipo in ['SMART', 'PRICE_MATCHING', 'LIGHTNING', 'DEAL'] %}
+          {% if campania_tipo in ['SMART', 'PRICE_MATCHING', 'LIGHTNING', 'DEAL', 'PRE_NEGOTIATED'] %}
             <button type="button" id="btnParticipar" class="btn btn-sm btn-primary" onclick="participarSel()" disabled>
               <i class="bi bi-lightning-charge"></i> Participar con seleccionadas
             </button>
           {% else %}
-            <span class="badge bg-light text-dark border">Activar en lote: SMART / Gánale a la competencia / Relámpago / Oferta (DEAL)</span>
+            <span class="badge bg-light text-dark border">Activar en lote: SMART / Gánale a la competencia / Relámpago / Oferta / Prenegociada</span>
           {% endif %}
         </div>
         <div class="table-responsive">
@@ -177,11 +202,32 @@
             </thead>
             <tbody>
               {% for f in campania_items %}
-              <tr data-orden="{{ f.promo.orden_pct if f.promo.orden_pct is not none else 999 }}">
-                <td><input type="checkbox" class="selItem" value="{{ f.mla_id }}" onclick="contarSel()"></td>
+              <tr data-orden="{{ f.promo.orden_pct if f.promo.orden_pct is not none else 999 }}"
+                  data-estado="{{ 'activa' if f.estado in ['started','active'] else ('pending' if f.estado == 'pending' else 'disponible') }}"
+                  class="{{ 'table-success' if f.ya_participa else '' }}">
+                <td>
+                  {% if f.ya_participa %}
+                    <input type="checkbox" class="selItem" value="{{ f.mla_id }}" disabled title="Ya está participando">
+                  {% else %}
+                    <input type="checkbox" class="selItem" value="{{ f.mla_id }}" onclick="contarSel()">
+                  {% endif %}
+                </td>
                 <td><span class="font-monospace" style="font-size:.8rem">{{ f.sku or '—' }}</span>
                     <div class="text-muted font-monospace" style="font-size:.68rem">{{ f.mla_id }}</div></td>
-                <td style="font-size:.82rem;max-width:280px">{{ f.titulo or '—' }}</td>
+                <td style="font-size:.82rem;max-width:280px">{{ f.titulo or '—' }}
+                  <div style="font-size:.7rem" class="mt-1">
+                    {% if f.estado == 'pending' %}
+                      <span class="badge bg-warning text-dark">⏳ Participando — arranca {{ f.f_ini_item or 'pronto' }}</span>
+                    {% elif f.ya_participa %}
+                      <span class="badge bg-success">✓ Activa</span>
+                    {% else %}
+                      <span class="badge bg-light text-dark border">Disponible para sumar</span>
+                    {% endif %}
+                    {% if f.f_ini_item and f.f_fin_item %}
+                      <span class="text-muted ms-1">🕒 {{ f.f_ini_item }} → {{ f.f_fin_item }}</span>
+                    {% endif %}
+                  </div>
+                </td>
                 <td class="fw-bold" style="font-size:.9rem">{{ f.promo.tu_pct or '—' }}%</td>
                 <td>{{ promo_desc(f.promo) }}</td>
                 <td>{% if f.promo.original_price %}${{ '{:,.0f}'.format(f.promo.original_price)|replace(',', '.') }}{% else %}—{% endif %}</td>
@@ -197,6 +243,30 @@
     {% else %}
       <p class="text-muted" style="font-size:.9rem">Elegí una campaña para ver todas tus publicaciones que participan, con tu % a cargo, el precio de costos y las cuotas reales. (La carga tarda ~40s porque trae las cuotas reales de cada publi.)</p>
     {% endif %}
+  </div>
+
+  <!-- ══ TAB ACTIVAS / PENDIENTES ══ -->
+  <div id="pane-act" class="promo-pane" style="display:none">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+      <button class="btn btn-sm btn-primary" onclick="cargarActivas(true)">
+        <i class="bi bi-arrow-repeat"></i> Actualizar
+      </button>
+      <select id="fEstadoAct" class="form-select form-select-sm" style="width:auto" onchange="filtrarAct()">
+        <option value="">Todas</option>
+        <option value="activa">Solo activas</option>
+        <option value="pending">Solo pendientes</option>
+      </select>
+      <input type="text" id="fBuscarAct" class="form-control form-control-sm" style="width:160px"
+             placeholder="SKU / campaña…" oninput="filtrarAct()">
+      <span class="text-muted" style="font-size:.85rem"><span id="actCount">0</span> sel.</span>
+      <button type="button" id="btnSalirLote" class="btn btn-sm btn-danger" onclick="salirSel()" disabled>
+        <i class="bi bi-box-arrow-left"></i> Salir de seleccionadas
+      </button>
+    </div>
+    <div id="actResumen" class="mb-2" style="font-size:.85rem"></div>
+    <div id="actBody">
+      <p class="text-muted" style="font-size:.9rem">Tocá <b>Actualizar</b> para traer todas las promos aplicadas (tarda ~15s).</p>
+    </div>
   </div>
 </div>
 
@@ -247,7 +317,137 @@ function showTab(t){
   document.querySelectorAll('.promo-pane').forEach(function(p){p.style.display='none';});
   var pane=document.getElementById('pane-'+t); if(pane) pane.style.display='';
   document.querySelectorAll('#promoTabs .nav-link').forEach(function(a){a.classList.toggle('active', a.dataset.tab===t);});
+  // La solapa de activas carga sola la primera vez (async, no bloquea la página)
+  if(t==='act' && !_actData && !_actCargando) cargarActivas(false);
   return false;
+}
+
+// ── Filtro por estado en "Por publicación" y "Por campaña" ──
+function filtrarEstado(sel, tablaSel){
+  var v = sel.value;
+  document.querySelectorAll(tablaSel + ' tbody tr').forEach(function(tr){
+    var e = tr.dataset.estado || '';
+    tr.style.display = (!v || e === v) ? '' : 'none';
+  });
+  if (typeof contarSel === 'function') contarSel();
+}
+
+// ── Activas/Pendientes: carga AJAX (no bloquea la página) ──
+var _actData=null, _actCargando=false;
+function _fmtPeso(n){ return n ? '$'+Math.round(n).toLocaleString('es-AR') : ''; }
+async function cargarActivas(forzar){
+  if(_actCargando) return;
+  if(_actData && !forzar){ renderActivas(); return; }
+  _actCargando=true;
+  document.getElementById('actBody').innerHTML =
+    '<div class="text-center py-4 text-muted"><div class="spinner-border text-primary mb-2"></div>'
+    + '<div>Buscando promos aplicadas en todas las campañas…</div>'
+    + '<div style="font-size:.8rem">Puede tardar ~15 segundos</div></div>';
+  try{
+    var r=await fetch('/promociones-ml/activas');
+    var d=await r.json();
+    if(!d.ok){ document.getElementById('actBody').innerHTML='<div class="alert alert-danger">'+(d.error||'Error')+'</div>'; return; }
+    _actData=d; renderActivas();
+  }catch(e){
+    document.getElementById('actBody').innerHTML='<div class="alert alert-danger">Error de red: '+e+'</div>';
+  }finally{ _actCargando=false; }
+}
+function renderActivas(){
+  var d=_actData; if(!d) return;
+  document.getElementById('actResumen').innerHTML =
+    '<b>'+d.total+'</b> promociones aplicadas · <span class="badge bg-success">'+d.activas+' activas</span> '
+    + '<span class="badge bg-warning text-dark">'+d.pendientes+' pendientes</span>';
+  if(!d.items.length){ document.getElementById('actBody').innerHTML='<div class="alert alert-info">No tenés promociones activas ni pendientes.</div>'; return; }
+  var h='<div class="table-responsive"><table class="table table-sm table-hover align-middle" id="actTabla">'
+    + '<thead class="table-light" style="font-size:.76rem"><tr>'
+    + '<th><input type="checkbox" onclick="toggleAllAct(this)"></th>'
+    + '<th>SKU / MLA</th><th>Campaña</th><th>Estado</th><th>Tu %</th><th>Precio</th><th>Vigencia (AR)</th><th></th>'
+    + '</tr></thead><tbody>';
+  d.items.forEach(function(a){
+    var act=(a.estado==='started'||a.estado==='active');
+    var id='actrow-'+a.mla_id+'-'+a.promotion_id;
+    h+='<tr id="'+id+'" data-estado="'+(act?'activa':a.estado)+'" '
+      + 'data-txt="'+((a.sku+' '+a.campania+' '+a.mla_id).toLowerCase())+'">'
+      + '<td><input type="checkbox" class="selAct" onclick="contarAct()" data-mla="'+a.mla_id+'" data-pid="'+a.promotion_id+'" data-tipo="'+a.tipo+'" data-offer="'+(a.offer_id||'')+'"></td>'
+      + '<td><span class="font-monospace" style="font-size:.78rem">'+(a.sku||'—')+'</span>'
+      + '<div class="text-muted font-monospace" style="font-size:.66rem">'+a.mla_id+'</div></td>'
+      + '<td style="font-size:.8rem">'+a.campania+'<div class="text-muted font-monospace" style="font-size:.66rem">'+a.tipo+'</div></td>'
+      + '<td>'+(act?'<span class="badge bg-success">Activa</span>':'<span class="badge bg-warning text-dark">Pendiente</span>')+'</td>'
+      + '<td class="fw-bold" style="font-size:.82rem">'+(a.seller_pct!=null?a.seller_pct+'%':'—')+'</td>'
+      + '<td style="font-size:.8rem"><b>'+_fmtPeso(a.precio)+'</b>'
+      + (a.original?'<div class="text-muted" style="font-size:.68rem">de '+_fmtPeso(a.original)+'</div>':'')+'</td>'
+      + '<td style="font-size:.72rem">'+(a.f_ini?(a.f_ini+'<br>→ '+(a.f_fin||'—')):'—')+'</td>'
+      + '<td><button class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size:.7rem" onclick="salirUna(this)" '
+      + 'data-mla="'+a.mla_id+'" data-pid="'+a.promotion_id+'" data-tipo="'+a.tipo+'" data-offer="'+(a.offer_id||'')+'">Salir</button></td>'
+      + '</tr>';
+  });
+  h+='</tbody></table></div>';
+  document.getElementById('actBody').innerHTML=h;
+  filtrarAct();
+}
+function filtrarAct(){
+  var e=(document.getElementById('fEstadoAct')||{}).value||'';
+  var q=((document.getElementById('fBuscarAct')||{}).value||'').toLowerCase();
+  document.querySelectorAll('#actTabla tbody tr').forEach(function(tr){
+    var okE=(!e||tr.dataset.estado===e), okQ=(!q||(tr.dataset.txt||'').indexOf(q)>=0);
+    tr.style.display=(okE&&okQ)?'':'none';
+  });
+  contarAct();
+}
+function contarAct(){
+  var n=document.querySelectorAll('#actTabla tbody tr:not([style*="display: none"]) .selAct:checked').length;
+  var c=document.getElementById('actCount'); if(c) c.textContent=n;
+  var b=document.getElementById('btnSalirLote'); if(b) b.disabled=(n===0);
+}
+function toggleAllAct(cb){
+  document.querySelectorAll('#actTabla tbody tr:not([style*="display: none"]) .selAct').forEach(function(x){x.checked=cb.checked;});
+  contarAct();
+}
+function _dsProm(el){ return {mla:el.dataset.mla, promotion_type:el.dataset.tipo,
+                              promotion_id:el.dataset.pid, offer_id:el.dataset.offer||''}; }
+function _marcarSalida(mla,pid,ok,msg){
+  var tr=document.getElementById('actrow-'+mla+'-'+pid); if(!tr) return;
+  if(ok){ tr.style.opacity=.5; tr.querySelectorAll('button,input').forEach(function(x){x.disabled=true;});
+          var td=tr.children[3]; if(td) td.innerHTML='<span class="badge bg-secondary">Saliendo…</span>'; }
+  else { tr.classList.add('table-danger'); tr.setAttribute('title', msg||'error'); }
+}
+async function salirUna(btn){
+  if(!confirm('¿Salir de esta promoción? ML tarda unos segundos en procesarlo.')) return;
+  var d=_dsProm(btn), txt=btn.textContent; btn.disabled=true; btn.textContent='…';
+  try{
+    var r=await fetch('/promociones-ml/quitar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+    var j=await r.json();
+    if(j.ok){ _marcarSalida(d.mla,d.promotion_id,true); }
+    else { btn.disabled=false; btn.textContent=txt; _marcarSalida(d.mla,d.promotion_id,false,j.error); alert('No se pudo salir: '+(j.error||'')); }
+  }catch(e){ btn.disabled=false; btn.textContent=txt; alert('Error de red: '+e); }
+}
+async function salirSel(){
+  var sel=Array.prototype.slice.call(document.querySelectorAll('#actTabla tbody tr:not([style*="display: none"]) .selAct:checked'));
+  if(!sel.length) return;
+  if(!confirm('¿Salir de '+sel.length+' promoción(es)? ML tarda unos segundos en procesarlo.')) return;
+  var btn=document.getElementById('btnSalirLote'), txt=btn.innerHTML; btn.disabled=true;
+  var items=sel.map(_dsProm), ok=0, fail=0, err='';
+  var CH=5;
+  for(var i=0;i<items.length;i+=CH){
+    var lote=items.slice(i,i+CH);
+    btn.innerHTML='Quitando '+Math.min(i+lote.length,items.length)+'/'+items.length+'…';
+    try{
+      var r=await fetch('/promociones-ml/quitar-lote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:lote})});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      var j=await r.json();
+      lote.forEach(function(it){
+        var res=(j.resultados||{})[it.mla+'|'+it.promotion_id]||{ok:false,error:'sin respuesta'};
+        if(res.ok){ ok++; _marcarSalida(it.mla,it.promotion_id,true); }
+        else { fail++; err=err||res.error; _marcarSalida(it.mla,it.promotion_id,false,res.error); }
+      });
+    }catch(e){
+      err=err||String(e&&e.message?e.message:e);
+      lote.forEach(function(it){ fail++; _marcarSalida(it.mla,it.promotion_id,false,String(e)); });
+    }
+  }
+  btn.innerHTML=txt; btn.disabled=false; contarAct();
+  alert('Listo.\nQuitadas: '+ok+'\nCon error: '+fail+(fail&&err?'\n\nMotivo: '+err:'')
+        +'\n\nEl borrado en ML es asíncrono: refrescá en unos segundos.');
 }
 document.addEventListener('DOMContentLoaded', function(){ showTab('{{ active_tab or "pub" }}'); });
 
@@ -260,7 +460,8 @@ function contarSel(){
   var e=document.getElementById('selCount'); if(e) e.textContent=n;
   var b=document.getElementById('btnParticipar'); if(b) b.disabled=(n===0);
 }
-function toggleAll(cb){ document.querySelectorAll('#campTabla tbody tr:not([style*="display: none"]) .selItem').forEach(function(x){x.checked=cb.checked;}); contarSel(); }
+// No tildar las que ya participan (checkbox deshabilitado)
+function toggleAll(cb){ document.querySelectorAll('#campTabla tbody tr:not([style*="display: none"]) .selItem:not(:disabled)').forEach(function(x){x.checked=cb.checked;}); contarSel(); }
 // ── Campaña: filtro por tu % ──
 function filtrarCamp(){
   var v=parseFloat(document.getElementById('filtroTu').value);
@@ -308,7 +509,7 @@ async function participarSel(){
   if(!confirm(msgConf)) return;
   var btn = document.getElementById('btnParticipar'), txt = btn.innerHTML;
   btn.disabled = true;
-  var esFijo = (CAMP_TIPO === 'SMART' || CAMP_TIPO === 'PRICE_MATCHING' || CAMP_TIPO === 'LIGHTNING' || CAMP_TIPO === 'DEAL');
+  var esFijo = (CAMP_TIPO === 'SMART' || CAMP_TIPO === 'PRICE_MATCHING' || CAMP_TIPO === 'LIGHTNING' || CAMP_TIPO === 'DEAL' || CAMP_TIPO === 'PRE_NEGOTIATED');
   var ok=0, fail=0;
 
   if(esFijo){
@@ -317,13 +518,17 @@ async function participarSel(){
     var mapa = {};
     sel.forEach(function(cb){ mapa[cb.value] = {cb:cb, tr:cb.closest('tr')}; });
     var mlas = sel.map(function(cb){ return cb.value; });
-    var total = mlas.length, CHUNK = 20;
+    // Tandas chicas: cada request tarda ~1.5s por publi (rate-limit de ML), así se
+    // evita una request larga que el navegador/proxy pueda cortar.
+    var total = mlas.length, CHUNK = 5;
+    var errNet = '';
     for(var i=0; i<mlas.length; i+=CHUNK){
       var lote = mlas.slice(i, i+CHUNK);
       btn.innerHTML = 'Procesando '+Math.min(i+lote.length, total)+'/'+total+'…';
       try{
         var r = await fetch('/promociones-ml/aplicar-lote', {method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({mlas:lote, promotion_type:CAMP_TIPO, promotion_id:CAMP_ID})});
+        if(!r.ok){ throw new Error('HTTP '+r.status+' '+r.statusText); }
         var d = await r.json();
         if(d.ok && d.resultados){
           lote.forEach(function(mla){
@@ -333,9 +538,11 @@ async function participarSel(){
             else { fail++; if(ref) marcarCampFila(ref.tr, false, res); }
           });
         } else {
+          errNet = errNet || (d.error || 'error del lote');
           lote.forEach(function(mla){ fail++; var ref=mapa[mla]; if(ref) marcarCampFila(ref.tr, false, {error:(d.error||'error del lote')}); });
         }
       }catch(e){
+        errNet = errNet || String(e && e.message ? e.message : e);
         lote.forEach(function(mla){ fail++; var ref=mapa[mla]; if(ref) marcarCampFila(ref.tr, false, {error:String(e)}); });
       }
     }
@@ -355,7 +562,8 @@ async function participarSel(){
   }
 
   btn.innerHTML = txt; btn.disabled = false; contarSel();
-  alert('Listo.\nActivadas: '+ok+'\nCon error: '+fail);
+  alert('Listo.\nActivadas: '+ok+'\nCon error: '+fail
+        + (fail && errNet ? '\n\nMotivo: '+errNet : ''));
 }
 
 // ── Modal aplicar / participar promo (PRICE_DISCOUNT / DEAL / SMART) ──
@@ -369,10 +577,11 @@ function abrirModal(btn){
          min:parseFloat(d.min)||0, max:parseFloat(d.max)||0, modo:'pct', row:d.row};
   document.getElementById('mp-mla').value = d.mla;
   document.getElementById('mp-error').style.display='none';
-  var esFijo = (d.tipo === 'SMART' || d.tipo === 'PRICE_MATCHING'), esPD = (d.tipo === 'PRICE_DISCOUNT');
+  var esFijo = (d.tipo === 'SMART' || d.tipo === 'PRICE_MATCHING' || d.tipo === 'PRE_NEGOTIATED'), esPD = (d.tipo === 'PRICE_DISCOUNT');
   var tit = {PRICE_DISCOUNT:'Aplicar mi descuento', DEAL:'Participar en '+(d.name||'la campaña'),
              SMART:'Participar en '+(d.name||'la campaña'),
-             PRICE_MATCHING:'Participar en '+(d.name||'¡Gánale a la competencia!')};
+             PRICE_MATCHING:'Participar en '+(d.name||'¡Gánale a la competencia!'),
+             PRE_NEGOTIATED:'Participar en '+(d.name||'la promo prenegociada')};
   document.getElementById('mp-titulo').textContent = tit[d.tipo] || 'Promo';
   var rango = (_mp.min && _mp.max) ? (' · rango del precio final: $'+fmt(_mp.min)+' a $'+fmt(_mp.max)) : '';
   document.getElementById('mp-info').innerHTML = 'Publicación <b>'+d.mla+'</b>'+rango;
@@ -416,7 +625,7 @@ function mpDeal(){
   return isNaN(a)?null:Math.round(a);
 }
 function mpRecalc(){
-  if(_mp.tipo==='SMART' || _mp.tipo==='PRICE_MATCHING') return;
+  if(_mp.tipo==='SMART' || _mp.tipo==='PRICE_MATCHING' || _mp.tipo==='PRE_NEGOTIATED') return;
   var lista = parseFloat(document.getElementById('mp-lista').value)||0;
   var deal = mpDeal();
   var box = document.getElementById('mp-preview');
@@ -429,7 +638,7 @@ function mpRecalc(){
 }
 function mpConfirmar(){
   var err = document.getElementById('mp-error');
-  var esFijo = (_mp.tipo==='SMART' || _mp.tipo==='PRICE_MATCHING');
+  var esFijo = (_mp.tipo==='SMART' || _mp.tipo==='PRICE_MATCHING' || _mp.tipo==='PRE_NEGOTIATED');
   var body = {mla:_mp.mla, promotion_type:_mp.tipo};
   if(_mp.pid) body.promotion_id = _mp.pid;
   if(esFijo) body.offer_id = _mp.offer;
@@ -463,7 +672,7 @@ function mpAplicada(rowid, d){
     desc.innerHTML = l;
   }
   var cont = tr.querySelector('.mp-acciones'), btn = tr.querySelector('.mp-btn');
-  if(d.tipo==='SMART' || d.tipo==='PRICE_MATCHING'){ if(btn) btn.remove(); }
+  if(d.tipo==='SMART' || d.tipo==='PRICE_MATCHING' || d.tipo==='PRE_NEGOTIATED'){ if(btn) btn.remove(); }
   else if(btn) btn.textContent='Editar';
   if(cont && !tr.querySelector('.mp-salir')){
     var b=document.createElement('button');

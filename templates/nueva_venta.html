@@ -56,7 +56,17 @@
                     <label class="form-label fw-bold">DNI/CUIT</label>
                     <input type="text" class="form-control" name="dni_cliente" placeholder="Ej: 12345678">
                 </div>
-                
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">Condición fiscal</label>
+                    <select class="form-select" name="condicion_fiscal">
+                        <option value="Consumidor Final" selected>Consumidor Final</option>
+                        <option value="Responsable Inscripto">Responsable Inscripto</option>
+                        <option value="Responsable Monotributo">Monotributo</option>
+                        <option value="Exento">Exento</option>
+                    </select>
+                </div>
+
                 <div class="col-md-6">
                     <label class="form-label fw-bold">Provincia</label>
                     <select class="form-select" name="provincia_cliente">

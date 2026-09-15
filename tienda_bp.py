@@ -2373,11 +2373,11 @@ def get_hot_event():
 
     return {
         'activo': activo,
-        'titulo': 'HOT MERCADOMUEBLES',
-        'fechas': '11 AL 18 DE MAYO',
+        'titulo': 'SEMANA DEL DESCANSO',
+        'fechas': '28 DE AGOSTO AL 4 DE SEPTIEMBRE',
         'descuento_max': 15,
         'fecha_fin_iso': fecha_fin_iso,
-        'descuento_extra_catalogo': 2 if activo else 0,
+        'descuento_extra_catalogo': 3 if activo else 0,
         'descuento_extra_oferta': 3 if activo else 0,
     }
 
@@ -2510,11 +2510,11 @@ def home():
     por_pagina = 12
 
     # Modelos ocultos
-    MODELOS_OCULTOS = ['Compac Plus Pocket']
+    MODELOS_OCULTOS = []
 
     # Query base — colchones
     sql = """
-        SELECT 
+        SELECT
             p.sku, p.nombre, p.linea, p.modelo, p.medida,
             p.precio_base, p.stock_actual, p.descuento_catalogo
         FROM productos_base p
@@ -2522,9 +2522,13 @@ def home():
           AND COALESCE(p.activo, 1) = 1
           AND p.medida IS NOT NULL
           AND p.sku NOT LIKE '%%_FULL%%'
-          AND (p.modelo IS NULL OR p.modelo NOT IN ({hidden}))
-    """.format(hidden=','.join(['%s'] * len(MODELOS_OCULTOS)))
-    params = list(MODELOS_OCULTOS)
+    """
+    params = []
+    # Si hay modelos a ocultar, excluirlos (con la lista vacía no se filtra nada)
+    if MODELOS_OCULTOS:
+        sql += " AND (p.modelo IS NULL OR p.modelo NOT IN ({}))".format(
+            ','.join(['%s'] * len(MODELOS_OCULTOS)))
+        params.extend(MODELOS_OCULTOS)
 
     if linea:
         sql += " AND p.linea = %s"

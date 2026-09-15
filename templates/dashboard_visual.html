@@ -192,6 +192,7 @@
                     <th colspan="2" class="nombre-producto-naranja">Base Sabana</th>
                     <th colspan="2" class="nombre-producto-celeste">Exclusive</th>
                     <th colspan="2" class="nombre-producto-naranja">Exclusive Pillow</th>
+                    <th colspan="2" class="nombre-producto-celeste">Exclusive E.P.</th>
                     <th colspan="2" class="nombre-producto-celeste">Base Chocolate</th>
                     <th colspan="2" class="nombre-producto-naranja">Princess 23cm</th>
                     <th colspan="2" class="nombre-producto-celeste">Renovation</th>
@@ -199,6 +200,7 @@
                     <th colspan="2" class="nombre-producto-celeste">Base Gris</th>
                 </tr>
                 <tr>
+                    <th>Stk</th><th>Vta</th>
                     <th>Stk</th><th>Vta</th>
                     <th>Stk</th><th>Vta</th>
                     <th>Stk</th><th>Vta</th>
@@ -240,6 +242,12 @@
                         <span class="stock-valor">{{ datos_espuma[medida]['CEXP']['stock']|zero_dash }}</span>
                         <span class="separador">/</span>
                         <span class="vendido-valor">{{ datos_espuma[medida]['CEXP']['vendido']|zero_dash }}</span>
+                    </div></td>
+
+                    <td colspan="2"><div class="celda-datos">
+                        <span class="stock-valor">{{ datos_espuma[medida]['CEXEP']['stock']|zero_dash }}</span>
+                        <span class="separador">/</span>
+                        <span class="vendido-valor">{{ datos_espuma[medida]['CEXEP']['vendido']|zero_dash }}</span>
                     </div></td>
 
                     <td colspan="2"><div class="celda-datos">
