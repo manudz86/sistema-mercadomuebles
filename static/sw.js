@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cannon-v5';
+const CACHE_NAME = 'cannon-v6';
 const STATIC_ASSETS = [
     '/',
     '/static/icon-192.png',
