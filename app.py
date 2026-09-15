@@ -16496,10 +16496,32 @@ def _rechequear_orden_ml(venta_id, orden_id, access_token, venta_actual):
         if (not metodo_envio_prev) and shipping and shipping.get('tiene_envio') and metodo_envio_ml_nuevo:
             updates['tipo_entrega'] = 'envio'
             updates['metodo_envio'] = metodo_envio_ml_nuevo
+            # La ubicación de despacho y el sufijo del SKU se derivan del método de
+            # envío (mismo criterio que el import, ~15625 y ~15667). Al corregir el
+            # método hay que arrastrarlos: sino queda metodo_envio='Full' con
+            # ubicacion_despacho='DEP' y el stock se descuenta del lugar equivocado.
+            # Seguro: el rechequeo solo corre con estado_entrega='pendiente', o sea
+            # ANTES de que se descuente stock.
+            _ubic_nueva = 'FULL' if metodo_envio_ml_nuevo == 'Full' else 'DEP'
+            updates['ubicacion_despacho'] = _ubic_nueva
+            _suf_ok = '_FULL' if _ubic_nueva == 'FULL' else '_DEP'
+            _suf_malo = '_DEP' if _ubic_nueva == 'FULL' else '_FULL'
+            try:
+                for _itm in (query_db(
+                    "SELECT id, sku FROM items_venta WHERE venta_id = %s", (venta_id,)
+                ) or []):
+                    _sku = _itm['sku'] or ''
+                    if _sku.upper().startswith(('CCO', 'CCP')) and _sku.endswith(_suf_malo):
+                        _sku_ok = _sku[:-len(_suf_malo)] + _suf_ok
+                        execute_db("UPDATE items_venta SET sku = %s WHERE id = %s",
+                                   (_sku_ok, _itm['id']))
+                        print(f"[RECHECK-ML] Venta {venta_id}: SKU {_sku} → {_sku_ok}")
+            except Exception as _e_sku:
+                print(f"[RECHECK-ML] Venta {venta_id}: error remapeando SKU: {_e_sku}")
             if dir_nueva and not dir_actual:
                 updates['direccion_entrega'] = dir_nueva
                 dir_actual = dir_nueva  # para evaluación final
-            print(f"[RECHECK-ML] Venta {venta_id}: corregido retiro→envío ({metodo_envio_ml_nuevo})")
+            print(f"[RECHECK-ML] Venta {venta_id}: corregido retiro→envío ({metodo_envio_ml_nuevo}, {_ubic_nueva})")
 
         # Notas: solo si las actuales son IDÉNTICAS a las originales (sin ediciones manuales)
         notas_actuales = (venta_actual.get('notas') or '')
