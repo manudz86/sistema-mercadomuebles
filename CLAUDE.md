@@ -34,6 +34,7 @@ cp -a "<archivo>" "backups/$(basename "<archivo>")_$(date +%Y%m%d_%H%M%S).bak"
 1. **Pensar primero.** Entender bien el cambio pedido y revisar los mapas y el código real antes de proponer nada.
 2. **Presentar la idea**: qué archivos se van a tocar, qué se va a cambiar y por qué. Si algo es ambiguo, hacer 1–2 preguntas concretas en vez de asumir.
 3. **Esperar mi autorización explícita.** No editar nada antes de mi OK.
+   **Un OK autoriza la tarea entera, no cada paso.** Una vez que dije que sí, hacé de corrido backup → cambios → chequeo → diff → commit → push, sin volver a preguntarme. Solo frená si aparece algo que invalida el plan que aprobé (otro archivo, otro enfoque, un hallazgo que cambia el diagnóstico).
 4. Con mi OK: **backup** de cada archivo → hacer los cambios → **chequeo de sintaxis** (`python -m py_compile <archivo>` para `.py`; parseo Jinja2 para templates) → **diff** mostrándome que solo cambiaron las líneas previstas (cero borrados no intencionales).
 5. `git add` (rutas explícitas, nunca `git add .`) + `git commit` + `git push`. Esto es solo respaldo/versionado: **no afecta lo que está corriendo**.
 6. **Reiniciar = paso aparte, con confirmación.** El cambio NO entra en vivo hasta reiniciar (`--reload` está apagado). Reiniciar afecta a **tienda Y sistema** (es un solo proceso), así que: pedir confirmación, hacerlo en horario tranquilo, y una sola vez al final si hubo varios cambios:
@@ -41,6 +42,15 @@ cp -a "<archivo>" "backups/$(basename "<archivo>")_$(date +%Y%m%d_%H%M%S).bak"
 ```
 systemctl restart cannon && systemctl is-active cannon
 ```
+
+## Cómo ejecutar comandos (para no generar autorizaciones de más)
+La allowlist de `.claude/settings.local.json` matchea por **texto del comando**. Estas tres costumbres la anulan y hacen que todo pida permiso:
+
+- **No usar `cd`.** El directorio de trabajo de la sesión ya es `/home/cannon/app`. Anteponer `cd /home/cannon/app` a cada comando es redundante y, como en un comando compuesto alcanza con que una parte no esté permitida para que pregunte, garantiza el prompt.
+- **No usar Python inline** (`venv/bin/python3 - <<'PY' ...`). Cada heredoc es texto único: no puede matchear ningún patrón, nunca. Si hace falta lógica de verdad, escribirla **una vez** en `scripts/` y después ejecutarla (esos sí están preautorizados).
+- **Agrupar** los comandos independientes en una sola llamada en vez de encadenar muchas chicas.
+
+Herramientas preautorizadas para investigar: `scripts/q.py` (SQL de solo lectura), `scripts/ml.py` (GET a la API de ML), `scripts/dump.py` (backup de tablas antes de escribir en la DB).
 
 ## Estilo de cambios
 - **Quirúrgicos y mínimos.** No refactorizar, no renombrar, no reorganizar, no "modularizar" sin que lo pida. El código es un monolito grande y por ahora se mantiene así a propósito.
