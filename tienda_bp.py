@@ -4948,17 +4948,11 @@ def checkout():
             pass  # si falla la lectura, queda la card oculta
 
         # Feature flag Payway 3 cuotas (default ON: siempre se mostró).
-        payway_enabled = True
+        # Va por payway_cuotas_activo() para que contemple los días de promo de
+        # 3 sin interés. Antes leía la clave payway_enabled directo acá y por eso
+        # la opción quedaba oculta en el checkout aunque la promo estuviera activa.
         try:
-            _db_pw  = get_db()
-            _cur_pw = _db_pw.cursor()
-            _cur_pw.execute("INSERT IGNORE INTO configuracion (clave, valor) VALUES ('payway_enabled', '1')")
-            _db_pw.commit()
-            _cur_pw.execute("SELECT valor FROM configuracion WHERE clave = 'payway_enabled'")
-            _row_pw = _cur_pw.fetchone()
-            payway_enabled = bool(_row_pw and _row_pw['valor'] == '1')
-            _cur_pw.close()
-            _db_pw.close()
+            payway_enabled = payway_cuotas_activo()
         except Exception:
             payway_enabled = True  # ante error, mostrar (comportamiento actual)
 
