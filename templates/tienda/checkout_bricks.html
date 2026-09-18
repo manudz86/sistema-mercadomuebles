@@ -68,12 +68,20 @@
       {% if payway_enabled %}
       <!-- Opcion Payway 3 cuotas -->
       <label id="opt-pw3" onclick="seleccionarMetodo('pw3')"
-        style="display:flex; align-items:center; gap:14px; border:2px solid #ddd; border-radius:10px; padding:14px 16px; cursor:pointer; background:#fff; color:#333; transition:all 0.2s;">
+        style="display:flex; align-items:center; gap:14px; border:2px solid {% if promo_3sin %}#1e8e4e{% else %}#ddd{% endif %}; border-radius:10px; padding:14px 16px; cursor:pointer; background:{% if promo_3sin %}#eafaf0{% else %}#fff{% endif %}; color:#333; transition:all 0.2s;">
         <input type="radio" name="metodo_pago" value="pw3" style="display:none;">
-        <span class="card-icon" style="font-size:1.4rem; color:#003087;">🏦</span>
+        <span class="card-icon" style="font-size:1.4rem; color:{% if promo_3sin %}#1e8e4e{% else %}#003087{% endif %};">🏦</span>
         <div>
+          {% if promo_3sin %}
+          <div style="font-weight:700; font-size:0.95rem; color:#14663a;">
+            3 cuotas de {{ cuota_3_fmt }}
+            <span style="display:inline-block; background:#1e8e4e; color:#fff; border-radius:4px; padding:1px 7px; font-size:0.66rem; font-weight:700; margin-left:5px; letter-spacing:0.3px; vertical-align:middle;">SIN INTERÉS</span>
+          </div>
+          <div class="card-sub" style="font-size:0.78rem; color:#4a8c68;">Total {{ total_3_fmt }} · Solo Visa y Mastercard de crédito</div>
+          {% else %}
           <div style="font-weight:700; font-size:0.95rem;">3 cuotas de {{ cuota_3_fmt }}</div>
           <div class="card-sub" style="font-size:0.78rem; color:#888;">Total {{ total_3_fmt }} · Visa, Mastercard, Amex, Cabal (bancarias)</div>
+          {% endif %}
         </div>
       </label>
       {% endif %}
@@ -180,9 +188,16 @@
         <select id="pw-card-type" style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; background:#fff;">
           <option value="1">Visa</option>
           <option value="104">Mastercard</option>
+          {% if not promo_3sin %}
           <option value="65">American Express</option>
           <option value="63">Cabal</option>
+          {% endif %}
         </select>
+        {% if promo_3sin %}
+        <div style="font-size:0.72rem; color:#1e8e4e; margin-top:5px; font-weight:600;">
+          La promo de 3 cuotas sin interés aplica solo con Visa y Mastercard de crédito.
+        </div>
+        {% endif %}
       </div>
 
       <!-- Numero de tarjeta -->

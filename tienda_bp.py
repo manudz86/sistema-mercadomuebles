@@ -96,6 +96,15 @@ def inject_hot_event():
     return {'hot_event': get_hot_event()}
 
 
+@tienda_bp.context_processor
+def inject_promo_3sin():
+    """Promo bancaria de 3 cuotas sin interés (miércoles y sábado) para los templates."""
+    try:
+        return {'promo_3sin': promo_3sin_activa()}
+    except Exception:
+        return {'promo_3sin': False}
+
+
 def slugify(text):
     """Convierte 'Colchón Cannon Tropical 80x190cm' → 'colchon-cannon-tropical-80x190cm'"""
     text = unicodedata.normalize('NFKD', str(text))
@@ -2186,8 +2195,62 @@ def calc_cuotas(precio, coef_3, coef_6, coef_12=1.6):
     }
 
 
+def promo_3sin_activa():
+    """True si hoy corre la promo bancaria de 3 cuotas SIN INTERÉS por Payway.
+
+    Claves en configuracion (se autocrean con default la primera vez):
+      - promo_3sin_activo: '1' forzado ON / '0' forzado OFF / 'auto' (default)
+      - promo_3sin_dias:   días de la semana en formato weekday() de Python,
+                           separados por coma. Default '2,5' = miércoles y sábado.
+    El día se evalúa SIEMPRE en hora Argentina, sin importar el TZ del server.
+    """
+    from datetime import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        ahora = datetime.now(ZoneInfo('America/Argentina/Buenos_Aires'))
+    except Exception:
+        ahora = datetime.now()
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("INSERT IGNORE INTO configuracion (clave, valor) VALUES ('promo_3sin_activo', 'auto')")
+        cur.execute("INSERT IGNORE INTO configuracion (clave, valor) VALUES ('promo_3sin_dias', '2,5')")
+        db.commit()
+        cur.execute("SELECT clave, valor FROM configuracion WHERE clave IN ('promo_3sin_activo','promo_3sin_dias')")
+        cfg = {r['clave']: (str(r.get('valor') or '')).strip() for r in cur.fetchall()}
+        cur.close(); db.close()
+    except Exception:
+        return False  # ante cualquier error, NO aplicar la promo (nunca regalar el recargo)
+
+    flag = (cfg.get('promo_3sin_activo') or 'auto').lower()
+    if flag == '1':
+        return True
+    if flag != 'auto':
+        return False
+    try:
+        dias = {int(d) for d in (cfg.get('promo_3sin_dias') or '2,5').split(',') if d.strip() != ''}
+    except ValueError:
+        dias = {2, 5}
+    return ahora.weekday() in dias
+
+
+def get_coef_3_payway():
+    """Coeficiente de 3 cuotas de Payway. En los días de promo es 1.0 (sin interés real).
+
+    IMPORTANTE: lo usan TANTO la vitrina del checkout como el cobro real contra
+    Payway. Deben salir siempre de acá para que no puedan divergir (mostrar un
+    precio y cobrar otro).
+    """
+    if promo_3sin_activa():
+        return 1.0
+    coef_3, _ = get_coeficientes_cuotas()
+    return coef_3
+
+
 def payway_cuotas_activo():
-    """True si el medio 'Payway 3 cuotas' está activo (default ON, siempre se mostró)."""
+    """True si el medio 'Payway 3 cuotas' está activo (default ON, siempre se mostró).
+    Los días de promo se habilita solo, sin tocar el flag payway_enabled."""
+    if promo_3sin_activa():
+        return True
     try:
         db = get_db(); cur = db.cursor()
         cur.execute("SELECT valor FROM configuracion WHERE clave='payway_enabled'")
@@ -2208,7 +2271,7 @@ def calc_cuotas_producto(precio):
     coeficiente entre los medios de 3 cuotas ACTIVOS (Payway 3c / MercadoPago 3c)."""
     c3, c6 = get_coeficientes_cuotas()
     coefs = []
-    if payway_cuotas_activo(): coefs.append(c3)
+    if payway_cuotas_activo(): coefs.append(get_coef_3_payway())
     if mp_3_cuotas_activo():   coefs.append(get_coef_mp3())
     c3_ef = min(coefs) if coefs else c3
     return calc_cuotas(precio, c3_ef, c6, get_coef_12())
@@ -4845,7 +4908,8 @@ def checkout():
     if checkout_v == 'bricks':
         total_a_pagar    = sum(float(i['unit_price']) * int(i['quantity']) for i in items_mp)
         coef_3, coef_6   = get_coeficientes_cuotas()
-        total_pw_3       = round(total_a_pagar * coef_3)
+        # 3 cuotas: en días de promo el coef es 1.0 (mismo helper que usa el cobro real)
+        total_pw_3       = round(total_a_pagar * get_coef_3_payway())
         total_pw_6       = round(total_a_pagar * coef_6)
         payway_api_url = os.getenv('PAYWAY_API_URL', 'https://live.decidir.com/api/v2')
         # SDK JS de Payway: sandbox usa developers.decidir.com, prod usa live.decidir.com
@@ -5608,6 +5672,13 @@ def pago_payway():
     if not token or not pedido_ref:
         return jsonify({'status': 'error', 'msg': 'Datos incompletos'}), 400
 
+    # El payment_method_id lo elige el cliente en un <select>: validarlo acá.
+    # En los días de promo la promo bancaria es solo Visa (1) y Mastercard (104).
+    tarjetas_ok = {1, 104} if promo_3sin_activa() else {1, 104, 65, 63}
+    if payment_method_id not in tarjetas_ok:
+        return jsonify({'status': 'error',
+                        'msg': 'Medio de pago no disponible. Usá Visa o Mastercard de crédito.'}), 400
+
     # ── Recuperar carrito y cliente ───────────────────────────────────────────
     db  = get_db()
     cur = db.cursor()
@@ -5650,7 +5721,9 @@ def pago_payway():
 
     # ── Calcular monto con coeficiente de cuotas y cupón ─────────────────────
     coef_3, coef_6    = get_coeficientes_cuotas()
-    coef              = coef_3 if installments == 3 else coef_6
+    # 3 cuotas: mismo helper que la vitrina del checkout (en días de promo = 1.0),
+    # así el monto mostrado y el cobrado no pueden divergir.
+    coef              = get_coef_3_payway() if installments == 3 else coef_6
     total_productos   = sum(float(it['precio']) * int(it['cantidad']) for it in cart_items)
 
     # Cupón aplica solo a productos (no al flete)
