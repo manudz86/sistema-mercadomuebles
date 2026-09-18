@@ -9606,19 +9606,22 @@ def promociones_ml_campania():
                                campania_sel='', campania_items=None, publicaciones=None, sku_buscado='')
     ctype = camp.get('type')
     # traer todos los ítems de la campaña (paginado)
-    items = []; off = 0
+    # OJO: este endpoint pagina por CURSOR (paging.searchAfter), no por offset.
+    # Mandar offset lo ignora y devuelve siempre la misma primera página de 50.
+    items = []; search_after = None
     try:
-        while True:
+        for _ in range(200):  # tope de seguridad (200 x 50 = 10.000 ítems)
+            params = {'promotion_type': ctype, 'app_version': 'v2', 'limit': 50}
+            if search_after:
+                params['search_after'] = search_after
             r = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/promotions/{camp_id}/items',
-                           access_token, params={'promotion_type': ctype, 'app_version': 'v2',
-                                                 'limit': 50, 'offset': off})
+                           access_token, params=params)
             if r.status_code != 200:
                 break
             d = r.json(); res = d.get('results', []) or []
             items.extend(res)
-            tot = d.get('paging', {}).get('total', len(res))
-            off += 50
-            if off >= tot or not res:
+            search_after = (d.get('paging') or {}).get('searchAfter')
+            if not res or not search_after:
                 break
     except Exception as e:
         flash(f'Error trayendo la campaña: {e}', 'danger')
@@ -10137,11 +10140,15 @@ def promociones_ml_activas():
             continue
         vistos = set()
         for st_f in ('started', 'pending'):
-            off = 0
-            while True:
+            # paginado por cursor (searchAfter): el endpoint ignora offset
+            search_after = None
+            for _ in range(200):  # tope de seguridad (200 x 50 = 10.000 ítems)
+                params = {'promotion_type': ctype, 'app_version': 'v2',
+                          'status': st_f, 'limit': 50}
+                if search_after:
+                    params['search_after'] = search_after
                 r = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/promotions/{cid}/items',
-                               access_token, params={'promotion_type': ctype, 'app_version': 'v2',
-                                                     'status': st_f, 'limit': 50, 'offset': off})
+                               access_token, params=params)
                 if r.status_code != 200:
                     break
                 d = r.json() or {}
@@ -10162,9 +10169,8 @@ def promociones_ml_activas():
                         'f_ini': _promo_fecha_ar(it.get('start_date')),
                         'f_fin': _promo_fecha_ar(it.get('end_date')),
                     })
-                tot = d.get('paging', {}).get('total', len(res))
-                off += 50
-                if off >= tot or not res:
+                search_after = (d.get('paging') or {}).get('searchAfter')
+                if not res or not search_after:
                     break
     activas.sort(key=lambda x: (x['campania'], x['sku'] or '', x['mla_id']))
     n_act = sum(1 for a in activas if a['estado'] in ('started', 'active'))
