@@ -9797,6 +9797,149 @@ def promociones_ml_aplicar():
     return jsonify({'ok': False, 'error': msg})
 
 
+def _promo_limite_aporte():
+    """Tope de aporte propio (%) por encima del cual NO se aplica una promo.
+    Configurable en configuracion['promo_max_aporte_pct']. Default 5."""
+    try:
+        row = query_one("SELECT valor FROM configuracion WHERE clave='promo_max_aporte_pct'")
+        if row and row['valor'] not in (None, ''):
+            return float(str(row['valor']).replace(',', '.'))
+    except Exception:
+        pass
+    return 5.0
+
+
+def _promo_aporte_de(p):
+    """(aporte_propio_pct, aporte_meli_pct) de una promo cruda de la API."""
+    if not isinstance(p, dict):
+        return None, None
+    seller_p, meli_p = p.get('seller_percentage'), p.get('meli_percentage')
+    if seller_p is not None and meli_p is not None:
+        return float(seller_p), float(meli_p)
+    orig, fin = p.get('original_price'), p.get('price')
+    if orig and fin is not None and float(orig) > 0:
+        # no co-financiada (DEAL, etc.): el descuento entero lo banca el vendedor
+        return round((float(orig) - float(fin)) / float(orig) * 100, 3), 0.0
+    return (float(seller_p), 0.0) if seller_p is not None else (None, None)
+
+
+def _promo_leer_aplicada(access_token, mla, tipo, promotion_id):
+    """Relee en ML la promo que quedó realmente aplicada a una publicación.
+    Devuelve el dict crudo de la oferta activa (status started/pending) o None."""
+    try:
+        r = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/items/{mla}',
+                       access_token, params={'app_version': 'v2'})
+        if r.status_code != 200:
+            return None
+        for p in (r.json() or []):
+            if not isinstance(p, dict):
+                continue
+            if p.get('type') == tipo and (not promotion_id or p.get('id') == promotion_id) \
+               and (p.get('status') or '').lower() in ('started', 'pending', 'active'):
+                return p
+    except Exception:
+        pass
+    return None
+
+
+def _promo_hist_registrar(**kw):
+    """Guarda una fila en promos_ml_historial. Nunca levanta excepción: el registro
+    no puede romper la operación que está auditando."""
+    try:
+        mostrado = kw.get('mostrado_pct')
+        aplicado = kw.get('aplicado_pct')
+        delta = coincide = None
+        if mostrado is not None and aplicado is not None:
+            delta = round(float(aplicado) - float(mostrado), 3)
+            coincide = 1 if abs(delta) <= 0.5 else 0
+        usuario = None
+        try:
+            usuario = session.get('usuario') or session.get('user') or None
+        except Exception:
+            pass
+        db = get_db_connection()
+        cur = db.cursor()
+        cur.execute("""
+            INSERT INTO promos_ml_historial
+                (accion, origen, mla_id, sku, campania_id, campania_nombre, tipo,
+                 mostrado_pct, mostrado_precio, mostrado_original,
+                 aplicado_pct, aplicado_meli_pct, aplicado_precio, aplicado_original,
+                 coincide, delta_pct, supero_limite, revertida, ok, error, usuario)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, (
+            kw.get('accion', 'aplicar'), kw.get('origen', 'panel'), kw.get('mla_id'),
+            kw.get('sku'), kw.get('campania_id'), kw.get('campania_nombre'), kw.get('tipo'),
+            mostrado, kw.get('mostrado_precio'), kw.get('mostrado_original'),
+            aplicado, kw.get('aplicado_meli_pct'), kw.get('aplicado_precio'),
+            kw.get('aplicado_original'), coincide, delta,
+            1 if kw.get('supero_limite') else 0, 1 if kw.get('revertida') else 0,
+            1 if kw.get('ok', True) else 0, (kw.get('error') or None), usuario,
+        ))
+        db.commit()
+        cur.close()
+        db.close()
+    except Exception as e:
+        try:
+            logger.error(f"[promo_hist] no se pudo registrar: {e}")
+        except Exception:
+            pass
+
+
+def _promo_verificar_y_registrar(access_token, mla, tipo, promotion_id, res,
+                                 mostrado_pct=None, origen='panel', campania_nombre=None):
+    """Post-aplicación: relee lo que ML dejó, lo compara con lo que se mostró, lo
+    registra en el historial y —si supera el tope— REVIERTE la promo.
+
+    Devuelve el dict de resultado (modificado si hubo que revertir)."""
+    if not res.get('ok'):
+        _promo_hist_registrar(accion='aplicar', origen=origen, mla_id=mla, tipo=tipo,
+                              campania_id=promotion_id, campania_nombre=campania_nombre,
+                              mostrado_pct=mostrado_pct, ok=False, error=res.get('error'))
+        return res
+
+    aplicada = _promo_leer_aplicada(access_token, mla, tipo, promotion_id)
+    aporte, meli = _promo_aporte_de(aplicada) if aplicada else (None, None)
+    limite = _promo_limite_aporte()
+    supero = aporte is not None and aporte > limite
+
+    sku = None
+    try:
+        row = query_one("SELECT sku FROM sku_mla_mapeo WHERE mla_id=%s AND activo=TRUE", (mla,))
+        sku = row['sku'] if row else None
+    except Exception:
+        pass
+
+    revertida = False
+    if supero:
+        # Deshacer: ML aplicó un aporte mayor al tope. No dejamos la promo puesta.
+        try:
+            qs = f'promotion_type={tipo}&app_version=v2&promotion_id={promotion_id}'
+            oid = (aplicada or {}).get('offer_id') or (aplicada or {}).get('ref_id')
+            if oid:
+                qs += f'&offer_id={oid}'
+            rd = ml_request('delete', f'https://api.mercadolibre.com/seller-promotions/items/{mla}?{qs}',
+                            access_token)
+            revertida = rd.status_code in (200, 204)
+        except Exception:
+            revertida = False
+        res = {'ok': False,
+               'error': (f'Aporte propio {aporte}% supera el tope de {limite}% '
+                         f'→ {"revertida" if revertida else "NO se pudo revertir, revisar a mano"}'),
+               'aporte_real': aporte, 'supero_limite': True, 'revertida': revertida}
+
+    _promo_hist_registrar(
+        accion='aplicar', origen=origen, mla_id=mla, sku=sku, tipo=tipo,
+        campania_id=promotion_id, campania_nombre=campania_nombre,
+        mostrado_pct=mostrado_pct,
+        aplicado_pct=aporte, aplicado_meli_pct=meli,
+        aplicado_precio=(aplicada or {}).get('price'),
+        aplicado_original=(aplicada or {}).get('original_price'),
+        supero_limite=supero, revertida=revertida,
+        ok=res.get('ok', True), error=res.get('error'),
+    )
+    return res
+
+
 def _participar_campania_una(access_token, mla, tipo, promotion_id):
     """Une UNA publicación a una campaña de precio fijo (SMART / PRICE_MATCHING).
     El precio lo fija ML. Devuelve dict {ok, tipo, deal_price, original_price, pct, error}.
@@ -9813,8 +9956,11 @@ def _participar_campania_una(access_token, mla, tipo, promotion_id):
         rg = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/items/{mla}',
                         access_token, params={'app_version': 'v2'})
         for p in (_safe_json(rg) or []):
+            # Solo ofertas CANDIDATAS: sin este filtro podía tomar el ref_id de una
+            # oferta ya activa (u otra distinta a la que se mostró en pantalla).
             if isinstance(p, dict) and p.get('type') == tipo and \
-               (not promotion_id or p.get('id') == promotion_id) and p.get('ref_id'):
+               (not promotion_id or p.get('id') == promotion_id) and p.get('ref_id') and \
+               (p.get('status') or '').lower() == 'candidate':
                 offer_id = p['ref_id']
                 break
     except Exception:
@@ -10017,15 +10163,32 @@ def promociones_ml_aplicar_lote():
             vistos.add(m); limpio.append(m)
     limpio = limpio[:30]
 
+    # % que el panel mostró para cada publicación (lo que el usuario aceptó).
+    # Se guarda junto con lo que ML termine aplicando, para poder comparar.
+    mostrados = data.get('mostrados') or {}
+
     def _una(mla):
         try:
             if tipo == 'LIGHTNING':
-                return mla, _participar_lightning_una(access_token, mla, promotion_id)
-            if tipo == 'DEAL':
-                return mla, _participar_deal_una(access_token, mla, promotion_id)
-            return mla, _participar_campania_una(access_token, mla, tipo, promotion_id)
+                res = _participar_lightning_una(access_token, mla, promotion_id)
+            elif tipo == 'DEAL':
+                res = _participar_deal_una(access_token, mla, promotion_id)
+            else:
+                res = _participar_campania_una(access_token, mla, tipo, promotion_id)
         except Exception as e:
-            return mla, {'ok': False, 'error': str(e)}
+            res = {'ok': False, 'error': str(e)}
+        try:
+            mp = mostrados.get(mla)
+            mp = float(mp) if mp not in (None, '', 999) else None
+        except (TypeError, ValueError):
+            mp = None
+        try:
+            res = _promo_verificar_y_registrar(access_token, mla, tipo, promotion_id,
+                                               res, mostrado_pct=mp, origen='lote',
+                                               campania_nombre=data.get('campania_nombre'))
+        except Exception as e:
+            logger.error(f"[promo_hist] verificación falló para {mla}: {e}")
+        return mla, res
 
     resultados = {}
     with ThreadPoolExecutor(max_workers=5) as ex:
@@ -10118,6 +10281,118 @@ def promociones_ml_quitar_lote():
     ok = sum(1 for r in resultados.values() if r.get('ok'))
     return jsonify({'ok': True, 'resultados': resultados,
                     'ok_count': ok, 'fail_count': len(resultados) - ok})
+
+
+@app.route('/promociones-ml/historial')
+@login_required
+def promociones_ml_historial():
+    """Historial de promos: qué se mostró/aceptó vs qué aplicó ML.
+    Filtros: ?solo=desvios|superados  &dias=N  &limit=N"""
+    solo = (request.args.get('solo') or '').strip()
+    try:
+        dias = max(1, min(365, int(request.args.get('dias', 30))))
+    except ValueError:
+        dias = 30
+    try:
+        limit = max(1, min(2000, int(request.args.get('limit', 500))))
+    except ValueError:
+        limit = 500
+
+    where = ["fecha >= DATE_SUB(NOW(), INTERVAL %s DAY)"]
+    params = [dias]
+    if solo == 'desvios':
+        where.append("coincide = 0")
+    elif solo == 'superados':
+        where.append("supero_limite = 1")
+
+    filas = query_db(f"""
+        SELECT id, fecha, accion, origen, mla_id, sku, campania_nombre, tipo,
+               mostrado_pct, aplicado_pct, aplicado_meli_pct, delta_pct, coincide,
+               mostrado_precio, aplicado_precio, aplicado_original,
+               supero_limite, revertida, ok, error, usuario
+        FROM promos_ml_historial
+        WHERE {' AND '.join(where)}
+        ORDER BY fecha DESC, id DESC
+        LIMIT {limit}
+    """, tuple(params)) or []
+
+    for f in filas:
+        if f.get('fecha'):
+            f['fecha'] = f['fecha'].strftime('%d/%m/%Y %H:%M')
+        for k in ('mostrado_pct', 'aplicado_pct', 'aplicado_meli_pct', 'delta_pct'):
+            if f.get(k) is not None:
+                f[k] = float(f[k])
+
+    resumen = query_one(f"""
+        SELECT COUNT(*) AS total,
+               SUM(coincide = 0) AS desvios,
+               SUM(supero_limite = 1) AS superados,
+               SUM(revertida = 1) AS revertidas
+        FROM promos_ml_historial
+        WHERE fecha >= DATE_SUB(NOW(), INTERVAL %s DAY)
+    """, (dias,)) or {}
+    return jsonify({'ok': True, 'items': filas, 'resumen': resumen,
+                    'limite_aporte': _promo_limite_aporte(), 'dias': dias})
+
+
+def job_promos_rechequeo():
+    """Rechequeo diario de las promos aplicadas: registra en el historial toda
+    publicación cuyo aporte propio supere el tope. ML recalcula por su cuenta,
+    así que una promo aceptada al 3% puede terminar en 12% sin que nadie toque nada."""
+    try:
+        access_token = cargar_ml_token()
+        if not access_token:
+            return
+        limite = _promo_limite_aporte()
+        campanias = _promo_campanias(access_token)
+        mapa = {r['mla_id']: r['sku'] for r in
+                (query_db("SELECT mla_id, sku FROM sku_mla_mapeo WHERE activo = TRUE") or [])}
+        desviadas = 0
+        for c in campanias:
+            cid, ctype = c.get('id'), c.get('type')
+            if not cid or not ctype:
+                continue
+            vistos = set()
+            for st in ('started', 'pending'):
+                search_after = None
+                for _ in range(200):
+                    params = {'promotion_type': ctype, 'app_version': 'v2',
+                              'status': st, 'limit': 50}
+                    if search_after:
+                        params['search_after'] = search_after
+                    r = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/promotions/{cid}/items',
+                                   access_token, params=params)
+                    if r.status_code != 200:
+                        break
+                    d = r.json() or {}
+                    res = d.get('results') or []
+                    for it in res:
+                        mla = it.get('id')
+                        if not mla or mla in vistos or mla not in mapa:
+                            continue
+                        vistos.add(mla)
+                        aporte, meli = _promo_aporte_de(it)
+                        if aporte is None or aporte <= limite:
+                            continue
+                        desviadas += 1
+                        _promo_hist_registrar(
+                            accion='rechequeo', origen='job', mla_id=mla, sku=mapa.get(mla),
+                            campania_id=cid, campania_nombre=c.get('name'), tipo=ctype,
+                            aplicado_pct=aporte, aplicado_meli_pct=meli,
+                            aplicado_precio=it.get('price'),
+                            aplicado_original=it.get('original_price'),
+                            supero_limite=True, ok=True,
+                            error=f'Aporte {aporte}% supera el tope de {limite}%')
+                    search_after = (d.get('paging') or {}).get('searchAfter')
+                    if not res or not search_after:
+                        break
+        if desviadas:
+            logger.warning(f"[PROMOS-RECHEQUEO] {desviadas} promo(s) con aporte propio "
+                           f"sobre el tope de {limite}% — ver /promociones-ml (Historial)")
+        else:
+            logger.info("[PROMOS-RECHEQUEO] sin desvíos")
+    except Exception as e:
+        logger.error(f"[PROMOS-RECHEQUEO] error: {e}")
 
 
 @app.route('/promociones-ml/activas')
@@ -18255,6 +18530,16 @@ def iniciar_scheduler():
             print("[COMPETENCIA] Jobs agendados: 5:00 y 12:30")
         except Exception as e:
             print(f"[COMPETENCIA] Error registrando jobs: {e}")
+
+        # Rechequeo diario de promos ML: ML recalcula el aporte propio por su cuenta,
+        # así que una promo aceptada al 3% puede terminar en 12% sin que nadie toque nada.
+        try:
+            scheduler.add_job(job_promos_rechequeo, 'cron', hour=7, minute=15,
+                              id='promos_ml_rechequeo', replace_existing=True,
+                              max_instances=1)
+            print("[PROMOS-ML] Rechequeo de aporte agendado: 7:15")
+        except Exception as e:
+            print(f"[PROMOS-ML] Error registrando rechequeo: {e}")
 
         # Competencia V2 — descarga automática desde Real Trends (Market Pro v2).
         # 16:30 UTC = 13:30 hora Argentina. Trae solo los días nuevos del período actual;

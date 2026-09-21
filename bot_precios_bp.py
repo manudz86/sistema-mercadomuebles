@@ -28,12 +28,6 @@ load_dotenv('config/.env')
 
 bot_precios_bp = Blueprint('bot_precios', __name__)
 
-# Crear tabla de log al importar el blueprint
-try:
-    _crear_tabla_bot_log()
-except Exception:
-    pass  # Si falla (ej: BD no disponible aún), no bloquear el arranque
-
 # ── DB ────────────────────────────────────────────────────────────
 
 def _db():
@@ -42,6 +36,16 @@ def _db():
         password=os.getenv('DB_PASSWORD', 'Sistema@32267845'),
         database='inventario_cannon'
     )
+
+
+# Crear tabla de log al importar el blueprint.
+# OJO: esto ANTES estaba arriba, llamado antes de definir _db() → tiraba NameError,
+# el except lo tragaba y la tabla nunca se creaba: no quedó registro de ningún
+# cambio de precio. Tiene que ir después de _db().
+try:
+    _crear_tabla_bot_log()
+except Exception as _e:
+    print(f"[bot_precios] No se pudo crear bot_precios_log: {_e}")
 
 def _query(sql, params=None, fetchall=True):
     db = _db()
@@ -386,10 +390,13 @@ def _log_cambio(sku, mla_id, titulo, listing_type, precio_anterior, precio_nuevo
             estado = "OK" if ok else "ERROR"
             desc = (f"{estado} | SKU:{sku} MLA:{mla_id} "
                     f"${precio_anterior:,}→${precio_nuevo:,} ({listing_type})")
+            # OJO: la columna es 'detalle', no 'descripcion'. Con el nombre viejo el
+            # INSERT fallaba SIEMPRE y en silencio → no quedaba registro de ningún
+            # cambio de precio enviado a ML.
             cur.execute("""
-                INSERT INTO sistema_logs (nivel, modulo, accion, descripcion, usuario)
-                VALUES ('INFO','bot_precios','actualizar_precio',%s,'bot_precios')
-            """, (desc,))
+                INSERT INTO sistema_logs (nivel, modulo, accion, detalle, sku, usuario)
+                VALUES ('INFO','bot_precios','actualizar_precio',%s,%s,'bot_precios')
+            """, (desc, sku))
             db.commit(); cur.close(); db.close()
         except Exception as e:
             print(f"[bot_log] Error sistema_logs: {e}")

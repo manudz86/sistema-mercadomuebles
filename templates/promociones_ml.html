@@ -39,6 +39,7 @@
     <li class="nav-item"><a class="nav-link" href="#" data-tab="pub" onclick="return showTab('pub')"><i class="bi bi-upc-scan"></i> Por publicación</a></li>
     <li class="nav-item"><a class="nav-link" href="#" data-tab="camp" onclick="return showTab('camp')"><i class="bi bi-megaphone"></i> Por campaña</a></li>
     <li class="nav-item"><a class="nav-link" href="#" data-tab="act" onclick="return showTab('act')"><i class="bi bi-check2-square"></i> Activas / Pendientes</a></li>
+    <li class="nav-item"><a class="nav-link" href="#" data-tab="hist" onclick="return showTab('hist')"><i class="bi bi-clock-history"></i> Historial</a></li>
   </ul>
   <style>
     /* Solapas compactas y en una sola línea (scroll lateral en celular) */
@@ -268,6 +269,32 @@
       <p class="text-muted" style="font-size:.9rem">Tocá <b>Actualizar</b> para traer todas las promos aplicadas (tarda ~15s).</p>
     </div>
   </div>
+
+  <!-- ══ HISTORIAL: lo que se mostró vs lo que aplicó ML ══ -->
+  <div id="pane-hist" class="promo-pane" style="display:none">
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+      <button class="btn btn-sm btn-primary" onclick="cargarHist()">
+        <i class="bi bi-arrow-repeat"></i> Actualizar
+      </button>
+      <select id="fHist" class="form-select form-select-sm" style="width:auto" onchange="cargarHist()">
+        <option value="">Todo</option>
+        <option value="desvios">Solo desvíos (mostrado ≠ aplicado)</option>
+        <option value="superados">Solo los que pasaron el tope</option>
+      </select>
+      <select id="fHistDias" class="form-select form-select-sm" style="width:auto" onchange="cargarHist()">
+        <option value="7">Últimos 7 días</option>
+        <option value="30" selected>Últimos 30 días</option>
+        <option value="90">Últimos 90 días</option>
+      </select>
+    </div>
+    <div id="histResumen" class="mb-2" style="font-size:.85rem"></div>
+    <div id="histBody">
+      <p class="text-muted" style="font-size:.9rem">
+        Tocá <b>Actualizar</b>. Acá queda registrado, por cada promo, el % que te mostró
+        el panel y el que ML dejó aplicado realmente.
+      </p>
+    </div>
+  </div>
 </div>
 
 <!-- ══ MODAL: aplicar / participar promo ══ -->
@@ -319,7 +346,60 @@ function showTab(t){
   document.querySelectorAll('#promoTabs .nav-link').forEach(function(a){a.classList.toggle('active', a.dataset.tab===t);});
   // La solapa de activas carga sola la primera vez (async, no bloquea la página)
   if(t==='act' && !_actData && !_actCargando) cargarActivas(false);
+  if(t==='hist' && !_histCargado) cargarHist();
   return false;
+}
+
+// ── Historial: lo que se mostró vs lo que aplicó ML ──
+var _histCargado = false;
+async function cargarHist(){
+  var body = document.getElementById('histBody');
+  var res  = document.getElementById('histResumen');
+  body.innerHTML = '<p class="text-muted" style="font-size:.9rem">Cargando…</p>';
+  try{
+    var solo = document.getElementById('fHist').value;
+    var dias = document.getElementById('fHistDias').value;
+    var r = await fetch('/promociones-ml/historial?solo='+encodeURIComponent(solo)+'&dias='+dias);
+    var d = await r.json();
+    if(!d.ok){ body.innerHTML = '<div class="alert alert-danger">'+(d.error||'error')+'</div>'; return; }
+    _histCargado = true;
+    var rs = d.resumen || {};
+    res.innerHTML = '<span class="badge bg-secondary">'+(rs.total||0)+' registros</span> '
+      + '<span class="badge bg-warning text-dark">'+(rs.desvios||0)+' desvíos</span> '
+      + '<span class="badge bg-danger">'+(rs.superados||0)+' pasaron el tope ('+d.limite_aporte+'%)</span> '
+      + '<span class="badge bg-info text-dark">'+(rs.revertidas||0)+' revertidas</span>';
+    if(!d.items.length){
+      body.innerHTML = '<p class="text-muted" style="font-size:.9rem">Sin registros en el período. '
+        + 'El historial se llena a medida que se aplican promos y con el rechequeo diario de las 7:15.</p>';
+      return;
+    }
+    var h = '<div class="table-responsive"><table class="table table-sm table-hover" style="font-size:.82rem">'
+      + '<thead><tr><th>Fecha</th><th>Acción</th><th>SKU</th><th>MLA</th><th>Campaña</th>'
+      + '<th class="text-end">Mostrado</th><th class="text-end">Aplicó ML</th><th class="text-end">Δ</th>'
+      + '<th>Estado</th></tr></thead><tbody>';
+    d.items.forEach(function(i){
+      var cls = (i.supero_limite ? 'table-danger' : (i.coincide === 0 ? 'table-warning' : ''));
+      var est = [];
+      if(i.supero_limite) est.push('<span class="badge bg-danger">pasó el tope</span>');
+      if(i.revertida)     est.push('<span class="badge bg-info text-dark">revertida</span>');
+      if(i.coincide === 0 && !i.supero_limite) est.push('<span class="badge bg-warning text-dark">desvío</span>');
+      if(!i.ok)           est.push('<span class="badge bg-secondary">error</span>');
+      if(!est.length)     est.push('<span class="badge bg-success">ok</span>');
+      var fmt = function(v){ return (v===null||v===undefined) ? '—' : (Math.round(v*100)/100)+'%'; };
+      var dl  = (i.delta_pct===null||i.delta_pct===undefined) ? '—'
+                : ((i.delta_pct>0?'+':'')+(Math.round(i.delta_pct*100)/100));
+      h += '<tr class="'+cls+'"><td>'+i.fecha+'</td><td>'+i.accion+'</td><td>'+(i.sku||'—')+'</td>'
+        + '<td><code style="font-size:.75rem">'+i.mla_id+'</code></td>'
+        + '<td>'+(i.campania_nombre||i.tipo||'—')+'</td>'
+        + '<td class="text-end">'+fmt(i.mostrado_pct)+'</td>'
+        + '<td class="text-end fw-bold">'+fmt(i.aplicado_pct)+'</td>'
+        + '<td class="text-end">'+dl+'</td>'
+        + '<td>'+est.join(' ')+(i.error?('<div class="text-muted" style="font-size:.7rem">'+i.error+'</div>'):'')+'</td></tr>';
+    });
+    body.innerHTML = h + '</tbody></table></div>';
+  }catch(e){
+    body.innerHTML = '<div class="alert alert-danger">No se pudo cargar: '+e.message+'</div>';
+  }
 }
 
 // ── Filtro por estado en "Por publicación" y "Por campaña" ──
@@ -525,9 +605,17 @@ async function participarSel(){
     for(var i=0; i<mlas.length; i+=CHUNK){
       var lote = mlas.slice(i, i+CHUNK);
       btn.innerHTML = 'Procesando '+Math.min(i+lote.length, total)+'/'+total+'…';
+      // Mandamos el % que la grilla mostró para cada publi: el backend lo guarda
+      // junto con lo que ML termine aplicando, para poder comparar después.
+      var mostrados = {};
+      lote.forEach(function(mla){
+        var ref = mapa[mla];
+        if(ref && ref.tr){ var o = parseFloat(ref.tr.dataset.orden); if(!isNaN(o) && o !== 999) mostrados[mla] = o; }
+      });
       try{
         var r = await fetch('/promociones-ml/aplicar-lote', {method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({mlas:lote, promotion_type:CAMP_TIPO, promotion_id:CAMP_ID})});
+          body: JSON.stringify({mlas:lote, promotion_type:CAMP_TIPO, promotion_id:CAMP_ID,
+                                mostrados:mostrados, campania_nombre:CAMP_NOMBRE})});
         if(!r.ok){ throw new Error('HTTP '+r.status+' '+r.statusText); }
         var d = await r.json();
         if(d.ok && d.resultados){
