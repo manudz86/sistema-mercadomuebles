@@ -10493,6 +10493,11 @@ def promociones_ml_activas():
                         'precio': it.get('price'), 'original': it.get('original_price'),
                         'offer_id': it.get('offer_id') or it.get('ref_id') or '',
                         'seller_pct': it.get('seller_percentage'),
+                        # aporte de ML y total, para poder comparar en la grilla.
+                        # En las no co-financiadas (DEAL) ML no pone nada: el
+                        # descuento entero sale del vendedor.
+                        'meli_pct': it.get('meli_percentage'),
+                        'aporte_calc': _promo_aporte_de(it)[0],
                         'f_ini': _promo_fecha_ar(it.get('start_date')),
                         'f_fin': _promo_fecha_ar(it.get('end_date')),
                     })
@@ -10502,7 +10507,8 @@ def promociones_ml_activas():
     activas.sort(key=lambda x: (x['campania'], x['sku'] or '', x['mla_id']))
     n_act = sum(1 for a in activas if a['estado'] in ('started', 'active'))
     return jsonify({'ok': True, 'items': activas, 'total': len(activas),
-                    'activas': n_act, 'pendientes': len(activas) - n_act})
+                    'activas': n_act, 'pendientes': len(activas) - n_act,
+                    'limite_aporte': _promo_limite_aporte()})
 
 
 @app.route('/buscar-sku-ml', methods=['POST'])

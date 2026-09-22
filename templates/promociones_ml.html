@@ -432,8 +432,10 @@ async function cargarActivas(forzar){
     document.getElementById('actBody').innerHTML='<div class="alert alert-danger">Error de red: '+e+'</div>';
   }finally{ _actCargando=false; }
 }
+var LIMITE_APORTE = 5;
 function renderActivas(){
   var d=_actData; if(!d) return;
+  if(d.limite_aporte!=null) LIMITE_APORTE = parseFloat(d.limite_aporte);
   document.getElementById('actResumen').innerHTML =
     '<b>'+d.total+'</b> promociones aplicadas · <span class="badge bg-success">'+d.activas+' activas</span> '
     + '<span class="badge bg-warning text-dark">'+d.pendientes+' pendientes</span>';
@@ -441,19 +443,31 @@ function renderActivas(){
   var h='<div class="table-responsive"><table class="table table-sm table-hover align-middle" id="actTabla">'
     + '<thead class="table-light" style="font-size:.76rem"><tr>'
     + '<th><input type="checkbox" onclick="toggleAllAct(this)"></th>'
-    + '<th>SKU / MLA</th><th>Campaña</th><th>Estado</th><th>Tu %</th><th>Precio</th><th>Vigencia (AR)</th><th></th>'
+    + '<th>SKU / MLA</th><th>Campaña</th><th>Estado</th>'
+    + '<th style="cursor:pointer;white-space:nowrap" onclick="ordenarAct(\'tu\')">Tu % <i class="bi bi-arrow-down-up" style="font-size:.7rem"></i></th>'
+    + '<th style="cursor:pointer;white-space:nowrap" onclick="ordenarAct(\'ml\')">ML % <i class="bi bi-arrow-down-up" style="font-size:.7rem"></i></th>'
+    + '<th>Precio</th><th>Vigencia (AR)</th><th></th>'
     + '</tr></thead><tbody>';
   d.items.forEach(function(a){
     var act=(a.estado==='started'||a.estado==='active');
     var id='actrow-'+a.mla_id+'-'+a.promotion_id;
+    // aporte propio: seller_percentage si es co-financiada; si no, el descuento entero
+    var tuPct = (a.seller_pct!=null ? a.seller_pct : a.aporte_calc);
     h+='<tr id="'+id+'" data-estado="'+(act?'activa':a.estado)+'" '
+      + 'data-tu="'+(tuPct!=null?tuPct:999)+'" data-ml="'+(a.meli_pct!=null?a.meli_pct:-1)+'" '
       + 'data-txt="'+((a.sku+' '+a.campania+' '+a.mla_id).toLowerCase())+'">'
       + '<td><input type="checkbox" class="selAct" onclick="contarAct()" data-mla="'+a.mla_id+'" data-pid="'+a.promotion_id+'" data-tipo="'+a.tipo+'" data-offer="'+(a.offer_id||'')+'"></td>'
       + '<td><span class="font-monospace" style="font-size:.78rem">'+(a.sku||'—')+'</span>'
       + '<div class="text-muted font-monospace" style="font-size:.66rem">'+a.mla_id+'</div></td>'
       + '<td style="font-size:.8rem">'+a.campania+'<div class="text-muted font-monospace" style="font-size:.66rem">'+a.tipo+'</div></td>'
       + '<td>'+(act?'<span class="badge bg-success">Activa</span>':'<span class="badge bg-warning text-dark">Pendiente</span>')+'</td>'
-      + '<td class="fw-bold" style="font-size:.82rem">'+(a.seller_pct!=null?a.seller_pct+'%':'—')+'</td>'
+      + '<td class="fw-bold" style="font-size:.82rem">'
+      + (tuPct!=null ? (tuPct+'%'+(tuPct>LIMITE_APORTE?' <span class="badge bg-danger" style="font-size:.6rem">!</span>':'')) : '—')
+      + '</td>'
+      + '<td style="font-size:.82rem">'
+      + (a.meli_pct!=null ? a.meli_pct+'%'
+         : '<span class="text-muted" title="No co-financiada: el descuento lo bancás entero">— <small>(0)</small></span>')
+      + '</td>'
       + '<td style="font-size:.8rem"><b>'+_fmtPeso(a.precio)+'</b>'
       + (a.original?'<div class="text-muted" style="font-size:.68rem">de '+_fmtPeso(a.original)+'</div>':'')+'</td>'
       + '<td style="font-size:.72rem">'+(a.f_ini?(a.f_ini+'<br>→ '+(a.f_fin||'—')):'—')+'</td>'
@@ -464,6 +478,20 @@ function renderActivas(){
   h+='</tbody></table></div>';
   document.getElementById('actBody').innerHTML=h;
   filtrarAct();
+}
+// Orden por "Tu %" / "ML %" en Activas. Numérico (parseFloat), no alfabético.
+var _actAsc={tu:true, ml:false};
+function ordenarAct(col){
+  var tb=document.querySelector('#actTabla tbody'); if(!tb) return;
+  var asc=_actAsc[col]; _actAsc[col]=!asc;
+  var rows=Array.prototype.slice.call(tb.querySelectorAll('tr'));
+  rows.sort(function(a,b){
+    var x=parseFloat(a.dataset[col]), y=parseFloat(b.dataset[col]);
+    if(isNaN(x)) x=asc?1e9:-1e9;
+    if(isNaN(y)) y=asc?1e9:-1e9;
+    return asc ? x-y : y-x;
+  });
+  rows.forEach(function(r){ tb.appendChild(r); });
 }
 function filtrarAct(){
   var e=(document.getElementById('fEstadoAct')||{}).value||'';
