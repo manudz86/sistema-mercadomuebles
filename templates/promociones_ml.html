@@ -640,8 +640,10 @@ async function participarSel(){
       var cb = sel[k], mla = cb.value, tr = cb.closest('tr');
       btn.innerHTML = 'Procesando '+(k+1)+'/'+sel.length+'…';
       try{
+        var _o = parseFloat(tr && tr.dataset ? tr.dataset.orden : NaN);
         var r2 = await fetch('/promociones-ml/aplicar', {method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({mla:mla, promotion_type:CAMP_TIPO, promotion_id:CAMP_ID})});
+          body: JSON.stringify({mla:mla, promotion_type:CAMP_TIPO, promotion_id:CAMP_ID,
+                                mostrado_pct: (!isNaN(_o) && _o !== 999) ? _o : null})});
         var d2 = await r2.json();
         if(d2.ok){ ok++; marcarCampFila(tr, true, d2); cb.checked=false; }
         else { fail++; marcarCampFila(tr, false, d2); }
@@ -662,7 +664,8 @@ function _show(id, on){ var e=document.getElementById(id); if(e) e.style.display
 function abrirModal(btn){
   var d = btn.dataset;
   _mp = {tipo:d.tipo, mla:d.mla, pid:d.pid||'', offer:d.offer||'', orig:parseFloat(d.orig)||0,
-         min:parseFloat(d.min)||0, max:parseFloat(d.max)||0, modo:'pct', row:d.row};
+         min:parseFloat(d.min)||0, max:parseFloat(d.max)||0, modo:'pct', row:d.row,
+         seller:d.seller||''};   // tu aporte mostrado, para el historial
   document.getElementById('mp-mla').value = d.mla;
   document.getElementById('mp-error').style.display='none';
   var esFijo = (d.tipo === 'SMART' || d.tipo === 'PRICE_MATCHING' || d.tipo === 'PRE_NEGOTIATED'), esPD = (d.tipo === 'PRICE_DISCOUNT');
@@ -730,6 +733,9 @@ function mpConfirmar(){
   var body = {mla:_mp.mla, promotion_type:_mp.tipo};
   if(_mp.pid) body.promotion_id = _mp.pid;
   if(esFijo) body.offer_id = _mp.offer;
+  // % que se le mostró al usuario (para el historial mostrado-vs-aplicado)
+  var _sel = parseFloat(String(_mp.seller || '').replace(',', '.'));
+  if(!isNaN(_sel)) body.mostrado_pct = _sel;
   if(!esFijo){
     var deal = mpDeal(), lista = parseFloat(document.getElementById('mp-lista').value)||0;
     if(deal===null || deal<=0){ err.textContent='Ingresá un descuento válido.'; err.style.display='block'; return; }

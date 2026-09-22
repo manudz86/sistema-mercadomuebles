@@ -9786,8 +9786,23 @@ def promociones_ml_aplicar():
                 pct = f"{(float(orig) - float(precio_final)) / float(orig) * 100:.1f}".replace('.', ',')
         except Exception:
             pass
-        return jsonify({'ok': True, 'tipo': tipo, 'deal_price': precio_final, 'original_price': orig,
-                        'pct': pct, 'finish_date': finish_date})
+        # Misma verificación que el lote: releer lo que ML dejó, registrarlo en el
+        # historial y revertir si el aporte propio supera el tope. Sin esto, aplicar
+        # de a una publicación no dejaba NINGÚN rastro ni tenía red de contención.
+        res_ind = {'ok': True, 'tipo': tipo, 'deal_price': precio_final,
+                   'original_price': orig, 'pct': pct, 'finish_date': finish_date}
+        if tipo in ('SMART', 'PRICE_MATCHING', 'PRE_NEGOTIATED', 'DEAL'):
+            try:
+                _mp = request.form.get('mostrado_pct') or (request.get_json(silent=True) or {}).get('mostrado_pct')
+                _mp = float(str(_mp).replace(',', '.')) if _mp not in (None, '', '999') else None
+            except (TypeError, ValueError):
+                _mp = None
+            try:
+                res_ind = _promo_verificar_y_registrar(access_token, mla, tipo, promotion_id,
+                                                       res_ind, mostrado_pct=_mp, origen='individual')
+            except Exception as e:
+                print(f"[promo_hist] verificación individual falló para {mla}: {e}")
+        return jsonify(res_ind)
     # error: armar mensaje legible con las causas de ML
     msg = (r.get('message') if isinstance(r, dict) else None) or f'HTTP {ra.status_code}'
     if isinstance(r, dict) and r.get('cause'):
@@ -9823,22 +9838,29 @@ def _promo_aporte_de(p):
     return (float(seller_p), 0.0) if seller_p is not None else (None, None)
 
 
-def _promo_leer_aplicada(access_token, mla, tipo, promotion_id):
+def _promo_leer_aplicada(access_token, mla, tipo, promotion_id, intentos=4, espera=2.5):
     """Relee en ML la promo que quedó realmente aplicada a una publicación.
-    Devuelve el dict crudo de la oferta activa (status started/pending) o None."""
-    try:
-        r = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/items/{mla}',
-                       access_token, params={'app_version': 'v2'})
-        if r.status_code != 200:
-            return None
-        for p in (r.json() or []):
-            if not isinstance(p, dict):
-                continue
-            if p.get('type') == tipo and (not promotion_id or p.get('id') == promotion_id) \
-               and (p.get('status') or '').lower() in ('started', 'pending', 'active'):
-                return p
-    except Exception:
-        pass
+    Devuelve el dict crudo de la oferta activa (status started/pending) o None.
+
+    ML aplica de forma ASÍNCRONA: justo después del POST la oferta todavía no
+    figura como activa. Sin reintentos esto devolvía None siempre, la comparación
+    nunca se hacía y el tope de aporte no se disparaba. Por eso se reintenta.
+    """
+    for i in range(max(1, intentos)):
+        try:
+            r = ml_request('get', f'https://api.mercadolibre.com/seller-promotions/items/{mla}',
+                           access_token, params={'app_version': 'v2'})
+            if r.status_code == 200:
+                for p in (r.json() or []):
+                    if not isinstance(p, dict):
+                        continue
+                    if p.get('type') == tipo and (not promotion_id or p.get('id') == promotion_id) \
+                       and (p.get('status') or '').lower() in ('started', 'pending', 'active'):
+                        return p
+        except Exception:
+            pass
+        if i < intentos - 1:
+            time.sleep(espera)
     return None
 
 
@@ -9857,16 +9879,26 @@ def _promo_hist_registrar(**kw):
             usuario = session.get('usuario') or session.get('user') or None
         except Exception:
             pass
+        # El VPS y MySQL corren en UTC. Esta tabla es forense: si guarda UTC sin
+        # aclararlo, las horas quedan corridas 3h y no se puede reconstruir nada.
+        # Se guarda ya convertida a hora Argentina.
+        from datetime import datetime as _dt, timedelta as _td
+        try:
+            from zoneinfo import ZoneInfo
+            fecha_ar = _dt.now(ZoneInfo('America/Argentina/Buenos_Aires')).replace(tzinfo=None)
+        except Exception:
+            fecha_ar = _dt.utcnow() - _td(hours=3)
         db = get_db_connection()
         cur = db.cursor()
         cur.execute("""
             INSERT INTO promos_ml_historial
-                (accion, origen, mla_id, sku, campania_id, campania_nombre, tipo,
+                (fecha, accion, origen, mla_id, sku, campania_id, campania_nombre, tipo,
                  mostrado_pct, mostrado_precio, mostrado_original,
                  aplicado_pct, aplicado_meli_pct, aplicado_precio, aplicado_original,
                  coincide, delta_pct, supero_limite, revertida, ok, error, usuario)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (
+            fecha_ar,
             kw.get('accion', 'aplicar'), kw.get('origen', 'panel'), kw.get('mla_id'),
             kw.get('sku'), kw.get('campania_id'), kw.get('campania_nombre'), kw.get('tipo'),
             mostrado, kw.get('mostrado_precio'), kw.get('mostrado_original'),
@@ -9880,7 +9912,7 @@ def _promo_hist_registrar(**kw):
         db.close()
     except Exception as e:
         try:
-            logger.error(f"[promo_hist] no se pudo registrar: {e}")
+            print(f"[promo_hist] no se pudo registrar: {e}")
         except Exception:
             pass
 
@@ -10187,7 +10219,7 @@ def promociones_ml_aplicar_lote():
                                                res, mostrado_pct=mp, origen='lote',
                                                campania_nombre=data.get('campania_nombre'))
         except Exception as e:
-            logger.error(f"[promo_hist] verificación falló para {mla}: {e}")
+            print(f"[promo_hist] verificación falló para {mla}: {e}")
         return mla, res
 
     resultados = {}
@@ -10338,7 +10370,21 @@ def promociones_ml_historial():
 def job_promos_rechequeo():
     """Rechequeo diario de las promos aplicadas: registra en el historial toda
     publicación cuyo aporte propio supere el tope. ML recalcula por su cuenta,
-    así que una promo aceptada al 3% puede terminar en 12% sin que nadie toque nada."""
+    así que una promo aceptada al 3% puede terminar en 12% sin que nadie toque nada.
+
+    Los 5 workers de gunicorn arrancan su propio scheduler: sin el lock, este job
+    corre 5 veces y deja el historial quintuplicado (pasó el 22/09)."""
+    try:
+        from competencia_bp import _adquirir_lock, _liberar_lock
+    except Exception:
+        _adquirir_lock = _liberar_lock = None
+    _ldb = _lcur = None
+    if _adquirir_lock:
+        _ldb, _lcur, _got = _adquirir_lock('promos_rechequeo', timeout=0)
+        if not _got:
+            if _ldb:
+                _liberar_lock(_ldb, _lcur, 'promos_rechequeo')
+            return  # otro worker ya lo está corriendo
     try:
         access_token = cargar_ml_token()
         if not access_token:
@@ -10387,12 +10433,18 @@ def job_promos_rechequeo():
                     if not res or not search_after:
                         break
         if desviadas:
-            logger.warning(f"[PROMOS-RECHEQUEO] {desviadas} promo(s) con aporte propio "
-                           f"sobre el tope de {limite}% — ver /promociones-ml (Historial)")
+            print(f"[PROMOS-RECHEQUEO] {desviadas} promo(s) con aporte propio "
+                  f"sobre el tope de {limite}% — ver /promociones-ml (Historial)")
         else:
-            logger.info("[PROMOS-RECHEQUEO] sin desvíos")
+            print("[PROMOS-RECHEQUEO] sin desvíos")
     except Exception as e:
-        logger.error(f"[PROMOS-RECHEQUEO] error: {e}")
+        print(f"[PROMOS-RECHEQUEO] error: {e}")
+    finally:
+        if _adquirir_lock and _ldb:
+            try:
+                _liberar_lock(_ldb, _lcur, 'promos_rechequeo')
+            except Exception:
+                pass
 
 
 @app.route('/promociones-ml/activas')
@@ -18534,10 +18586,13 @@ def iniciar_scheduler():
         # Rechequeo diario de promos ML: ML recalcula el aporte propio por su cuenta,
         # así que una promo aceptada al 3% puede terminar en 12% sin que nadie toque nada.
         try:
+            # timezone explícito: el VPS corre en UTC, sin esto el job caía 4:15 AR
+            from zoneinfo import ZoneInfo as _ZI
             scheduler.add_job(job_promos_rechequeo, 'cron', hour=7, minute=15,
+                              timezone=_ZI('America/Argentina/Buenos_Aires'),
                               id='promos_ml_rechequeo', replace_existing=True,
                               max_instances=1)
-            print("[PROMOS-ML] Rechequeo de aporte agendado: 7:15")
+            print("[PROMOS-ML] Rechequeo de aporte agendado: 7:15 (hora AR)")
         except Exception as e:
             print(f"[PROMOS-ML] Error registrando rechequeo: {e}")
 
