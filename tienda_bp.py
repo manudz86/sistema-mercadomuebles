@@ -7768,6 +7768,47 @@ def webhook_getnet():
         except Exception as e_clean:
             logger.warning(f'[webhook_getnet] Error marcando pedido procesado: {e_clean}')
 
+        # ── Crear envío en Zipnova si corresponde ─────────────────────────────
+        # Faltaba: este webhook registraba la venta pero NUNCA creaba el envío,
+        # así que las ventas GetNet con Zippin no aparecían en Zipnova (pasó con
+        # GN-0ca2677948e044 y GN-53393c2d84e84b el 18/09). Mismo bloque que ya
+        # tienen webhook_mp y pago_payway.
+        zn_tracking_url = ''
+        if metodo_envio_val == 'Zippin' and cli.get('zipnova_quote'):
+            try:
+                db_zn     = get_db()
+                bultos_zn = armar_bultos_zipnova(cart_items, db_zn)
+                db_zn.close()
+                zn_resp = zipnova_crear_envio(bultos_zn, cli, numero_venta,
+                                              int(importe_solo_productos))
+                if not isinstance(zn_resp, dict):
+                    logger.warning(f'[webhook_getnet] Zipnova respuesta inesperada: {zn_resp}')
+                    zn_resp = {}
+                zn_id = zn_resp.get('id') or zn_resp.get('shipment_id', '')
+                zn_tracking_url = (
+                    zn_resp.get('tracking_url') or
+                    zn_resp.get('label_url') or
+                    (zn_resp.get('tracking') or {}).get('url', '') or
+                    ''
+                )
+                logger.info(f'[webhook_getnet] Zipnova envío creado: {zn_id} '
+                            f'tracking: {zn_tracking_url} para {numero_venta}')
+                if zn_id:
+                    notas_zn = f"\nZNID: {zn_id}"
+                    if zn_tracking_url:
+                        notas_zn += f"\nZN_URL: {zn_tracking_url}"
+                    cur_zn = db.cursor()
+                    cur_zn.execute(
+                        "UPDATE ventas SET notas = CONCAT(notas, %s) WHERE numero_venta = %s",
+                        (notas_zn, numero_venta)
+                    )
+                    db.commit()
+                    cur_zn.close()
+            except Exception as e_zn:
+                # nunca romper el webhook por el envío: la venta ya está registrada
+                logger.error(f'[webhook_getnet] Error creando envío Zipnova para {numero_venta}: {e_zn}')
+                zn_tracking_url = ''
+
         # Emails — usar cart_items_adj (precios con cupón + coef ya aplicados)
         try:
             enviar_email_confirmacion(
@@ -7781,6 +7822,7 @@ def webhook_getnet():
                 importe_total    = total_con_coef,
                 costo_flete      = costo_flete_adj,
                 canal            = 'getnet',
+                zipnova_tracking_url = zn_tracking_url if metodo_envio_val == 'Zippin' else None,
                 demora_dias      = cli.get('demora_dias', 0),
                 fecha_disponible = cli.get('fecha_disponible', ''),
             )
