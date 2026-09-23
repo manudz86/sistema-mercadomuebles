@@ -218,6 +218,17 @@
     </picture>
   </a>
 </section>
+{% elif promo_3sin %}
+{# Miércoles y sábado: banner fijo de la promo, sin rotación ni dots.
+   El autoplay del slider arranca solo con slides.length > 1, así que con un
+   único slide queda quieto sin tocar el JS de base.html. #}
+<section class="slider">
+  <div class="slider-track">
+    <div class="slide active">
+      <img src="/static/img/banners/banner6.png" alt="Miércoles y sábado: 3 cuotas sin interés con Visa y Mastercard">
+    </div>
+  </div>
+</section>
 {% else %}
 <section class="slider">
   <div class="slider-track">
