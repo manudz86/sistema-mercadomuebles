@@ -40,9 +40,11 @@
   .pr-fila    { display:grid; grid-template-columns:1.05fr .95fr; gap:0;
                 background:#1b1c21; border:1px solid #2c2d33; border-radius:18px;
                 overflow:hidden; margin-bottom:34px; }
-  .pr-fila:nth-child(even) .pr-foto { order:2; }
+  /* nth-of-type (no nth-child): el encabezado de la sección es hermano y
+     correría la paridad, dejando la primera foto a la derecha */
+  .pr-fila:nth-of-type(even) .pr-foto { order:2; }
   @media(max-width:980px){ .pr-fila{ grid-template-columns:1fr; }
-                           .pr-fila:nth-child(even) .pr-foto{ order:0; } }
+                           .pr-fila:nth-of-type(even) .pr-foto{ order:0; } }
 
   .pr-foto    { position:relative; background:#0f1013; min-height:440px; }
   .pr-foto img{ width:100%; height:100%; object-fit:cover; display:block; }
