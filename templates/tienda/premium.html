@@ -46,11 +46,16 @@
   @media(max-width:980px){ .pr-fila{ grid-template-columns:1fr; }
                            .pr-fila:nth-of-type(even) .pr-foto{ order:0; } }
 
-  .pr-foto    { position:relative; background:#0f1013; min-height:440px; }
+  /* La foto conserva casi su proporcion original (5/6 ≈ 0.83 vs 0.84 del archivo):
+     asi el recorte de cover es minimo y no hay que deformar la imagen. Se centra
+     en la fila, que puede ser mas alta segun cuantas medidas tenga el modelo. */
+  .pr-foto    { position:relative; background:#0f1013; aspect-ratio:5/6;
+                align-self:center; width:100%; overflow:hidden; }
   .pr-foto img{ width:100%; height:100%; object-fit:cover; display:block; }
   .pr-foto:after { content:''; position:absolute; inset:0;
-                   background:linear-gradient(90deg, transparent 55%, rgba(21,22,26,.55) 100%); }
-  @media(max-width:980px){ .pr-foto{ min-height:320px; } .pr-foto:after{ display:none; } }
+                   background:linear-gradient(90deg, transparent 62%, rgba(21,22,26,.42) 100%); }
+  @media(max-width:980px){ .pr-foto{ aspect-ratio:4/3; align-self:stretch; }
+                           .pr-foto:after{ display:none; } }
   .pr-badge   { position:absolute; z-index:2; top:20px; left:20px; background:#c9a227; color:#15161a;
                 font-size:.72rem; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
                 padding:7px 14px; border-radius:3px; }

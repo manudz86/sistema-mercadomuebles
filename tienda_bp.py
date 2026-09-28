@@ -3053,7 +3053,7 @@ PREMIUM_MODELOS = {
         'apoyo':       'Firme',
         'soporte':     '100 kg por plaza',
         'tela':        'Tejido de punto matelaseado',
-        'destacado':   'Ultracoil',
+        'destacado':   'Resortes Ultracoil',
         # foto del catálogo Cannon: conjunto completo y ambientado (sin fondo blanco)
         'foto':        '/static/img/premium/doral-pillow.jpg',
     },
@@ -3068,7 +3068,7 @@ PREMIUM_MODELOS = {
         'apoyo':       'Firme',
         'soporte':     '120 kg por plaza',
         'tela':        'Tejido de punto matelaseado',
-        'destacado':   'Pocket',
+        'destacado':   'Resortes Pocket',
         'foto':        '/static/img/premium/sublime-europillow.jpg',
     },
     'Exclusive Pillow': {
@@ -3081,7 +3081,7 @@ PREMIUM_MODELOS = {
         'apoyo':       'Firme',
         'soporte':     '100 kg por plaza',
         'tela':        'Jackard matelaseado',
-        'destacado':   '30 kg/m³',
+        'destacado':   'Densidad 30 kg/m³',
         'foto':        '/static/img/premium/exclusive-pillow.jpg',
     },
     'Renovation Europillow': {
@@ -3094,7 +3094,7 @@ PREMIUM_MODELOS = {
         'apoyo':       'Extra firme',
         'soporte':     '120 kg por plaza',
         'tela':        'Tejido de punto matelaseado',
-        'destacado':   '35 kg/m³',
+        'destacado':   'Densidad 35 kg/m³',
         'foto':        '/static/img/premium/renovation-europillow.jpg',
     },
 }
