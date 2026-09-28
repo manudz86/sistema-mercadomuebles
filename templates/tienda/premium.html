@@ -1,0 +1,159 @@
+{% extends "tienda/base.html" %}
+
+{% block titulo %}Línea Premium Cannon — Colchones de alta gama | Mercadomuebles{% endblock %}
+
+{% block contenido %}
+<meta name="description" content="Colchones Cannon línea premium: Doral Pillow Top y Sublime Euro Pillow en resortes, Exclusive Pillow Top y Renovation Euro Pillow en espuma. Todas las medidas, envíos a todo el país.">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://www.mercadomuebles.com.ar/tienda/premium">
+<meta property="og:title" content="Línea Premium Cannon — Mercadomuebles">
+<meta property="og:description" content="Los cuatro modelos de mayor calidad de Cannon, en resortes y espuma. Todas las medidas.">
+<meta property="og:url" content="https://www.mercadomuebles.com.ar/tienda/premium">
+<meta property="og:type" content="website">
+<style>
+  /* ── Línea Premium: paleta oscura + dorado (solo en esta página) ── */
+  .pr-wrap        { background:#15161a; color:#f2f2f2; margin:0 -16px; padding:0 16px 60px; }
+  .pr-oro         { color:#c9a227; }
+  .pr-hero        { text-align:center; padding:64px 20px 48px; position:relative; }
+  .pr-hero:after  { content:''; display:block; width:120px; height:2px; margin:26px auto 0;
+                    background:linear-gradient(90deg, transparent, #c9a227, transparent); }
+  .pr-hero h1     { font-size:2.6rem; font-weight:800; letter-spacing:.12em; margin:0 0 14px;
+                    color:#fff; text-transform:uppercase; }
+  .pr-hero p      { max-width:620px; margin:0 auto; color:#b9b9b9; font-size:1rem; line-height:1.65; }
+  .pr-kicker      { font-size:.76rem; letter-spacing:.34em; text-transform:uppercase;
+                    color:#c9a227; margin-bottom:16px; font-weight:700; }
+
+  .pr-seccion     { max-width:1120px; margin:0 auto 56px; }
+  .pr-seccion-hdr { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap;
+                    border-bottom:1px solid #2c2d33; padding-bottom:14px; margin-bottom:32px; }
+  .pr-seccion-hdr h2 { font-size:1.5rem; font-weight:700; color:#fff; margin:0; letter-spacing:.04em; }
+  .pr-seccion-hdr span { color:#8f8f93; font-size:.88rem; }
+
+  .pr-card        { background:#1d1e24; border:1px solid #2c2d33; border-radius:14px;
+                    overflow:hidden; margin-bottom:28px; display:grid;
+                    grid-template-columns:minmax(0,420px) 1fr; }
+  .pr-card:hover  { border-color:#c9a227; transition:border-color .25s; }
+  @media(max-width:860px){ .pr-card{ grid-template-columns:1fr; } }
+
+  .pr-foto        { position:relative; background:#0f1013; min-height:280px;
+                    display:flex; align-items:center; justify-content:center; }
+  .pr-foto img    { width:100%; height:100%; object-fit:cover; display:block; }
+  .pr-badge       { position:absolute; top:14px; left:14px; background:#c9a227; color:#15161a;
+                    font-size:.68rem; font-weight:800; letter-spacing:.1em; text-transform:uppercase;
+                    padding:5px 11px; border-radius:3px; }
+
+  .pr-body        { padding:28px 30px 26px; }
+  .pr-body h3     { font-size:1.55rem; font-weight:800; color:#fff; margin:0 0 4px; letter-spacing:.02em; }
+  .pr-desde       { color:#c9a227; font-size:.9rem; font-weight:700; margin-bottom:14px; }
+  .pr-bajada      { color:#b9b9b9; font-size:.92rem; line-height:1.6; margin-bottom:20px; }
+
+  .pr-specs       { display:grid; grid-template-columns:repeat(2,1fr); gap:12px 18px;
+                    border-top:1px solid #2c2d33; padding-top:18px; margin-bottom:22px; }
+  @media(max-width:520px){ .pr-specs{ grid-template-columns:1fr; } }
+  .pr-spec-lbl    { font-size:.68rem; letter-spacing:.14em; text-transform:uppercase; color:#7e7f85; }
+  .pr-spec-val    { font-size:.9rem; color:#ededed; font-weight:600; margin-top:2px; }
+
+  .pr-medidas-lbl { font-size:.68rem; letter-spacing:.14em; text-transform:uppercase;
+                    color:#7e7f85; margin-bottom:10px; }
+  .pr-medidas     { display:flex; flex-wrap:wrap; gap:9px; }
+  .pr-medida      { display:block; border:1px solid #3a3b42; border-radius:8px; padding:9px 13px;
+                    text-decoration:none; background:#232429; transition:all .2s; min-width:104px; }
+  .pr-medida:hover{ border-color:#c9a227; background:#2b2c32; transform:translateY(-2px); }
+  .pr-medida-med  { display:block; font-size:.86rem; font-weight:700; color:#fff; }
+  .pr-medida-pre  { display:block; font-size:.8rem; color:#c9a227; margin-top:3px; font-weight:600; }
+  .pr-medida-tach { display:block; font-size:.68rem; color:#77787e; text-decoration:line-through; }
+
+  .pr-flip        { display:inline-block; border:1px solid #c9a227; color:#c9a227; border-radius:20px;
+                    padding:3px 12px; font-size:.7rem; font-weight:700; letter-spacing:.06em;
+                    text-transform:uppercase; margin-bottom:14px; }
+  .pr-cierre      { max-width:760px; margin:0 auto; text-align:center; padding:8px 20px 0; color:#8f8f93;
+                    font-size:.86rem; line-height:1.7; }
+  .pr-cta         { display:inline-block; margin-top:18px; background:#c9a227; color:#15161a;
+                    font-weight:800; text-decoration:none; padding:13px 30px; border-radius:8px;
+                    letter-spacing:.04em; transition:opacity .2s; }
+  .pr-cta:hover   { opacity:.87; }
+</style>
+
+<div class="pr-wrap">
+
+  <section class="pr-hero">
+    <div class="pr-kicker">Colchones Cannon</div>
+    <h1>Línea Premium</h1>
+    <p>
+      Los cuatro modelos de mayor calidad de Cannon, con sistema <strong style="color:#e6e6e6">flip</strong>
+      para rotar y duplicar la vida útil del colchón. Alta densidad y resortes de última
+      generación, en todas las medidas.
+    </p>
+  </section>
+
+  {% for sec in secciones %}
+  <section class="pr-seccion">
+    <div class="pr-seccion-hdr">
+      <h2>{{ sec.titulo }}</h2>
+      <span>{{ sec.bajada }}</span>
+    </div>
+
+    {% for m in sec.modelos %}
+    <article class="pr-card">
+      <div class="pr-foto">
+        <span class="pr-badge">{{ m.destacado }}</span>
+        {% if m.fotos %}
+          <img src="{{ m.fotos[0] }}" alt="Colchón Cannon {{ m.titulo }}" loading="lazy">
+        {% endif %}
+      </div>
+      <div class="pr-body">
+        <h3>{{ m.titulo }}</h3>
+        <div class="pr-desde">Desde {{ m.desde }}</div>
+        <span class="pr-flip">Sistema flip</span>
+        <p class="pr-bajada">{{ m.bajada }}</p>
+
+        <div class="pr-specs">
+          <div>
+            <div class="pr-spec-lbl">Estructura</div>
+            <div class="pr-spec-val">{{ m.estructura }}</div>
+          </div>
+          <div>
+            <div class="pr-spec-lbl">Altura</div>
+            <div class="pr-spec-val">{{ m.altura }}</div>
+          </div>
+          <div>
+            <div class="pr-spec-lbl">Sensación de apoyo</div>
+            <div class="pr-spec-val">{{ m.apoyo }}</div>
+          </div>
+          <div>
+            <div class="pr-spec-lbl">Soporte</div>
+            <div class="pr-spec-val">{{ m.soporte }}</div>
+          </div>
+          <div style="grid-column:1/-1">
+            <div class="pr-spec-lbl">Tela</div>
+            <div class="pr-spec-val">{{ m.tela }}</div>
+          </div>
+        </div>
+
+        <div class="pr-medidas-lbl">Medidas disponibles</div>
+        <div class="pr-medidas">
+          {% for med in m.medidas %}
+          <a class="pr-medida" href="{{ med.url }}">
+            <span class="pr-medida-med">{{ med.medida }}</span>
+            <span class="pr-medida-pre">{{ med.precio_fmt }}</span>
+            {% if med.precio_lista %}
+            <span class="pr-medida-tach">{{ med.precio_lista }}</span>
+            {% endif %}
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    </article>
+    {% endfor %}
+  </section>
+  {% endfor %}
+
+  <div class="pr-cierre">
+    Precios de colchón solo. En cada producto podés elegir la opción <strong style="color:#e6e6e6">con
+    sommier</strong> y ver las cuotas disponibles.
+    <br>
+    <a class="pr-cta" href="/tienda/#catalogo">Ver todo el catálogo</a>
+  </div>
+
+</div>
+{% endblock %}

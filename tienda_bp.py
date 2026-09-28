@@ -3036,6 +3036,145 @@ def home():
         demora_dias       = get_demora_sin_stock(),
     )
 
+# ── LÍNEA PREMIUM ──────────────────────────────────────────────────────────────
+
+# Ficha técnica de los 4 modelos premium (fuente: catálogo minorista Cannon 2026).
+# La clave es el campo `modelo` de productos_base, así las medidas y los precios
+# salen de la base y no hay que tocar esto cuando cambia el catálogo.
+PREMIUM_MODELOS = {
+    'Doral Pillow': {
+        'titulo':      'Doral Pillow Top',
+        'linea':       'resortes',
+        'bajada':      'Sistema de resortes continuos (Ultracoil), que brinda más estabilidad y '
+                       'firmeza para descansar placenteramente todos los días, con un plus de '
+                       'suavidad en el apoyo.',
+        'estructura':  'Resortes Continuos (Ultracoil)',
+        'altura':      'Colchón 33 cm · Conjunto 66 cm',
+        'apoyo':       'Firme',
+        'soporte':     '100 kg por plaza',
+        'tela':        'Tejido de punto matelaseado',
+        'destacado':   'Ultracoil',
+    },
+    'Sublime Europillow': {
+        'titulo':      'Sublime Euro Pillow',
+        'linea':       'resortes',
+        'bajada':      'Resortes individuales (Pocket) de máxima calidad, que se adaptan a tu '
+                       'forma de dormir y te brindan un descanso soñado, sin interrupciones y '
+                       'con un plus de suavidad en el apoyo.',
+        'estructura':  'Resortes individuales (Pocket)',
+        'altura':      'Colchón 35 cm · Conjunto 68 cm',
+        'apoyo':       'Firme',
+        'soporte':     '120 kg por plaza',
+        'tela':        'Tejido de punto matelaseado',
+        'destacado':   'Pocket',
+    },
+    'Exclusive Pillow': {
+        'titulo':      'Exclusive Pillow Top',
+        'linea':       'espuma',
+        'bajada':      'Espuma de alta densidad y con un plus de suavidad, que mantiene su '
+                       'calidad inalterable para disfrutar todos los días.',
+        'estructura':  'Espuma alta densidad 30 kg/m³',
+        'altura':      'Colchón 29 cm · Conjunto 62 cm',
+        'apoyo':       'Firme',
+        'soporte':     '100 kg por plaza',
+        'tela':        'Jackard matelaseado',
+        'destacado':   '30 kg/m³',
+    },
+    'Renovation Europillow': {
+        'titulo':      'Renovation Euro Pillow',
+        'linea':       'espuma',
+        'bajada':      'Espuma de altísima densidad con un plus de suavidad muy confortable, que '
+                       'garantiza un descanso placentero y el bienestar que tu cuerpo necesita.',
+        'estructura':  'Espuma altísima densidad 35 kg/m³',
+        'altura':      'Colchón 33 cm · Conjunto 66 cm',
+        'apoyo':       'Extra firme',
+        'soporte':     '120 kg por plaza',
+        'tela':        'Tejido de punto matelaseado',
+        'destacado':   '35 kg/m³',
+    },
+}
+
+# Orden de presentación dentro de cada línea
+PREMIUM_ORDEN = {
+    'resortes': ['Doral Pillow', 'Sublime Europillow'],
+    'espuma':   ['Exclusive Pillow', 'Renovation Europillow'],
+}
+
+
+def _premium_orden_medida(medida):
+    """'140x190' → 140, para ordenar las medidas de menor a mayor."""
+    try:
+        return int(str(medida).lower().split('x')[0])
+    except (ValueError, AttributeError, IndexError):
+        return 9999
+
+
+@tienda_bp.route('/premium')
+def premium():
+    """Landing de la línea premium: 4 modelos (2 de resortes, 2 de espuma) con
+    ficha técnica, foto y las medidas disponibles enlazadas a cada producto."""
+    db  = get_db()
+    cur = db.cursor()
+    cur.execute("""
+        SELECT sku, nombre, modelo, medida, precio_base, descuento_catalogo
+        FROM productos_base
+        WHERE activo = 1 AND modelo IN (%s, %s, %s, %s)
+        ORDER BY modelo, medida
+    """, tuple(PREMIUM_MODELOS.keys()))
+    filas = cur.fetchall()
+    cur.close()
+    db.close()
+
+    por_modelo = {}
+    for r in filas:
+        modelo = r['modelo']
+        if modelo not in PREMIUM_MODELOS:
+            continue
+        precio = float(r['precio_base'] or 0)
+        desc   = float(r['descuento_catalogo'] or 0)
+        precio_final = round(precio * (1 - desc / 100)) if desc else round(precio)
+        por_modelo.setdefault(modelo, []).append({
+            'sku':          r['sku'],
+            'medida':       r['medida'],
+            'precio':       precio_final,
+            'precio_fmt':   format_price(precio_final),
+            'precio_lista': format_price(round(precio)) if desc else None,
+            'descuento':    int(desc) if desc else 0,
+            # mismo slug que usa el sitemap y el detalle de producto
+            'url': url_for('tienda.detalle',
+                           sku_url=slugify(f"Colchón Cannon {r['modelo']} {r['medida']}cm")),
+        })
+
+    secciones = []
+    for linea, modelos in PREMIUM_ORDEN.items():
+        items = []
+        for modelo in modelos:
+            medidas = sorted(por_modelo.get(modelo, []),
+                             key=lambda m: _premium_orden_medida(m['medida']))
+            if not medidas:
+                continue  # modelo sin productos activos: no mostrar la card vacía
+            ficha = dict(PREMIUM_MODELOS[modelo])
+            ficha['modelo']  = modelo
+            ficha['medidas'] = medidas
+            ficha['desde']   = format_price(min(m['precio'] for m in medidas))
+            ficha['fotos']   = get_fotos_producto(medidas[0]['sku'])
+            items.append(ficha)
+        if items:
+            secciones.append({
+                'linea':  linea,
+                'titulo': 'Línea Resortes' if linea == 'resortes' else 'Línea Espuma',
+                'bajada': ('Descanso firme y estable, con la tecnología de resortes '
+                           'de mayor calidad de Cannon.') if linea == 'resortes' else
+                          ('Espumas de alta y altísima densidad, con la durabilidad '
+                           'que distingue a la línea premium.'),
+                'modelos': items,
+            })
+
+    return render_template('tienda/premium.html',
+                           secciones=secciones,
+                           carrito_count=len(session.get('carrito', [])))
+
+
 # ── DETALLE PRODUCTO ───────────────────────────────────────────────────────────
 
 @tienda_bp.route('/producto/<sku_url>')
