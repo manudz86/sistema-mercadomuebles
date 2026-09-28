@@ -25,6 +25,7 @@ py de cambios/
 # Imágenes subidas
 static/img/banners/
 static/img/productos/
+static/img/premium/
 
 # Backups locales (regla "backup antes de editar")
 backups/
