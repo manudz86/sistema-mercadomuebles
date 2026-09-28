@@ -3054,6 +3054,8 @@ PREMIUM_MODELOS = {
         'soporte':     '100 kg por plaza',
         'tela':        'Tejido de punto matelaseado',
         'destacado':   'Ultracoil',
+        # foto del catálogo Cannon: conjunto completo y ambientado (sin fondo blanco)
+        'foto':        '/static/img/premium/doral-pillow.jpg',
     },
     'Sublime Europillow': {
         'titulo':      'Sublime Euro Pillow',
@@ -3067,6 +3069,7 @@ PREMIUM_MODELOS = {
         'soporte':     '120 kg por plaza',
         'tela':        'Tejido de punto matelaseado',
         'destacado':   'Pocket',
+        'foto':        '/static/img/premium/sublime-europillow.jpg',
     },
     'Exclusive Pillow': {
         'titulo':      'Exclusive Pillow Top',
@@ -3079,6 +3082,7 @@ PREMIUM_MODELOS = {
         'soporte':     '100 kg por plaza',
         'tela':        'Jackard matelaseado',
         'destacado':   '30 kg/m³',
+        'foto':        '/static/img/premium/exclusive-pillow.jpg',
     },
     'Renovation Europillow': {
         'titulo':      'Renovation Euro Pillow',
@@ -3091,6 +3095,7 @@ PREMIUM_MODELOS = {
         'soporte':     '120 kg por plaza',
         'tela':        'Tejido de punto matelaseado',
         'destacado':   '35 kg/m³',
+        'foto':        '/static/img/premium/renovation-europillow.jpg',
     },
 }
 
@@ -3157,7 +3162,8 @@ def premium():
             ficha['modelo']  = modelo
             ficha['medidas'] = medidas
             ficha['desde']   = format_price(min(m['precio'] for m in medidas))
-            ficha['fotos']   = get_fotos_producto(medidas[0]['sku'])
+            # la foto sale de PREMIUM_MODELOS (catálogo Cannon: conjunto ambientado),
+            # no de productos_fotos, que son tomas del colchón solo sobre fondo blanco
             items.append(ficha)
         if items:
             secciones.append({
