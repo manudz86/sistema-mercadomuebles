@@ -29,6 +29,15 @@ def main():
         page = browser.new_page(viewport={'width': 1280, 'height': 900})
         page.goto(url, wait_until='networkidle', timeout=45000)
         page.wait_for_timeout(1200)
+        if full:
+            # recorrer la pagina: las imagenes loading="lazy" no cargan si no se
+            # llega a verlas, y en la captura full_page salen en blanco
+            alto = page.evaluate('document.body.scrollHeight')
+            for y in range(0, alto + 800, 700):
+                page.evaluate(f'window.scrollTo(0, {y})')
+                page.wait_for_timeout(160)
+            page.evaluate('window.scrollTo(0, 0)')
+            page.wait_for_timeout(1800)
         if selector:
             el = page.query_selector(selector)
             if el is None:
