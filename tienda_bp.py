@@ -3120,15 +3120,28 @@ def premium():
     ficha técnica, foto y las medidas disponibles enlazadas a cada producto."""
     db  = get_db()
     cur = db.cursor()
+    # Colchón + su conjunto: el precio del conjunto se arma igual que en el catálogo
+    # (precio del colchón + base × cantidad_bases), con el descuento del compuesto.
     cur.execute("""
-        SELECT sku, nombre, modelo, medida, precio_base, descuento_catalogo
-        FROM productos_base
-        WHERE activo = 1 AND modelo IN (%s, %s, %s, %s)
-        ORDER BY modelo, medida
+        SELECT pb.sku, pb.modelo, pb.medida, pb.precio_base, pb.descuento_catalogo,
+               cc.cantidad_bases, bb.precio_base AS precio_base_unit,
+               pc.sku AS sku_conjunto, pc.descuento_catalogo AS desc_conjunto
+        FROM productos_base pb
+        LEFT JOIN conjunto_configuracion cc
+               ON cc.colchon_sku = pb.sku AND cc.activo = 1
+        LEFT JOIN productos_base bb
+               ON bb.sku = cc.base_sku_default
+        LEFT JOIN productos_compuestos pc
+               ON pc.sku = CONCAT('S', SUBSTRING(pb.sku, 2)) AND pc.activo = 1
+        WHERE pb.activo = 1 AND pb.modelo IN (%s, %s, %s, %s)
+        ORDER BY pb.modelo, pb.medida
     """, tuple(PREMIUM_MODELOS.keys()))
     filas = cur.fetchall()
     cur.close()
     db.close()
+
+    def _con_desc(precio, desc):
+        return round(precio * (1 - desc / 100)) if desc else round(precio)
 
     por_modelo = {}
     for r in filas:
@@ -3137,18 +3150,34 @@ def premium():
             continue
         precio = float(r['precio_base'] or 0)
         desc   = float(r['descuento_catalogo'] or 0)
-        precio_final = round(precio * (1 - desc / 100)) if desc else round(precio)
-        por_modelo.setdefault(modelo, []).append({
+        precio_final = _con_desc(precio, desc)
+
+        item = {
             'sku':          r['sku'],
             'medida':       r['medida'],
             'precio':       precio_final,
             'precio_fmt':   format_price(precio_final),
             'precio_lista': format_price(round(precio)) if desc else None,
-            'descuento':    int(desc) if desc else 0,
             # mismo slug que usa el sitemap y el detalle de producto
             'url': url_for('tienda.detalle',
-                           sku_url=slugify(f"Colchón Cannon {r['modelo']} {r['medida']}cm")),
-        })
+                           sku_url=slugify(f"Colchón Cannon {modelo} {r['medida']}cm")),
+            'conj_precio_fmt': None, 'conj_precio_lista': None, 'conj_url': None,
+        }
+
+        if r['sku_conjunto'] and r['precio_base_unit']:
+            cant = int(r['cantidad_bases'] or 1)
+            conj_lista = precio + float(r['precio_base_unit']) * cant
+            desc_conj  = float(r['desc_conjunto'] or 0)
+            conj_final = _con_desc(conj_lista, desc_conj)
+            item.update(
+                conj_precio=conj_final,
+                conj_precio_fmt=format_price(conj_final),
+                conj_precio_lista=format_price(round(conj_lista)) if desc_conj else None,
+                conj_url=url_for('tienda.detalle',
+                                 sku_url=slugify(f"Sommier y Colchón Cannon {modelo} {r['medida']}cm")),
+            )
+
+        por_modelo.setdefault(modelo, []).append(item)
 
     secciones = []
     for linea, modelos in PREMIUM_ORDEN.items():
