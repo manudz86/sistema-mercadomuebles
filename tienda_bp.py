@@ -6930,8 +6930,12 @@ def enviar_email_vendedor(payment_id, nombre_cliente, email_cliente, telefono,
         smtp_user   = os.getenv('MAIL_SMTP_USER', '')
         smtp_pass   = os.getenv('MAIL_SMTP_PASS', '')
         mail_from   = os.getenv('MAIL_FROM', smtp_user)
-        mail_vend   = os.getenv('MAIL_VENDEDOR', smtp_user)
-        if not smtp_user or not smtp_pass or not mail_vend:
+        # MAIL_VENDEDOR admite VARIAS casillas separadas por coma (o punto y coma):
+        # MAIL_VENDEDOR=sales@mercadomuebles.com.ar,info@mercadomuebles.com.ar
+        mail_vend_raw = os.getenv('MAIL_VENDEDOR', smtp_user) or ''
+        destinatarios = [d.strip() for d in mail_vend_raw.replace(';', ',').split(',') if d.strip()]
+        mail_vend = ', '.join(destinatarios)   # para el header To
+        if not smtp_user or not smtp_pass or not destinatarios:
             return
 
         items_txt = ''.join(
@@ -6988,14 +6992,15 @@ def enviar_email_vendedor(payment_id, nombre_cliente, email_cliente, telefono,
             ctx = ssl.create_default_context()
             with smtplib.SMTP_SSL(smtp_host, smtp_port, context=ctx) as server:
                 server.login(smtp_user, smtp_pass)
-                server.sendmail(mail_from, mail_vend, msg.as_string())
+                # lista, no string: sendmail trataria "a@x, b@y" como UNA direccion
+                server.sendmail(mail_from, destinatarios, msg.as_string())
         else:
             with smtplib.SMTP(smtp_host, smtp_port) as server:
                 server.starttls()
                 server.login(smtp_user, smtp_pass)
-                server.sendmail(mail_from, mail_vend, msg.as_string())
+                server.sendmail(mail_from, destinatarios, msg.as_string())
 
-        logger.info(f"Email vendedor enviado para MP-{payment_id}")
+        logger.info(f"Email vendedor enviado para MP-{payment_id} a {mail_vend}")
     except Exception as e:
         logger.error(f"Error enviando email vendedor: {e}")
 
