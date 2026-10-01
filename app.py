@@ -16166,7 +16166,34 @@ def job_auto_importar_ml():
     """
     Job que corre cada 60 segundos.
     Importa órdenes nuevas de ML y actualiza publicaciones.
+
+    Lock entre workers: los 5 workers de gunicorn arrancan su propio scheduler,
+    así que el job se disparaba 5 veces en paralelo. Los 5 traían la misma orden,
+    uno la insertaba y los otros 4 reventaban con "Duplicate entry ... for key
+    ventas.numero_venta" (4 errores por venta cada 2 minutos en el log).
     """
+    try:
+        from competencia_bp import _adquirir_lock, _liberar_lock
+    except Exception:
+        _adquirir_lock = _liberar_lock = None
+    _ldb = _lcur = None
+    if _adquirir_lock:
+        _ldb, _lcur, _got = _adquirir_lock('auto_import_ml', timeout=0)
+        if not _got:
+            if _ldb:
+                _liberar_lock(_ldb, _lcur, 'auto_import_ml')
+            return  # otro worker ya lo está corriendo
+    try:
+        _job_auto_importar_ml_inner()
+    finally:
+        if _adquirir_lock and _ldb:
+            try:
+                _liberar_lock(_ldb, _lcur, 'auto_import_ml')
+            except Exception:
+                pass
+
+
+def _job_auto_importar_ml_inner():
     with app.app_context():
         try:
             # Chequear si el auto-import está activo
