@@ -812,6 +812,74 @@ def _rt_actualizar_categoria(cat, fname, periodo):
     _atomic_write_json(path, existing + nuevos)
     return len(nuevos), len(existing) + len(nuevos)
 
+RT_DIAS_RECONCILIAR = 7   # ventana que se vuelve a bajar y reemplazar en cada corrida
+
+
+def _rt_reconciliar_categoria(cat, fname, periodo, dias=RT_DIAS_RECONCILIAR, hoy=None):
+    """Re-baja los últimos `dias` del período y REEMPLAZA esos días en el archivo.
+
+    El incremental (_rt_actualizar_categoria) solo agrega días posteriores al último
+    cargado y nunca vuelve atrás. Real Trends publica con retraso: las ventas que
+    carga tarde no las vemos nunca, y al cambiar de mes el último día queda vacío
+    (pasó con el 31/08: 144 filas, $65M). Esto lo corrige y además detectaría
+    cancelaciones, porque el día se reemplaza entero en vez de acumularse.
+
+    Devuelve (agregadas, quitadas, total).
+    """
+    import calendar
+    path = os.path.join(DATA_DIR, periodo, fname)
+    _, existing = _file_max_ds(path)
+
+    y, mo = int(periodo[:4]), int(periodo[5:7])
+    hoy = hoy or datetime.date.today()
+    pri = datetime.date(y, mo, 1)
+    ult = datetime.date(y, mo, calendar.monthrange(y, mo)[1])
+    if hoy < pri:                      # período futuro
+        return 0, 0, len(existing)
+    fin = min(ult, hoy)                # nunca más allá de hoy
+    ini = max(pri, fin - datetime.timedelta(days=dias - 1))
+
+    frescas = []
+    dia = ini
+    while dia <= fin:
+        try:
+            rows, _ = _rt_fetch(cat, dia.isoformat(), dia.isoformat())
+            frescas.extend(_rt_norm(r) for r in rows)
+        except Exception as e:
+            # un día que falla no debe tirar abajo la reconciliación entera, pero
+            # tampoco se puede borrar lo viejo de ese día: se aborta para no perder datos
+            print(f'[RT-RECON] {fname} {dia}: {e}')
+            return 0, 0, len(existing)
+        dia += datetime.timedelta(days=1)
+
+    ini_s, fin_s = ini.isoformat(), fin.isoformat()
+    fuera = [r for r in existing if not (ini_s <= _dia_sort(r.get('day')) <= fin_s)]
+    viejas_ventana = len(existing) - len(fuera)
+    if not frescas and viejas_ventana:
+        # RT no devolvió nada para la ventana: puede ser un problema de ellos.
+        # No borramos lo que ya teníamos.
+        print(f'[RT-RECON] {fname}: RT devolvió 0 filas para {ini_s}..{fin_s} — no se toca el archivo')
+        return 0, 0, len(existing)
+
+    nuevo = fuera + frescas
+    if len(nuevo) == len(existing) and viejas_ventana == len(frescas):
+        return 0, 0, len(existing)     # sin cambios: no reescribir
+    _atomic_write_json(path, nuevo)
+    return len(frescas), viejas_ventana, len(nuevo)
+
+
+def _rt_periodos_a_reconciliar(hoy=None, dias=RT_DIAS_RECONCILIAR):
+    """Períodos a reconciliar hoy. Durante los primeros `dias` del mes incluye
+    TAMBIÉN el mes anterior: si no, el cierre de mes queda con un agujero (el job
+    solo mira el período actual y nunca vuelve)."""
+    hoy = hoy or datetime.date.today()
+    periodos = [hoy.strftime('%Y-%m')]
+    if hoy.day <= dias:
+        ant = hoy.replace(day=1) - datetime.timedelta(days=1)
+        periodos.append(ant.strftime('%Y-%m'))
+    return periodos
+
+
 @competencia_v2_bp.route('/admin/competencia-v2/actualizar-rt', methods=['POST'])
 def competencia_v2_actualizar_rt():
     """Baja las 3 categorías del período desde Real Trends y las guarda como los
@@ -883,6 +951,30 @@ def job_actualizar_rt(intento=0):
                 total_new += n_new
             except Exception as e:
                 print(f'[RT-JOB] {fname}: {e}')
+
+        # ── Reconciliación: re-bajar los últimos días y REEMPLAZARLOS ──────────
+        # RT publica con retraso; el incremental de arriba nunca vuelve atrás y al
+        # cambiar de mes el cierre quedaba sin bajar. Durante los primeros días del
+        # mes también se reconcilia el mes anterior.
+        tocados = set()
+        for per in _rt_periodos_a_reconciliar():
+            for cat, fname in RT_CATS:
+                try:
+                    add, quit_, _ = _rt_reconciliar_categoria(cat, fname, per)
+                    if add or quit_:
+                        tocados.add(per)
+                        print(f'[RT-RECON] {per}/{fname}: {quit_} reemplazadas por {add}'
+                              f'{"  *** habia filas que RT ya no reporta ***" if quit_ > add else ""}')
+                except Exception as e:
+                    print(f'[RT-RECON] {per}/{fname}: {e}')
+        for per in tocados:                 # invalidar cache de los períodos tocados
+            try:
+                for old in os.listdir(DATA_DIR):
+                    if old.startswith(f'.cache_{per}_'):
+                        os.remove(os.path.join(DATA_DIR, old))
+            except Exception:
+                pass
+
         if total_new:                       # hubo días nuevos → limpiar cache del período
             try:
                 for old in os.listdir(DATA_DIR):
