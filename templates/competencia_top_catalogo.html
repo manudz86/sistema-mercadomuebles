@@ -73,8 +73,10 @@
           </tr>
         </thead>
         <tbody>
-          {% set umax = sec.items|map(attribute='unidades')|max if sec.items else 1 %}
-          {% for it in sec.items %}
+          {# sec['items'] y NO sec.items: 'items' es un metodo del dict y Jinja
+             resuelve el atributo antes que la clave #}
+          {% set umax = sec['items']|map(attribute='unidades')|max if sec['items'] else 1 %}
+          {% for it in sec['items'] %}
           <tr data-producto="{{ it.producto|lower }}" data-catalogo="{{ it.catalogo }}"
               data-unidades="{{ it.unidades }}" data-facturacion="{{ it.facturacion }}"
               data-precio_prom="{{ it.precio_prom }}" data-publis="{{ it.publis }}"
