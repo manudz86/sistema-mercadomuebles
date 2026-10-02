@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Top catálogo — Competencia{% endblock %}
+
+{% block content %}
+<style>
+  .tc-hdr      { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:6px; }
+  .tc-sub      { color:#6c757d; font-size:.9rem; margin-bottom:18px; }
+  .tc-res      { display:flex; gap:10px; flex-wrap:wrap; margin:14px 0 10px; }
+  .tc-chip     { background:#f1f3f5; border:1px solid #e3e6ea; border-radius:8px;
+                 padding:7px 13px; font-size:.84rem; }
+  .tc-chip b   { display:block; font-size:1.02rem; color:#1a1a2e; }
+  .tc-tabla th { cursor:pointer; white-space:nowrap; user-select:none; font-size:.76rem;
+                 letter-spacing:.04em; text-transform:uppercase; color:#55585e; }
+  .tc-tabla th:hover { background:#eef1f4; }
+  .tc-tabla th.act   { color:#0d6efd; }
+  .tc-tabla td { font-size:.88rem; vertical-align:middle; }
+  .tc-num      { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .tc-pos      { color:#9aa0a6; font-size:.8rem; width:34px; }
+  .tc-prod     { min-width:300px; }
+  .tc-cat      { font-family:ui-monospace,monospace; font-size:.76rem; }
+  .tc-barra    { height:5px; background:#0d6efd; border-radius:3px; min-width:2px; }
+  .tc-barra-w  { background:#e9ecef; border-radius:3px; width:90px; }
+  @media(max-width:700px){ .tc-prod{min-width:180px} .tc-tabla td{font-size:.8rem} }
+</style>
+
+<div class="tc-hdr">
+  <h3 class="mb-0">🏆 Top catálogo — Competencia</h3>
+  <form method="get" class="d-flex gap-2 ms-auto">
+    <select name="periodo" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+      {% for p in periodos %}
+      <option value="{{ p }}" {% if p == periodo %}selected{% endif %}>{{ periodo_lbl[p] }}</option>
+      {% endfor %}
+    </select>
+    <select name="top" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+      {% for n in [10, 15, 20, 30, 50] %}
+      <option value="{{ n }}" {% if n == top %}selected{% endif %}>Top {{ n }}</option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+<div class="tc-sub">
+  Solo publicaciones <b>de catálogo</b>, agrupadas por número de catálogo.
+  Tocá cualquier encabezado para reordenar.
+</div>
+
+{% if not secciones %}
+<div class="alert alert-info">No hay datos de Real Trends para este período.</div>
+{% endif %}
+
+{% for sec in secciones %}
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="mb-1">{{ sec.titulo }}</h5>
+    <div class="tc-res">
+      <div class="tc-chip">Total del mes<b>{{ '{:,}'.format(sec.tot_u).replace(',', '.') }} u · ${{ '{:,}'.format(sec.tot_f).replace(',', '.') }}</b></div>
+      <div class="tc-chip">De catálogo ({{ sec.pct_cat }}%)<b>{{ '{:,}'.format(sec.cat_u).replace(',', '.') }} u · ${{ '{:,}'.format(sec.cat_f).replace(',', '.') }}</b></div>
+      <div class="tc-chip">Sin catálogo (excluido)<b>{{ '{:,}'.format(sec.sin_u).replace(',', '.') }} u · ${{ '{:,}'.format(sec.sin_f).replace(',', '.') }}</b></div>
+      <div class="tc-chip">Productos distintos<b>{{ sec.n_productos }}</b></div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle tc-tabla">
+        <thead class="table-light">
+          <tr>
+            <th class="tc-pos">#</th>
+            <th data-k="producto" data-t="txt">Producto</th>
+            <th data-k="catalogo" data-t="txt">Catálogo</th>
+            <th class="tc-num act" data-k="unidades" data-t="num">Unidades ▼</th>
+            <th class="tc-num" data-k="facturacion" data-t="num">Facturación</th>
+            <th class="tc-num" data-k="precio_prom" data-t="num">Precio prom.</th>
+            <th class="tc-num" data-k="publis" data-t="num">Publis</th>
+            <th class="tc-num" data-k="vendedores" data-t="num">Vend.</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set umax = sec.items|map(attribute='unidades')|max if sec.items else 1 %}
+          {% for it in sec.items %}
+          <tr data-producto="{{ it.producto|lower }}" data-catalogo="{{ it.catalogo }}"
+              data-unidades="{{ it.unidades }}" data-facturacion="{{ it.facturacion }}"
+              data-precio_prom="{{ it.precio_prom }}" data-publis="{{ it.publis }}"
+              data-vendedores="{{ it.vendedores }}">
+            <td class="tc-pos">{{ it.puesto }}</td>
+            <td class="tc-prod">{{ it.producto or '—' }}</td>
+            <td>
+              <a class="tc-cat" href="https://www.mercadolibre.com.ar/p/{{ it.catalogo }}"
+                 target="_blank" rel="noopener">{{ it.catalogo }}</a>
+            </td>
+            <td class="tc-num">
+              <b>{{ '{:,}'.format(it.unidades).replace(',', '.') }}</b>
+              <div class="tc-barra-w"><div class="tc-barra"
+                   style="width:{{ (it.unidades / umax * 100)|round|int }}%"></div></div>
+            </td>
+            <td class="tc-num">${{ '{:,}'.format(it.facturacion).replace(',', '.') }}</td>
+            <td class="tc-num text-muted">${{ '{:,}'.format(it.precio_prom).replace(',', '.') }}</td>
+            <td class="tc-num">{{ it.publis }}</td>
+            <td class="tc-num">{{ it.vendedores }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<script>
+// Orden por columna. Numérico de verdad (no alfabético): "10" tiene que ir
+// después de "9", y la facturación con puntos de miles rompería un sort de texto.
+document.querySelectorAll('.tc-tabla th[data-k]').forEach(function (th) {
+  th.addEventListener('click', function () {
+    var tabla = th.closest('table');
+    var tbody = tabla.querySelector('tbody');
+    var k = th.dataset.k, tipo = th.dataset.t;
+    var asc = th.dataset.asc === '1';
+    tabla.querySelectorAll('th[data-k]').forEach(function (o) {
+      o.classList.remove('act');
+      o.innerHTML = o.innerHTML.replace(/ [▼▲]$/, '');
+      if (o !== th) delete o.dataset.asc;
+    });
+    th.dataset.asc = asc ? '0' : '1';
+    asc = !asc;
+    th.classList.add('act');
+    th.innerHTML = th.innerHTML.replace(/ [▼▲]$/, '') + (asc ? ' ▲' : ' ▼');
+
+    var filas = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+    filas.sort(function (a, b) {
+      var x = a.dataset[k], y = b.dataset[k];
+      if (tipo === 'num') { x = parseFloat(x) || 0; y = parseFloat(y) || 0; return asc ? x - y : y - x; }
+      return asc ? String(x).localeCompare(y) : String(y).localeCompare(x);
+    });
+    filas.forEach(function (f, i) {
+      tbody.appendChild(f);
+      f.querySelector('.tc-pos').textContent = i + 1;   // renumerar el puesto
+    });
+  });
+});
+</script>
+{% endblock %}

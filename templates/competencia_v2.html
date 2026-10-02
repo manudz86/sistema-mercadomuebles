@@ -40,7 +40,10 @@ table.cv th.sorted-desc::after{content:' \2193';opacity:1}
 
 <div class="cv-wrap">
   <h1>📊 Competencia V2 — ventas de competidores vs mis precios</h1>
-  <div style="margin:2px 0 10px"><a href="{{ url_for('competencia_v2.ranking_competidores_page', periodo=periodo) }}" style="display:inline-block;padding:6px 14px;border-radius:8px;background:#6f42c1;color:#fff;text-decoration:none;font-weight:700;font-size:12.5px">🏆 Ranking de competidores</a></div>
+  <div style="margin:2px 0 10px;display:flex;gap:8px;flex-wrap:wrap">
+    <a href="{{ url_for('competencia_v2.ranking_competidores_page', periodo=periodo) }}" style="display:inline-block;padding:6px 14px;border-radius:8px;background:#6f42c1;color:#fff;text-decoration:none;font-weight:700;font-size:12.5px">🏆 Ranking de competidores</a>
+    <a href="{{ url_for('competencia_v2.competencia_v2_top_catalogo', periodo=periodo) }}" style="display:inline-block;padding:6px 14px;border-radius:8px;background:#0d6efd;color:#fff;text-decoration:none;font-weight:700;font-size:12.5px">📦 Top catálogo</a>
+  </div>
 
   {% if msg %}<div style="background:#e7f6ec;border-left:4px solid #198754;padding:8px 12px;border-radius:6px;margin:8px 0;font-size:13px">{{ msg }}</div>{% endif %}
 

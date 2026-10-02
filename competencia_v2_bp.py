@@ -19,6 +19,7 @@ import os, json, re, csv, datetime
 from collections import defaultdict
 import pymysql
 from flask import Blueprint, render_template, request, redirect, url_for
+from flask_login import login_required
 
 from competencia_bp import (_ml_catalog_all, _cuotas_publi, _campaign_from_tags,
                             _envio_tipo)
@@ -811,6 +812,126 @@ def _rt_actualizar_categoria(cat, fname, periodo):
         return 0, len(existing)
     _atomic_write_json(path, existing + nuevos)
     return len(nuevos), len(existing) + len(nuevos)
+
+# ── Top de productos de catálogo ───────────────────────────────────────────────
+TOPCAT_CATS = [
+    ('colchones.json', 'Colchones'),
+    ('sommiers.json', 'Juegos de Sommier y Colchón'),
+]
+_TOPCAT_NOMBRES = os.path.join(DATA_DIR, '.catalogo_nombres.json')
+
+
+def _topcat_nombres(ids):
+    """{catalog_id: nombre oficial de ML}. Cachea en disco: los nombres de catálogo
+    no cambian y así la página no hace decenas de llamadas a la API en cada carga."""
+    try:
+        cache = json.load(open(_TOPCAT_NOMBRES, encoding='utf-8'))
+    except Exception:
+        cache = {}
+    faltan = [c for c in ids if c not in cache]
+    if faltan:
+        try:
+            from app import cargar_ml_token, ml_request
+            tok = cargar_ml_token()
+            if tok:
+                for cid in faltan:
+                    mla = cid if str(cid).startswith('MLA') else f'MLA{cid}'
+                    nom = ''
+                    try:
+                        r = ml_request('get', f'https://api.mercadolibre.com/products/{mla}', tok)
+                        if r.status_code == 200:
+                            d = r.json() or {}
+                            # 'name' incluye la medida; 'family_name' no, y sin ella
+                            # varias medidas del mismo modelo se ven idénticas.
+                            nom = (d.get('name') or d.get('family_name') or '').strip()
+                    except Exception:
+                        pass
+                    cache[cid] = nom
+                _atomic_write_json(_TOPCAT_NOMBRES, cache)
+        except Exception as e:
+            print(f'[TOPCAT] no pude traer nombres de ML: {e}')
+    return cache
+
+
+def topcat_datos(periodo, top=15):
+    """Top `top` productos de CATÁLOGO por categoría, ordenados por unidades.
+    Descarta las publicaciones que no son de catálogo."""
+    secciones = []
+    for fname, titulo in TOPCAT_CATS:
+        path = os.path.join(DATA_DIR, periodo, fname)
+        if not os.path.exists(path):
+            continue
+        try:
+            rows = json.load(open(path, encoding='utf-8'))
+        except Exception:
+            continue
+
+        tot_u = sin_u = 0
+        tot_f = sin_f = 0.0
+        agg = {}
+        for r in rows:
+            try:
+                q = int(round(float(r.get('sold_quantity') or 0)))
+                p = float(r.get('price') or 0)
+            except (TypeError, ValueError):
+                continue
+            tot_u += q
+            tot_f += p * q
+            cid = str(r.get('catalog_product_id') or '').strip()
+            if str(r.get('is_catalog_product') or '').lower() != 'yes' or not cid:
+                sin_u += q
+                sin_f += p * q
+                continue
+            a = agg.setdefault(cid, {'u': 0, 'f': 0.0, 'publis': set(), 'vend': set(), 'tit': {}})
+            a['u'] += q
+            a['f'] += p * q
+            if r.get('item_id'):
+                a['publis'].add(r['item_id'])
+            if r.get('nickname'):
+                a['vend'].add(r['nickname'])
+            if r.get('title'):
+                a['tit'][r['title']] = a['tit'].get(r['title'], 0) + q
+
+        orden = sorted(agg.items(), key=lambda kv: -kv[1]['u'])[:top]
+        nombres = _topcat_nombres([c for c, _ in orden])
+        items = []
+        for i, (cid, v) in enumerate(orden, 1):
+            nom = nombres.get(cid) or (max(v['tit'], key=v['tit'].get) if v['tit'] else '')
+            items.append({
+                'puesto': i, 'cid': cid, 'catalogo': f'MLA{cid}', 'producto': nom,
+                'unidades': v['u'], 'facturacion': round(v['f']),
+                'publis': len(v['publis']), 'vendedores': len(v['vend']),
+                'precio_prom': round(v['f'] / v['u']) if v['u'] else 0,
+            })
+        cat_u = sum(v['u'] for v in agg.values())
+        cat_f = sum(v['f'] for v in agg.values())
+        secciones.append({
+            'titulo': titulo, 'items': items,
+            'tot_u': tot_u, 'tot_f': round(tot_f),
+            'cat_u': cat_u, 'cat_f': round(cat_f),
+            'sin_u': sin_u, 'sin_f': round(sin_f),
+            'pct_cat': round(cat_u / tot_u * 100) if tot_u else 0,
+            'n_productos': len(agg),
+        })
+    return secciones
+
+
+@competencia_v2_bp.route('/admin/competencia-v2/top-catalogo')
+@login_required
+def competencia_v2_top_catalogo():
+    """Top de productos de catálogo más vendidos, por categoría."""
+    pers = sorted(PERIODOS().keys(), reverse=True)
+    periodo = request.args.get('periodo') or (pers[0] if pers else '')
+    try:
+        top = max(5, min(100, int(request.args.get('top', 15))))
+    except ValueError:
+        top = 15
+    secciones = topcat_datos(periodo, top) if periodo else []
+    return render_template('competencia_top_catalogo.html',
+                           periodo=periodo, periodos=pers,
+                           periodo_lbl={p: _periodo_lbl(p) for p in pers},
+                           top=top, secciones=secciones)
+
 
 RT_DIAS_RECONCILIAR = 7   # ventana que se vuelve a bajar y reemplazar en cada corrida
 
