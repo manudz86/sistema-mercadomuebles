@@ -9838,7 +9838,7 @@ def _promo_aporte_de(p):
     return (float(seller_p), 0.0) if seller_p is not None else (None, None)
 
 
-def _promo_leer_aplicada(access_token, mla, tipo, promotion_id, intentos=4, espera=2.5):
+def _promo_leer_aplicada(access_token, mla, tipo, promotion_id, intentos=7, espera=4.0):
     """Relee en ML la promo que quedó realmente aplicada a una publicación.
     Devuelve el dict crudo de la oferta activa (status started/pending) o None.
 
@@ -10393,7 +10393,16 @@ def job_promos_rechequeo():
         campanias = _promo_campanias(access_token)
         mapa = {r['mla_id']: r['sku'] for r in
                 (query_db("SELECT mla_id, sku FROM sku_mla_mapeo WHERE activo = TRUE") or [])}
-        desviadas = 0
+        # Publicaciones con promo cara aplicada A PROPÓSITO: se registran pero no
+        # se quitan. Lista separada por coma en configuracion['promo_excepciones'].
+        exceptos = set()
+        try:
+            _r = query_one("SELECT valor FROM configuracion WHERE clave='promo_excepciones'")
+            if _r and _r['valor']:
+                exceptos = {m.strip().upper() for m in str(_r['valor']).split(',') if m.strip()}
+        except Exception:
+            pass
+        desviadas = quitadas = 0
         for c in campanias:
             cid, ctype = c.get('id'), c.get('type')
             if not cid or not ctype:
@@ -10421,20 +10430,44 @@ def job_promos_rechequeo():
                         if aporte is None or aporte <= limite:
                             continue
                         desviadas += 1
+                        # ML sube el aporte DESPUÉS de aplicada: hay casos que se
+                        # aceptaron al 3,1% y terminaron en 17,2%. Antes esto solo
+                        # se registraba y la promo seguía corriendo hasta que alguien
+                        # la miraba. Ahora se quita, salvo las marcadas como excepción.
+                        revertida = False
+                        if mla not in exceptos:
+                            try:
+                                qs = f'promotion_type={ctype}&app_version=v2&promotion_id={cid}'
+                                oid = it.get('offer_id') or it.get('ref_id')
+                                if oid:
+                                    qs += f'&offer_id={oid}'
+                                rd = ml_request('delete',
+                                                f'https://api.mercadolibre.com/seller-promotions/items/{mla}?{qs}',
+                                                access_token)
+                                revertida = rd.status_code in (200, 204)
+                                if revertida:
+                                    quitadas += 1
+                            except Exception as e:
+                                print(f'[PROMOS-RECHEQUEO] no pude quitar {mla}: {e}')
                         _promo_hist_registrar(
                             accion='rechequeo', origen='job', mla_id=mla, sku=mapa.get(mla),
                             campania_id=cid, campania_nombre=c.get('name'), tipo=ctype,
                             aplicado_pct=aporte, aplicado_meli_pct=meli,
                             aplicado_precio=it.get('price'),
                             aplicado_original=it.get('original_price'),
-                            supero_limite=True, ok=True,
-                            error=f'Aporte {aporte}% supera el tope de {limite}%')
+                            supero_limite=True, revertida=revertida, ok=True,
+                            error=(f'Aporte {aporte}% supera el tope de {limite}% → '
+                                   + ('quitada' if revertida
+                                      else ('excepción autorizada' if mla in exceptos
+                                            else 'NO se pudo quitar, revisar a mano'))))
                     search_after = (d.get('paging') or {}).get('searchAfter')
                     if not res or not search_after:
                         break
         if desviadas:
-            print(f"[PROMOS-RECHEQUEO] {desviadas} promo(s) con aporte propio "
-                  f"sobre el tope de {limite}% — ver /promociones-ml (Historial)")
+            print(f"[PROMOS-RECHEQUEO] {desviadas} promo(s) con aporte propio sobre el "
+                  f"tope de {limite}% — {quitadas} quitada(s)"
+                  f"{f', {len(exceptos)} excepción(es) respetada(s)' if exceptos else ''}"
+                  f" — ver /promociones-ml (Historial)")
         else:
             print("[PROMOS-RECHEQUEO] sin desvíos")
     except Exception as e:

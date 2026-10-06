@@ -64,6 +64,11 @@ def main():
     umbral = 5.0
     ejecutar = '--ejecutar' in sys.argv
     solo_poco_ml = '--solo-poco-aporte-ml' in sys.argv
+    # publicaciones a NO tocar (ej. promos aplicadas a mano a proposito)
+    excluir = set()
+    if '--excluir' in sys.argv:
+        excluir = {m.strip().upper() for m in sys.argv[sys.argv.index('--excluir') + 1].split(',')
+                   if m.strip()}
     for a in sys.argv[1:]:
         if not a.startswith('--'):
             try:
@@ -92,6 +97,8 @@ def main():
                     if not mla or mla in vistos or mla not in mapa:
                         continue
                     vistos.add(mla)
+                    if mla.upper() in excluir:
+                        continue
                     pct, meli = aporte_de(it)
                     if pct is None or pct <= umbral:
                         continue
