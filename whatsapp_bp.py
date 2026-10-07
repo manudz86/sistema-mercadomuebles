@@ -127,6 +127,82 @@ try:
 except Exception as e:
     print(f"[WA] Error creando tablas: {e}")
 
+
+# ── Límites de uso (anti-bucle / anti-abuso) ──────────────────────
+# Cada mensaje entrante dispara UNA llamada a la API de Claude, y el prompt
+# incluye hasta 40 mensajes de historial: el costo no es plano, crece con la
+# conversación. Sin tope, otro bot escribiendo sin parar consume sin límite.
+# Los valores salen de `configuracion` para poder ajustarlos sin tocar código.
+WA_LIMITES_DEFAULT = {
+    'wa_max_por_hora':   30,    # mensajes de un mismo número por hora
+    'wa_max_por_dia':   100,    # mensajes de un mismo número por día
+    'wa_max_global_dia': 500,   # mensajes de TODOS los números por día
+}
+
+
+def _wa_limites():
+    """Límites vigentes. Se autocrean en configuracion la primera vez."""
+    lim = dict(WA_LIMITES_DEFAULT)
+    try:
+        # dictionary=True: con el cursor comun las filas son tuplas y r['clave']
+        # revienta; el except se lo comia y devolvia siempre los defaults.
+        db = _db(); cur = db.cursor(dictionary=True)
+        for k, v in WA_LIMITES_DEFAULT.items():
+            cur.execute("INSERT IGNORE INTO configuracion (clave, valor) VALUES (%s, %s)",
+                        (k, str(v)))
+        db.commit()
+        cur.execute("SELECT clave, valor FROM configuracion WHERE clave IN (%s,%s,%s)",
+                    tuple(WA_LIMITES_DEFAULT.keys()))
+        for r in cur.fetchall():
+            try:
+                lim[r['clave']] = int(float(r['valor']))
+            except (TypeError, ValueError):
+                pass
+        cur.close(); db.close()
+    except Exception as e:
+        print(f"[WA] no pude leer límites, uso defaults: {e}")
+    return lim
+
+
+def _wa_excedido(phone):
+    """(bloqueado, motivo). Cuenta los mensajes ENTRANTES ya guardados.
+    Un mensaje bloqueado no se guarda, así la ventana se despeja sola."""
+    lim = _wa_limites()
+    try:
+        r = _q("""
+            SELECT
+              (SELECT COUNT(*) FROM wa_mensajes
+                 WHERE phone=%s AND rol='user' AND fecha >= NOW() - INTERVAL 1 HOUR) AS hora,
+              (SELECT COUNT(*) FROM wa_mensajes
+                 WHERE phone=%s AND rol='user' AND fecha >= NOW() - INTERVAL 1 DAY)  AS dia,
+              (SELECT COUNT(*) FROM wa_mensajes
+                 WHERE rol='user' AND fecha >= NOW() - INTERVAL 1 DAY)               AS global
+        """, (phone, phone))
+        if not r:
+            return False, None
+        c = r[0]
+        if c['hora'] >= lim['wa_max_por_hora']:
+            return True, f"{phone}: {c['hora']} msgs en 1h (tope {lim['wa_max_por_hora']})"
+        if c['dia'] >= lim['wa_max_por_dia']:
+            return True, f"{phone}: {c['dia']} msgs en 24h (tope {lim['wa_max_por_dia']})"
+        if c['global'] >= lim['wa_max_global_dia']:
+            return True, f"GLOBAL: {c['global']} msgs en 24h (tope {lim['wa_max_global_dia']})"
+    except Exception as e:
+        # ante un error de conteo NO bloqueamos: el bot tiene que seguir atendiendo
+        print(f"[WA] error chequeando límites: {e}")
+        return False, None
+    return False, None
+
+
+def _wa_avisar_bloqueo(motivo):
+    """Deja el bloqueo asentado para poder verlo después."""
+    print(f"[WA] LIMITE ALCANZADO — {motivo}")
+    try:
+        _exec("""INSERT INTO sistema_logs (nivel, modulo, accion, detalle, usuario)
+                 VALUES ('WARNING','whatsapp','limite_alcanzado',%s,'bot')""", (motivo,))
+    except Exception:
+        pass
+
 # ── Zipnova ───────────────────────────────────────────────────────
 ZIPNOVA_BASE_URL   = 'https://api.zipnova.com.ar/v2'
 ZIPNOVA_PATAS_PESO = 2000
@@ -1165,6 +1241,15 @@ def webhook_message():
             # Evitar procesamiento duplicado
             if processing.get(msg_id):
                 continue
+
+            # Tope de uso ANTES de llamar a la API. Si está excedido no se
+            # responde NI se guarda el mensaje: contestar "alcanzaste el límite"
+            # a un bot lo haría seguir escribiendo y la ventana nunca se despeja.
+            _bloq, _motivo = _wa_excedido(phone)
+            if _bloq:
+                _wa_avisar_bloqueo(_motivo)
+                continue
+
             processing[msg_id] = True
 
             # Marcar como leído
