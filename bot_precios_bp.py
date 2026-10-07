@@ -643,7 +643,7 @@ def bot_precios_chat():
     for _ in range(15):
         _mark_cache(messages)   # breakpoint de caché rodante al final del historial
         resp = client.messages.create(
-            model='claude-sonnet-4-5',
+            model='claude-sonnet-4-6',
             max_tokens=4096,
             system=[{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
             tools=TOOLS,

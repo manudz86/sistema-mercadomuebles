@@ -18017,7 +18017,7 @@ Determiná el envío según las REGLAS DE ENVÍO (mirá si es almohada / Compac 
         system_blocks.append({"type": "text", "text": ejemplos})
     try:
         client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
-        resp = client.messages.create(model='claude-sonnet-4-5', max_tokens=700,
+        resp = client.messages.create(model='claude-sonnet-4-6', max_tokens=700,
                                        system=system_blocks, messages=[{'role': 'user', 'content': ctx}])
         texto = ''.join(b.text for b in resp.content if getattr(b, 'type', '') == 'text').strip()
         # Si el bot no sabe, deja la sugerencia en blanco (para aprender de tu respuesta)
