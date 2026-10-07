@@ -13649,6 +13649,18 @@ def _crear_tablas_fletes():
 # MÓDULO PAGOS CANNON
 # ============================================================================
 
+def _prontopago_pct(default=4.0):
+    """% de pronto pago configurado en Costos (cannon_descuentos.prontopago).
+    Lo carga el usuario desde esa sección; acá solo se lee. Si no está, default."""
+    try:
+        row = query_one("SELECT valor FROM cannon_descuentos WHERE clave='prontopago'")
+        if row and row['valor'] is not None:
+            return float(row['valor'])
+    except Exception:
+        pass
+    return default
+
+
 def _crear_tablas_pagos_cannon():
     execute_db("""
         CREATE TABLE IF NOT EXISTS cannon_facturas (
@@ -13789,6 +13801,9 @@ def pagos_cannon():
         reclamos=reclamos,
         tab=tab,
         hoy=date.today(),
+        # % de pronto pago que se precarga al escanear una factura: sale de la
+        # configuración de costos (cannon_descuentos.prontopago), no hardcodeado.
+        pp_pct_default=_prontopago_pct(),
     )
 
 
@@ -13804,7 +13819,7 @@ def pagos_cannon_guardar():
     try:
         if accion == 'nueva_factura':
             importe   = float(data['importe_total'])
-            pct       = float(data.get('descuento_pp_pct', 4))
+            pct       = float(data.get('descuento_pp_pct', _prontopago_pct()))
             fecha_rec = data['fecha_recepcion']
             # fecha_pago = recepcion + 6 días corridos
             from datetime import datetime
@@ -13852,7 +13867,7 @@ def pagos_cannon_guardar():
             fcomp      = data['fecha_comprobante']
             frec       = data['fecha_recepcion']
             importe    = float(data['importe_total'])
-            pct        = float(data.get('descuento_pp_pct', 4))
+            pct        = float(data.get('descuento_pp_pct', _prontopago_pct()))
 
             # Verificar duplicado de nro (excluyendo la propia factura)
             existe = query_one(

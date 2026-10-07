@@ -58,7 +58,7 @@
             <strong>${{ "{:,.0f}".format(g.total_bruto).replace(",", ".") }}</strong>
           </div>
           <div class="text-end">
-            <div class="small {% if pagado or vencido %}text-white-50{% else %}text-muted{% endif %}">Con PP ({{ fcs[0].descuento_pp_pct if fcs else 4 }}%)</div>
+            <div class="small {% if pagado or vencido %}text-white-50{% else %}text-muted{% endif %}">Con PP ({{ fcs[0].descuento_pp_pct if fcs else pp_pct_default }}%)</div>
             <strong>${{ "{:,.0f}".format(g.total_pp).replace(",", ".") }}</strong>
           </div>
           <div class="text-end">
@@ -261,7 +261,7 @@
           <div class="col-6">
             <label class="form-label small">% Pronto Pago</label>
             <div class="input-group input-group-sm">
-              <input type="number" class="form-control" id="fc_pp_pct" value="4" step="0.01" min="0" max="100"
+              <input type="number" class="form-control" id="fc_pp_pct" value="{{ pp_pct_default }}" step="0.01" min="0" max="100"
                      oninput="calcularPreview()">
               <span class="input-group-text">%</span>
             </div>
@@ -461,6 +461,9 @@
 {% block extra_js %}
 <script>
 const _hoy = '{{ hoy.isoformat() }}';
+// % de pronto pago configurado en Costos. Antes estaba fijo en 4 acá y en el
+// backend; ahora sale de cannon_descuentos.prontopago, que se carga en Costos.
+const PP_DEFAULT = {{ pp_pct_default }};
 
 async function api(data) {
   const r = await fetch('/pagos-cannon/guardar', {
@@ -523,7 +526,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const el = document.getElementById(id);
         if (el) el.value = '';
       });
-      document.getElementById('fc_pp_pct').value = '4';
+      document.getElementById('fc_pp_pct').value = PP_DEFAULT;
       const pdf = document.getElementById('fc_pdf');
       if (pdf) pdf.value = '';
       const btn = document.getElementById('btnEscanearFactura');
@@ -589,7 +592,7 @@ async function escanearFactura() {
 
 function calcularPreview() {
   const importe = parseImporteAR(document.getElementById('fc_importe').value);
-  const pct     = parseFloat(document.getElementById('fc_pp_pct').value) || 4;
+  const pct     = parseFloat(document.getElementById('fc_pp_pct').value) || PP_DEFAULT;
   const recep   = document.getElementById('fc_fecha_recepcion').value;
   const prev    = document.getElementById('fc_preview');
 
@@ -615,7 +618,7 @@ async function guardarFactura() {
   const fcomp  = document.getElementById('fc_fecha_comprobante').value;
   const frecep = document.getElementById('fc_fecha_recepcion').value;
   const importe= parseImporteAR(document.getElementById('fc_importe').value);
-  const pct    = document.getElementById('fc_pp_pct').value || 4;
+  const pct    = document.getElementById('fc_pp_pct').value || PP_DEFAULT;
   const notas  = document.getElementById('fc_notas').value;
 
   if (!nro || !fcomp || !frecep || !importe) {
@@ -643,7 +646,7 @@ function abrirModalEditar(btn) {
 }
 function calcularPreviewEdit() {
   const importe = parseImporteAR(document.getElementById('edit_importe').value);
-  const pct     = parseFloat(document.getElementById('edit_pp_pct').value) || 4;
+  const pct     = parseFloat(document.getElementById('edit_pp_pct').value) || PP_DEFAULT;
   const recep   = document.getElementById('edit_fecha_recepcion').value;
   const prev    = document.getElementById('edit_preview');
 
@@ -668,7 +671,7 @@ async function guardarFacturaEditada() {
   const fcomp  = document.getElementById('edit_fecha_comprobante').value;
   const frecep = document.getElementById('edit_fecha_recepcion').value;
   const importe= parseImporteAR(document.getElementById('edit_importe').value);
-  const pct    = document.getElementById('edit_pp_pct').value || 4;
+  const pct    = document.getElementById('edit_pp_pct').value || PP_DEFAULT;
 
   if (!nro || !fcomp || !frecep || !importe) {
     alert('Completá todos los campos obligatorios'); return;
