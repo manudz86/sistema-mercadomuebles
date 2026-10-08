@@ -19956,13 +19956,32 @@ def costos_importar():
             except Exception:
                 vigencia = _date.today()
 
+            # Códigos de almohada: la lista de colchones NO debe pisarlos. El Excel
+            # general de Cannon las trae y las sobreescribía con la columna de
+            # colchones; las almohadas se cargan desde su propia sección.
+            cods_almohadas = {
+                int(r['codigo_material']) for r in (query_db(
+                    "SELECT codigo_material FROM cannon_productos "
+                    "WHERE descripcion LIKE 'ALM%%' OR sku IN "
+                    "('CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE')"
+                ) or []) if r.get('codigo_material')
+            }
+
             insertados = 0
+            salteadas_alm = 0
             for row in ws.iter_rows(values_only=True):
                 codigo = row[0]
-                precio = row[4] if tipo == 'almohadas' else row[2]  # Almohadas: col E (Con PP) | Lista: col C (Importe)
+                # Almohadas: col D = precio de lista SIN pronto pago (el PP lo aplica
+                # el cálculo: D / (1 + PP/100)). Antes tomaba la col E, que ya venía
+                # con PP, y el descuento terminaba aplicándose dos veces.
+                # Colchones: col C (Importe).
+                precio = row[3] if tipo == 'almohadas' else row[2]
                 if not codigo or not isinstance(codigo, (int, float)):
                     continue
                 if not precio or not isinstance(precio, (int, float)):
+                    continue
+                if tipo != 'almohadas' and int(codigo) in cods_almohadas:
+                    salteadas_alm += 1
                     continue
                 execute_db("""
                     INSERT INTO cannon_lista_precios (codigo_material, precio_lista, vigencia)
@@ -19971,7 +19990,12 @@ def costos_importar():
                 """, (int(codigo), float(precio), vigencia))
                 insertados += 1
             wb.close()
-            flash(f'✅ {insertados} precios importados correctamente', 'success')
+            _col = 'D' if tipo == 'almohadas' else 'C'
+            msg = f'✅ {insertados} precios importados (columna {_col})'
+            if salteadas_alm:
+                msg += (f' — {salteadas_alm} almohada(s) salteada(s): se cargan '
+                        f'desde la sección Almohadas')
+            flash(msg, 'success')
         except Exception as e:
             flash(f'❌ Error: {e}', 'danger')
         return redirect(url_for('costos_importar'))
