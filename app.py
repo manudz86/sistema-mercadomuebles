@@ -19140,6 +19140,18 @@ def _build_precio_costos_map():
 # RENTABILIDAD
 # ============================================================================
 
+def _ultima_vigencia_lista():
+    """Vigencia de la última lista de precios cargada (AAAA-MM-DD) o ''.
+    Es el arranque natural para recalcular: antes de esa fecha regían otros costos."""
+    try:
+        r = query_one("SELECT MAX(vigencia) v FROM cannon_lista_precios")
+        if r and r.get('v'):
+            return r['v'].isoformat() if hasattr(r['v'], 'isoformat') else str(r['v'])
+    except Exception:
+        pass
+    return ''
+
+
 @app.route('/rentabilidad')
 @login_required
 @admin_required
@@ -19197,7 +19209,8 @@ def rentabilidad():
         return render_template('rentabilidad.html',
                                ventas=[], desde=desde, hasta=hasta, totales={},
                                sku_filter=sku_filter, envio_filter=envio_filter,
-                               canal_filter=canal_filter, config_envio=config_envio)
+                               canal_filter=canal_filter, config_envio=config_envio,
+                               ultima_vigencia=_ultima_vigencia_lista())
 
     venta_ids = [v['id'] for v in ventas_rows]
     fmt = ','.join(['%s'] * len(venta_ids))
@@ -19304,15 +19317,37 @@ def rentabilidad():
                            ventas=resultados, desde=desde, hasta=hasta,
                            totales=totales, config_envio=config_envio,
                            sku_filter=sku_filter, envio_filter=envio_filter,
-                           canal_filter=canal_filter)
+                           canal_filter=canal_filter,
+                           ultima_vigencia=_ultima_vigencia_lista())
 
 
 @app.route('/rentabilidad/recalcular-costos', methods=['POST'])
 @login_required
 @admin_required
 def rentabilidad_recalcular_costos():
-    """Recalcula costo_productos para todas las ventas históricas usando _build_precio_compra_map() oficial."""
+    """Recalcula costo_productos usando _build_precio_compra_map() oficial.
+
+    Acepta `desde` (y opcionalmente `hasta`) para no reescribir la historia: la
+    lista de precios no guarda el valor de cada fecha, así que recalcular todo
+    aplicaría los costos de HOY a ventas viejas y falsearía su rentabilidad.
+    Lo normal es recalcular desde la vigencia de la lista que se acaba de subir.
+    """
     try:
+        from datetime import date as _date
+        desde = (request.form.get('desde') or '').strip()
+        hasta = (request.form.get('hasta') or '').strip()
+        try:
+            _date.fromisoformat(desde)
+        except ValueError:
+            flash('❌ Indicá una fecha "desde" válida (AAAA-MM-DD)', 'danger')
+            return redirect(url_for('rentabilidad'))
+        if hasta:
+            try:
+                _date.fromisoformat(hasta)
+            except ValueError:
+                flash('❌ La fecha "hasta" no es válida (AAAA-MM-DD)', 'danger')
+                return redirect(url_for('rentabilidad'))
+
         pcmap = _build_precio_compra_map()
         ccmap = {}
         for cr in query_db(
@@ -19323,7 +19358,12 @@ def rentabilidad_recalcular_costos():
         ):
             ccmap.setdefault(cr['sc'], []).append({'sku': cr['sb'], 'cant': float(cr['cn'])})
 
-        ventas_ids = [v['id'] for v in query_db("SELECT id FROM ventas WHERE estado_entrega='entregada' AND DATE(fecha_venta) >= '2026-04-01'")]
+        _sql = "SELECT id FROM ventas WHERE estado_entrega='entregada' AND DATE(fecha_venta) >= %s"
+        _par = [desde]
+        if hasta:
+            _sql += " AND DATE(fecha_venta) <= %s"
+            _par.append(hasta)
+        ventas_ids = [v['id'] for v in query_db(_sql, tuple(_par))]
         actualizadas = 0
         for vid in ventas_ids:
             costo = 0.0
@@ -19337,7 +19377,9 @@ def rentabilidad_recalcular_costos():
             execute_db("UPDATE ventas SET costo_productos=%s WHERE id=%s", [round(costo, 2), vid])
             actualizadas += 1
 
-        flash(f'✅ {actualizadas} ventas recalculadas con costos correctos', 'success')
+        _rango = f'desde {desde}' + (f' hasta {hasta}' if hasta else ' en adelante')
+        flash(f'✅ {actualizadas} ventas recalculadas ({_rango}). '
+              f'Las anteriores conservan su costo original.', 'success')
     except Exception as e:
         flash(f'Error: {e}', 'danger')
     return redirect(url_for('rentabilidad'))
@@ -19988,6 +20030,16 @@ def costos_importar():
                     VALUES (%s, %s, %s)
                     ON DUPLICATE KEY UPDATE precio_lista = VALUES(precio_lista), vigencia = VALUES(vigencia)
                 """, (int(codigo), float(precio), vigencia))
+                # Historial: la tabla de arriba pisa el precio anterior. Acá queda
+                # una fila por material y vigencia para poder saber qué costo regía
+                # en cada fecha (y no recalcular ventas viejas con precios de hoy).
+                execute_db("""
+                    INSERT INTO cannon_lista_precios_hist
+                        (codigo_material, precio_lista, vigencia, tipo)
+                    VALUES (%s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE precio_lista = VALUES(precio_lista)
+                """, (int(codigo), float(precio), vigencia,
+                      'almohadas' if tipo == 'almohadas' else 'lista'))
                 insertados += 1
             wb.close()
             _col = 'D' if tipo == 'almohadas' else 'C'

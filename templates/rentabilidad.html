@@ -27,8 +27,24 @@
           <span class="text-muted small align-self-center">Solo afecta ventas nuevas. Para recalcular históricas usar backfill.</span>
         </form>
         <hr class="my-2">
-        <form method="post" action="{{ url_for('rentabilidad_recalcular_costos') }}" onsubmit="return confirm('Recalcular costo_productos de TODAS las ventas históricas usando la lista de precios actual?');">
-          <button type="submit" class="btn btn-sm btn-outline-warning">🔄 Recalcular costos productos (todos los históricos)</button>
+        <form method="post" action="{{ url_for('rentabilidad_recalcular_costos') }}"
+              class="d-flex gap-2 align-items-end flex-wrap"
+              onsubmit="return confirm('Recalcular el costo de las ventas entregadas desde ' + this.desde.value + (this.hasta.value ? ' hasta ' + this.hasta.value : ' en adelante') + ', con la lista de precios actual?\n\nLas ventas anteriores a esa fecha NO se tocan.');">
+          <div>
+            <label class="form-label small mb-0">Recalcular desde</label>
+            <input type="date" name="desde" class="form-control form-control-sm"
+                   value="{{ ultima_vigencia or '' }}" required>
+          </div>
+          <div>
+            <label class="form-label small mb-0">hasta (opcional)</label>
+            <input type="date" name="hasta" class="form-control form-control-sm">
+          </div>
+          <button type="submit" class="btn btn-sm btn-outline-warning">🔄 Recalcular costos</button>
+          <span class="text-muted small align-self-center" style="max-width:420px">
+            La lista de precios no guarda el valor histórico: recalcular una venta vieja
+            le aplicaría el costo de hoy. Por eso arranca en la vigencia de la última lista
+            cargada{% if ultima_vigencia %} ({{ ultima_vigencia }}){% endif %}.
+          </span>
         </form>
       </div>
     </div>
