@@ -241,6 +241,13 @@
       <img src="/static/img/banners/Banners-02.jpg"
            alt="Todo lo que necesitás para dormir mejor: colchones, sommiers y almohadas Cannon">
     </div>
+    {# El de 3 cuotas va también en la rotación: la pieza anuncia los días,
+       así que sirve de aviso el resto de la semana. Los miércoles y sábados
+       pasa a ser el único, arriba. #}
+    <div class="slide">
+      <img src="/static/img/banners/Banners-03.jpg"
+           alt="Miércoles y sábados: 3 cuotas sin interés con tarjetas de crédito Visa y Mastercard">
+    </div>
     <div class="slide">
       <img src="/static/img/banners/Banners-04.jpg"
            alt="Todo el confort de Cannon, ahora en una caja — Compac Plus">
@@ -250,6 +257,7 @@
     <button class="dot active" onclick="goToSlide(0)"></button>
     <button class="dot" onclick="goToSlide(1)"></button>
     <button class="dot" onclick="goToSlide(2)"></button>
+    <button class="dot" onclick="goToSlide(3)"></button>
   </div>
 </section>
 {% endif %}
