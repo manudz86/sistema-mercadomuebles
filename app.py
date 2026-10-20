@@ -13938,6 +13938,17 @@ def pagos_cannon_guardar():
             """, (float(data['monto_abonado']), data['fecha_abono'],
                   data.get('notas', ''), data['pago_id']))
 
+        elif accion == 'desmarcar_pagado':
+            # Deshacer un pago mal registrado: el grupo vuelve a quedar pendiente.
+            # Se limpia también el PP, porque depende de que el pago haya ocurrido.
+            # Las notas se conservan (no son destructivas y sirven de referencia).
+            execute_db("""
+                UPDATE cannon_pagos
+                SET monto_abonado = NULL, fecha_abono = NULL,
+                    pp_recibido = 0, fecha_pp = NULL
+                WHERE id = %s
+            """, (data['pago_id'],))
+
         elif accion == 'marcar_pp_recibido':
             execute_db("""
                 UPDATE cannon_pagos

@@ -88,10 +88,21 @@
             </span>
             <button class="btn btn-sm btn-outline-light btn-xs" onclick="marcarPP({{ g.pago_id }}, 0)" title="Desmarcar">✕</button>
             {% endif %}
+            <button class="btn btn-sm btn-outline-light"
+                    onclick="desmarcarPagado({{ g.pago_id }})"
+                    title="Deshacer pago — el grupo vuelve a quedar pendiente">
+              <i class="bi bi-arrow-counterclockwise"></i>
+            </button>
             {% endif %}
           </div>
         </div>
       </div>
+
+      {% if pagado and g.pago_notas %}
+      <div class="px-3 py-1 bg-success-subtle border-bottom small text-success-emphasis">
+        <i class="bi bi-sticky me-1"></i>{{ g.pago_notas }}
+      </div>
+      {% endif %}
 
       <!-- Facturas del grupo -->
       <div class="card-body p-0">
@@ -705,6 +716,12 @@ async function confirmarPago() {
   });
   if (!res.ok) { alert('Error: ' + res.error); return; }
   _mPago.hide();
+  location.reload();
+}
+async function desmarcarPagado(pago_id) {
+  if (!confirm('¿Deshacer este pago?\n\nEl grupo vuelve a quedar pendiente y se borra la marca de pronto pago. Las facturas no se tocan.')) return;
+  const res = await api({ accion:'desmarcar_pagado', pago_id });
+  if (!res.ok) { alert('Error: ' + res.error); return; }
   location.reload();
 }
 
