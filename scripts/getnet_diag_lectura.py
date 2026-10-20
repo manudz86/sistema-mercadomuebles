@@ -6,9 +6,15 @@ tambien cuando falla (403/404/etc). Sirve para saber por que se rechaza la
 consulta y poder citarlo al pedirle a GetNet que habilite el scope de lectura.
 
 Uso:  venv/bin/python3 scripts/getnet_diag_lectura.py <id> [<id> ...]
+      venv/bin/python3 scripts/getnet_diag_lectura.py /ruta/completa [...]
+
+Un argumento que empieza con "/" se consulta tal cual contra GETNET_BASE_URL;
+cualquier otro se interpreta como id y se prueba contra las RUTAS conocidas.
 
 Solo hace GET. No modifica nada. Nunca imprime el token ni las credenciales.
 """
+import base64
+import json
 import os
 import sys
 
@@ -30,6 +36,27 @@ HDRS_INTERES = ('www-authenticate', 'x-request-id', 'x-correlation-id',
                 'content-type', 'date')
 
 
+def mostrar_scopes(token):
+    """Imprime SOLO los claims de alcance del JWT. Nunca el token ni la firma."""
+    try:
+        payload_b64 = token.split('.')[1]
+        payload_b64 += '=' * (-len(payload_b64) % 4)   # padding base64url
+        claims = json.loads(base64.urlsafe_b64decode(payload_b64))
+    except Exception as e:
+        print(f'  (no se pudo decodificar el JWT: {type(e).__name__})')
+        return
+    for k in ('scope', 'scopes', 'authorities', 'aud', 'iss', 'exp', 'resource_access'):
+        if k in claims:
+            v = claims[k]
+            if isinstance(v, (list, dict)):
+                v = json.dumps(v, ensure_ascii=False)
+            print(f'  {k}: {v}')
+    otros = [k for k in claims if k not in
+             ('scope', 'scopes', 'authorities', 'aud', 'iss', 'exp', 'resource_access')]
+    if otros:
+        print(f'  (otros claims presentes, no mostrados: {", ".join(sorted(otros))})')
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -43,12 +70,20 @@ def main():
             print(f'No se pudo obtener el token: {type(e).__name__}: {e}')
             return 2
         print(f'ENTORNO: {base} (produccion, solo GET)')
-        print(f'TOKEN: obtenido OK ({len(token)} chars, no se muestra)\n')
+        print(f'TOKEN: obtenido OK ({len(token)} chars, no se muestra)')
+        print('ALCANCES DEL TOKEN:')
+        mostrar_scopes(token)
+        print()
 
-        for pid in sys.argv[1:]:
-            print(f'═══ id {pid} ═══')
-            for ruta in RUTAS:
-                url = base + ruta.format(pid=pid)
+        for arg in sys.argv[1:]:
+            if arg.startswith('/'):
+                print(f'═══ ruta {arg} ═══')
+                rutas, pid = [arg], ''
+            else:
+                print(f'═══ id {arg} ═══')
+                rutas, pid = RUTAS, arg
+            for ruta in rutas:
+                url = base + (ruta.format(pid=pid) if pid else ruta)
                 try:
                     r = req_lib.get(
                         url,
