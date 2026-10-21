@@ -8670,7 +8670,9 @@ def test_payway_pagar():
     if payment_method_id not in (1, 104):          # Visa / Mastercard crédito
         return jsonify({'ok': False, 'error': 'Usá Visa o Mastercard crédito'}), 400
 
-    plan_gobierno = bool(data.get('plan_gobierno', True))
+    # Default False, igual que el cobro real (tienda_bp.py:6020). Payway aclaró
+    # que no es obligatorio: lo que define MiPyME es el installments (13/16).
+    plan_gobierno = bool(data.get('plan_gobierno', False))
     bin_numero    = (data.get('bin') or '')[:6]
     device_fp     = data.get('device_fingerprint_id', '') or ''
 

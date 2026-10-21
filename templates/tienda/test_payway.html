@@ -65,12 +65,16 @@
   </select>
 
   <div class="chk">
-    <input type="checkbox" id="plan_gobierno" checked>
+    <input type="checkbox" id="plan_gobierno">
     <label for="plan_gobierno" style="margin:0;font-weight:600;">
       Enviar <code>plan_gobierno: true</code>
     </label>
   </div>
-  <div class="muted">Payway dice que no es obligatorio. Destildalo en los planes de control.</div>
+  <div class="muted">
+    Dejalo destildado: el checkout real manda <code>false</code> y aprueba. Payway
+    confirmó que no es obligatorio — lo que define MiPyME es el <code>installments</code>.
+    Tildalo solo si el plan 13 falla con false, para poder decir que se probó de las dos formas.
+  </div>
 </div>
 
 <div class="card">
