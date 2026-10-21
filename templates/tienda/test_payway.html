@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>🧪 Test Payway — Cuota Simple MiPyME</title>
+<title>🧪 Test Payway — Cuotas / MiPyME</title>
 <style>
   body{font-family:system-ui,Arial,sans-serif;max-width:680px;margin:0 auto;padding:16px;background:#f4f5f7;color:#1a1a2e;}
   h2{margin:8px 0 4px;}
+  h3{margin:0 0 4px;font-size:.95rem;}
   .banner{background:#f8d7da;border:1px solid #f5c2c7;color:#842029;padding:10px 14px;border-radius:8px;font-size:.88rem;margin-bottom:14px;}
   .nota{background:#fff3cd;border:1px solid #ffe69c;color:#664d03;padding:10px 14px;border-radius:8px;font-size:.84rem;margin-bottom:16px;}
   .card{background:#fff;border-radius:10px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px;}
@@ -16,7 +17,6 @@
   .row>div{flex:1;}
   button{background:#1a1a2e;color:#fff;border:0;border-radius:8px;padding:11px 16px;font-size:1rem;font-weight:700;cursor:pointer;width:100%;margin-top:14px;}
   button:disabled{opacity:.5;cursor:not-allowed;}
-  .total{font-size:1.4rem;font-weight:800;}
   .muted{color:#888;font-size:.8rem;}
   .err{color:#c00;font-size:.9rem;margin-top:8px;display:none;}
   .chk{display:flex;align-items:center;gap:8px;margin-top:12px;}
@@ -30,18 +30,19 @@
 </head>
 <body>
 
-<h2>🧪 Test Payway — Cuota Simple MiPyME</h2>
+<h2>🧪 Test Payway — Cuotas / MiPyME</h2>
 
 <div class="banner">
-  <strong>⚠️ Cobro REAL de {{ monto_fmt }}.</strong> Esta página usa credenciales de
-  producción porque la adhesión a Cuota Simple no se puede verificar en sandbox.
-  Si la operación se aprueba, hay que anularla desde el panel de Payway.
+  <strong>⚠️ Cobro REAL.</strong> Usa credenciales de producción porque la adhesión
+  al plan de cuotas no se puede verificar en sandbox. Si una operación se aprueba,
+  hay que anularla desde el panel de Payway.
 </div>
 
 <div class="nota">
-  Según el soporte de Payway (incidente INC000009101956), para MiPyME hay que enviar
-  <code>installments: 13</code> para 3 cuotas y <code>16</code> para 6 — no 3 y 6.
-  El checkout real sigue mandando 3/6; por eso nunca pasó una venta MiPyME.
+  Para MiPyME, Payway exige <code>installments: 13</code> (3 cuotas) y <code>16</code>
+  (6 cuotas), no 3 y 6 — incidente INC000009101956. Los planes <strong>1, 3 y 6 son de
+  control</strong>: si el de control aprueba y el de MiPyME no, el problema es el plan y
+  no la tarjeta ni el monto.
   Esta página <strong>no registra venta, no descuenta stock y no manda mails</strong>.
 </div>
 
@@ -50,13 +51,16 @@
 {% endif %}
 
 <div class="card">
-  <div class="muted">Monto fijo de la prueba</div>
-  <div class="total">{{ monto_fmt }}</div>
+  <h3>Operación</h3>
 
-  <label for="plan">Plan a probar</label>
+  <label for="monto">Monto a cobrar (pesos)</label>
+  <input type="number" id="monto" value="{{ monto }}" min="{{ monto_min }}" max="{{ monto_max }}" step="1">
+  <div class="muted">Permitido entre ${{ monto_min }} y ${{ monto_max }}.</div>
+
+  <label for="plan">Plan</label>
   <select id="plan">
     {% for valor, etiqueta in planes.items() %}
-    <option value="{{ valor }}">{{ etiqueta }}</option>
+    <option value="{{ valor }}"{% if valor == '13' %} selected{% endif %}>{{ etiqueta }}</option>
     {% endfor %}
   </select>
 
@@ -66,18 +70,20 @@
       Enviar <code>plan_gobierno: true</code>
     </label>
   </div>
-  <div class="muted">Payway dice que no es obligatorio. Si el plan falla, probá destildándolo.</div>
+  <div class="muted">Payway dice que no es obligatorio. Destildalo en los planes de control.</div>
 </div>
 
 <div class="card">
-  <label for="card-type">Tarjeta</label>
+  <h3>Tarjeta</h3>
+
+  <label for="card-type">Marca</label>
   <select id="card-type">
     <option value="1">Visa crédito</option>
     <option value="104">Mastercard crédito</option>
   </select>
 
   <label for="card-number">Número de tarjeta</label>
-  <input type="text" id="card-number" maxlength="19" inputmode="numeric" autocomplete="off" placeholder="4507 9900 0000 4905">
+  <input type="text" id="card-number" maxlength="19" inputmode="numeric" autocomplete="off">
 
   <div class="row">
     <div>
@@ -107,14 +113,40 @@
     </div>
     <div style="flex:2;">
       <label for="doc-number">Número de documento</label>
-      <input type="text" id="doc-number" maxlength="11" inputmode="numeric" placeholder="12345678">
+      <input type="text" id="doc-number" maxlength="11" inputmode="numeric">
     </div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Datos de facturación de la tarjeta</h3>
+  <div class="muted">
+    Los reales del titular. Visa los compara y devuelve el código VTE; con datos
+    inventados el resultado de la prueba queda en duda.
   </div>
 
   <label for="email">Email</label>
-  <input type="email" id="email" placeholder="test@mercadomuebles.com.ar">
+  <input type="email" id="email" placeholder="titular@email.com">
 
-  <button id="btn"><span id="btn-text">Pagar {{ monto_fmt }}</span></button>
+  <label for="phone">Teléfono</label>
+  <input type="text" id="phone" inputmode="numeric" placeholder="1130000000">
+
+  <label for="calle">Calle del domicilio de facturación</label>
+  <input type="text" id="calle" placeholder="Av Rivadavia">
+  <div class="muted">Solo el nombre de la calle, sin altura: es lo que manda el checkout real.</div>
+
+  <div class="row">
+    <div style="flex:2;">
+      <label for="ciudad">Ciudad</label>
+      <input type="text" id="ciudad" placeholder="Buenos Aires">
+    </div>
+    <div>
+      <label for="cp">CP</label>
+      <input type="text" id="cp" maxlength="10" placeholder="1406">
+    </div>
+  </div>
+
+  <button id="btn"><span id="btn-text">Pagar</span></button>
   <div class="err" id="err"></div>
 </div>
 
@@ -136,12 +168,29 @@ var TMXSESSIONID = 'mmu-test-' + Date.now() + '-' + Math.random().toString(36).s
 </script>
 
 <script>
-document.getElementById('btn').addEventListener('click', function (e) {
-  e.preventDefault();
-  var btn     = document.getElementById('btn');
-  var btnText = document.getElementById('btn-text');
-  var errDiv  = document.getElementById('err');
+var btn     = document.getElementById('btn');
+var btnText = document.getElementById('btn-text');
+var errDiv  = document.getElementById('err');
+var montoEl = document.getElementById('monto');
 
+function refrescarBoton() {
+  var m = parseInt(montoEl.value, 10);
+  btnText.textContent = isNaN(m) ? 'Pagar' : 'Pagar $' + m.toLocaleString('es-AR');
+}
+montoEl.addEventListener('input', refrescarBoton);
+refrescarBoton();
+
+function fail(msg) {
+  errDiv.textContent = msg;
+  errDiv.style.display = 'block';
+  btn.disabled = false;
+  refrescarBoton();
+}
+
+btn.addEventListener('click', function (e) {
+  e.preventDefault();
+
+  var monto      = parseInt(montoEl.value, 10);
   var cardNumber = document.getElementById('card-number').value.replace(/\s/g, '');
   var expMonth   = document.getElementById('exp-month').value.trim();
   var expYear    = document.getElementById('exp-year').value.trim();
@@ -150,22 +199,24 @@ document.getElementById('btn').addEventListener('click', function (e) {
   var docType    = document.getElementById('doc-type').value;
   var docNumber  = document.getElementById('doc-number').value.trim();
   var email      = document.getElementById('email').value.trim();
+  var phone      = document.getElementById('phone').value.trim();
+  var calle      = document.getElementById('calle').value.trim();
+  var ciudad     = document.getElementById('ciudad').value.trim();
+  var cp         = document.getElementById('cp').value.trim();
   var plan       = document.getElementById('plan').value;
   var planGob    = document.getElementById('plan_gobierno').checked;
   var pmId       = parseInt(document.getElementById('card-type').value, 10);
 
+  if (isNaN(monto) || monto < {{ monto_min }} || monto > {{ monto_max }}) {
+    return fail('El monto debe estar entre ${{ monto_min }} y ${{ monto_max }}.');
+  }
   if (!cardNumber || cardNumber.length < 15) { return fail('Ingresá el número de tarjeta completo.'); }
   if (!expMonth || !expYear)                 { return fail('Ingresá el vencimiento.'); }
   if (!cvv)                                  { return fail('Ingresá el CVV.'); }
   if (!holderName)                           { return fail('Ingresá el titular.'); }
   if (!docNumber)                            { return fail('Ingresá el documento.'); }
-
-  function fail(msg) {
-    errDiv.textContent = msg;
-    errDiv.style.display = 'block';
-    btn.disabled = false;
-    btnText.textContent = 'Pagar {{ monto_fmt }}';
-  }
+  if (!calle)                                { return fail('Ingresá la calle de facturación.'); }
+  if (!cp)                                   { return fail('Ingresá el código postal.'); }
 
   btn.disabled = true;
   btnText.textContent = 'Procesando...';
@@ -198,18 +249,24 @@ document.getElementById('btn').addEventListener('click', function (e) {
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
         token:                 r.data.id,
+        monto:                 monto,
         payment_method_id:     pmId,
         bin:                   cardNumber.substring(0, 6),
         plan:                  plan,
         plan_gobierno:         planGob,
         doc_number:            docNumber,
         email:                 email,
+        phone:                 phone,
         holder_name:           holderName,
+        calle:                 calle,
+        ciudad:                ciudad,
+        cp:                    cp,
         device_fingerprint_id: TMXSESSIONID
       })
     }).then(function (res2) { return res2.json(); });
   })
   .then(function (d) {
+    if (d.ok === false) { return fail(d.error || 'Error del servidor'); }
     var aprobado = d.status === 'approved';
     document.getElementById('resultado-badge').innerHTML =
       '<span class="badge ' + (aprobado ? 'ok' : 'bad') + '">' +
@@ -217,7 +274,7 @@ document.getElementById('btn').addEventListener('click', function (e) {
     document.getElementById('resultado').textContent = JSON.stringify(d, null, 2);
     document.getElementById('resultado-card').style.display = 'block';
     btn.disabled = false;
-    btnText.textContent = 'Pagar {{ monto_fmt }}';
+    refrescarBoton();
   })
   .catch(function (err) {
     console.error('[test-payway]', err);

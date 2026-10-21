@@ -34,6 +34,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import unicodedata
 import re
+from flask_login import login_required
 from utils import log_evento
 from push_bp import notificar_nueva_venta
 
@@ -8595,34 +8596,48 @@ def test_mp_pagar():
 # checkout real sigue mandando 3/6, por eso nunca pasó una venta MiPyME.
 #
 # ⚠️ Usa credenciales de PRODUCCIÓN: la adhesión a Cuota Simple es del comercio
-# real y no se puede comprobar en sandbox. Por eso el monto es fijo y chico.
+# real y no se puede comprobar en sandbox. El monto es editable pero acotado,
+# y la página exige sesión del panel (cobra plata real: abierta sería un
+# endpoint de card-testing).
 # NO registra venta, NO descuenta stock, NO manda mails, NO toca el carrito.
 # ════════════════════════════════════════════════════════════════════════════
-TEST_PAYWAY_MONTO = 1000          # pesos, fijo server-side (no lo define el cliente)
+TEST_PAYWAY_MONTO     = 1000      # pesos, valor por defecto del formulario
+TEST_PAYWAY_MONTO_MIN = 100       # topes server-side: es plata real, evitar dedazos
+TEST_PAYWAY_MONTO_MAX = 50000
 
-# installments que espera Payway para Cuota Simple MiPyME
+# installments que espera Payway. 13/16 son los códigos de MiPyME; 1/3/6 son
+# planes comunes y sirven de CONTROL para aislar si un rechazo es del plan o
+# de la tarjeta/monto.
 TEST_PAYWAY_PLANES = {
+    '1':  '1 pago — CONTROL (installments=1)',
+    '3':  '3 cuotas comunes — CONTROL (installments=3)',
+    '6':  '6 cuotas comunes — CONTROL (installments=6)',
     '13': '3 cuotas MiPyME (installments=13)',
     '16': '6 cuotas MiPyME (installments=16)',
 }
 
 
 @tienda_bp.route('/test-payway', methods=['GET'])
+@login_required
 def test_payway():
-    """Página de prueba Payway MiPyME — sin auth (URL no publicada). No registra venta."""
+    """Página de prueba Payway MiPyME. Requiere sesión del panel: cobra con
+    credenciales de PRODUCCIÓN y el monto es editable, así que abierta sería
+    un endpoint de card-testing. Entrar por sistema.mercadomuebles.com.ar."""
     return render_template(
         'tienda/test_payway.html',
         payway_public_key=os.getenv('PAYWAY_PUBLIC_KEY', ''),
         monto=TEST_PAYWAY_MONTO,
-        monto_fmt=format_price(TEST_PAYWAY_MONTO),
+        monto_min=TEST_PAYWAY_MONTO_MIN,
+        monto_max=TEST_PAYWAY_MONTO_MAX,
         planes=TEST_PAYWAY_PLANES,
         cred_ok=bool(os.getenv('PAYWAY_PRIVATE_KEY', '').strip()),
     )
 
 
 @tienda_bp.route('/test-payway/pagar', methods=['POST'])
+@login_required
 def test_payway_pagar():
-    """Cobra $TEST_PAYWAY_MONTO con el installments de MiPyME y devuelve la
+    """Cobra el monto indicado con el installments elegido y devuelve la
     respuesta CRUDA de Payway. No registra venta ni modifica nada."""
     import time as _t
     import requests as req_lib
@@ -8632,7 +8647,17 @@ def test_payway_pagar():
     if not token:
         return jsonify({'ok': False, 'error': 'Falta el token de tarjeta'}), 400
 
-    # installments: solo los valores de MiPyME, validados server-side
+    # Monto: editable, pero acotado server-side (es un cobro real)
+    try:
+        monto = int(round(float(data.get('monto', TEST_PAYWAY_MONTO))))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'Monto inválido'}), 400
+    if not (TEST_PAYWAY_MONTO_MIN <= monto <= TEST_PAYWAY_MONTO_MAX):
+        return jsonify({'ok': False,
+                        'error': f'El monto debe estar entre ${TEST_PAYWAY_MONTO_MIN} '
+                                 f'y ${TEST_PAYWAY_MONTO_MAX}'}), 400
+
+    # installments: solo valores de la tabla, validados server-side
     plan = str(data.get('plan', '13')).strip()
     if plan not in TEST_PAYWAY_PLANES:
         return jsonify({'ok': False, 'error': 'Plan inválido'}), 400
@@ -8658,11 +8683,14 @@ def test_payway_pagar():
     cs_first_name = _partes[0][:50]
     cs_last_name  = (_partes[1] if len(_partes) > 1 else _partes[0])[:50]
     cs_phone      = (data.get('phone') or '1100000000').strip()[:20]
-    cs_street1    = 'Av Rivadavia 100'
-    cs_city       = 'CABA'
-    cs_cp         = '1406'
+    # Domicilio de facturación real de la tarjeta (lo carga el operador en el
+    # formulario). Producción manda solo el nombre de la calle en street1, así
+    # que acá se hace igual para no introducir una diferencia con el cobro real.
+    cs_street1    = (data.get('calle') or 'Sin direccion').strip()[:60]
+    cs_city       = (data.get('ciudad') or 'Buenos Aires').strip()[:50]
+    cs_cp         = str(data.get('cp') or '1000').strip()[:10]
 
-    amount_centavos = int(TEST_PAYWAY_MONTO * 100)
+    amount_centavos = int(monto * 100)
     site_tx_id      = f"TESTPW-{int(_t.time())}"
     ip_cliente      = request.headers.get(
         'X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
@@ -8736,7 +8764,7 @@ def test_payway_pagar():
 
     payway_url = os.getenv("PAYWAY_API_URL", "https://live.decidir.com/api/v2")
     logger.info(f"[test_payway] POST installments={installments} plan_gobierno={plan_gobierno} "
-                f"monto={TEST_PAYWAY_MONTO} tx={site_tx_id}")
+                f"monto={monto} tx={site_tx_id}")
 
     try:
         pw_resp = req_lib.post(
