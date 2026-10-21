@@ -8584,3 +8584,189 @@ def test_mp_pagar():
     except Exception as e:
         logger.error(f"[test_mp_pagar] excepcion: {e}", exc_info=True)
         return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# PÁGINA DE PRUEBA — PAYWAY CUOTA SIMPLE (MiPyME). URL no publicada.
+#
+# Objetivo: verificar si el comercio puede operar MiPyME. Según el soporte de
+# Payway (incidente INC000009101956, 10/04/2026), el campo installments debe
+# llevar 13 para 3 cuotas MiPyME y 16 para 6 cuotas MiPyME — NO 3 y 6. El
+# checkout real sigue mandando 3/6, por eso nunca pasó una venta MiPyME.
+#
+# ⚠️ Usa credenciales de PRODUCCIÓN: la adhesión a Cuota Simple es del comercio
+# real y no se puede comprobar en sandbox. Por eso el monto es fijo y chico.
+# NO registra venta, NO descuenta stock, NO manda mails, NO toca el carrito.
+# ════════════════════════════════════════════════════════════════════════════
+TEST_PAYWAY_MONTO = 1000          # pesos, fijo server-side (no lo define el cliente)
+
+# installments que espera Payway para Cuota Simple MiPyME
+TEST_PAYWAY_PLANES = {
+    '13': '3 cuotas MiPyME (installments=13)',
+    '16': '6 cuotas MiPyME (installments=16)',
+}
+
+
+@tienda_bp.route('/test-payway', methods=['GET'])
+def test_payway():
+    """Página de prueba Payway MiPyME — sin auth (URL no publicada). No registra venta."""
+    return render_template(
+        'tienda/test_payway.html',
+        payway_public_key=os.getenv('PAYWAY_PUBLIC_KEY', ''),
+        monto=TEST_PAYWAY_MONTO,
+        monto_fmt=format_price(TEST_PAYWAY_MONTO),
+        planes=TEST_PAYWAY_PLANES,
+        cred_ok=bool(os.getenv('PAYWAY_PRIVATE_KEY', '').strip()),
+    )
+
+
+@tienda_bp.route('/test-payway/pagar', methods=['POST'])
+def test_payway_pagar():
+    """Cobra $TEST_PAYWAY_MONTO con el installments de MiPyME y devuelve la
+    respuesta CRUDA de Payway. No registra venta ni modifica nada."""
+    import time as _t
+    import requests as req_lib
+
+    data = request.get_json() or {}
+    token = (data.get('token') or '').strip()
+    if not token:
+        return jsonify({'ok': False, 'error': 'Falta el token de tarjeta'}), 400
+
+    # installments: solo los valores de MiPyME, validados server-side
+    plan = str(data.get('plan', '13')).strip()
+    if plan not in TEST_PAYWAY_PLANES:
+        return jsonify({'ok': False, 'error': 'Plan inválido'}), 400
+    installments = int(plan)
+
+    try:
+        payment_method_id = int(data.get('payment_method_id', 1))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'Medio de pago inválido'}), 400
+    if payment_method_id not in (1, 104):          # Visa / Mastercard crédito
+        return jsonify({'ok': False, 'error': 'Usá Visa o Mastercard crédito'}), 400
+
+    plan_gobierno = bool(data.get('plan_gobierno', True))
+    bin_numero    = (data.get('bin') or '')[:6]
+    device_fp     = data.get('device_fingerprint_id', '') or ''
+
+    # Datos del comprador para el antifraude (CyberSource retail). Son de
+    # prueba, pero tienen que estar completos o CS rechaza por payload pobre.
+    cs_dni        = (data.get('doc_number') or '00000000').strip()[:11]
+    cs_email      = (data.get('email') or 'test@mercadomuebles.com.ar').strip()[:100]
+    nombre_full   = (data.get('holder_name') or 'TEST PAYWAY').strip()
+    _partes       = nombre_full.split(' ', 1)
+    cs_first_name = _partes[0][:50]
+    cs_last_name  = (_partes[1] if len(_partes) > 1 else _partes[0])[:50]
+    cs_phone      = (data.get('phone') or '1100000000').strip()[:20]
+    cs_street1    = 'Av Rivadavia 100'
+    cs_city       = 'CABA'
+    cs_cp         = '1406'
+
+    amount_centavos = int(TEST_PAYWAY_MONTO * 100)
+    site_tx_id      = f"TESTPW-{int(_t.time())}"
+    ip_cliente      = request.headers.get(
+        'X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
+
+    # Mismo bloque antifraude que el cobro real (template_id=2, retail)
+    fraud_detection = {
+        "device_unique_identifier": device_fp,
+        "bill_to": {
+            "city":         cs_city,
+            "country":      "AR",
+            "customer_id":  cs_dni,
+            "email":        cs_email,
+            "first_name":   cs_first_name,
+            "last_name":    cs_last_name,
+            "phone_number": cs_phone,
+            "postal_code":  cs_cp,
+            "state":        "BA",
+            "street1":      cs_street1,
+        },
+        "purchase_totals": {"currency": "ARS", "amount": amount_centavos},
+        "customer_in_site": {
+            "days_in_site":        1,
+            "is_guest":            True,
+            "num_of_transactions": 1,
+            "cellphone_number":    cs_phone,
+            "street":              cs_street1,
+        },
+        "dispatch_method": "storepickup",
+        "retail_transaction_data": {
+            "ship_to": {
+                "city":         cs_city,
+                "country":      "AR",
+                "email":        cs_email,
+                "first_name":   cs_first_name,
+                "last_name":    cs_last_name,
+                "phone_number": cs_phone,
+                "postal_code":  cs_cp,
+                "state":        "BA",
+                "street1":      cs_street1,
+            },
+            "days_to_delivery": "2",
+            "items": [{
+                "code":         "TESTMIPYME",
+                "description":  "Prueba Cuota Simple MiPyME",
+                "name":         "Prueba MiPyME",
+                "sku":          "TESTMIPYME",
+                "total_amount": amount_centavos,
+                "quantity":     1,
+                "unit_price":   amount_centavos,
+            }],
+        },
+    }
+
+    payment_body = {
+        "user_id":             cs_dni,
+        "customer":            {"id": cs_dni, "email": cs_email, "ip_address": ip_cliente},
+        "site_transaction_id": site_tx_id,
+        "token":               token,
+        "payment_method_id":   payment_method_id,
+        "bin":                 bin_numero,
+        "amount":              amount_centavos,
+        "currency":            "ARS",
+        "installments":        installments,      # ← 13 o 16, el punto de la prueba
+        "payment_type":        "single",
+        "establishment_name":  "MERCADOMUEBLES",
+        "plan_gobierno":       plan_gobierno,
+        "sub_payments":        [],
+        "template_id":         2,
+        "fraud_detection":     fraud_detection,
+    }
+
+    payway_url = os.getenv("PAYWAY_API_URL", "https://live.decidir.com/api/v2")
+    logger.info(f"[test_payway] POST installments={installments} plan_gobierno={plan_gobierno} "
+                f"monto={TEST_PAYWAY_MONTO} tx={site_tx_id}")
+
+    try:
+        pw_resp = req_lib.post(
+            f"{payway_url}/payments",
+            json=payment_body,
+            headers={
+                "apikey":        os.getenv('PAYWAY_PRIVATE_KEY', ''),
+                "Content-Type":  "application/json",
+                "Cache-Control": "no-cache",
+            },
+            timeout=30,
+        )
+        pw_data = pw_resp.json()
+    except Exception as e:
+        logger.error(f"[test_payway] excepcion: {e}", exc_info=True)
+        return jsonify({'ok': False, 'error': f'{type(e).__name__}: {e}'}), 500
+
+    logger.info(f"[test_payway] HTTP {pw_resp.status_code} "
+                f"status={pw_data.get('status')} id={pw_data.get('id')}")
+
+    # Respuesta cruda: es justamente lo que faltó para entender el caso en abril.
+    return jsonify({
+        'ok':             True,
+        'http_status':    pw_resp.status_code,
+        'enviado':        {'installments': installments,
+                           'plan_gobierno': plan_gobierno,
+                           'amount': amount_centavos,
+                           'site_transaction_id': site_tx_id},
+        'status':         pw_data.get('status'),
+        'payment_id':     pw_data.get('id'),
+        'cupon':          (pw_data.get('card_data') or {}).get('cupon') if isinstance(pw_data.get('card_data'), dict) else None,
+        'respuesta_payway': pw_data,
+    })

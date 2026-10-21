@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🧪 Test Payway — Cuota Simple MiPyME</title>
+<style>
+  body{font-family:system-ui,Arial,sans-serif;max-width:680px;margin:0 auto;padding:16px;background:#f4f5f7;color:#1a1a2e;}
+  h2{margin:8px 0 4px;}
+  .banner{background:#f8d7da;border:1px solid #f5c2c7;color:#842029;padding:10px 14px;border-radius:8px;font-size:.88rem;margin-bottom:14px;}
+  .nota{background:#fff3cd;border:1px solid #ffe69c;color:#664d03;padding:10px 14px;border-radius:8px;font-size:.84rem;margin-bottom:16px;}
+  .card{background:#fff;border-radius:10px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px;}
+  label{display:block;font-weight:600;font-size:.85rem;margin:10px 0 4px;}
+  select,input{width:100%;padding:9px;border:1px solid #ccc;border-radius:8px;font-size:1rem;box-sizing:border-box;}
+  .row{display:flex;gap:8px;}
+  .row>div{flex:1;}
+  button{background:#1a1a2e;color:#fff;border:0;border-radius:8px;padding:11px 16px;font-size:1rem;font-weight:700;cursor:pointer;width:100%;margin-top:14px;}
+  button:disabled{opacity:.5;cursor:not-allowed;}
+  .total{font-size:1.4rem;font-weight:800;}
+  .muted{color:#888;font-size:.8rem;}
+  .err{color:#c00;font-size:.9rem;margin-top:8px;display:none;}
+  .chk{display:flex;align-items:center;gap:8px;margin-top:12px;}
+  .chk input{width:auto;}
+  pre{background:#11131a;color:#d6e2ff;padding:12px;border-radius:8px;overflow:auto;font-size:.78rem;line-height:1.45;max-height:460px;}
+  .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-weight:800;font-size:.85rem;}
+  .ok{background:#d1e7dd;color:#0a3622;}
+  .bad{background:#f8d7da;color:#842029;}
+  code{background:#eee;padding:1px 5px;border-radius:4px;}
+</style>
+</head>
+<body>
+
+<h2>🧪 Test Payway — Cuota Simple MiPyME</h2>
+
+<div class="banner">
+  <strong>⚠️ Cobro REAL de {{ monto_fmt }}.</strong> Esta página usa credenciales de
+  producción porque la adhesión a Cuota Simple no se puede verificar en sandbox.
+  Si la operación se aprueba, hay que anularla desde el panel de Payway.
+</div>
+
+<div class="nota">
+  Según el soporte de Payway (incidente INC000009101956), para MiPyME hay que enviar
+  <code>installments: 13</code> para 3 cuotas y <code>16</code> para 6 — no 3 y 6.
+  El checkout real sigue mandando 3/6; por eso nunca pasó una venta MiPyME.
+  Esta página <strong>no registra venta, no descuenta stock y no manda mails</strong>.
+</div>
+
+{% if not cred_ok %}
+<div class="banner">No está configurada <code>PAYWAY_PRIVATE_KEY</code>. La prueba va a fallar.</div>
+{% endif %}
+
+<div class="card">
+  <div class="muted">Monto fijo de la prueba</div>
+  <div class="total">{{ monto_fmt }}</div>
+
+  <label for="plan">Plan a probar</label>
+  <select id="plan">
+    {% for valor, etiqueta in planes.items() %}
+    <option value="{{ valor }}">{{ etiqueta }}</option>
+    {% endfor %}
+  </select>
+
+  <div class="chk">
+    <input type="checkbox" id="plan_gobierno" checked>
+    <label for="plan_gobierno" style="margin:0;font-weight:600;">
+      Enviar <code>plan_gobierno: true</code>
+    </label>
+  </div>
+  <div class="muted">Payway dice que no es obligatorio. Si el plan falla, probá destildándolo.</div>
+</div>
+
+<div class="card">
+  <label for="card-type">Tarjeta</label>
+  <select id="card-type">
+    <option value="1">Visa crédito</option>
+    <option value="104">Mastercard crédito</option>
+  </select>
+
+  <label for="card-number">Número de tarjeta</label>
+  <input type="text" id="card-number" maxlength="19" inputmode="numeric" autocomplete="off" placeholder="4507 9900 0000 4905">
+
+  <div class="row">
+    <div>
+      <label for="exp-month">Mes (MM)</label>
+      <input type="text" id="exp-month" maxlength="2" inputmode="numeric" placeholder="12">
+    </div>
+    <div>
+      <label for="exp-year">Año (AA)</label>
+      <input type="text" id="exp-year" maxlength="2" inputmode="numeric" placeholder="30">
+    </div>
+    <div>
+      <label for="cvv">CVV</label>
+      <input type="text" id="cvv" maxlength="4" inputmode="numeric" placeholder="123">
+    </div>
+  </div>
+
+  <label for="holder-name">Titular (como figura en la tarjeta)</label>
+  <input type="text" id="holder-name" autocomplete="off" placeholder="JUAN GARCIA">
+
+  <div class="row">
+    <div>
+      <label for="doc-type">Doc.</label>
+      <select id="doc-type">
+        <option value="dni">DNI</option>
+        <option value="cuit">CUIT</option>
+      </select>
+    </div>
+    <div style="flex:2;">
+      <label for="doc-number">Número de documento</label>
+      <input type="text" id="doc-number" maxlength="11" inputmode="numeric" placeholder="12345678">
+    </div>
+  </div>
+
+  <label for="email">Email</label>
+  <input type="email" id="email" placeholder="test@mercadomuebles.com.ar">
+
+  <button id="btn"><span id="btn-text">Pagar {{ monto_fmt }}</span></button>
+  <div class="err" id="err"></div>
+</div>
+
+<div class="card" id="resultado-card" style="display:none;">
+  <div id="resultado-badge"></div>
+  <div class="muted" style="margin:10px 0 6px;">Respuesta cruda de Payway</div>
+  <pre id="resultado"></pre>
+</div>
+
+<!-- CyberSource Device Fingerprint (requerido por el antifraude de Payway) -->
+<script>
+var TMXSESSIONID = 'mmu-test-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+(function () {
+  var s = document.createElement('script');
+  s.src = 'https://h.online-metrix.net/fp/tags.js?org_id=k8vif92e&session_id=' + TMXSESSIONID;
+  s.async = true;
+  document.head.appendChild(s);
+})();
+</script>
+
+<script>
+document.getElementById('btn').addEventListener('click', function (e) {
+  e.preventDefault();
+  var btn     = document.getElementById('btn');
+  var btnText = document.getElementById('btn-text');
+  var errDiv  = document.getElementById('err');
+
+  var cardNumber = document.getElementById('card-number').value.replace(/\s/g, '');
+  var expMonth   = document.getElementById('exp-month').value.trim();
+  var expYear    = document.getElementById('exp-year').value.trim();
+  var cvv        = document.getElementById('cvv').value.trim();
+  var holderName = document.getElementById('holder-name').value.trim();
+  var docType    = document.getElementById('doc-type').value;
+  var docNumber  = document.getElementById('doc-number').value.trim();
+  var email      = document.getElementById('email').value.trim();
+  var plan       = document.getElementById('plan').value;
+  var planGob    = document.getElementById('plan_gobierno').checked;
+  var pmId       = parseInt(document.getElementById('card-type').value, 10);
+
+  if (!cardNumber || cardNumber.length < 15) { return fail('Ingresá el número de tarjeta completo.'); }
+  if (!expMonth || !expYear)                 { return fail('Ingresá el vencimiento.'); }
+  if (!cvv)                                  { return fail('Ingresá el CVV.'); }
+  if (!holderName)                           { return fail('Ingresá el titular.'); }
+  if (!docNumber)                            { return fail('Ingresá el documento.'); }
+
+  function fail(msg) {
+    errDiv.textContent = msg;
+    errDiv.style.display = 'block';
+    btn.disabled = false;
+    btnText.textContent = 'Pagar {{ monto_fmt }}';
+  }
+
+  btn.disabled = true;
+  btnText.textContent = 'Procesando...';
+  errDiv.style.display = 'none';
+  document.getElementById('resultado-card').style.display = 'none';
+
+  var tokenBody = {
+    card_number:           cardNumber,
+    card_expiration_month: expMonth,
+    card_expiration_year:  expYear,
+    security_code:         cvv,
+    card_holder_name:      holderName,
+    card_holder_identification: { type: docType, number: docNumber },
+    fraud_detection: { device_unique_identifier: TMXSESSIONID }
+  };
+
+  // Reutiliza el proxy de tokenización del checkout real (CORS)
+  fetch('/tienda/pago/payway/token', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(tokenBody)
+  })
+  .then(function (res) { return res.json().then(function (d) { return { status: res.status, data: d }; }); })
+  .then(function (r) {
+    if (r.status !== 200 && r.status !== 201) {
+      throw new Error('Tokenización falló: ' + JSON.stringify(r.data));
+    }
+    return fetch('/tienda/test-payway/pagar', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        token:                 r.data.id,
+        payment_method_id:     pmId,
+        bin:                   cardNumber.substring(0, 6),
+        plan:                  plan,
+        plan_gobierno:         planGob,
+        doc_number:            docNumber,
+        email:                 email,
+        holder_name:           holderName,
+        device_fingerprint_id: TMXSESSIONID
+      })
+    }).then(function (res2) { return res2.json(); });
+  })
+  .then(function (d) {
+    var aprobado = d.status === 'approved';
+    document.getElementById('resultado-badge').innerHTML =
+      '<span class="badge ' + (aprobado ? 'ok' : 'bad') + '">' +
+      (d.status || 'sin status').toUpperCase() + '</span>';
+    document.getElementById('resultado').textContent = JSON.stringify(d, null, 2);
+    document.getElementById('resultado-card').style.display = 'block';
+    btn.disabled = false;
+    btnText.textContent = 'Pagar {{ monto_fmt }}';
+  })
+  .catch(function (err) {
+    console.error('[test-payway]', err);
+    fail(String(err.message || err));
+  });
+});
+</script>
+
+</body>
+</html>
