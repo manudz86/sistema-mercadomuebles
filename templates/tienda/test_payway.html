@@ -75,6 +75,19 @@
     confirmó que no es obligatorio — lo que define MiPyME es el <code>installments</code>.
     Tildalo solo si el plan 13 falla con false, para poder decir que se probó de las dos formas.
   </div>
+
+  <div class="chk">
+    <input type="checkbox" id="enviar_cs" checked>
+    <label for="enviar_cs" style="margin:0;font-weight:600;">
+      Enviar antifraude CyberSource
+    </label>
+  </div>
+  <div class="muted">
+    Tildado = igual que el checkout real (manda <code>fraud_detection</code> +
+    <code>template_id: 2</code> y el device fingerprint en la tokenización).
+    <strong>Destildalo para medir si Payway aprueba sin CyberSource</strong>, que es lo
+    que recomendó ClearSale. Si rechaza, es obligatorio y no se puede apagar.
+  </div>
 </div>
 
 <div class="card">
@@ -209,6 +222,7 @@ btn.addEventListener('click', function (e) {
   var cp         = document.getElementById('cp').value.trim();
   var plan       = document.getElementById('plan').value;
   var planGob    = document.getElementById('plan_gobierno').checked;
+  var enviarCs   = document.getElementById('enviar_cs').checked;
   var pmId       = parseInt(document.getElementById('card-type').value, 10);
 
   if (isNaN(monto) || monto < {{ monto_min }} || monto > {{ monto_max }}) {
@@ -233,9 +247,13 @@ btn.addEventListener('click', function (e) {
     card_expiration_year:  expYear,
     security_code:         cvv,
     card_holder_name:      holderName,
-    card_holder_identification: { type: docType, number: docNumber },
-    fraud_detection: { device_unique_identifier: TMXSESSIONID }
+    card_holder_identification: { type: docType, number: docNumber }
   };
+  // Sin CyberSource tampoco mandamos el fingerprint en la tokenización,
+  // para que la prueba refleje un flujo sin CS de punta a punta.
+  if (enviarCs) {
+    tokenBody.fraud_detection = { device_unique_identifier: TMXSESSIONID };
+  }
 
   // Reutiliza el proxy de tokenización del checkout real (CORS)
   fetch('/tienda/pago/payway/token', {
@@ -258,6 +276,7 @@ btn.addEventListener('click', function (e) {
         bin:                   cardNumber.substring(0, 6),
         plan:                  plan,
         plan_gobierno:         planGob,
+        enviar_cs:             enviarCs,
         doc_number:            docNumber,
         email:                 email,
         phone:                 phone,

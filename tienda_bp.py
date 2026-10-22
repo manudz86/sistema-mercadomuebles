@@ -8675,6 +8675,10 @@ def test_payway_pagar():
     plan_gobierno = bool(data.get('plan_gobierno', False))
     bin_numero    = (data.get('bin') or '')[:6]
     device_fp     = data.get('device_fingerprint_id', '') or ''
+    # Toggle para medir si CyberSource es obligatorio en esta cuenta de Payway.
+    # Apagado, se omiten fraud_detection Y template_id (van juntos: el template
+    # selecciona la plantilla de CS, mandarlo sin el bloque no tiene sentido).
+    enviar_cs     = bool(data.get('enviar_cs', True))
 
     # Datos del comprador para el antifraude (CyberSource retail). Son de
     # prueba, pero tienen que estar completos o CS rechaza por payload pobre.
@@ -8760,13 +8764,14 @@ def test_payway_pagar():
         "establishment_name":  "MERCADOMUEBLES",
         "plan_gobierno":       plan_gobierno,
         "sub_payments":        [],
-        "template_id":         2,
-        "fraud_detection":     fraud_detection,
     }
+    if enviar_cs:
+        payment_body["template_id"]     = 2
+        payment_body["fraud_detection"] = fraud_detection
 
     payway_url = os.getenv("PAYWAY_API_URL", "https://live.decidir.com/api/v2")
     logger.info(f"[test_payway] POST installments={installments} plan_gobierno={plan_gobierno} "
-                f"monto={monto} tx={site_tx_id}")
+                f"monto={monto} cs={enviar_cs} tx={site_tx_id}")
 
     try:
         pw_resp = req_lib.post(
@@ -8794,6 +8799,7 @@ def test_payway_pagar():
         'enviado':        {'installments': installments,
                            'plan_gobierno': plan_gobierno,
                            'amount': amount_centavos,
+                           'cyber_source': enviar_cs,
                            'site_transaction_id': site_tx_id},
         'status':         pw_data.get('status'),
         'payment_id':     pw_data.get('id'),
