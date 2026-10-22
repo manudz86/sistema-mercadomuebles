@@ -85,12 +85,14 @@ def partir_direccion(texto, provincia_venta):
     calle_full = partes[0] if partes else ''
     ciudad = partes[1] if len(partes) > 1 else ''
     provincia = partes[2] if len(partes) > 2 else (provincia_venta or '')
-    m2 = re.match(r'^(.*?)\s+(\d+.*)$', calle_full)
-    calle, altura = (m2.group(1), m2.group(2)) if m2 else (calle_full, '')
+    # AddressLine1 = calle + altura (es lo que geolocaliza ClearSale; mandando
+    # la altura aparte el pin caia en otra cuadra). AddressLine2 = piso/depto.
+    m2 = re.match(r'^(.*?\s+\d+)\s*(.*)$', calle_full)
+    calle, altura = (m2.group(1).strip(), m2.group(2).strip()) if m2 else (calle_full, '')
     if not cp:
         faltantes.append(('Address.ZipCode', 'no se pudo extraer de direccion_entrega'))
-    if not altura:
-        faltantes.append(('Address.AddressLine2', 'no se pudo separar la altura'))
+    if not re.search(r'\d', calle):
+        faltantes.append(('Address.AddressLine1', f'sin altura en la direccion: {calle!r}'))
     return calle, altura, ciudad, provincia, cp
 
 
