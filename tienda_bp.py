@@ -6176,6 +6176,47 @@ def pago_payway():
         )
     db.commit()
     cur2.close()
+
+    # ── ClearSale (antifraude) ───────────────────────────────────────────────
+    # Solo ventas de Payway. Gobernado por la clave clearsale_enabled:
+    #   '0'      apagado (default) — no se envía nada
+    #   'sombra' se envía y se registra, pero la venta sigue el flujo normal
+    #   '1'      flujo completo con estado intermedio (fase siguiente)
+    # Corre en un hilo aparte y con try/except: un problema de ClearSale no
+    # puede voltear una venta que Payway ya aprobó y el cliente ya vio.
+    try:
+        import clearsale
+        clearsale.logger = logger
+        _cs_modo = clearsale.modo()
+        if _cs_modo != '0':
+            _pw_det = (pw_data.get('status_details') or {})
+            _pw_cs  = (((pw_data.get('fraud_detection') or {}).get('status') or {})
+                       .get('decision'))
+            _orden_cs = clearsale.armar_orden(
+                numero_venta=numero_venta,
+                cli=cli,
+                cart_items=cart_items_adj,     # precios ya con cupón y coeficiente
+                totales={'productos': float(total_con_coef) - float(costo_flete_adj or 0),
+                         'total': float(total_con_coef),
+                         'flete': float(costo_flete_adj or 0),
+                         'metodo_envio': metodo_envio_val},
+                pago={'bin': bin_numero, 'last4': session.get('pw_last4', ''),
+                      'payment_method_id': payment_method_id,
+                      'installments': installments,
+                      'holder_name': card_holder_name,
+                      'expiration': card_expiration,
+                      'payment_id': pw_id,
+                      'auth_code': _pw_det.get('card_authorization_code'),
+                      'cupon': _pw_det.get('ticket'),
+                      'tid': pw_data.get('tid'),
+                      'valdom': _pw_det.get('address_validation_code'),
+                      'cs_decision': _pw_cs},
+                fecha=fecha_now)
+            clearsale.enviar_async(venta_id, _orden_cs)
+            logger.info(f'[clearsale] venta {venta_id} encolada (modo={_cs_modo})')
+    except Exception as _e_cs:
+        logger.error(f'[clearsale] no se pudo encolar la venta {venta_id}: {_e_cs}')
+
     try:
         notificar_nueva_venta(venta_id)   # push a los iPhone suscriptos
     except Exception:
