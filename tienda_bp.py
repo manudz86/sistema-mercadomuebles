@@ -5836,6 +5836,11 @@ def pago_payway():
     bin_numero            = data.get('bin', '')
     installments          = int(data.get('installments', 3))
     device_fingerprint_id = data.get('device_fingerprint_id', '')
+    # Titular y vencimiento de la tarjeta: los pide el formulario pero antes
+    # quedaban solo en el navegador. Se guardan en las notas de la venta
+    # porque el antifraude los usa (ClearSale muestra el pago sin titular).
+    card_holder_name      = (data.get('card_holder_name') or '').strip()[:150]
+    card_expiration       = (data.get('card_expiration') or '').strip()[:7]
 
     pedido_ref = session.get('pedido_ref_bricks', '')
     if not token or not pedido_ref:
@@ -6101,6 +6106,10 @@ def pago_payway():
     fecha_now = datetime.now(tz_ar).replace(tzinfo=None)
 
     notas_parts = [f"PWID: {pw_id}", f"OP_PAYWAY: {site_tx_id}", f"Cuotas: {installments}", f"Coef: {coef}"]
+    if card_holder_name:
+        notas_parts.append(f"Titular: {card_holder_name}")
+    if card_expiration:
+        notas_parts.append(f"Vencimiento: {card_expiration}")
     if cli.get('demora_dias'):
         notas_parts.append(f"DEMORA: {cli['demora_dias']} dias ({cli.get('fecha_disponible','')})")
     notas_extra = "\n".join(notas_parts)

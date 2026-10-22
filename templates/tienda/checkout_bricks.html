@@ -787,6 +787,10 @@ document.getElementById('pw-btn').addEventListener('click', function(e) {
         payment_method_id:     pmId,
         bin:                   bin,
         installments:          cuotas,
+        // Titular y vencimiento: quedaban solo en el navegador. El antifraude
+        // los usa (ClearSale muestra el pago sin titular si no llegan).
+        card_holder_name:      holderName,
+        card_expiration:       expMonth + '/20' + expYear,
         device_fingerprint_id: typeof TMXSESSIONID !== 'undefined' ? TMXSESSIONID : ''
       })
     }).then(function(res2) { return res2.json().then(function(d) { return { status: res2.status, data: d }; }); });
