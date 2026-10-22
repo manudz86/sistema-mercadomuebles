@@ -195,6 +195,46 @@ def probar_montos(token, location='ARG'):
     return creadas
 
 
+def probar_variantes(token, location='ARG'):
+    """Parte del payload que SI funciona y cambia una sola cosa por vez, para
+    encontrar por que una orden armada desde una venta real se acepta con 200
+    pero despues no existe."""
+    print('\n=== Variantes sobre el payload conocido-bueno ===')
+    suf = uuid.uuid4().hex[:6]
+    casos = []
+
+    # A: control puro — identico a lo que ya sabemos que anda
+    casos.append(('PROBE-CTRL-' + suf, _orden('PROBE-CTRL-' + suf, ITEMS_EJEMPLO),
+                  'control (deberia existir)'))
+
+    # B: mismo payload pero con el prefijo TEST- en el ID
+    casos.append(('TEST-CTRL-' + suf, _orden('TEST-CTRL-' + suf, ITEMS_EJEMPLO),
+                  'solo cambia el prefijo del ID'))
+
+    # C: mismo payload con un monto grande, como una venta real
+    o_big = _orden('PROBE-BIG-' + suf, ITEMS_EJEMPLO, total=683319.0)
+    casos.append(('PROBE-BIG-' + suf, o_big, 'monto grande (683319)'))
+
+    # D: sin CardHolderName ni CardExpirationDate (lo que falta en las ventas reales)
+    o_nc = _orden('PROBE-NOCARD-' + suf, ITEMS_EJEMPLO)
+    o_nc['Payments'][0].pop('CardHolderName', None)
+    o_nc['Payments'][0].pop('CardExpirationDate', None)
+    casos.append(('PROBE-NOCARD-' + suf, o_nc, 'sin titular ni vencimiento'))
+
+    r = req_lib.post(f'{BASE}/api/order/send',
+                     json={'ApiKey': API_KEY, 'LoginToken': token,
+                           'AnalysisLocation': location,
+                           'Orders': [o for _, o, _ in casos]},
+                     headers={'Content-Type': 'application/json',
+                              'analysisLocation': location}, timeout=60)
+    print(f'  envio HTTP {r.status_code}')
+    for oid, _, desc in casos:
+        print(f'    {oid:<26} {desc}')
+    print('\n  Consultalas con:')
+    print('  venv/bin/python3 scripts/clearsale_probe.py get ' +
+          ' '.join(i for i, _, _ in casos))
+
+
 def consultar(token, ids, location='ARG'):
     url = f'{BASE}/api/order/get'
     body = {'ApiKey': API_KEY, 'LoginToken': token,
@@ -236,6 +276,8 @@ def main():
         probar_state(token)
     elif cmd == 'montos':
         probar_montos(token)
+    elif cmd == 'variantes':
+        probar_variantes(token)
     elif cmd == 'get':
         consultar(token, sys.argv[2:])
     elif cmd == 'todo':

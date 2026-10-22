@@ -147,7 +147,13 @@ def armar_orden(venta, items, pw):
         venta.get('direccion_entrega'), venta.get('provincia_cliente'))
     area, numero = partir_telefono(venta.get('telefono_cliente'))
 
-    fecha = venta.get('fecha_venta')
+    # Con --hoy se reemplaza la fecha original por la actual. ClearSale acepto
+    # (200 / NVO) una orden fechada 8 dias atras pero despues no existia: el
+    # flag sirve para aislar si la fecha vieja es el motivo.
+    if '--hoy' in sys.argv:
+        fecha = datetime.now()
+    else:
+        fecha = venta.get('fecha_venta')
     if isinstance(fecha, datetime):
         fecha_iso = fecha.strftime('%Y-%m-%dT%H:%M:%S-03:00')   # hora local, como pidieron
     else:
@@ -200,34 +206,42 @@ def armar_orden(venta, items, pw):
                'Value': venta.get('tipo_entrega') or 'envio'},
               {'Name': 'SHIPPING_METHOD', 'Type': 1,
                'Value': venta.get('metodo_envio') or 'sin especificar'}]
-    if det.get('card_authorization_code'):
-        custom.append({'Name': 'PAYWAY_AUTH_CODE', 'Type': 1,
-                       'Value': str(det['card_authorization_code'])})
-    if raw.get('id'):
-        custom.append({'Name': 'PAYWAY_PAYMENT_ID', 'Type': 1, 'Value': str(raw['id'])})
-    if pw.get('tid'):
-        custom.append({'Name': 'PAYWAY_TID', 'Type': 1, 'Value': str(pw['tid'])})
+    # Los nombres de CustomFields estan en lista blanca: SHIPPING_TYPE y
+    # SHIPPING_METHOD pasan, cualquier nombre inventado hace que ClearSale
+    # DESCARTE la orden entera sin avisar (devuelve 200/NVO igual). Hasta que
+    # nos pasen la lista valida, la traza de Payway va en Obs, que es texto
+    # libre de 8000 caracteres.
     cs_dec = (((raw.get('fraud_detection') or {}).get('status') or {}).get('decision'))
-    if cs_dec:
-        custom.append({'Name': 'CYBERSOURCE_DECISION', 'Type': 1, 'Value': str(cs_dec)})
-    if det.get('address_validation_code'):
-        custom.append({'Name': 'VISA_VALDOM', 'Type': 1,
-                       'Value': str(det['address_validation_code'])})
+    obs = ' | '.join(p for p in [
+        f"payway_payment_id={raw.get('id')}" if raw.get('id') else '',
+        f"auth_code={det.get('card_authorization_code')}" if det.get('card_authorization_code') else '',
+        f"cupon={det.get('ticket')}" if det.get('ticket') else '',
+        f"tid={pw.get('tid')}" if pw.get('tid') else '',
+        f"cybersource={cs_dec}" if cs_dec else '',
+        f"visa_valdom={det.get('address_validation_code')}" if det.get('address_validation_code') else '',
+    ] if p)
 
-    # IP y user-agent: existen en el flujo real (cli._capi_ip / _capi_ua),
-    # no en una venta historica porque el pedido pendiente ya se borro.
-    faltantes.append(('IP', 'no disponible en ventas historicas; en vivo sale de cli._capi_ip'))
-    faltantes.append(('SessionID', 'pendiente de que ClearSale explique como vincularlo (A2)'))
+    # IP y SessionID: el manual los marca obligatorios. En una venta historica
+    # no los tenemos (el pedido pendiente ya se borro), asi que para la prueba
+    # van valores de relleno. En vivo salen de cli._capi_ip y del Mapper.
+    ip = ENV.get('CLEARSALE_TEST_IP') or '181.47.1.1'
+    session_id = 'mm-' + (venta.get('numero_venta') or 'sd').lower().replace('-', '') \
+                 + '-' + datetime.now().strftime('%Y%m%d%H%M%S')
+    faltantes.append(('IP', f'venta historica: se usa {ip} de relleno; en vivo, cli._capi_ip'))
+    faltantes.append(('SessionID', 'generado para la prueba; en vivo lo define el Mapper (A2)'))
 
     orden = {
-        'ID': f"TEST-{(venta.get('numero_venta') or '').upper()}",
+        'ID': f"TEST-{(venta.get('numero_venta') or '').upper()}"
+              + ('-HOY' if '--hoy' in sys.argv else ''),
         'Date': fecha_iso,
         'Email': venta.get('email_cliente') or '',
         'TotalItems': total_items,
         'TotalOrder': total,
         'TotalShipping': flete,
         'Currency': 'ARS',
+        'IP': ip,
         'Origin': 'Web',
+        'SessionID': session_id,
         'Payments': [pago],
         'BillingData': persona,
         'ShippingData': persona,
@@ -239,11 +253,148 @@ def armar_orden(venta, items, pw):
             'Category': 'Colchones y Sommiers',
         } for it in items],
         'CustomFields': custom,
+        'Obs': obs,
         'Reanalysis': False,
     }
     if cuotas:
         orden['QtyInstallments'] = cuotas
     return orden
+
+
+def bisect(orden):
+    """Manda varias copias de la orden, cada una sin UNO de los bloques
+    sospechosos, para ver cual hace que ClearSale la descarte en silencio.
+    La API acepta varias ordenes por llamada, asi que va todo en una sola."""
+    import copy
+    variantes = []
+
+    def _v(sufijo, fn):
+        o = copy.deepcopy(orden)
+        o['ID'] = orden['ID'] + sufijo
+        fn(o)
+        variantes.append((o['ID'], sufijo, o))
+
+    _v('-V1-FULL',      lambda o: None)
+    _v('-V2-SINCUSTOM', lambda o: o.pop('CustomFields', None))
+    _v('-V3-SINQTY',    lambda o: o.pop('QtyInstallments', None))
+    _v('-V4-SINNSU',    lambda o: o['Payments'][0].pop('Nsu', None))
+    _v('-V5-CONLAST4',  lambda o: o['Payments'][0].update({'CardEndNumber': '0000'}))
+    _v('-V6-MINIMO',    lambda o: (o.pop('CustomFields', None),
+                                   o.pop('QtyInstallments', None),
+                                   o['Payments'][0].pop('Nsu', None),
+                                   o['Payments'][0].update({'CardEndNumber': '0000'})))
+
+    token = login()
+    if not token:
+        print('No se pudo obtener el token.')
+        return
+    # Una por llamada: un lote con una orden invalida se descarta entero.
+    print(f'\nENVIANDO {len(variantes)} variantes, de a una:')
+    for oid, sufijo, o in variantes:
+        r = req_lib.post(f'{BASE}/api/order/send',
+                         json={'ApiKey': API_KEY, 'LoginToken': token,
+                               'AnalysisLocation': LOCATION, 'Orders': [o]},
+                         headers={'Content-Type': 'application/json',
+                                  'analysisLocation': LOCATION}, timeout=40)
+        print(f'    {oid:<44} HTTP {r.status_code}')
+    print('\n  Consultalas con:')
+    print('  venv/bin/python3 scripts/clearsale_probe.py get ' +
+          ' '.join(i for i, _, _ in variantes))
+
+
+def bisect_grupos(orden):
+    """Al reves del anterior: parte del payload conocido-bueno de
+    clearsale_probe y le mete UN grupo de la venta real por vez."""
+    import copy
+    from clearsale_probe import _orden as orden_base, ITEMS_EJEMPLO
+    import uuid as _uuid
+
+    suf = _uuid.uuid4().hex[:6]
+    casos = []
+
+    def _v(nombre, fn):
+        o = orden_base(f'GRUPO-{nombre}-{suf}', ITEMS_EJEMPLO)
+        fn(o)
+        casos.append((o['ID'], nombre, o))
+
+    _v('BASE',     lambda o: None)
+    _v('ITEMS',    lambda o: o.update({'Items': orden['Items']}))
+    _v('PERSONA',  lambda o: o.update({'BillingData': orden['BillingData'],
+                                       'ShippingData': orden['ShippingData']}))
+    _v('TOTALES',  lambda o: o.update({'TotalItems': orden['TotalItems'],
+                                       'TotalOrder': orden['TotalOrder'],
+                                       'TotalShipping': orden['TotalShipping']}))
+    _v('PAGO',     lambda o: o.update({'Payments': orden['Payments']}))
+    _v('CABECERA', lambda o: o.update({'Email': orden['Email'],
+                                       'Date': orden['Date'],
+                                       'SessionID': orden['SessionID'],
+                                       'IP': orden['IP']}))
+
+    # La orden real completa, pero con un ID del formato que sabemos que anda.
+    # Si esta existe y la original no, el problema era el identificador.
+    o_full = copy.deepcopy(orden)
+    o_full['ID'] = f'GRUPO-FULL-{suf}'
+    casos.append((o_full['ID'], 'FULL', o_full))
+
+    token = login()
+    if not token:
+        print('No se pudo obtener el token.')
+        return
+    # UNA POR LLAMADA: si una orden del lote es invalida, ClearSale descarta
+    # el lote completo y responde 200/NVO para todas igual. Mandarlas juntas
+    # invalida la biseccion.
+    print(f'\nENVIANDO {len(casos)} grupos, de a uno:')
+    for oid, nombre, o in casos:
+        r = req_lib.post(f'{BASE}/api/order/send',
+                         json={'ApiKey': API_KEY, 'LoginToken': token,
+                               'AnalysisLocation': LOCATION, 'Orders': [o]},
+                         headers={'Content-Type': 'application/json',
+                                  'analysisLocation': LOCATION}, timeout=40)
+        print(f'    {oid:<26} base + {nombre:<9} HTTP {r.status_code}')
+    print('\n  Consultalos con:')
+    print('  venv/bin/python3 scripts/clearsale_probe.py get ' +
+          ' '.join(i for i, _, _ in casos))
+
+
+def probar_customfields(orden):
+    """CustomFields hace que ClearSale descarte la orden en silencio.
+    Probamos variantes de la estructura, una por llamada."""
+    import copy
+    from clearsale_probe import _orden as orden_base, ITEMS_EJEMPLO
+    import uuid as _uuid
+
+    suf = _uuid.uuid4().hex[:6]
+    casos = []
+
+    def _v(nombre, cf):
+        o = orden_base(f'CF-{nombre}-{suf}', ITEMS_EJEMPLO)
+        if cf is not None:
+            o['CustomFields'] = cf
+        casos.append((o['ID'], nombre, o))
+
+    # Ya sabemos: Type es obligatorio, Type 0 no vale, y un campo suelto con
+    # Type 1 anda. Falta ver cual de los nuestros rompe -> uno por variante.
+    # SHIPPING_TYPE y SHIPPING_METHOD pasan; los nombres inventados no.
+    # Estas dos variantes separan si manda el NOMBRE o el VALOR.
+    _v('SINCF',    None)                                   # control
+    _v('NOMBREOK', [{'Name': 'SHIPPING_TYPE', 'Type': 1, 'Value': 'green'}])
+    _v('NOMBREFOO', [{'Name': 'FOO', 'Type': 1, 'Value': 'envio'}])
+
+    token = login()
+    if not token:
+        print('No se pudo obtener el token.')
+        return
+    print(f'\nENVIANDO {len(casos)} variantes de CustomFields, de a una:')
+    for oid, nombre, o in casos:
+        r = req_lib.post(f'{BASE}/api/order/send',
+                         json={'ApiKey': API_KEY, 'LoginToken': token,
+                               'AnalysisLocation': LOCATION, 'Orders': [o]},
+                         headers={'Content-Type': 'application/json',
+                                  'analysisLocation': LOCATION}, timeout=40)
+        print(f'    {oid:<24} {nombre:<9} HTTP {r.status_code}')
+    print('\n  Consultalas con:')
+    print('  venv/bin/python3 scripts/clearsale_probe.py get ' +
+          ' '.join(i for i, _, _ in casos))
 
 
 def login():
@@ -289,7 +440,13 @@ def main():
     for campo, motivo in faltantes:
         print(f'  {campo:<32} {motivo}')
 
-    if '--enviar' in sys.argv:
+    if '--custom' in sys.argv:
+        probar_customfields(orden)
+    elif '--grupos' in sys.argv:
+        bisect_grupos(orden)
+    elif '--bisect' in sys.argv:
+        bisect(orden)
+    elif '--enviar' in sys.argv:
         enviar(orden)
     else:
         print('\n(no se envio nada — agregá --enviar para mandarlo al sandbox)')
