@@ -211,6 +211,12 @@ def armar_orden(venta, items, pw):
     # DESCARTE la orden entera sin avisar (devuelve 200/NVO igual). Hasta que
     # nos pasen la lista valida, la traza de Payway va en Obs, que es texto
     # libre de 8000 caracteres.
+    # El codigo VTE de Payway es la validacion de domicilio de Visa, o sea el
+    # equivalente del AVS: AVS_RESPONSE esta en la lista blanca y le calza.
+    if det.get('address_validation_code'):
+        custom.append({'Name': 'AVS_RESPONSE', 'Type': 1,
+                       'Value': str(det['address_validation_code'])})
+
     cs_dec = (((raw.get('fraud_detection') or {}).get('status') or {}).get('decision'))
     obs = ' | '.join(p for p in [
         f"payway_payment_id={raw.get('id')}" if raw.get('id') else '',
@@ -376,9 +382,14 @@ def probar_customfields(orden):
     # Type 1 anda. Falta ver cual de los nuestros rompe -> uno por variante.
     # SHIPPING_TYPE y SHIPPING_METHOD pasan; los nombres inventados no.
     # Estas dos variantes separan si manda el NOMBRE o el VALOR.
+    # Sabemos que SHIPPING_TYPE y SHIPPING_METHOD pasan y FOO no. Falta ver
+    # si la lista es por prefijo o por nombre exacto, y si valen los nombres
+    # del propio ejemplo de la documentacion de ClearSale.
     _v('SINCF',    None)                                   # control
-    _v('NOMBREOK', [{'Name': 'SHIPPING_TYPE', 'Type': 1, 'Value': 'green'}])
-    _v('NOMBREFOO', [{'Name': 'FOO', 'Type': 1, 'Value': 'envio'}])
+    _v('SHIPFOO',  [{'Name': 'SHIPPING_FOO', 'Type': 1, 'Value': 'envio'}])
+    _v('AVS',      [{'Name': 'AVS_RESPONSE', 'Type': 1, 'Value': 'Q'}])
+    _v('CVV',      [{'Name': 'CVV_RESULT_CODE', 'Type': 1, 'Value': 'M'}])
+    _v('MINUSC',   [{'Name': 'shipping_type', 'Type': 1, 'Value': 'envio'}])
 
     token = login()
     if not token:
