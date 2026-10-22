@@ -8800,3 +8800,49 @@ def test_payway_pagar():
         'cupon':          (pw_data.get('card_data') or {}).get('cupon') if isinstance(pw_data.get('card_data'), dict) else None,
         'respuesta_payway': pw_data,
     })
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# WEBHOOK DE PRUEBA — ClearSale (sandbox). Paso 7 del proceso de integración:
+# ellos validan que el endpoint exista y responda antes de habilitar producción.
+#
+# Por ahora SOLO registra lo que llega en sistema_logs. No toca ventas, no
+# cambia estados, no dispara nada. Sirve para descubrir el formato real del
+# payload usando el botón "Change Order Status" del panel sandbox, en vez de
+# confiar en la documentación (que ya demostró tener contradicciones).
+# ════════════════════════════════════════════════════════════════════════════
+@tienda_bp.route('/webhook/clearsale-test', methods=['POST'])
+def webhook_clearsale_test():
+    """Recibe el OrderStatus de ClearSale sandbox y lo deja en sistema_logs."""
+    # ClearSale manda la API Key en el header 'clearsale-apikey'
+    esperada = (os.getenv('CLEARSALE_API_KEY', '') or '').strip()
+    recibida = (request.headers.get('clearsale-apikey', '') or '').strip()
+    auth_ok  = bool(esperada) and recibida == esperada
+
+    crudo = request.get_data(as_text=True) or ''
+    try:
+        data = request.get_json(silent=True)
+    except Exception:
+        data = None
+
+    # Qué llegó, tal cual, para poder inspeccionarlo después
+    detalle = json.dumps({
+        'auth_ok':      auth_ok,
+        'apikey_match': 'si' if auth_ok else ('header ausente' if not recibida else 'no coincide'),
+        'content_type': request.headers.get('Content-Type', ''),
+        'headers':      {k: v for k, v in request.headers.items()
+                         if k.lower() not in ('clearsale-apikey', 'authorization', 'cookie')},
+        'json':         data,
+        'crudo':        crudo[:3000],
+    }, ensure_ascii=False, default=str)
+
+    print(f'[clearsale_test] auth_ok={auth_ok} payload={crudo[:600]}', flush=True)
+    try:
+        log_evento('INFO', 'clearsale', 'webhook_test', detalle[:60000])
+    except Exception as e:
+        logger.warning(f'[clearsale_test] no se pudo loguear: {e}')
+
+    if not auth_ok:
+        # Se registra igual (queremos ver el intento), pero se responde 401
+        return jsonify({'ok': False, 'error': 'unauthorized'}), 401
+    return jsonify({'ok': True}), 200

@@ -175,6 +175,26 @@ def probar_state(token, location='ARG'):
            location=location, etiqueta='State="BA"')
 
 
+def probar_montos(token, location='ARG'):
+    """El sandbox decide por monto. Creamos una de cada tipo; la de AMA es la
+    que despues sirve para probar el webhook con 'Change Order Status'."""
+    print('\n=== Umbrales por monto: APA / RPA / AMA ===')
+    casos = [
+        (30.0,  'APA esperado  (<= 50)'),
+        (75.0,  'RPA esperado  (50 < x <= 100)'),
+        (150.0, 'AMA esperado  (> 100)'),
+    ]
+    creadas = []
+    for monto, etiqueta in casos:
+        oid = f'PROBE-MONTO-{int(monto)}-{uuid.uuid4().hex[:6]}'
+        orden = _orden(oid, ITEMS_EJEMPLO, total=monto)
+        if enviar(token, orden, location=location, etiqueta=etiqueta):
+            creadas.append(oid)
+    if creadas:
+        print('\n  IDs creados: ' + '  '.join(creadas))
+    return creadas
+
+
 def consultar(token, ids, location='ARG'):
     url = f'{BASE}/api/order/get'
     body = {'ApiKey': API_KEY, 'LoginToken': token,
@@ -214,6 +234,8 @@ def main():
         probar_items(token)
     elif cmd == 'state':
         probar_state(token)
+    elif cmd == 'montos':
+        probar_montos(token)
     elif cmd == 'get':
         consultar(token, sys.argv[2:])
     elif cmd == 'todo':
