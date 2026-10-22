@@ -239,8 +239,13 @@ def armar_orden(venta, items, pw):
     faltantes.append(('SessionID', 'generado para la prueba; en vivo lo define el Mapper (A2)'))
 
     orden = {
+        # --unico agrega un sufijo aleatorio: reenviar el mismo ID pisa la
+        # orden anterior en vez de crear una nueva, asi que para comparar
+        # payloads entre si conviene que cada envio tenga su propio ID.
         'ID': f"TEST-{(venta.get('numero_venta') or '').upper()}"
-              + ('-HOY' if '--hoy' in sys.argv else ''),
+              + ('-HOY' if '--hoy' in sys.argv else '')
+              + ('-' + __import__('uuid').uuid4().hex[:6].upper()
+                 if '--unico' in sys.argv else ''),
         'Date': fecha_iso,
         'Email': venta.get('email_cliente') or '',
         'TotalItems': total_items,
