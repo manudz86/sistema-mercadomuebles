@@ -3531,7 +3531,11 @@ def detalle(sku_url):
 
 # ── CARRITO ────────────────────────────────────────────────────────────────────
 
-SKUS_ALMOHADA = {'CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE'}
+# Todos los productos con tipo='almohada' del catálogo. Si agregás una
+# almohada nueva, sumala acá: si no, el carrito se trata como mixto y paga
+# el recargo de flete aunque sean solo almohadas.
+SKUS_ALMOHADA = {'CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL',
+                 'DUAL','EXCLUSIVE','TRIANGULO','CONTOUR'}
 
 
 def _carrito_solo_almohadas(carrito):
