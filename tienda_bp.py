@@ -8901,3 +8901,91 @@ def webhook_clearsale_test():
         # Se registra igual (queremos ver el intento), pero se responde 401
         return jsonify({'ok': False, 'error': 'unauthorized'}), 401
     return jsonify({'ok': True}), 200
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# WEBHOOK PRODUCTIVO — ClearSale
+#
+# Recibe el veredicto del análisis y lo asienta en la venta. ClearSale manda
+# un OrderStatus plano: {"ID": "...", "Status": "APA", "Score": ""}.
+#
+# Tres cosas que condicionan el diseño, todas comprobadas en sandbox:
+#   * El ID vuelve en MAYÚSCULAS, así que la búsqueda es case-insensitive.
+#   * Reintentan hasta 5 veces, así que tiene que ser idempotente.
+#   * Hay que responder 200 rápido; lo pesado va después de contestar.
+#
+# Con clearsale_enabled en 'sombra' solo registra. El cambio de estado de la
+# venta y los avisos al comprador llegan con el modo '1'.
+# ════════════════════════════════════════════════════════════════════════════
+@tienda_bp.route('/webhook/clearsale', methods=['POST'])
+def webhook_clearsale():
+    esperada = (os.getenv('CLEARSALE_API_KEY', '') or '').strip()
+    recibida = (request.headers.get('clearsale-apikey', '') or '').strip()
+    if not esperada or recibida != esperada:
+        print('[clearsale_webhook] AUTH FAIL', flush=True)
+        return jsonify({'ok': False, 'error': 'unauthorized'}), 401
+
+    data = request.get_json(silent=True) or {}
+    order_id = str(data.get('ID') or '').strip()
+    estado   = str(data.get('Status') or '').strip().upper()
+    score    = str(data.get('Score') or '').strip() or None
+
+    print(f'[clearsale_webhook] {order_id} -> {estado} (score={score})', flush=True)
+
+    if not order_id or not estado:
+        # Respondemos 200 igual: reintentar no va a arreglar un payload incompleto.
+        logger.warning(f'[clearsale_webhook] payload incompleto: {data}')
+        return jsonify({'ok': True}), 200
+
+    db = cur = None
+    try:
+        db  = get_db()
+        cur = db.cursor()
+        # El ID vuelve en mayúsculas; nuestros numero_venta son 'PW-...'
+        cur.execute("""SELECT id, numero_venta, clearsale_estado
+                       FROM ventas
+                       WHERE UPPER(clearsale_order_id) = %s
+                          OR UPPER(numero_venta) = %s
+                       LIMIT 1""", (order_id.upper(), order_id.upper()))
+        venta = cur.fetchone()
+
+        if not venta:
+            # Órdenes de prueba creadas por script, o de otro entorno.
+            logger.info(f'[clearsale_webhook] {order_id}: sin venta asociada, ignorado')
+            return jsonify({'ok': True}), 200
+
+        if (venta.get('clearsale_estado') or '') == estado:
+            # Reintento de ClearSale: ya lo teníamos. Idempotente.
+            logger.info(f'[clearsale_webhook] venta {venta["id"]} ya estaba en {estado}')
+            return jsonify({'ok': True}), 200
+
+        anterior = venta.get('clearsale_estado')
+        cur.execute("""UPDATE ventas
+                       SET clearsale_estado=%s, clearsale_score=%s,
+                           clearsale_actualizado=NOW()
+                       WHERE id=%s""", (estado, score, venta['id']))
+        db.commit()
+
+        logger.info(f'[clearsale_webhook] venta {venta["id"]} ({venta["numero_venta"]}): '
+                    f'{anterior} -> {estado}')
+        log_evento('INFO', 'clearsale', 'cambio_estado',
+                   f'{venta["numero_venta"]}: {anterior or "sin estado"} -> {estado}'
+                   + (f' (score {score})' if score else ''),
+                   venta_id=venta['id'])
+
+        # En modo '1' acá se dispara la confirmación o la cancelación de la
+        # venta. Todavía no está implementado: en 'sombra' solo se registra.
+    except Exception as e:
+        logger.error(f'[clearsale_webhook] error procesando {order_id}: {e}')
+        # 500 haría que reintenten; preferimos cortar y revisarlo por log.
+        return jsonify({'ok': True}), 200
+    finally:
+        try:
+            if cur:
+                cur.close()
+            if db:
+                db.close()
+        except Exception:
+            pass
+
+    return jsonify({'ok': True}), 200
