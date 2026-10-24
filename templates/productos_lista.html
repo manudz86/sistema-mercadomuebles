@@ -109,6 +109,27 @@
 
       <div class="row g-2 align-items-center mt-1 pt-2 border-top">
         <div class="col-auto">
+          <span class="fw-semibold">🛏️ Flete de almohadas a CABA</span>
+          <small class="text-muted ms-1">carrito de solo almohadas con destino CABA · fuera de CABA cotiza Zipnova</small>
+        </div>
+        <div class="col-auto ms-auto d-flex align-items-center gap-2 flex-wrap">
+          <div class="input-group input-group-sm" style="width:190px">
+            <span class="input-group-text">hasta 6 u. $</span>
+            <input type="number" id="flete-hasta6-input" class="form-control" min="0" step="100"
+                   value="{{ flete_almohadas | round(0, 'floor') | int }}" placeholder="6000">
+          </div>
+          <div class="input-group input-group-sm" style="width:190px">
+            <span class="input-group-text">más de 6 u. $</span>
+            <input type="number" id="flete-mas6-input" class="form-control" min="0" step="100"
+                   value="{{ flete_almohadas_6plus | round(0, 'floor') | int }}" placeholder="12000">
+          </div>
+          <button id="btn-flete-guardar" class="btn btn-sm btn-success">Guardar</button>
+          <span id="flete-status" class="small ms-1 text-muted"></span>
+        </div>
+      </div>
+
+      <div class="row g-2 align-items-center mt-1 pt-2 border-top">
+        <div class="col-auto">
           <span class="fw-semibold">🔘 Medios de pago en cuotas</span>
           <small class="text-muted ms-1">prendé/apagá las opciones que ve el cliente en el checkout</small>
         </div>
@@ -486,6 +507,20 @@ document.getElementById('btn-coef-guardar').addEventListener('click', function()
         st.className = 'small ms-1 text-danger';
         st.textContent = data.msg;
       }
+    });
+});
+
+// ── Flete plano de almohadas a CABA ──────────────────────────────────────────
+document.getElementById('btn-flete-guardar').addEventListener('click', function() {
+  const fd = new FormData();
+  fd.append('flete_hasta6', document.getElementById('flete-hasta6-input').value);
+  fd.append('flete_mas6',   document.getElementById('flete-mas6-input').value);
+  fetch('/productos/flete-almohadas', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(data => {
+      const st = document.getElementById('flete-status');
+      st.className = 'small ms-1 ' + (data.ok ? 'text-success' : 'text-danger');
+      st.textContent = data.msg;
     });
 });
 

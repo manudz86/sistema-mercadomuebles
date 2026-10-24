@@ -20821,6 +20821,11 @@ def productos_lista():
     mp3_row = query_one("SELECT valor FROM configuracion WHERE clave='mp_3_enabled'")
     mp_3_enabled = bool(mp3_row and mp3_row['valor'] == '1')
 
+    fa_row  = query_one("SELECT valor FROM configuracion WHERE clave='flete_almohadas_caba'")
+    fa6_row = query_one("SELECT valor FROM configuracion WHERE clave='flete_almohadas_caba_6plus'")
+    flete_almohadas      = float(fa_row['valor'])  if fa_row  and fa_row['valor']  else 6000
+    flete_almohadas_6plus = float(fa6_row['valor']) if fa6_row and fa6_row['valor'] else 12000
+
     return render_template('productos_lista.html',
         productos     = productos,
         busq          = busq,
@@ -20838,6 +20843,8 @@ def productos_lista():
         getnet_enabled = getnet_enabled,
         mp_12_enabled  = mp_12_enabled,
         mp_3_enabled   = mp_3_enabled,
+        flete_almohadas       = flete_almohadas,
+        flete_almohadas_6plus = flete_almohadas_6plus,
     )
 
 
@@ -20916,6 +20923,31 @@ def productos_cuotas_coeficientes():
         pct_mp3 = round((coef_mp3_f - 1) * 100, 1)
         return jsonify(ok=True, msg=f'✅ 3c: +{pct_3}% / 6c: +{pct_6}% / 12c: +{pct_12}% / 3c MP: +{pct_mp3}%',
                        coef_3=coef_3_f, coef_6=coef_6_f, coef_12=coef_12_f, coef_mp3=coef_mp3_f)
+    except Exception as e:
+        return jsonify(ok=False, msg=str(e))
+
+
+@app.route('/productos/flete-almohadas', methods=['POST'])
+@admin_required
+def productos_flete_almohadas():
+    """Tarifa plana de envío para carritos de solo almohadas con destino CABA.
+    Fuera de CABA, y con cualquier otro producto en el carrito, sigue
+    cotizando Zipnova."""
+    try:
+        hasta6 = request.form.get('flete_hasta6', '').strip()
+        mas6   = request.form.get('flete_mas6', '').strip()
+        hasta6_f = round(max(0.0, float(hasta6)), 2) if hasta6 else 6000.0
+        mas6_f   = round(max(0.0, float(mas6)), 2) if mas6 else 12000.0
+        for clave, valor in (('flete_almohadas_caba', hasta6_f),
+                             ('flete_almohadas_caba_6plus', mas6_f)):
+            execute_db(
+                "INSERT INTO configuracion (clave, valor) VALUES (%s, %s) "
+                "ON DUPLICATE KEY UPDATE valor=%s",
+                (clave, str(valor), str(valor))
+            )
+        return jsonify(ok=True,
+                       msg=f'✅ Almohadas a CABA: ${hasta6_f:,.0f} hasta 6 u. · '
+                           f'${mas6_f:,.0f} más de 6')
     except Exception as e:
         return jsonify(ok=False, msg=str(e))
 

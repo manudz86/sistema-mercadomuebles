@@ -3540,6 +3540,28 @@ def _carrito_solo_almohadas(carrito):
     return bool(skus) and all(s in SKUS_ALMOHADA for s in skus)
 
 
+def _es_cp_caba(cp):
+    """CABA va del 1000 al 1499. Acepta el formato 'C1407AAB' además del numérico."""
+    d = re.sub(r'\D', '', str(cp or ''))
+    return bool(d) and 1000 <= int(d[:4]) <= 1499
+
+
+def flete_almohadas_caba(unidades):
+    """Tarifa plana para carritos de solo almohadas con destino CABA.
+    Los dos montos se editan desde la página de catálogo."""
+    def _cfg(clave, defecto):
+        try:
+            db = get_db(); cur = db.cursor()
+            cur.execute("SELECT valor FROM configuracion WHERE clave=%s", (clave,))
+            row = cur.fetchone()
+            cur.close(); db.close()
+            return float(row['valor']) if row and row['valor'] else defecto
+        except Exception:
+            return defecto
+    return _cfg('flete_almohadas_caba', 6000.0) if unidades <= 6 \
+        else _cfg('flete_almohadas_caba_6plus', 12000.0)
+
+
 def _shipping_unificado():
     """Lee el flag global 'shipping_unificado_zipnova' de configuracion.
     Cuando vale '1' todo el carrito (incluidas almohadas y Compac) cotiza Zipnova.
@@ -4657,15 +4679,22 @@ def cotizar_envio():
     mejor = min(resultados, key=lambda r: float(r.get('amounts', {}).get('price_incl_tax', 999999)))
     precio_zipnova = float(mejor.get('amounts', {}).get('price_incl_tax', 0))
 
-    # Flete de carritos de SOLO almohadas: tarifa plana nuestra, sin el
-    # recargo de $10.000 que sí aplica cuando hay colchones o sommiers.
-    # Se sigue cotizando contra Zipnova igual, porque de ahí salen el carrier
-    # y el service_type que después necesita la creación del envío.
+    # Reglas de flete:
+    #   solo almohadas + CABA  -> tarifa plana nuestra (editable en catálogo)
+    #   solo almohadas + resto -> lo que cotiza Zipnova, sin recargo
+    #   con cualquier otro producto -> Zipnova + $10.000, como siempre
+    # En los tres casos se cotiza igual contra Zipnova, porque de ahí salen el
+    # carrier y el service_type que después necesita la creación del envío.
     if _carrito_solo_almohadas(carrito):
         unidades = sum(int(i.get('cantidad') or 1) for i in carrito)
-        precio = 6000.0 if unidades < 6 else 12000.0
-        logger.info(f'[flete] carrito de {unidades} almohada(s): tarifa plana '
-                    f'${precio:,.0f} (Zipnova cotizó ${precio_zipnova:,.0f})')
+        if _es_cp_caba(cp):
+            precio = flete_almohadas_caba(unidades)
+            logger.info(f'[flete] {unidades} almohada(s) a CABA ({cp}): plana '
+                        f'${precio:,.0f} (Zipnova cotizó ${precio_zipnova:,.0f})')
+        else:
+            precio = precio_zipnova
+            logger.info(f'[flete] {unidades} almohada(s) a {cp}: Zipnova '
+                        f'${precio:,.0f} sin recargo')
     else:
         precio = precio_zipnova + 10000
     dt     = mejor.get('delivery_time', {})
