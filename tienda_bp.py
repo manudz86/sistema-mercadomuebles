@@ -3534,6 +3534,12 @@ def detalle(sku_url):
 SKUS_ALMOHADA = {'CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL','DUAL','EXCLUSIVE'}
 
 
+def _carrito_solo_almohadas(carrito):
+    """True si en el carrito no hay nada que no sea una almohada."""
+    skus = [str(i.get('sku') or '').strip().upper() for i in (carrito or [])]
+    return bool(skus) and all(s in SKUS_ALMOHADA for s in skus)
+
+
 def _shipping_unificado():
     """Lee el flag global 'shipping_unificado_zipnova' de configuracion.
     Cuando vale '1' todo el carrito (incluidas almohadas y Compac) cotiza Zipnova.
@@ -4649,7 +4655,19 @@ def cotizar_envio():
 
     # Opción más barata
     mejor = min(resultados, key=lambda r: float(r.get('amounts', {}).get('price_incl_tax', 999999)))
-    precio = float(mejor.get('amounts', {}).get('price_incl_tax', 0)) + 10000
+    precio_zipnova = float(mejor.get('amounts', {}).get('price_incl_tax', 0))
+
+    # Flete de carritos de SOLO almohadas: tarifa plana nuestra, sin el
+    # recargo de $10.000 que sí aplica cuando hay colchones o sommiers.
+    # Se sigue cotizando contra Zipnova igual, porque de ahí salen el carrier
+    # y el service_type que después necesita la creación del envío.
+    if _carrito_solo_almohadas(carrito):
+        unidades = sum(int(i.get('cantidad') or 1) for i in carrito)
+        precio = 6000.0 if unidades < 6 else 12000.0
+        logger.info(f'[flete] carrito de {unidades} almohada(s): tarifa plana '
+                    f'${precio:,.0f} (Zipnova cotizó ${precio_zipnova:,.0f})')
+    else:
+        precio = precio_zipnova + 10000
     dt     = mejor.get('delivery_time', {})
     if isinstance(dt, dict):
         dias = dt.get('max') or dt.get('min') or '?'
