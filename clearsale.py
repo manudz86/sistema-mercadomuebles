@@ -28,9 +28,23 @@ import threading
 import time
 from datetime import datetime
 
+import pymysql
 import requests as req_lib
 
 logger = None   # lo setea tienda_bp al importar, para compartir el logger
+
+
+def _db():
+    """Conexión propia. No la importamos de tienda_bp para no crear una
+    dependencia circular, y abrir una por llamada es seguro desde los hilos."""
+    return pymysql.connect(
+        host=os.environ.get('DB_HOST', 'localhost'),
+        user=os.environ.get('DB_USER', 'cannon'),
+        password=os.environ.get('DB_PASSWORD', ''),
+        database=os.environ.get('DB_NAME', 'inventario_cannon'),
+        cursorclass=pymysql.cursors.DictCursor,
+        charset='utf8mb4',
+    )
 
 
 # ── Configuración ────────────────────────────────────────────────────────────
@@ -101,8 +115,7 @@ def _log(nivel, msg):
 def modo():
     """Lee el interruptor. Devuelve '0', 'sombra' o '1'."""
     try:
-        from app import get_db
-        db = get_db(); cur = db.cursor()
+        db = _db(); cur = db.cursor()
         cur.execute("SELECT valor FROM configuracion WHERE clave='clearsale_enabled'")
         row = cur.fetchone()
         cur.close(); db.close()
@@ -167,8 +180,7 @@ def historial_cliente(dni, email):
     if not (dni or email):
         return vacio
     try:
-        from app import get_db
-        db = get_db(); cur = db.cursor()
+        db = _db(); cur = db.cursor()
         cur.execute("""SELECT COUNT(*) AS n, MIN(fecha_venta) AS primera
                        FROM ventas
                        WHERE estado <> 'CANCELADA'
@@ -322,8 +334,7 @@ def consultar(ids):
 
 
 def _guardar(venta_id, estado, order_id, score=None):
-    from app import get_db
-    db = get_db(); cur = db.cursor()
+    db = _db(); cur = db.cursor()
     cur.execute("""UPDATE ventas SET clearsale_estado=%s, clearsale_order_id=%s,
                           clearsale_score=%s, clearsale_actualizado=NOW()
                    WHERE id=%s""", (estado, order_id, score, venta_id))
@@ -359,3 +370,23 @@ def _procesar(venta_id, orden):
 def enviar_async(venta_id, orden):
     """Dispara el envío sin bloquear el checkout."""
     threading.Thread(target=_procesar, args=(venta_id, orden), daemon=True).start()
+
+
+# ── Autoprueba ───────────────────────────────────────────────────────────────
+# `venv/bin/python3 clearsale.py` verifica que el módulo pueda hablar con la
+# base y con ClearSale. Es de solo lectura: no envía ninguna orden.
+if __name__ == '__main__':
+    import sys
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             'config', '.env'))
+    print(f'modo .............. {modo()}')
+    try:
+        tok = _login()
+        print(f'login ClearSale ... OK ({len(tok)} chars)')
+    except Exception as e:
+        print(f'login ClearSale ... FALLO: {type(e).__name__}: {e}')
+        sys.exit(1)
+    dni = sys.argv[1] if len(sys.argv) > 1 else '41395583'
+    mail = sys.argv[2] if len(sys.argv) > 2 else 'nahirazar413@gmail.com'
+    print(f'historial ......... {historial_cliente(dni, mail)}')
