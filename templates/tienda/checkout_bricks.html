@@ -251,6 +251,68 @@
         </div>
       </div>
 
+      <!-- Fecha de nacimiento del titular -->
+      <div style="margin-bottom:14px;">
+        <label style="display:block; font-size:0.85rem; font-weight:600; color:#444; margin-bottom:5px;">Fecha de nacimiento del titular</label>
+        <input type="date" id="pw-nacimiento" autocomplete="bday"
+          style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+        <div style="font-size:0.76rem; color:#888; margin-top:4px;">La valida el banco emisor junto con el documento.</div>
+      </div>
+
+      <!-- Domicilio del resumen de la tarjeta -->
+      <div style="margin-bottom:18px; padding:14px; background:#fafafa; border:1px solid #eee; border-radius:8px;">
+        <label style="display:flex; align-items:center; gap:9px; font-size:0.88rem; font-weight:600; color:#444; cursor:pointer;">
+          <input type="checkbox" id="pw-billing-igual" checked style="width:17px; height:17px;">
+          El domicilio del resumen de la tarjeta es el mismo que el de entrega
+        </label>
+
+        <div id="pw-billing-campos" style="display:none; margin-top:14px;">
+          <div style="font-size:0.78rem; color:#888; margin-bottom:10px;">
+            Ingresá el domicilio tal como figura en el resumen de tu tarjeta.
+          </div>
+          <div style="display:grid; grid-template-columns:2fr 1fr; gap:10px; margin-bottom:10px;">
+            <div>
+              <label style="display:block; font-size:0.8rem; font-weight:600; color:#555; margin-bottom:4px;">Calle</label>
+              <input type="text" id="pw-bill-calle"
+                style="width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px; font-size:0.92rem; box-sizing:border-box;">
+            </div>
+            <div>
+              <label style="display:block; font-size:0.8rem; font-weight:600; color:#555; margin-bottom:4px;">Altura</label>
+              <input type="text" id="pw-bill-altura"
+                style="width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px; font-size:0.92rem; box-sizing:border-box;">
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:2fr 1fr; gap:10px;">
+            <div>
+              <label style="display:block; font-size:0.8rem; font-weight:600; color:#555; margin-bottom:4px;">Localidad</label>
+              <input type="text" id="pw-bill-ciudad"
+                style="width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px; font-size:0.92rem; box-sizing:border-box;">
+            </div>
+            <div>
+              <label style="display:block; font-size:0.8rem; font-weight:600; color:#555; margin-bottom:4px;">CP</label>
+              <input type="text" id="pw-bill-cp" maxlength="8"
+                style="width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px; font-size:0.92rem; box-sizing:border-box;">
+            </div>
+          </div>
+          <div style="margin-top:10px;">
+            <label style="display:block; font-size:0.8rem; font-weight:600; color:#555; margin-bottom:4px;">Provincia</label>
+            <select id="pw-bill-provincia"
+              style="width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px; font-size:0.92rem; background:#fff;">
+              <option value="">Elegí una provincia</option>
+              <option>Capital Federal</option><option>Buenos Aires</option>
+              <option>Catamarca</option><option>Chaco</option><option>Chubut</option>
+              <option>Córdoba</option><option>Corrientes</option><option>Entre Ríos</option>
+              <option>Formosa</option><option>Jujuy</option><option>La Pampa</option>
+              <option>La Rioja</option><option>Mendoza</option><option>Misiones</option>
+              <option>Neuquén</option><option>Río Negro</option><option>Salta</option>
+              <option>San Juan</option><option>San Luis</option><option>Santa Cruz</option>
+              <option>Santa Fe</option><option>Santiago del Estero</option>
+              <option>Tierra del Fuego</option><option>Tucumán</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
       <!-- Mensaje de error -->
       <div id="pw-error" style="display:none; background:#fff0f0; border:1px solid #fcc; border-radius:8px; padding:12px 16px; margin-bottom:16px; font-size:0.88rem; color:#c00;"></div>
 
@@ -715,6 +777,43 @@ async function initWalletBrick() {
 // No usamos decidir.createToken(form, cb) porque el SDK usa addEvent internamente
 // y falla en browsers modernos. En cambio tokenizamos con fetch directo a la API.
 
+// Mostrar/ocultar el domicilio de facturación según el checkbox
+(function () {
+  var chk = document.getElementById('pw-billing-igual');
+  var campos = document.getElementById('pw-billing-campos');
+  if (chk && campos) {
+    chk.addEventListener('change', function () {
+      campos.style.display = chk.checked ? 'none' : 'block';
+    });
+  }
+})();
+
+// Detectar la marca a partir del BIN. Antes el comprador la elegía a mano y
+// si se equivocaba el payment_method_id iba mal y Payway rechazaba.
+function marcaPorBin(numero) {
+  var n = (numero || '').replace(/\D/g, '');
+  if (!n) return null;
+  if (/^4/.test(n)) return 1;                                   // Visa
+  if (/^(5[1-5]|2[2-7]|222[1-9]|52|55)/.test(n)) return 104;    // Mastercard
+  if (/^3[47]/.test(n)) return 65;                              // Amex
+  if (/^(58|60|6[0-9])/.test(n)) return 63;                     // Cabal y otras
+  return null;
+}
+
+(function () {
+  var inp = document.getElementById('pw-card-number');
+  var sel = document.getElementById('pw-card-type');
+  if (!inp || !sel) return;
+  inp.addEventListener('input', function () {
+    var m = marcaPorBin(inp.value);
+    if (m === null) return;
+    // Solo autocompletamos si la marca existe entre las opciones ofrecidas.
+    for (var i = 0; i < sel.options.length; i++) {
+      if (parseInt(sel.options[i].value, 10) === m) { sel.value = String(m); break; }
+    }
+  });
+})();
+
 document.getElementById('pw-btn').addEventListener('click', function(e) {
   e.preventDefault();
   var btn     = document.getElementById('pw-btn');
@@ -742,6 +841,18 @@ document.getElementById('pw-btn').addEventListener('click', function(e) {
   if (!holderName) {
     errDiv.textContent = 'Ingresa el nombre del titular.';
     errDiv.style.display = 'block'; return;
+  }
+  // Si destildaron "mismo domicilio", los campos de facturacion son obligatorios
+  var billIgual = (document.getElementById('pw-billing-igual') || {}).checked;
+  if (!billIgual) {
+    var bc = (document.getElementById('pw-bill-calle') || {}).value || '';
+    var bn = (document.getElementById('pw-bill-altura') || {}).value || '';
+    var bp = (document.getElementById('pw-bill-cp') || {}).value || '';
+    var bv = (document.getElementById('pw-bill-provincia') || {}).value || '';
+    if (!bc.trim() || !bn.trim() || !bp.trim() || !bv.trim()) {
+      errDiv.textContent = 'Completa el domicilio del resumen de la tarjeta.';
+      errDiv.style.display = 'block'; return;
+    }
   }
 
   btn.disabled = true;
@@ -791,6 +902,16 @@ document.getElementById('pw-btn').addEventListener('click', function(e) {
         // los usa (ClearSale muestra el pago sin titular si no llegan).
         card_holder_name:      holderName,
         card_expiration:       expMonth + '/20' + expYear,
+        // Fecha de nacimiento y domicilio del resumen: los valida el emisor y
+        // mejoran el analisis antifraude. Si el domicilio coincide con el de
+        // entrega va vacio y el backend usa el de envio.
+        birth_date:            (document.getElementById('pw-nacimiento') || {}).value || '',
+        billing_igual:         !!(document.getElementById('pw-billing-igual') || {}).checked,
+        billing_calle:         (document.getElementById('pw-bill-calle') || {}).value || '',
+        billing_altura:        (document.getElementById('pw-bill-altura') || {}).value || '',
+        billing_ciudad:        (document.getElementById('pw-bill-ciudad') || {}).value || '',
+        billing_cp:            (document.getElementById('pw-bill-cp') || {}).value || '',
+        billing_provincia:     (document.getElementById('pw-bill-provincia') || {}).value || '',
         device_fingerprint_id: typeof TMXSESSIONID !== 'undefined' ? TMXSESSIONID : ''
       })
     }).then(function(res2) { return res2.json().then(function(d) { return { status: res2.status, data: d }; }); });

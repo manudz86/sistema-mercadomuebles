@@ -215,22 +215,33 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
     linea1 = f'{calle} {altura}'.strip() or (cli.get('direccion') or 'Sin direccion')
     area, numero = partir_telefono(cli.get('telefono'))
 
-    persona = {
-        'ID': f"CLI-{cli.get('dni') or 'SD'}",
-        'Type': 1,
-        'Name': (cli.get('nombre') or '')[:500],
-        'Email': (cli.get('email') or '')[:150],
-        'LegalDocument': str(cli.get('dni') or ''),
-        'Address': {
-            'AddressLine1': linea1[:250],
-            'AddressLine2': (cli.get('piso_depto') or '')[:250],
-            'City': (cli.get('ciudad') or '')[:150],
-            'State': cod_provincia(cli.get('provincia')),
-            'ZipCode': str(cli.get('cp') or '')[:10],
-            'Country': 'ARG',   # ISO-3, pedido por ClearSale
-        },
-        'Phones': [{'Type': 6, 'AreaCode': area, 'Number': numero}],
-    }
+    def _persona(linea, ciudad, prov, cp, piso=''):
+        p = {
+            'ID': f"CLI-{cli.get('dni') or 'SD'}",
+            'Type': 1,
+            'Name': (cli.get('nombre') or '')[:500],
+            'Email': (cli.get('email') or '')[:150],
+            'LegalDocument': str(cli.get('dni') or ''),
+            'Address': {
+                'AddressLine1': str(linea)[:250],
+                'AddressLine2': str(piso or '')[:250],
+                'City': str(ciudad or '')[:150],
+                'State': cod_provincia(prov),
+                'ZipCode': str(cp or '')[:10],
+                'Country': 'ARG',   # ISO-3, pedido por ClearSale
+            },
+            'Phones': [{'Type': 6, 'AreaCode': area, 'Number': numero}],
+        }
+        if cli.get('_birth_date'):
+            p['BirthDate'] = f"{cli['_birth_date']}T00:00:00"
+        return p
+
+    envio = _persona(linea1, cli.get('ciudad'), cli.get('provincia'),
+                     cli.get('cp'), cli.get('piso_depto'))
+    # BillingData solo es distinto si el comprador declaró otro domicilio de
+    # resumen. Si no lo declaró es una copia del de envío: no sabemos el real.
+    bl = cli.get('_billing')
+    factura = _persona(bl['calle'], bl['ciudad'], bl['provincia'], bl['cp']) if bl else envio
 
     p = {
         'Date': fecha_iso[:10],
@@ -286,8 +297,8 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
         'IP': str(cli.get('_capi_ip') or '')[:50],
         'Origin': 'Mobile' if 'Mobile' in str(cli.get('_capi_ua') or '') else 'Web',
         'Payments': [p],
-        'BillingData': persona,
-        'ShippingData': persona,
+        'BillingData': factura,
+        'ShippingData': envio,
         'Items': [{
             'ProductId': str(it.get('sku') or '')[:50],
             'ProductTitle': str(it.get('nombre') or it.get('sku') or '')[:150],
@@ -390,3 +401,30 @@ if __name__ == '__main__':
     dni = sys.argv[1] if len(sys.argv) > 1 else '41395583'
     mail = sys.argv[2] if len(sys.argv) > 2 else 'nahirazar413@gmail.com'
     print(f'historial ......... {historial_cliente(dni, mail)}')
+
+    # Armado de la orden en los dos casos: con y sin domicilio de resumen
+    base = {'nombre': 'Juan Perez', 'dni': dni, 'email': mail,
+            'telefono': '1126940003', 'calle': 'Rivadavia', 'altura': '8916',
+            'piso_depto': '3 A', 'ciudad': 'Floresta', 'cp': '1407',
+            'provincia': 'Capital Federal', 'tipo_entrega': 'envio',
+            '_capi_ip': '181.47.1.1', '_birth_date': '1986-04-12'}
+    tot = {'productos': 100.0, 'total': 120.0, 'flete': 20.0,
+           'metodo_envio': 'Flete Propio'}
+    pg = {'bin': '450815', 'last4': '1234', 'payment_method_id': 1,
+          'installments': 3, 'holder_name': 'JUAN PEREZ',
+          'expiration': '12/2030', 'payment_id': '999', 'valdom': 'VTE0011'}
+    items = [{'sku': 'SEX200', 'nombre': 'Sommier Exclusive', 'precio': 100, 'cantidad': 1}]
+
+    o1 = armar_orden('PW-TEST', base, items, tot, pg)
+    igual = o1['BillingData']['Address'] == o1['ShippingData']['Address']
+    print(f'orden sin billing . BillingData == ShippingData: {igual} · '
+          f'BirthDate: {o1["BillingData"].get("BirthDate")}')
+
+    con = dict(base, _billing={'calle': 'Corrientes 1500', 'ciudad': 'San Isidro',
+                               'cp': '1642', 'provincia': 'Buenos Aires'})
+    o2 = armar_orden('PW-TEST2', con, items, tot, pg)
+    print(f'orden con billing . billing={o2["BillingData"]["Address"]["AddressLine1"]}'
+          f'/{o2["BillingData"]["Address"]["State"]} · '
+          f'envio={o2["ShippingData"]["Address"]["AddressLine1"]}'
+          f'/{o2["ShippingData"]["Address"]["State"]}')
+    print(f'customfields ...... {[c["Name"] for c in o2["CustomFields"]]}')

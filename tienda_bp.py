@@ -5777,6 +5777,22 @@ def _fraude_registrar_bloqueo(cli, motivo, bin_num='', last4='', ref=''):
         logger.warning(f"[FRAUDE] no se pudo registrar bloqueo: {e}")
 
 
+def _cod_provincia_cs(nombre):
+    """Provincia -> código de 2 letras para CyberSource.
+
+    Antes mandábamos "BA" fijo en todas las operaciones, incluso para compras
+    de Capital Federal. "BA" tampoco es un código ISO válido para Argentina
+    (la norma usa una sola letra), y aun así Payway aprueba, lo que indica que
+    no valida el campo de forma estricta. Mandar el código real es
+    estrictamente mejor que mandar siempre el mismo equivocado.
+    """
+    try:
+        from clearsale import cod_provincia
+        return cod_provincia(nombre) if nombre else 'BA'
+    except Exception:
+        return 'BA'
+
+
 @tienda_bp.route('/pago/payway/token', methods=['POST'])
 def payway_token():
     """
@@ -5841,6 +5857,19 @@ def pago_payway():
     # porque el antifraude los usa (ClearSale muestra el pago sin titular).
     card_holder_name      = (data.get('card_holder_name') or '').strip()[:150]
     card_expiration       = (data.get('card_expiration') or '').strip()[:7]
+    birth_date            = (data.get('birth_date') or '').strip()[:10]
+    # Domicilio del resumen de la tarjeta. Si coincide con el de entrega el
+    # formulario no lo pide y más abajo se completa con el de envío. Hasta
+    # ahora mandábamos el de entrega rotulado como "billing", que es un dato
+    # distinto del que valida el emisor.
+    billing_igual         = bool(data.get('billing_igual', True))
+    billing = {
+        'calle':     (data.get('billing_calle') or '').strip()[:100],
+        'altura':    (data.get('billing_altura') or '').strip()[:20],
+        'ciudad':    (data.get('billing_ciudad') or '').strip()[:100],
+        'cp':        (data.get('billing_cp') or '').strip()[:10],
+        'provincia': (data.get('billing_provincia') or '').strip()[:100],
+    }
 
     pedido_ref = session.get('pedido_ref_bricks', '')
     if not token or not pedido_ref:
@@ -5944,9 +5973,21 @@ def pago_payway():
     cs_email       = cli.get('email', '') or 'sin_email@mercadomuebles.com.ar'
 
     # Dirección normalizada (street1 = calle, street2 = barrio/complemento opcional)
+    # ── Domicilio de ENTREGA (va en ship_to) ─────────────────────────────────
     cs_street1 = (cli.get('calle') or cli.get('direccion') or 'Sin direccion')[:60]
     cs_city    = (cli.get('ciudad') or 'Buenos Aires') or 'Buenos Aires'
     cs_cp      = str(cli.get('cp') or '1000')[:10]
+    cs_state   = _cod_provincia_cs(cli.get('provincia'))
+
+    # ── Domicilio del RESUMEN de la tarjeta (va en bill_to) ──────────────────
+    # Si el comprador marcó que coincide, se usa el de entrega.
+    if billing_igual or not billing['calle']:
+        bl_street1, bl_city, bl_cp, bl_state = cs_street1, cs_city, cs_cp, cs_state
+    else:
+        bl_street1 = f"{billing['calle']} {billing['altura']}".strip()[:60]
+        bl_city    = billing['ciudad'] or cs_city
+        bl_cp      = billing['cp'] or cs_cp
+        bl_state   = _cod_provincia_cs(billing['provincia'])
     cs_phone   = str(cli.get('telefono') or '0')[:15]
     cs_dni     = str(cli.get('dni') or '00000000')
 
@@ -5955,17 +5996,19 @@ def pago_payway():
         "send_to_cs": True,
         "channel": "Web",
         "device_unique_identifier": device_fingerprint_id or ip_cliente,
+        # bill_to = domicilio del RESUMEN de la tarjeta, que es contra el que
+        # valida el emisor. Si el comprador dijo que coincide, es el de entrega.
         "bill_to": {
-            "city":         cs_city,
+            "city":         bl_city,
             "country":      "AR",
             "customer_id":  cs_dni,
             "email":        cs_email,
             "first_name":   cs_first_name,
             "last_name":    cs_last_name,
             "phone_number": cs_phone,
-            "postal_code":  cs_cp,
-            "state":        "BA",
-            "street1":      cs_street1,
+            "postal_code":  bl_cp,
+            "state":        bl_state,
+            "street1":      bl_street1,
         },
         "purchase_totals": {
             "currency": "ARS",
@@ -5980,6 +6023,7 @@ def pago_payway():
         },
         "dispatch_method":  "delivery" if cli.get('tipo_entrega') == 'envio' else "storepickup",
         "retail_transaction_data": {
+            # ship_to = domicilio de ENTREGA, siempre el del checkout
             "ship_to": {
                 "city":         cs_city,
                 "country":      "AR",
@@ -5988,7 +6032,7 @@ def pago_payway():
                 "last_name":    cs_last_name,
                 "phone_number": cs_phone,
                 "postal_code":  cs_cp,
-                "state":        "BA",
+                "state":        cs_state,
                 "street1":      cs_street1,
             },
             "days_to_delivery": "2",
@@ -6110,6 +6154,11 @@ def pago_payway():
         notas_parts.append(f"Titular: {card_holder_name}")
     if card_expiration:
         notas_parts.append(f"Vencimiento: {card_expiration}")
+    if birth_date:
+        notas_parts.append(f"Nacimiento: {birth_date}")
+    if not billing_igual and billing['calle']:
+        notas_parts.append(
+            f"Domicilio resumen: {bl_street1}, {bl_city}, {billing['provincia']} CP {bl_cp}")
     if cli.get('demora_dias'):
         notas_parts.append(f"DEMORA: {cli['demora_dias']} dias ({cli.get('fecha_disponible','')})")
     notas_extra = "\n".join(notas_parts)
@@ -6190,9 +6239,18 @@ def pago_payway():
         _cs_modo = clearsale.modo()
         if _cs_modo != '0':
             _pw_det = (pw_data.get('status_details') or {})
+            # Datos del titular que no viven en cli: van aparte para que
+            # ClearSale reciba BillingData real y no una copia del envío.
+            _cli_cs = dict(cli)
+            _cli_cs['_birth_date'] = birth_date
+            if not billing_igual and billing['calle']:
+                _cli_cs['_billing'] = {
+                    'calle': bl_street1, 'ciudad': bl_city,
+                    'cp': bl_cp, 'provincia': billing['provincia'],
+                }
             _orden_cs = clearsale.armar_orden(
                 numero_venta=numero_venta,
-                cli=cli,
+                cli=_cli_cs,
                 cart_items=cart_items_adj,     # precios ya con cupón y coeficiente
                 totales={'productos': float(total_con_coef) - float(costo_flete_adj or 0),
                          'total': float(total_con_coef),
