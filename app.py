@@ -18316,8 +18316,13 @@ def _payway_upsert_intento(op):
             status=VALUES(status), status_es=VALUES(status_es),
             motivo=VALUES(motivo), motivo_id=VALUES(motivo_id),
             amount=VALUES(amount), installments=VALUES(installments),
-            card_brand=VALUES(card_brand), bin=VALUES(bin), last4=VALUES(last4),
-            tid=VALUES(tid), raw_json=VALUES(raw_json)
+            card_brand=VALUES(card_brand), bin=VALUES(bin),
+            -- last4 y tid: la API de Payway devuelve pan=null, asi que el sync
+            -- periodico pisaba con NULL lo que habia guardado el checkout.
+            -- Con COALESCE, un valor nuevo vacio conserva el que ya estaba.
+            last4=COALESCE(VALUES(last4), last4),
+            tid=COALESCE(VALUES(tid), tid),
+            raw_json=VALUES(raw_json)
     """, (
         pid, stx, ref, fdt, monto, op.get('installments'),
         status, _PAYWAY_STATUS_ES.get(status, status), motivo, motivo_id,
