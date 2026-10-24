@@ -177,7 +177,7 @@ def armar_orden(venta, items, pw):
             'City': ciudad,
             'State': cod_provincia(prov),
             'ZipCode': cp,
-            'Country': 'Argentina',
+            'Country': 'ARG',   # ISO-3, pedido por ClearSale
         },
         'Phones': [{'Type': 6, 'AreaCode': area, 'Number': numero}],
     }
@@ -195,6 +195,20 @@ def armar_orden(venta, items, pw):
     }
     if cuotas:
         pago['QtyInstallments'] = cuotas
+
+    # Titular: en las ventas nuevas va a salir de las notas ("Titular: ...");
+    # en las historicas no existe, asi que se puede forzar con --titular para
+    # verificar que ClearSale lo reciba y lo muestre.
+    m_tit = re.search(r'Titular:\s*(.+)', venta.get('notas') or '')
+    titular = m_tit.group(1).strip() if m_tit else ''
+    if not titular and '--titular' in sys.argv:
+        i = sys.argv.index('--titular')
+        titular = sys.argv[i + 1] if len(sys.argv) > i + 1 else ''
+    if titular:
+        pago['CardHolderName'] = titular[:150]
+    m_ven = re.search(r'Vencimiento:\s*([\d/]+)', venta.get('notas') or '')
+    if m_ven:
+        pago['CardExpirationDate'] = m_ven.group(1)
     if det.get('ticket'):
         pago['Nsu'] = str(det['ticket'])             # numero de cupon
     if not pw.get('last4'):

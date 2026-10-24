@@ -153,7 +153,7 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
             'City': (cli.get('ciudad') or '')[:150],
             'State': cod_provincia(cli.get('provincia')),
             'ZipCode': str(cli.get('cp') or '')[:10],
-            'Country': 'Argentina',
+            'Country': 'ARG',   # ISO-3, pedido por ClearSale
         },
         'Phones': [{'Type': 6, 'AreaCode': area, 'Number': numero}],
     }
