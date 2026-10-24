@@ -76,7 +76,6 @@ CF = {
     'FIRSTORDERDATE':         51,
     'TOTALORDERS':            54,
     'MONTHS_WITHOUT_INTEREST': 62,
-    'GATEWAY_RISK_LEVEL':     64,
     'DECLINED_ATTEMPTS':      72,
     'BANK_RESULT_CODE':       91,
     'BANK_RESULT_DESCRIPTION': 92,
@@ -249,8 +248,6 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
         _cf('TRANSACTION_ID',   pago.get('payment_id')),
         # El código VTE de Payway es la validación de domicilio de Visa.
         _cf('AVS_RESPONSE',     pago.get('valdom')),
-        # Le pasamos el veredicto del otro motor antifraude de la operación.
-        _cf('GATEWAY_RISK_LEVEL', pago.get('cs_decision')),
         _cf('BANK_RESULT_CODE',   pago.get('bank_code')),
         _cf('BANK_RESULT_DESCRIPTION', pago.get('bank_desc')),
         _cf('MONTHS_WITHOUT_INTEREST', pago.get('installments')),

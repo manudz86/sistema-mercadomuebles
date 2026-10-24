@@ -6190,8 +6190,6 @@ def pago_payway():
         _cs_modo = clearsale.modo()
         if _cs_modo != '0':
             _pw_det = (pw_data.get('status_details') or {})
-            _pw_cs  = (((pw_data.get('fraud_detection') or {}).get('status') or {})
-                       .get('decision'))
             _orden_cs = clearsale.armar_orden(
                 numero_venta=numero_venta,
                 cli=cli,
@@ -6210,7 +6208,6 @@ def pago_payway():
                       'cupon': _pw_det.get('ticket'),
                       'tid': pw_data.get('tid'),
                       'valdom': _pw_det.get('address_validation_code'),
-                      'cs_decision': _pw_cs,
                       'bank_code': ((_pw_det.get('error') or {}).get('reason') or {}).get('id'),
                       'bank_desc': ((_pw_det.get('error') or {}).get('reason') or {}).get('description')},
                 fecha=fecha_now)
