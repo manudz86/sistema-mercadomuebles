@@ -61,6 +61,36 @@ PROVINCIAS = {
 # payment_method_id de Payway -> Credit Card Type de ClearSale
 MARCAS_PW = {1: 3, 104: 2, 65: 4, 63: 4}       # Visa, Mastercard, resto "otros"
 
+# CustomFields: el "Type" NO es un flag, es el ID del campo en el catálogo de
+# ClearSale (planilla customfields_types.xlsx, 112 nombres). Mandar un nombre
+# que no está en la lista hace que descarten la orden entera sin avisar, y
+# mandar el Type equivocado la asocia al campo que no es.
+CF = {
+    'AVS_RESPONSE':            1,
+    'IS_GUEST':                3,
+    'TRANSACTION_ID':         21,
+    'REQUIRES_SHIPPING':      22,
+    'SHIPPING_METHOD':        29,
+    'GATEWAY':                30,
+    'SHIPPING_TYPE':          34,
+    'FIRSTORDERDATE':         51,
+    'TOTALORDERS':            54,
+    'MONTHS_WITHOUT_INTEREST': 62,
+    'GATEWAY_RISK_LEVEL':     64,
+    'DECLINED_ATTEMPTS':      72,
+    'BANK_RESULT_CODE':       91,
+    'BANK_RESULT_DESCRIPTION': 92,
+}
+
+
+def _cf(nombre, valor):
+    """Arma un CustomField con el Type correcto. Devuelve None si el valor
+    está vacío o el nombre no está en el catálogo (así nunca mandamos uno
+    inválido que tire abajo la orden)."""
+    if nombre not in CF or valor in (None, '', []):
+        return None
+    return {'Name': nombre, 'Type': CF[nombre], 'Value': str(valor)[:1000]}
+
 
 def _log(nivel, msg):
     if logger:
@@ -130,6 +160,39 @@ def partir_telefono(tel):
     return (d[:2], d[2:]) if len(d) > 4 else ('', d)
 
 
+def historial_cliente(dni, email):
+    """Compras previas y rechazos del comprador. Es de los datos que más pesan
+    en un análisis de fraude y lo tenemos en casa. Fail-safe: si la consulta
+    falla, devuelve vacío y la orden viaja igual."""
+    vacio = {'compras': None, 'primera': None, 'rechazos': None}
+    if not (dni or email):
+        return vacio
+    try:
+        from app import get_db
+        db = get_db(); cur = db.cursor()
+        cur.execute("""SELECT COUNT(*) AS n, MIN(fecha_venta) AS primera
+                       FROM ventas
+                       WHERE estado <> 'CANCELADA'
+                         AND ((%s <> '' AND dni_cliente = %s)
+                              OR (%s <> '' AND email_cliente = %s))""",
+                    (dni or '', dni or '', email or '', email or ''))
+        v = cur.fetchone() or {}
+        # Intentos rechazados previos con el mismo comprador (señal de fraude)
+        cur.execute("""SELECT COUNT(*) AS n FROM payway_intentos
+                       WHERE status = 'rejected'
+                         AND JSON_UNQUOTE(JSON_EXTRACT(raw_json,'$.customer.email')) = %s""",
+                    (email or '',))
+        r = cur.fetchone() or {}
+        cur.close(); db.close()
+        prim = v.get('primera')
+        return {'compras': v.get('n') or 0,
+                'primera': prim.strftime('%Y-%m-%d') if prim else None,
+                'rechazos': r.get('n') or 0}
+    except Exception as e:
+        _log('warning', f'no pude armar el historial del cliente: {e}')
+        return vacio
+
+
 def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
     """Construye el payload. `totales` y `pago` son dicts planos; ver
     tienda_bp.pago_payway para los valores que se le pasan."""
@@ -175,21 +238,32 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
     if pago.get('cupon'):
         p['Nsu'] = str(pago['cupon'])[:50]
 
-    # Los nombres de CustomFields están en lista blanca: cualquier otro hace
-    # que ClearSale descarte la orden entera sin avisar.
-    custom = [{'Name': 'SHIPPING_TYPE', 'Type': 1,
-               'Value': str(cli.get('tipo_entrega') or 'envio')},
-              {'Name': 'SHIPPING_METHOD', 'Type': 1,
-               'Value': str(totales.get('metodo_envio') or 'sin especificar')}]
-    if pago.get('valdom'):
+    tipo_entrega = str(cli.get('tipo_entrega') or 'envio')
+    hist = historial_cliente(cli.get('dni'), cli.get('email'))
+    custom = [c for c in [
+        _cf('SHIPPING_TYPE',    tipo_entrega),
+        _cf('SHIPPING_METHOD',  totales.get('metodo_envio')),
+        _cf('REQUIRES_SHIPPING', 'true' if tipo_entrega == 'envio' else 'false'),
+        _cf('IS_GUEST',         'true'),          # la tienda no tiene cuentas
+        _cf('GATEWAY',          'Payway'),
+        _cf('TRANSACTION_ID',   pago.get('payment_id')),
         # El código VTE de Payway es la validación de domicilio de Visa.
-        custom.append({'Name': 'AVS_RESPONSE', 'Type': 1, 'Value': str(pago['valdom'])})
+        _cf('AVS_RESPONSE',     pago.get('valdom')),
+        # Le pasamos el veredicto del otro motor antifraude de la operación.
+        _cf('GATEWAY_RISK_LEVEL', pago.get('cs_decision')),
+        _cf('BANK_RESULT_CODE',   pago.get('bank_code')),
+        _cf('BANK_RESULT_DESCRIPTION', pago.get('bank_desc')),
+        _cf('MONTHS_WITHOUT_INTEREST', pago.get('installments')),
+        _cf('TOTALORDERS',      hist.get('compras')),
+        _cf('FIRSTORDERDATE',   hist.get('primera')),
+        _cf('DECLINED_ATTEMPTS', hist.get('rechazos')),
+    ] if c]
 
+    # Lo que no entra en ningún campo del catálogo va al texto libre.
     obs = ' | '.join(x for x in [
-        f"payway_payment_id={pago.get('payment_id')}" if pago.get('payment_id') else '',
         f"auth_code={pago.get('auth_code')}" if pago.get('auth_code') else '',
+        f"cupon={pago.get('cupon')}" if pago.get('cupon') else '',
         f"tid={pago.get('tid')}" if pago.get('tid') else '',
-        f"cybersource={pago.get('cs_decision')}" if pago.get('cs_decision') else '',
     ] if x)
 
     orden = {

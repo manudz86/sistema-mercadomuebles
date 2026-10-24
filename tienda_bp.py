@@ -6210,7 +6210,9 @@ def pago_payway():
                       'cupon': _pw_det.get('ticket'),
                       'tid': pw_data.get('tid'),
                       'valdom': _pw_det.get('address_validation_code'),
-                      'cs_decision': _pw_cs},
+                      'cs_decision': _pw_cs,
+                      'bank_code': ((_pw_det.get('error') or {}).get('reason') or {}).get('id'),
+                      'bank_desc': ((_pw_det.get('error') or {}).get('reason') or {}).get('description')},
                 fecha=fecha_now)
             clearsale.enviar_async(venta_id, _orden_cs)
             logger.info(f'[clearsale] venta {venta_id} encolada (modo={_cs_modo})')
