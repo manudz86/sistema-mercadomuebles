@@ -235,6 +235,44 @@ def probar_variantes(token, location='ARG'):
           ' '.join(i for i, _, _ in casos))
 
 
+def probar_cf_nuevos(token, location='ARG'):
+    """Prueba uno por uno los CustomFields que tomamos del Excel pero nunca
+    validamos contra el sandbox. Uno de ellos tumbo la venta 25516."""
+    print('\n=== CustomFields nuevos, uno por variante ===')
+    suf = uuid.uuid4().hex[:6]
+    campos = [
+        ('REQUIRES_SHIPPING',       22, 'true'),
+        ('IS_GUEST',                 3, 'true'),
+        ('GATEWAY',                 30, 'Payway'),
+        ('TRANSACTION_ID',          21, '1032415591'),
+        ('MONTHS_WITHOUT_INTEREST', 62, '3'),
+        ('TOTALORDERS',             54, '0'),
+        ('FIRSTORDERDATE',          51, '2026-10-24'),
+        ('DECLINED_ATTEMPTS',       72, '2'),
+        ('BANK_RESULT_CODE',        91, '5'),
+        ('BANK_RESULT_DESCRIPTION', 92, 'DENEGADA'),
+    ]
+    casos = []
+    o = _orden(f'CFN-CTRL-{suf}', ITEMS_EJEMPLO)
+    casos.append((o['ID'], 'control sin CF', o))
+    for nombre, tipo, valor in campos:
+        oo = _orden(f'CFN-{nombre[:12]}-{suf}', ITEMS_EJEMPLO)
+        oo['CustomFields'] = [{'Name': nombre, 'Type': tipo, 'Value': valor}]
+        casos.append((oo['ID'], nombre, oo))
+
+    print(f'  enviando {len(casos)}, de a uno:')
+    for oid, nombre, oo in casos:
+        r = req_lib.post(f'{BASE}/api/order/send',
+                         json={'ApiKey': API_KEY, 'LoginToken': token,
+                               'AnalysisLocation': location, 'Orders': [oo]},
+                         headers={'Content-Type': 'application/json',
+                                  'analysisLocation': location}, timeout=40)
+        print(f'    {oid:<26} {nombre:<24} HTTP {r.status_code}')
+    print('\n  Consultalas con:')
+    print('  venv/bin/python3 scripts/clearsale_probe.py get ' +
+          ' '.join(i for i, _, _ in casos))
+
+
 def consultar(token, ids, location='ARG'):
     url = f'{BASE}/api/order/get'
     body = {'ApiKey': API_KEY, 'LoginToken': token,
@@ -276,6 +314,8 @@ def main():
         probar_state(token)
     elif cmd == 'montos':
         probar_montos(token)
+    elif cmd == 'cfnuevos':
+        probar_cf_nuevos(token)
     elif cmd == 'variantes':
         probar_variantes(token)
     elif cmd == 'get':

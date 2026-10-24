@@ -79,20 +79,22 @@ MARCAS_PW = {1: 3, 104: 2, 65: 4, 63: 4}       # Visa, Mastercard, resto "otros"
 # ClearSale (planilla customfields_types.xlsx, 112 nombres). Mandar un nombre
 # que no está en la lista hace que descarten la orden entera sin avisar, y
 # mandar el Type equivocado la asocia al campo que no es.
+#
+# OJO: el Excel que mandó ClearSale es su catálogo GLOBAL (112 nombres), no lo
+# que está habilitado en NUESTRA cuenta. Probados uno por uno contra el
+# sandbox, solo estos cinco entran; con cualquier otro la orden se descarta
+# entera y en silencio (así se perdió la venta 25516).
+#
+# Rechazados pese a figurar en el Excel: TRANSACTION_ID, REQUIRES_SHIPPING,
+# GATEWAY, FIRSTORDERDATE, TOTALORDERS, MONTHS_WITHOUT_INTEREST,
+# DECLINED_ATTEMPTS, BANK_RESULT_CODE y BANK_RESULT_DESCRIPTION.
+# Hay que pedirle a ClearSale que los habilite antes de volver a usarlos.
 CF = {
-    'AVS_RESPONSE':            1,
-    'IS_GUEST':                3,
-    'TRANSACTION_ID':         21,
-    'REQUIRES_SHIPPING':      22,
-    'SHIPPING_METHOD':        29,
-    'GATEWAY':                30,
-    'SHIPPING_TYPE':          34,
-    'FIRSTORDERDATE':         51,
-    'TOTALORDERS':            54,
-    'MONTHS_WITHOUT_INTEREST': 62,
-    'DECLINED_ATTEMPTS':      72,
-    'BANK_RESULT_CODE':       91,
-    'BANK_RESULT_DESCRIPTION': 92,
+    'AVS_RESPONSE':     1,
+    'IS_GUEST':         3,
+    'CVV_RESULT_CODE':  6,
+    'SHIPPING_METHOD': 29,
+    'SHIPPING_TYPE':   34,
 }
 
 
@@ -265,25 +267,24 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
     custom = [c for c in [
         _cf('SHIPPING_TYPE',    tipo_entrega),
         _cf('SHIPPING_METHOD',  totales.get('metodo_envio')),
-        _cf('REQUIRES_SHIPPING', 'true' if tipo_entrega == 'envio' else 'false'),
         _cf('IS_GUEST',         'true'),          # la tienda no tiene cuentas
-        _cf('GATEWAY',          'Payway'),
-        _cf('TRANSACTION_ID',   pago.get('payment_id')),
         # El código VTE de Payway es la validación de domicilio de Visa.
         _cf('AVS_RESPONSE',     pago.get('valdom')),
-        _cf('BANK_RESULT_CODE',   pago.get('bank_code')),
-        _cf('BANK_RESULT_DESCRIPTION', pago.get('bank_desc')),
-        _cf('MONTHS_WITHOUT_INTEREST', pago.get('installments')),
-        _cf('TOTALORDERS',      hist.get('compras')),
-        _cf('FIRSTORDERDATE',   hist.get('primera')),
-        _cf('DECLINED_ATTEMPTS', hist.get('rechazos')),
     ] if c]
 
-    # Lo que no entra en ningún campo del catálogo va al texto libre.
+    # Todo lo demás va al texto libre, porque los CustomFields que le
+    # corresponderían no están habilitados en nuestra cuenta.
     obs = ' | '.join(x for x in [
+        f"gateway=Payway",
+        f"transaction_id={pago.get('payment_id')}" if pago.get('payment_id') else '',
         f"auth_code={pago.get('auth_code')}" if pago.get('auth_code') else '',
         f"cupon={pago.get('cupon')}" if pago.get('cupon') else '',
         f"tid={pago.get('tid')}" if pago.get('tid') else '',
+        f"cuotas={pago.get('installments')}" if pago.get('installments') else '',
+        f"banco={pago.get('bank_code')}/{pago.get('bank_desc')}" if pago.get('bank_code') else '',
+        f"compras_previas={hist.get('compras')}" if hist.get('compras') is not None else '',
+        f"primera_compra={hist.get('primera')}" if hist.get('primera') else '',
+        f"rechazos_previos={hist.get('rechazos')}" if hist.get('rechazos') is not None else '',
     ] if x)
 
     orden = {
