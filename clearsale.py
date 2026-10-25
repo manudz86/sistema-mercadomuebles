@@ -277,9 +277,27 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
     # otra persona se omite LegalDocument en vez de mandarle el del comprador,
     # que sería un dato falso (comprobado: ClearSale acepta la persona sin él).
     titular = str(pago.get('holder_name') or '').strip()
-    if titular and not _mismo_nombre(titular, cli.get('nombre')):
+    doc_titular = re.sub(r'\D', '', str(pago.get('holder_doc') or ''))
+    dni_comprador = re.sub(r'\D', '', str(cli.get('dni') or ''))
+
+    # ¿El que paga es el que recibe? El documento manda sobre el nombre: es el
+    # único dato que identifica sin ambigüedad. Si no lo tenemos (ventas de
+    # antes de capturarlo) se cae a comparar los nombres.
+    if doc_titular and dni_comprador:
+        otra_persona = doc_titular != dni_comprador
+    else:
+        otra_persona = bool(titular) and not _mismo_nombre(titular, cli.get('nombre'))
+
+    if titular:
         factura = dict(factura, Name=titular[:500])
+    if doc_titular:
+        factura = dict(factura, LegalDocument=doc_titular, ID=f'CLI-{doc_titular}')
+    elif otra_persona:
+        # Sin el documento del titular, mejor que falte a mandarle el del
+        # comprador: sería atribuirle a una persona un documento que no es suyo.
+        factura = dict(factura)
         factura.pop('LegalDocument', None)
+    if otra_persona:
         # El formulario pide la fecha de nacimiento DEL TITULAR, así que queda
         # en factura; de quien recibe el envío no sabemos la fecha.
         envio = dict(envio)
@@ -336,8 +354,10 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
         if cli.get('_birth_date') else '',
         # Dejarlo explícito en el texto libre: es lo primero que mira el
         # analista cuando el que paga no es el que recibe.
-        f"titular_tarjeta={titular} | comprador={cli.get('nombre')}"
-        if titular and not _mismo_nombre(titular, cli.get('nombre')) else '',
+        f"PAGA UN TERCERO: titular={titular or 'sin dato'}"
+        f" doc={doc_titular or 'sin dato'}"
+        f" | comprador={cli.get('nombre')} doc={dni_comprador or 'sin dato'}"
+        if otra_persona else '',
         f"transaction_id={pago.get('payment_id')}" if pago.get('payment_id') else '',
         f"auth_code={pago.get('auth_code')}" if pago.get('auth_code') else '',
         f"cupon={pago.get('cupon')}" if pago.get('cupon') else '',

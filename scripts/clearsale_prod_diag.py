@@ -41,8 +41,8 @@ from clearsale_probe import _orden as orden_base, ITEMS_EJEMPLO  # noqa: E402
 # Y ..."), asi que el corte de cada valor tiene que ser la etiqueta siguiente
 # y no una heuristica: "Domicilio resumen" tiene dos palabras y la rompia.
 ETIQUETAS = ['PWID', 'OP_PAYWAY', 'Cuotas', 'Coeficiente', 'Coef',
-             'Titular', 'Vencimiento', 'Nacimiento', 'Domicilio resumen',
-             'Cupon', 'Autorizacion']
+             'Titular', 'Doc titular', 'Vencimiento', 'Nacimiento',
+             'Domicilio resumen', 'Cupon', 'Autorizacion']
 
 
 def _nota(notas, campo):
@@ -113,6 +113,11 @@ def reconstruir(venta_id):
         'payment_method_id': raw.get('payment_method_id'),
         'installments': pw.get('installments'),
         'holder_name': _nota(notas, 'Titular'),
+        # "Doc titular: DNI 12345678". Con --doc N se fuerza, para probar el
+        # payload en ventas anteriores a que empezaramos a capturarlo.
+        'holder_doc': (sys.argv[sys.argv.index('--doc') + 1]
+                       if '--doc' in sys.argv else
+                       re.sub(r'\D', '', _nota(notas, 'Doc titular'))),
         'expiration': _nota(notas, 'Vencimiento'),
         'payment_id': raw.get('id') or pw.get('payment_id'),
         'auth_code': det.get('card_authorization_code'),

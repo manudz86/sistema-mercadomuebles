@@ -856,6 +856,12 @@ document.getElementById('pw-btn').addEventListener('click', function(e) {
     errDiv.textContent = 'Ingresa el nombre del titular.';
     errDiv.style.display = 'block'; return;
   }
+  // El documento del titular no se validaba: si venia vacio lo rechazaba
+  // Payway con un error generico y ademas lo perdiamos para el antifraude.
+  if (!docNumber || docNumber.replace(/\D/g, '').length < 7) {
+    errDiv.textContent = 'Ingresa el numero de documento del titular de la tarjeta.';
+    errDiv.style.display = 'block'; return;
+  }
   // Si destildaron "mismo domicilio", los campos de facturacion son obligatorios
   var billIgual = (document.getElementById('pw-billing-igual') || {}).checked;
   if (!billIgual) {
@@ -918,6 +924,11 @@ document.getElementById('pw-btn').addEventListener('click', function(e) {
         // Titular y vencimiento: quedaban solo en el navegador. El antifraude
         // los usa (ClearSale muestra el pago sin titular si no llegan).
         card_holder_name:      holderName,
+        // El documento del titular ya se le mandaba a Payway para tokenizar,
+        // pero nunca llegaba a nuestro backend: sin el, ClearSale no puede
+        // cruzar la identidad del que paga cuando no es el que recibe.
+        card_holder_doc_type:  docType,
+        card_holder_doc:       docNumber,
         card_expiration:       expMonth + '/20' + expYear,
         // Fecha de nacimiento y domicilio del resumen: los valida el emisor y
         // mejoran el analisis antifraude. Si el domicilio coincide con el de

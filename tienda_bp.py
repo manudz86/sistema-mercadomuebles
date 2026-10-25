@@ -5907,6 +5907,11 @@ def pago_payway():
     # quedaban solo en el navegador. Se guardan en las notas de la venta
     # porque el antifraude los usa (ClearSale muestra el pago sin titular).
     card_holder_name      = (data.get('card_holder_name') or '').strip()[:150]
+    # Documento del titular. Ya se lo mandábamos a Payway para tokenizar pero
+    # no llegaba acá, así que ClearSale recibía el BillingData sin documento y
+    # no podía cruzar la identidad de quien paga cuando no es quien recibe.
+    card_holder_doc       = re.sub(r'\D', '', data.get('card_holder_doc') or '')[:11]
+    card_holder_doc_type  = (data.get('card_holder_doc_type') or 'dni').strip()[:10]
     card_expiration       = (data.get('card_expiration') or '').strip()[:7]
     birth_date            = (data.get('birth_date') or '').strip()[:10]
     # Domicilio del resumen de la tarjeta. Si coincide con el de entrega el
@@ -6219,6 +6224,8 @@ def pago_payway():
     notas_parts = [f"PWID: {pw_id}", f"OP_PAYWAY: {site_tx_id}", f"Cuotas: {installments}", f"Coef: {coef}"]
     if card_holder_name:
         notas_parts.append(f"Titular: {card_holder_name}")
+    if card_holder_doc:
+        notas_parts.append(f"Doc titular: {card_holder_doc_type.upper()} {card_holder_doc}")
     if card_expiration:
         notas_parts.append(f"Vencimiento: {card_expiration}")
     if birth_date:
@@ -6327,6 +6334,8 @@ def pago_payway():
                       'payment_method_id': payment_method_id,
                       'installments': installments,
                       'holder_name': card_holder_name,
+                      'holder_doc': card_holder_doc,
+                      'holder_doc_type': card_holder_doc_type,
                       'expiration': card_expiration,
                       'payment_id': pw_id,
                       'auth_code': _pw_det.get('card_authorization_code'),
