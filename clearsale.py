@@ -103,6 +103,20 @@ def _cf(nombre, valor):
     return {'Name': nombre, 'Type': CF_TIPO_TEXTO, 'Value': str(valor)[:1000]}
 
 
+MESES = ('enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
+         'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre')
+
+
+def _fecha_en_letras(iso):
+    """'1986-06-04' -> '4 de junio de 1986'. El mes con nombre saca la
+    ambigüedad dd/mm vs mm/dd para el analista que lee las observaciones."""
+    try:
+        a, m, d = str(iso)[:10].split('-')
+        return f'{int(d)} de {MESES[int(m) - 1]} de {a}'
+    except (ValueError, IndexError):
+        return str(iso or '')
+
+
 def _log(nivel, msg):
     if logger:
         getattr(logger, nivel, logger.info)(f'[clearsale] {msg}')
@@ -284,6 +298,8 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
     # analista ve de un vistazo, y suma lo que no tiene CustomField propio.
     obs = ' | '.join(x for x in [
         f"gateway=Payway",
+        f"nacimiento={_fecha_en_letras(cli['_birth_date'])}"
+        if cli.get('_birth_date') else '',
         f"transaction_id={pago.get('payment_id')}" if pago.get('payment_id') else '',
         f"auth_code={pago.get('auth_code')}" if pago.get('auth_code') else '',
         f"cupon={pago.get('cupon')}" if pago.get('cupon') else '',
