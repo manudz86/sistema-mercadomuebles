@@ -252,12 +252,15 @@ def probar_cf_nuevos(token, location='ARG'):
         ('BANK_RESULT_CODE',        91, '5'),
         ('BANK_RESULT_DESCRIPTION', 92, 'DENEGADA'),
     ]
+    # El "Type" NO es el ID del catalogo: es un enum chico de tipo de dato.
+    # Mandando el ID (21, 30, 62...) ClearSale descarta la orden, y por eso
+    # estos ocho campos parecian deshabilitados. Se reprueban con Type 1.
     casos = []
     o = _orden(f'CFN-CTRL-{suf}', ITEMS_EJEMPLO)
     casos.append((o['ID'], 'control sin CF', o))
-    for nombre, tipo, valor in campos:
-        oo = _orden(f'CFN-{nombre[:12]}-{suf}', ITEMS_EJEMPLO)
-        oo['CustomFields'] = [{'Name': nombre, 'Type': tipo, 'Value': valor}]
+    for i, (nombre, _id_catalogo, valor) in enumerate(campos, 1):
+        oo = _orden(f'CFN-{i:02d}-{suf}', ITEMS_EJEMPLO)
+        oo['CustomFields'] = [{'Name': nombre, 'Type': 1, 'Value': valor}]
         casos.append((oo['ID'], nombre, oo))
 
     print(f'  enviando {len(casos)}, de a uno:')
@@ -270,6 +273,45 @@ def probar_cf_nuevos(token, location='ARG'):
         print(f'    {oid:<26} {nombre:<24} HTTP {r.status_code}')
     print('\n  Consultalas con:')
     print('  venv/bin/python3 scripts/clearsale_probe.py get ' +
+          ' '.join(i for i, _, _ in casos))
+
+
+def probar_productivo(token, location='ARG'):
+    """Que tiene el payload de clearsale.py que lo hace descartar.
+    Sospechosos: falta SessionID (obligatorio y hoy no se setea nunca),
+    IP vacia, BirthDate y BillingData distinto del de envio."""
+    print('\n=== payload productivo: que lo descarta ===')
+    suf = uuid.uuid4().hex[:6]
+    casos = []
+
+    def _v(nombre, fn):
+        o = _orden(f'PROD-{nombre}-{suf}', ITEMS_EJEMPLO)
+        fn(o)
+        casos.append((o['ID'], nombre, o))
+
+    def _nac(o, v):
+        o['BillingData']['BirthDate'] = v
+        o['ShippingData']['BirthDate'] = v
+
+    _v('CTRL',       lambda o: None)
+    _v('SINSESSION', lambda o: o.pop('SessionID', None))
+    _v('SINIP',      lambda o: o.update({'IP': ''}))
+    _v('NACISO',     lambda o: _nac(o, '1986-06-04T00:00:00'))
+    _v('NACOFFSET',  lambda o: _nac(o, '1986-06-04T00:00:00-03:00'))
+    _v('BILLDIST',   lambda o: o['BillingData'].update({
+        'Address': dict(o['BillingData']['Address'],
+                        AddressLine1='Bahia Blanca 1777', City='Buenos Aires',
+                        State='CF', ZipCode='1407')}))
+
+    print(f'  enviando {len(casos)}, de a uno:')
+    for oid, nombre, o in casos:
+        r = req_lib.post(f'{BASE}/api/order/send',
+                         json={'ApiKey': API_KEY, 'LoginToken': token,
+                               'AnalysisLocation': location, 'Orders': [o]},
+                         headers={'Content-Type': 'application/json',
+                                  'analysisLocation': location}, timeout=40)
+        print(f'    {oid:<24} {nombre:<11} HTTP {r.status_code}')
+    print('\n  venv/bin/python3 scripts/clearsale_probe.py get ' +
           ' '.join(i for i, _, _ in casos))
 
 
@@ -318,6 +360,8 @@ def main():
         probar_cf_nuevos(token)
     elif cmd == 'variantes':
         probar_variantes(token)
+    elif cmd == 'productivo':
+        probar_productivo(token)
     elif cmd == 'get':
         consultar(token, sys.argv[2:])
     elif cmd == 'todo':

@@ -75,36 +75,32 @@ PROVINCIAS = {
 # payment_method_id de Payway -> Credit Card Type de ClearSale
 MARCAS_PW = {1: 3, 104: 2, 65: 4, 63: 4}       # Visa, Mastercard, resto "otros"
 
-# CustomFields: el "Type" NO es un flag, es el ID del campo en el catálogo de
-# ClearSale (planilla customfields_types.xlsx, 112 nombres). Mandar un nombre
-# que no está en la lista hace que descarten la orden entera sin avisar, y
-# mandar el Type equivocado la asocia al campo que no es.
+# CustomFields. El "Type" NO es el ID del campo en el catálogo de ClearSale
+# (planilla customfields_types.xlsx): es un enum chico de tipo de dato, y 1 es
+# texto. Mandar el ID del catálogo como Type (34, 29, 21, 30...) hace que
+# ClearSale DESCARTE la orden entera en silencio: responde 200/NVO y después
+# la orden no existe. Así se perdieron las ventas 25516 y 25524.
 #
-# OJO: el Excel que mandó ClearSale es su catálogo GLOBAL (112 nombres), no lo
-# que está habilitado en NUESTRA cuenta. Probados uno por uno contra el
-# sandbox, solo estos cinco entran; con cualquier otro la orden se descarta
-# entera y en silencio (así se perdió la venta 25516).
-#
-# Rechazados pese a figurar en el Excel: TRANSACTION_ID, REQUIRES_SHIPPING,
-# GATEWAY, FIRSTORDERDATE, TOTALORDERS, MONTHS_WITHOUT_INTEREST,
-# DECLINED_ATTEMPTS, BANK_RESULT_CODE y BANK_RESULT_DESCRIPTION.
-# Hay que pedirle a ClearSale que los habilite antes de volver a usarlos.
-CF = {
-    'AVS_RESPONSE':     1,
-    'IS_GUEST':         3,
-    'CVV_RESULT_CODE':  6,
-    'SHIPPING_METHOD': 29,
-    'SHIPPING_TYPE':   34,
-}
+# Comprobado uno por uno contra el sandbox (scripts/clearsale_prod_diag.py --cf
+# y scripts/clearsale_probe.py cfnuevos): con Type 1 entran los doce nombres de
+# abajo. Los ocho que antes parecían deshabilitados fallaban por el Type, no
+# por el nombre — no hay nada que pedirle a ClearSale.
+CF_TIPO_TEXTO = 1
+CF = (
+    'AVS_RESPONSE', 'IS_GUEST', 'CVV_RESULT_CODE', 'SHIPPING_METHOD',
+    'SHIPPING_TYPE', 'REQUIRES_SHIPPING', 'GATEWAY', 'TRANSACTION_ID',
+    'MONTHS_WITHOUT_INTEREST', 'TOTALORDERS', 'FIRSTORDERDATE',
+    'DECLINED_ATTEMPTS', 'BANK_RESULT_CODE', 'BANK_RESULT_DESCRIPTION',
+)
 
 
 def _cf(nombre, valor):
-    """Arma un CustomField con el Type correcto. Devuelve None si el valor
-    está vacío o el nombre no está en el catálogo (así nunca mandamos uno
-    inválido que tire abajo la orden)."""
+    """Arma un CustomField. Devuelve None si el valor está vacío o el nombre
+    no está en la lista verificada (así nunca mandamos uno inválido que tire
+    abajo la orden)."""
     if nombre not in CF or valor in (None, '', []):
         return None
-    return {'Name': nombre, 'Type': CF[nombre], 'Value': str(valor)[:1000]}
+    return {'Name': nombre, 'Type': CF_TIPO_TEXTO, 'Value': str(valor)[:1000]}
 
 
 def _log(nivel, msg):
@@ -268,12 +264,24 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
         _cf('SHIPPING_TYPE',    tipo_entrega),
         _cf('SHIPPING_METHOD',  totales.get('metodo_envio')),
         _cf('IS_GUEST',         'true'),          # la tienda no tiene cuentas
+        _cf('REQUIRES_SHIPPING', 'false' if tipo_entrega == 'retiro' else 'true'),
         # El código VTE de Payway es la validación de domicilio de Visa.
         _cf('AVS_RESPONSE',     pago.get('valdom')),
+        _cf('GATEWAY',          'Payway'),
+        _cf('TRANSACTION_ID',   pago.get('payment_id')),
+        # MONTHS_WITHOUT_INTEREST queda afuera a propósito: nuestras cuotas
+        # llevan coeficiente (3 cuotas = 1,116), así que NO son sin interés
+        # salvo en la promo de miércoles y sábado. Mandar la cantidad ahí le
+        # daría un dato falso al analista; las cuotas van en Obs.
+        _cf('TOTALORDERS',      hist.get('compras')),
+        _cf('FIRSTORDERDATE',   hist.get('primera')),
+        _cf('DECLINED_ATTEMPTS', hist.get('rechazos')),
+        _cf('BANK_RESULT_CODE', pago.get('bank_code')),
+        _cf('BANK_RESULT_DESCRIPTION', pago.get('bank_desc')),
     ] if c]
 
-    # Todo lo demás va al texto libre, porque los CustomFields que le
-    # corresponderían no están habilitados en nuestra cuenta.
+    # Obs duplica parte de lo anterior a propósito: es texto libre que el
+    # analista ve de un vistazo, y suma lo que no tiene CustomField propio.
     obs = ' | '.join(x for x in [
         f"gateway=Payway",
         f"transaction_id={pago.get('payment_id')}" if pago.get('payment_id') else '',
