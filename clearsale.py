@@ -117,6 +117,22 @@ def _fecha_en_letras(iso):
         return str(iso or '')
 
 
+def _mismo_nombre(a, b):
+    """¿Son la misma persona? Ignora mayúsculas, acentos, puntos y el orden
+    ('DZIENCIELSKY, Matias' == 'matias dziencielsky'), y toma como iguales los
+    nombres donde uno contiene al otro: la tarjeta suele traer el segundo
+    nombre ('FULVIA DANI LORENZI' es la misma que 'FULVIA LORENZI'). Solo da
+    distinto cuando no hay forma de que sea la misma persona, que es cuando
+    vale la pena avisarle al analista."""
+    def _norm(s):
+        s = _sin_acentos(str(s or '')).lower()
+        return {p for p in re.split(r'[^a-z0-9]+', s) if p}
+    na, nb = _norm(a), _norm(b)
+    if not na or not nb:
+        return True          # sin dato para comparar, no inventamos un aviso
+    return na <= nb or nb <= na
+
+
 def _log(nivel, msg):
     if logger:
         getattr(logger, nivel, logger.info)(f'[clearsale] {msg}')
@@ -255,6 +271,20 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
     bl = cli.get('_billing')
     factura = _persona(bl['calle'], bl['ciudad'], bl['provincia'], bl['cp']) if bl else envio
 
+    # BillingData es el TITULAR de la tarjeta, no el comprador: que un tercero
+    # pague es justo lo que ClearSale tiene que poder ver. Del titular sabemos
+    # nombre y domicilio; el DNI no lo pedimos, así que cuando el titular es
+    # otra persona se omite LegalDocument en vez de mandarle el del comprador,
+    # que sería un dato falso (comprobado: ClearSale acepta la persona sin él).
+    titular = str(pago.get('holder_name') or '').strip()
+    if titular and not _mismo_nombre(titular, cli.get('nombre')):
+        factura = dict(factura, Name=titular[:500])
+        factura.pop('LegalDocument', None)
+        # El formulario pide la fecha de nacimiento DEL TITULAR, así que queda
+        # en factura; de quien recibe el envío no sabemos la fecha.
+        envio = dict(envio)
+        envio.pop('BirthDate', None)
+
     p = {
         'Date': fecha_iso[:10],
         'Type': 1,                                   # CREDIT CARD
@@ -276,7 +306,11 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
     hist = historial_cliente(cli.get('dni'), cli.get('email'))
     custom = [c for c in [
         _cf('SHIPPING_TYPE',    tipo_entrega),
-        _cf('SHIPPING_METHOD',  totales.get('metodo_envio')),
+        # En un retiro no hay transportista, así que metodo_envio viene vacío
+        # y el campo se caía. ClearSale lo quiere igual para distinguir el
+        # retiro en local, que es un patrón de riesgo propio.
+        _cf('SHIPPING_METHOD',  'Pick up' if tipo_entrega == 'retiro'
+                                else totales.get('metodo_envio')),
         _cf('IS_GUEST',         'true'),          # la tienda no tiene cuentas
         _cf('REQUIRES_SHIPPING', 'false' if tipo_entrega == 'retiro' else 'true'),
         # El código VTE de Payway es la validación de domicilio de Visa.
@@ -298,8 +332,12 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
     # analista ve de un vistazo, y suma lo que no tiene CustomField propio.
     obs = ' | '.join(x for x in [
         f"gateway=Payway",
-        f"nacimiento={_fecha_en_letras(cli['_birth_date'])}"
+        f"nacimiento_titular={_fecha_en_letras(cli['_birth_date'])}"
         if cli.get('_birth_date') else '',
+        # Dejarlo explícito en el texto libre: es lo primero que mira el
+        # analista cuando el que paga no es el que recibe.
+        f"titular_tarjeta={titular} | comprador={cli.get('nombre')}"
+        if titular and not _mismo_nombre(titular, cli.get('nombre')) else '',
         f"transaction_id={pago.get('payment_id')}" if pago.get('payment_id') else '',
         f"auth_code={pago.get('auth_code')}" if pago.get('auth_code') else '',
         f"cupon={pago.get('cupon')}" if pago.get('cupon') else '',

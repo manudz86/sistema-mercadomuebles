@@ -259,6 +259,53 @@ def bisecar_customfields(orden, token):
           + ' '.join(i for i, _, _ in casos))
 
 
+def bisecar_nombres(orden, token):
+    """BillingData tiene que ser el TITULAR de la tarjeta, no el comprador.
+    Del titular sabemos nombre y domicilio, pero no el DNI: hay que ver si
+    ClearSale acepta la persona sin LegalDocument antes de mandarle el DNI
+    del comprador, que seria un dato falso."""
+    import copy
+    suf = uuid.uuid4().hex[:6]
+    casos = []
+    TITULAR = 'MATIAS DZIENCIELSKY'
+
+    def _v(nombre, fn):
+        o = copy.deepcopy(orden)
+        o['ID'] = f'NOM-{nombre}-{suf}'
+        o['BillingData'] = copy.deepcopy(o['BillingData'])
+        fn(o)
+        casos.append((o['ID'], nombre, o))
+
+    _v('CTRL',    lambda o: None)
+    _v('NOMDIST', lambda o: o['BillingData'].update({'Name': TITULAR}))
+    _v('SINDOC',  lambda o: o['BillingData'].pop('LegalDocument', None))
+    _v('DOCVACIO', lambda o: o['BillingData'].update({'LegalDocument': ''}))
+    _v('AMBOS',   lambda o: (o['BillingData'].update({'Name': TITULAR}),
+                             o['BillingData'].pop('LegalDocument', None)))
+    _v('SINMAIL', lambda o: (o['BillingData'].update({'Name': TITULAR}),
+                             o['BillingData'].pop('LegalDocument', None),
+                             o['BillingData'].pop('Email', None),
+                             o['BillingData'].pop('Phones', None)))
+
+    api_key = clearsale._creds()[0]
+    base = clearsale._base()
+    print(f'\nENVIANDO {len(casos)} variantes de nombres, de a una:')
+    for oid, nombre, o in casos:
+        try:
+            r = req_lib.post(f'{base}/api/order/send',
+                             json={'ApiKey': api_key, 'LoginToken': token,
+                                   'AnalysisLocation': 'ARG', 'Orders': [o]},
+                             headers={'Content-Type': 'application/json',
+                                      'analysisLocation': 'ARG'}, timeout=40)
+            cuerpo = '' if r.status_code == 200 else ' ' + r.text[:300]
+            print(f'    {oid:<28} {nombre:<10} HTTP {r.status_code}{cuerpo}')
+        except Exception as e:
+            print(f'    {oid:<28} {nombre:<10} EXC {type(e).__name__}: {e}')
+    print('\n  Consultalas con:')
+    print('  venv/bin/python3 scripts/clearsale_probe.py get '
+          + ' '.join(i for i, _, _ in casos))
+
+
 def main():
     if len(sys.argv) < 2 or not sys.argv[1].isdigit():
         print(__doc__)
@@ -284,6 +331,8 @@ def main():
         return 3
     if '--cf' in sys.argv:
         bisecar_customfields(orden, token)
+    elif '--nombres' in sys.argv:
+        bisecar_nombres(orden, token)
     elif '--real' in sys.argv:
         # Manda la orden con su ID de verdad, para que quede en el panel de
         # ClearSale con el numero de venta. NO toca la base: el campo

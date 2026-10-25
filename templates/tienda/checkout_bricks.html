@@ -261,6 +261,19 @@
 
       <!-- Domicilio del resumen de la tarjeta -->
       <div style="margin-bottom:18px; padding:14px; background:#fafafa; border:1px solid #eee; border-radius:8px;">
+        {% if cliente.tipo_entrega == 'retiro' %}
+        {# En un retiro no hay domicilio de entrega que copiar, asi que el
+           checkbox no tiene sentido: los campos van siempre y obligatorios.
+           Sin el checkbox en el DOM, billing_igual viaja en false solo. #}
+        <div style="font-size:0.88rem; font-weight:600; color:#444;">
+          Domicilio del resumen de la tarjeta
+        </div>
+        <div id="pw-billing-campos" style="margin-top:14px;">
+          <div style="font-size:0.78rem; color:#888; margin-bottom:10px;">
+            Como retirás en el local, necesitamos el domicilio tal como figura
+            en el resumen de tu tarjeta. Lo verifica el banco emisor.
+          </div>
+        {% else %}
         <label style="display:flex; align-items:center; gap:9px; font-size:0.88rem; font-weight:600; color:#444; cursor:pointer;">
           <input type="checkbox" id="pw-billing-igual" checked style="width:17px; height:17px;">
           El domicilio del resumen de la tarjeta es el mismo que el de entrega
@@ -270,6 +283,7 @@
           <div style="font-size:0.78rem; color:#888; margin-bottom:10px;">
             Ingresá el domicilio tal como figura en el resumen de tu tarjeta.
           </div>
+        {% endif %}
           <div style="display:grid; grid-template-columns:2fr 1fr; gap:10px; margin-bottom:10px;">
             <div>
               <label style="display:block; font-size:0.8rem; font-weight:600; color:#555; margin-bottom:4px;">Calle</label>
@@ -849,7 +863,10 @@ document.getElementById('pw-btn').addEventListener('click', function(e) {
     var bn = (document.getElementById('pw-bill-altura') || {}).value || '';
     var bp = (document.getElementById('pw-bill-cp') || {}).value || '';
     var bv = (document.getElementById('pw-bill-provincia') || {}).value || '';
-    if (!bc.trim() || !bn.trim() || !bp.trim() || !bv.trim()) {
+    // La localidad tambien: en un retiro este es el unico domicilio que
+    // tenemos, y sin localidad el antifraude no puede geolocalizarlo.
+    var bl = (document.getElementById('pw-bill-ciudad') || {}).value || '';
+    if (!bc.trim() || !bn.trim() || !bp.trim() || !bv.trim() || !bl.trim()) {
       errDiv.textContent = 'Completa el domicilio del resumen de la tarjeta.';
       errDiv.style.display = 'block'; return;
     }

@@ -5958,6 +5958,22 @@ def pago_payway():
             'redirect': '/datos-envio'
         }), 400
 
+    # ── Defensa: en un retiro el domicilio del resumen es obligatorio ────────
+    # No hay domicilio de entrega que copiar, así que sin este dato el
+    # antifraude se queda sin ninguna dirección verificable (la venta 25525
+    # entró con "Martinez" y nada más). El formulario ya lo pide; esto cubre
+    # el caso de que lo saltee quien arme el request a mano.
+    if cli.get('tipo_entrega', 'envio') == 'retiro':
+        if billing_igual or not all([billing['calle'], billing['altura'],
+                                     billing['ciudad'], billing['cp'],
+                                     billing['provincia']]):
+            db.close()
+            return jsonify({
+                'status': 'error',
+                'msg': 'Para retiro en el local necesitamos el domicilio '
+                       'completo del resumen de tu tarjeta.'
+            }), 400
+
     # ── Gate antifraude propio (blocklist + velocidad) — FAIL-OPEN ───────────
     try:
         _blk, _blk_motivo = _fraude_gate(cli, bin_numero, session.get('pw_last4', ''))
