@@ -107,6 +107,16 @@ def reconstruir(venta_id):
     total = float(v.get('importe_abonado') or 0)
     totales = {'productos': total - flete, 'total': total, 'flete': flete,
                'metodo_envio': v.get('metodo_envio')}
+    # Ventas de Mercado Pago: no hay tabla de intentos, los datos de tarjeta
+    # viven en la API de MP. Se traen con el MPID de las notas. Sirve para
+    # probar el payload de ClearSale con una venta real cuando no entro
+    # ninguna de Payway; la integracion productiva sigue siendo solo Payway.
+    m_mp = re.search(r'MPID:\s*(\d+)', notas)
+    if m_mp:
+        pago = _pago_desde_mp(m_mp.group(1))
+        pago['metodo'] = 'Mercado Pago'
+        return v, cli, _cart(items), totales, pago
+
     err = (det.get('error') or {}).get('reason') or {}
     pago = {
         'bin': pw.get('bin'), 'last4': pw.get('last4'),
@@ -125,10 +135,57 @@ def reconstruir(venta_id):
         'valdom': det.get('address_validation_code'),
         'bank_code': err.get('id'), 'bank_desc': err.get('description'),
     }
-    cart = [{'sku': it['sku'], 'nombre': it['nombre'],
+    return v, cli, _cart(items), totales, pago
+
+
+def _cart(items):
+    return [{'sku': it['sku'], 'nombre': it['nombre'],
              'precio': float(it['precio_unitario']),
              'cantidad': int(it['cantidad'])} for it in items]
-    return v, cli, cart, totales, pago
+
+
+# Brand de Mercado Pago -> payment_method_id de Payway, que es lo que
+# clearsale.armar_orden traduce a Credit Card Type. Asi no hay que tocar el
+# modulo productivo para una prueba.
+MP_A_PW = {'visa': 1, 'visa_debit': 1, 'debvisa': 1,
+           'master': 104, 'mastercard': 104, 'debmaster': 104,
+           'amex': 65, 'cabal': 63, 'naranja': 63, 'maestro': 104}
+
+
+def _pago_desde_mp(payment_id):
+    """GET a la API de Mercado Pago para traer los datos de la tarjeta de una
+    venta de MP. Solo lectura. No imprime el token ni el numero completo."""
+    token = os.environ.get('MP_ACCESS_TOKEN', '').strip()
+    if not token:
+        raise SystemExit('Falta MP_ACCESS_TOKEN en el entorno.')
+    r = req_lib.get(f'https://api.mercadopago.com/v1/payments/{payment_id}',
+                    headers={'Authorization': f'Bearer {token}'}, timeout=30)
+    if r.status_code != 200:
+        raise SystemExit(f'MP respondio {r.status_code}: {r.text[:300]}')
+    p = r.json() or {}
+    card = p.get('card') or {}
+    tit = card.get('cardholder') or {}
+    ident = tit.get('identification') or {}
+    marca = str(p.get('payment_method_id') or '').lower()
+    exp_m, exp_a = card.get('expiration_month'), card.get('expiration_year')
+    print(f'  MP {payment_id}: {p.get("status")}/{p.get("status_detail")} '
+          f'marca={marca} cuotas={p.get("installments")} '
+          f'bin={card.get("first_six_digits")} last4={card.get("last_four_digits")}')
+    return {
+        'bin': card.get('first_six_digits'),
+        'last4': card.get('last_four_digits'),
+        'payment_method_id': MP_A_PW.get(marca),
+        'installments': p.get('installments'),
+        'holder_name': tit.get('name'),
+        'holder_doc': re.sub(r'\D', '', str(ident.get('number') or '')),
+        'holder_doc_type': (ident.get('type') or 'dni').lower(),
+        'expiration': f'{int(exp_m):02d}/{exp_a}' if exp_m and exp_a else '',
+        'payment_id': p.get('id'),
+        'auth_code': p.get('authorization_code'),
+        'cupon': (p.get('transaction_details') or {}).get('payment_method_reference_id'),
+        'tid': None, 'valdom': None,
+        'bank_code': None, 'bank_desc': p.get('status_detail'),
+    }
 
 
 def _partir(texto, prov_venta):
