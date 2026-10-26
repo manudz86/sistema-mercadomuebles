@@ -61,10 +61,17 @@ def reconstruir(venta_id):
     v = cur.fetchone()
     if not v:
         raise SystemExit(f'No existe la venta {venta_id}')
+    # El nombre sale de las DOS tablas de producto, como en el detalle de la
+    # venta (app.py): los sommiers y combos no estan en productos_base sino en
+    # productos_compuestos. Joineando solo contra base, un SEX160 llegaba a
+    # ClearSale como "SEX160" pelado, que al analista no le dice nada.
+    # (El flujo productivo de Payway no pasa por aca: el nombre ya viene en el
+    # carrito. Esto es solo para rearmar una venta ya cerrada.)
     cur.execute("""SELECT iv.sku, iv.cantidad, iv.precio_unitario,
-                          COALESCE(pb.nombre, iv.sku) AS nombre
+                          COALESCE(pb.nombre, pc.nombre, iv.sku) AS nombre
                    FROM items_venta iv
-                   LEFT JOIN productos_base pb ON pb.sku = iv.sku
+                   LEFT JOIN productos_base pb       ON pb.sku = iv.sku
+                   LEFT JOIN productos_compuestos pc ON pc.sku = iv.sku
                    WHERE iv.venta_id=%s""", (venta_id,))
     items = cur.fetchall()
     notas = v.get('notas') or ''
