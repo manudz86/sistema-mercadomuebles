@@ -9053,7 +9053,18 @@ def webhook_clearsale_test():
     if not auth_ok:
         # Se registra igual (queremos ver el intento), pero se responde 401
         return jsonify({'ok': False, 'error': 'unauthorized'}), 401
-    return jsonify({'ok': True}), 200
+
+    # Además de registrar, procesa: en la cuenta de sandbox está dada de alta
+    # ESTA url, no la productiva, así que si no procesara acá los cambios de
+    # estado nunca llegarían a la venta y no se podría probar el circuito.
+    # Delega en el handler productivo, que es idempotente, para no tener dos
+    # implementaciones que se desincronicen. Cuando ClearSale registre la url
+    # productiva, este endpoint deja de recibir tráfico y no molesta.
+    try:
+        return webhook_clearsale()
+    except Exception as e:
+        logger.error(f'[clearsale_test] no se pudo procesar: {e}')
+        return jsonify({'ok': True}), 200
 
 
 # ════════════════════════════════════════════════════════════════════════════
