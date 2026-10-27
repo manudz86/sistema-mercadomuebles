@@ -154,6 +154,51 @@ def _mismo_nombre(a, b):
     return na <= nb or nb <= na
 
 
+# ── Estados y qué habilitan ──────────────────────────────────────────────────
+# Clasificación de los códigos de ClearSale. De esto depende qué se puede
+# despachar, así que cualquier cambio acá se mira dos veces.
+CS_APRUEBAN = {'APA', 'APM', 'APG'}            # aprobada: se puede entregar
+CS_RECHAZAN = {'RPA', 'RPM', 'RPP', 'FRD'}     # rechazada / fraude confirmado
+CS_EN_CURSO = {'NVO', 'AMA', 'SUS'}            # todavía analizando
+CS_REVISAR  = {'ERR', 'CAN'}                   # error de envío o cancelada
+
+CS_ETIQUETAS = {
+    'NVO': 'Nueva, sin analizar',   'AMA': 'En análisis',
+    'SUS': 'Suspendida',            'APA': 'Aprobada automáticamente',
+    'APM': 'Aprobada por analista', 'APG': 'Aprobada por regla',
+    'RPA': 'Rechazada automáticamente', 'RPM': 'Rechazada por analista',
+    'RPP': 'Rechazada por política',    'FRD': 'Fraude confirmado',
+    'CAN': 'Cancelada',             'ERR': 'Error al enviar a ClearSale',
+}
+
+
+def bloquea_entrega(clearsale_estado, modo_actual):
+    """¿Hay que frenar el despacho de esta venta? Devuelve (bloquea, motivo).
+
+    Dos reglas que importan:
+
+    * En modo '0' y 'sombra' NUNCA bloquea. Sombra existe justamente para
+      observar sin cambiar la operación; si frenara entregas dejaría de ser
+      sombra.
+
+    * Una venta SIN estado de ClearSale nunca se bloquea. Son todas las de
+      Mercado Pago, Mercado Libre, las de retiro y las de Payway anteriores
+      a la integración. Bloquearlas frenaría el negocio entero.
+    """
+    if str(modo_actual or '0') != '1':
+        return False, ''
+    e = str(clearsale_estado or '').strip().upper()
+    if not e or e in CS_APRUEBAN:
+        return False, ''
+    if e in CS_RECHAZAN:
+        return True, f'ClearSale rechazó la operación ({e} — {CS_ETIQUETAS.get(e, e)}).'
+    if e in CS_EN_CURSO:
+        return True, f'ClearSale todavía está analizando ({e} — {CS_ETIQUETAS.get(e, e)}).'
+    # ERR, CAN y cualquier código que no conozcamos: frenar y que lo mire
+    # una persona. Preferimos una entrega demorada a una entrega indebida.
+    return True, f'Estado de ClearSale sin resolver ({e} — {CS_ETIQUETAS.get(e, e)}): revisalo a mano.'
+
+
 def _log(nivel, msg):
     if logger:
         getattr(logger, nivel, logger.info)(f'[clearsale] {msg}')

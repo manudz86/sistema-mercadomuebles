@@ -191,6 +191,26 @@
             <h5 class="mb-0"><i class="bi bi-cash-coin"></i> Pago</h5>
         </div>
         <div class="card-body">
+            {# Antifraude ClearSale. Solo aparece si la venta tiene estado: las
+               de Mercado Pago, Mercado Libre y las de Payway anteriores a la
+               integracion no pasan por ClearSale y no deben mostrar nada. #}
+            {% if venta.clearsale_estado %}
+            {% set _cs = venta.clearsale_estado|upper %}
+            <div class="alert {% if _cs in cs_aprueban %}alert-success{% elif _cs in cs_rechazan %}alert-danger{% elif _cs in cs_en_curso %}alert-warning{% else %}alert-secondary{% endif %}">
+                <strong>🛡️ ClearSale: {{ cs_etiquetas.get(_cs, _cs) }} ({{ _cs }})</strong>
+                {% if venta.clearsale_score %} · score {{ venta.clearsale_score }}{% endif %}
+                {% if venta.clearsale_order_id %}
+                    <br><small>Orden: <code>{{ venta.clearsale_order_id }}</code></small>
+                {% endif %}
+                {% if venta.clearsale_actualizado %}
+                    <br><small>Actualizado: {{ venta.clearsale_actualizado }}</small>
+                {% endif %}
+                {% if _cs not in cs_aprueban %}
+                    <br><small>Mientras no esté aprobada, el sistema no permite
+                    despacharla ni marcarla como entregada.</small>
+                {% endif %}
+            </div>
+            {% endif %}
             <div class="alert alert-warning">
                 <i class="bi bi-exclamation-triangle"></i>
                 <strong>Importante:</strong> El <strong>Importe Total</strong> se calcula automáticamente de los productos. Lo <strong>Abonado</strong> es independiente.

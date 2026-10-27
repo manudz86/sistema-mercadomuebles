@@ -527,8 +527,17 @@
                     {% if venta.pago_tarjeta and venta.pago_tarjeta > 0 %}
                         <br><small class="text-muted">Tarj: ${{ "{:,.0f}".format(venta.pago_tarjeta) }}</small>
                     {% endif %}
+                    {# Antifraude. Va en la celda de pago porque es el estado del
+                       cobro, y evita sumar una columna al ancho de la tabla. #}
+                    {% if venta.clearsale_estado %}
+                        {% set _cs = venta.clearsale_estado|upper %}
+                        <br><span class="badge {% if _cs in cs_aprueban %}bg-success{% elif _cs in cs_rechazan %}bg-danger{% elif _cs in cs_en_curso %}bg-warning text-dark{% else %}bg-secondary{% endif %}"
+                              title="ClearSale: {{ cs_etiquetas.get(_cs, _cs) }}{% if venta.clearsale_score %} · score {{ venta.clearsale_score }}{% endif %}">
+                            🛡️ {{ _cs }}{% if venta.clearsale_score %} · {{ venta.clearsale_score }}{% endif %}
+                        </span>
+                    {% endif %}
                 </td>
-                
+
                 <!-- ENTREGA -->
                 <td>
                     {% if venta.tipo_entrega in ['retiro', 'Retiro'] or not venta.metodo_envio %}

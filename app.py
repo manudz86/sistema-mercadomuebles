@@ -55,6 +55,22 @@ login_manager.login_message = '⚠️ Debés iniciar sesión para acceder'
 login_manager.login_message_category = 'warning'
 
 @app.context_processor
+def inject_clearsale():
+    """Clasificación de estados de ClearSale para los templates, así el color
+    del badge sale de un solo lugar y no se repite la lógica en cada vista.
+    Son referencias a constantes: no toca la base."""
+    try:
+        import clearsale
+        return {'cs_etiquetas': clearsale.CS_ETIQUETAS,
+                'cs_aprueban':  clearsale.CS_APRUEBAN,
+                'cs_rechazan':  clearsale.CS_RECHAZAN,
+                'cs_en_curso':  clearsale.CS_EN_CURSO}
+    except Exception:
+        return {'cs_etiquetas': {}, 'cs_aprueban': set(),
+                'cs_rechazan': set(), 'cs_en_curso': set()}
+
+
+@app.context_processor
 def inject_alertas_pendientes():
     """Inyecta el contador de alertas en todos los templates"""
     reclamos_count = 0
@@ -901,6 +917,33 @@ def index():
 
 
 # ============================================================================
+# FUNCIONES AUXILIARES: ANTIFRAUDE (ClearSale)
+# ============================================================================
+
+def clearsale_modo_actual():
+    """'0', 'sombra' o '1'. Se lee una sola vez por request y se pasa a
+    clearsale_bloquea, para no abrir una conexión por venta en los masivos."""
+    try:
+        import clearsale
+        return clearsale.modo()
+    except Exception as e:
+        print(f'[clearsale] no pude leer el modo: {e}', flush=True)
+        return '0'
+
+
+def clearsale_bloquea(venta, modo_cs):
+    """(bloquea, motivo) para una venta. FAIL-OPEN a propósito: si algo de
+    ClearSale falla, la entrega sigue. Un antifraude que frena la operación
+    por un error propio hace más daño que no tenerlo."""
+    try:
+        import clearsale
+        return clearsale.bloquea_entrega(venta.get('clearsale_estado'), modo_cs)
+    except Exception as e:
+        print(f'[clearsale] no pude evaluar el bloqueo de entrega: {e}', flush=True)
+        return False, ''
+
+
+# ============================================================================
 # FUNCIONES AUXILIARES: VERIFICACIÓN DE STOCK
 # Agregar ANTES de las rutas de /ventas/activas en app.py
 # ============================================================================
@@ -1373,7 +1416,9 @@ def exportar_ventas_activas_excel():
     query = '''SELECT v.id, v.numero_venta, v.fecha_venta, v.canal, v.mla_code,
         v.nombre_cliente, v.telefono_cliente, v.tipo_entrega, v.metodo_envio, v.zona_envio,
         v.direccion_entrega, v.costo_flete, v.metodo_pago, v.importe_total, v.importe_abonado,
-        v.estado_pago, v.notas, v.cancelada_en_ml FROM ventas v WHERE v.estado_entrega = 'pendiente' '''
+        v.estado_pago, v.notas, v.cancelada_en_ml,
+        v.clearsale_estado, v.clearsale_score
+        FROM ventas v WHERE v.estado_entrega = 'pendiente' '''
     params = []
     if filtro_buscar:
         query += ' AND (v.mla_code LIKE %s OR v.nombre_cliente LIKE %s OR v.id IN (SELECT venta_id FROM items_venta WHERE sku LIKE %s))'
@@ -2372,6 +2417,17 @@ def pasar_a_proceso(venta_id):
             flash('⚠️ Esa venta ya no está activa (quizás cambió de estado en otra pestaña). Actualizá la página.', 'warning')
             return redirect(url_for('ventas_activas'))
 
+        # ── Antifraude: acá se descuenta el stock y arranca el despacho ──────
+        # Es la barrera que de verdad evita que la mercadería salga, antes de
+        # que marcar "entregada" sea solo registrar lo ya ocurrido.
+        _bloquea, _motivo = clearsale_bloquea(venta, clearsale_modo_actual())
+        if _bloquea:
+            flash(f'🛡️ No se puede despachar {venta["numero_venta"]}: {_motivo}', 'error')
+            log_evento('WARNING', 'clearsale', 'despacho_bloqueado',
+                       f'{venta["numero_venta"]}: {_motivo}', venta_id=venta_id,
+                       usuario=current_user.username if current_user.is_authenticated else 'Sistema')
+            return redirect(url_for('ventas_activas'))
+
         # Obtener items
         cursor.execute('SELECT * FROM items_venta WHERE venta_id = %s', (venta_id,))
         items = cursor.fetchall()
@@ -2445,7 +2501,16 @@ def marcar_entregada(venta_id):
         if not venta:
             flash('Venta no encontrada', 'error')
             return redirect(url_for('ventas_activas'))
-        
+
+        # ── Antifraude: no despachar lo que ClearSale no aprobó ──────────────
+        _bloquea, _motivo = clearsale_bloquea(venta, clearsale_modo_actual())
+        if _bloquea:
+            flash(f'🛡️ No se puede entregar {venta["numero_venta"]}: {_motivo}', 'error')
+            log_evento('WARNING', 'clearsale', 'entrega_bloqueada',
+                       f'{venta["numero_venta"]}: {_motivo}', venta_id=venta_id,
+                       usuario=current_user.username if current_user.is_authenticated else 'Sistema')
+            return redirect(url_for('ventas_activas'))
+
         # Si está pendiente, necesita descontar stock
         if venta['estado_entrega'] == 'pendiente':
             cursor.execute('SELECT * FROM items_venta WHERE venta_id = %s', (venta_id,))
@@ -2698,6 +2763,8 @@ def pasar_a_proceso_multiple():
         
         ventas_procesadas = 0
         ventas_sin_stock = []
+        ventas_bloqueadas = []          # frenadas por el antifraude
+        modo_cs = clearsale_modo_actual()
         
         for venta_id in venta_ids:
             try:
@@ -2707,14 +2774,27 @@ def pasar_a_proceso_multiple():
                 
                 if not venta or venta['estado_entrega'] != 'pendiente':
                     continue
-                
+
+                # ── Antifraude ───────────────────────────────────────────────
+                # Misma barrera que en el despacho individual: acá se descuenta
+                # el stock. Saltea la venta y se informa al final.
+                _bloquea, _motivo = clearsale_bloquea(venta, modo_cs)
+                if _bloquea:
+                    ventas_bloqueadas.append({'numero': venta['numero_venta'],
+                                              'motivo': _motivo})
+                    log_evento('WARNING', 'clearsale', 'despacho_bloqueado',
+                               f'{venta["numero_venta"]}: {_motivo} (masivo)',
+                               venta_id=int(venta_id),
+                               usuario=current_user.username if current_user.is_authenticated else 'Sistema')
+                    continue
+
                 # Obtener items
                 cursor.execute('SELECT * FROM items_venta WHERE venta_id = %s', (venta_id,))
                 items = cursor.fetchall()
-                
+
                 # VERIFICAR STOCK ANTES DE DESCONTAR
                 hay_stock, errores = verificar_stock_disponible(cursor, items, venta['ubicacion_despacho'])
-                
+
                 if not hay_stock:
                     # No hay stock - agregar a lista de errores
                     ventas_sin_stock.append({
@@ -2722,7 +2802,7 @@ def pasar_a_proceso_multiple():
                         'errores': errores
                     })
                     continue
-                
+
                 # HAY STOCK - PROCEDER CON DESCUENTO
                 for item in items:
                     descontar_stock_item(cursor, item, venta['ubicacion_despacho'])
@@ -2748,7 +2828,15 @@ def pasar_a_proceso_multiple():
         # MENSAJES
         if ventas_procesadas > 0:
             flash(f'✅ {ventas_procesadas} venta(s) pasadas a Proceso de Envío. Stock descontado.', 'success')
-        
+
+        if ventas_bloqueadas:
+            msg_cs = ('<div class="alert alert-danger"><strong>🛡️ El antifraude frenó '
+                      'el despacho de estas ventas:</strong><ul class="mt-2">')
+            for v in ventas_bloqueadas:
+                msg_cs += f'<li><strong>{v["numero"]}</strong> — {v["motivo"]}</li>'
+            msg_cs += '</ul></div>'
+            flash(msg_cs, 'error_stock')
+
         if ventas_sin_stock:
             mensaje_html = '<div class="alert alert-warning"><strong>⚠️ Algunas ventas no se pudieron procesar por falta de stock:</strong><ul class="mt-2">'
             for v in ventas_sin_stock:
@@ -2759,7 +2847,7 @@ def pasar_a_proceso_multiple():
             mensaje_html += '</ul></div>'
             flash(mensaje_html, 'error_stock')
         
-        if ventas_procesadas == 0 and not ventas_sin_stock:
+        if ventas_procesadas == 0 and not ventas_sin_stock and not ventas_bloqueadas:
             flash('❌ No se pudieron procesar las ventas seleccionadas', 'error')
         
         # Mantener filtros
@@ -2799,23 +2887,38 @@ def marcar_entregadas_multiple():
         
         ventas_procesadas = 0
         ventas_sin_stock = []
-        
+        ventas_bloqueadas = []          # frenadas por el antifraude
+        modo_cs = clearsale_modo_actual()
+
         for venta_id in venta_ids:
             try:
                 # Obtener venta
                 cursor.execute('SELECT * FROM ventas WHERE id = %s', (venta_id,))
                 venta = cursor.fetchone()
-                
+
                 if not venta or venta['estado_entrega'] != 'pendiente':
                     continue
-                
+
+                # ── Antifraude ───────────────────────────────────────────────
+                # Saltea esta venta y se informa al final: el lote sigue con
+                # las demás en vez de abortarse entero.
+                _bloquea, _motivo = clearsale_bloquea(venta, modo_cs)
+                if _bloquea:
+                    ventas_bloqueadas.append({'numero': venta['numero_venta'],
+                                              'motivo': _motivo})
+                    log_evento('WARNING', 'clearsale', 'entrega_bloqueada',
+                               f'{venta["numero_venta"]}: {_motivo} (masivo)',
+                               venta_id=int(venta_id),
+                               usuario=current_user.username if current_user.is_authenticated else 'Sistema')
+                    continue
+
                 # Si está pendiente, necesita descontar stock
                 cursor.execute('SELECT * FROM items_venta WHERE venta_id = %s', (venta_id,))
                 items = cursor.fetchall()
-                
+
                 # VERIFICAR STOCK ANTES DE DESCONTAR
                 hay_stock, errores = verificar_stock_disponible(cursor, items, venta['ubicacion_despacho'])
-                
+
                 if not hay_stock:
                     # No hay stock - agregar a lista de errores
                     ventas_sin_stock.append({
@@ -2823,15 +2926,15 @@ def marcar_entregadas_multiple():
                         'errores': errores
                     })
                     continue
-                
+
                 # HAY STOCK - DESCONTAR
                 for item in items:
                     descontar_stock_item(cursor, item, venta['ubicacion_despacho'])
-                
+
                 # Actualizar estado Y FECHA DE ENTREGA
                 # NOTA: VPS corre en UTC; restamos 3 horas para guardar fecha/hora Argentina (GMT-3)
                 cursor.execute('''
-                    UPDATE ventas 
+                    UPDATE ventas
                     SET estado_entrega = 'entregada',
                         fecha_entrega = DATE_SUB(NOW(), INTERVAL 3 HOUR),
                         fecha_modificacion = NOW()
@@ -2855,6 +2958,14 @@ def marcar_entregadas_multiple():
         if ventas_procesadas > 0:
             flash(f'✅ {ventas_procesadas} venta(s) marcadas como Entregadas.', 'success')
         
+        if ventas_bloqueadas:
+            msg_cs = ('<div class="alert alert-danger"><strong>🛡️ El antifraude frenó '
+                      'estas ventas:</strong><ul class="mt-2">')
+            for v in ventas_bloqueadas:
+                msg_cs += f'<li><strong>{v["numero"]}</strong> — {v["motivo"]}</li>'
+            msg_cs += '</ul></div>'
+            flash(msg_cs, 'error_stock')
+
         if ventas_sin_stock:
             mensaje_html = '<div class="alert alert-warning"><strong>⚠️ Algunas ventas no se pudieron marcar como entregadas por falta de stock:</strong><ul class="mt-2">'
             for v in ventas_sin_stock:
@@ -2865,7 +2976,7 @@ def marcar_entregadas_multiple():
             mensaje_html += '</ul></div>'
             flash(mensaje_html, 'error_stock')
         
-        if ventas_procesadas == 0 and not ventas_sin_stock:
+        if ventas_procesadas == 0 and not ventas_sin_stock and not ventas_bloqueadas:
             flash('❌ No se pudieron procesar las ventas seleccionadas', 'error')
         
         # Mantener filtros
@@ -3159,17 +3270,27 @@ def proceso_marcar_entregada(venta_id):
     
     try:
         # Obtener venta
-        cursor.execute('SELECT numero_venta, estado_entrega FROM ventas WHERE id = %s', (venta_id,))
+        cursor.execute('SELECT numero_venta, estado_entrega, clearsale_estado '
+                       'FROM ventas WHERE id = %s', (venta_id,))
         venta = cursor.fetchone()
-        
+
         if not venta:
             flash('Venta no encontrada', 'error')
             return redirect(url_for('ventas_proceso'))
-        
+
         if venta['estado_entrega'] != 'en_proceso':
             flash('La venta no está en proceso', 'warning')
             return redirect(url_for('ventas_proceso'))
-        
+
+        # ── Antifraude ───────────────────────────────────────────────────────
+        _bloquea, _motivo = clearsale_bloquea(venta, clearsale_modo_actual())
+        if _bloquea:
+            flash(f'🛡️ No se puede entregar {venta["numero_venta"]}: {_motivo}', 'error')
+            log_evento('WARNING', 'clearsale', 'entrega_bloqueada',
+                       f'{venta["numero_venta"]}: {_motivo}', venta_id=venta_id,
+                       usuario=current_user.username if current_user.is_authenticated else 'Sistema')
+            return redirect(url_for('ventas_proceso'))
+
         # Actualizar estado Y FECHA DE ENTREGA (NO descuenta stock, ya se descontó)
         # NOTA: VPS corre en UTC; restamos 3 horas para guardar fecha/hora Argentina (GMT-3)
         cursor.execute('''
@@ -3369,16 +3490,30 @@ def proceso_marcar_entregadas_multiple():
         cursor = conn.cursor()
         
         ventas_procesadas = 0
-        
+        ventas_bloqueadas = []          # frenadas por el antifraude
+        modo_cs = clearsale_modo_actual()
+
         for venta_id in venta_ids:
             try:
                 # Verificar que esté en proceso
-                cursor.execute('SELECT estado_entrega FROM ventas WHERE id = %s', (venta_id,))
+                cursor.execute('SELECT numero_venta, estado_entrega, clearsale_estado '
+                               'FROM ventas WHERE id = %s', (venta_id,))
                 venta = cursor.fetchone()
-                
+
                 if not venta or venta['estado_entrega'] != 'en_proceso':
                     continue
-                
+
+                # ── Antifraude ───────────────────────────────────────────────
+                _bloquea, _motivo = clearsale_bloquea(venta, modo_cs)
+                if _bloquea:
+                    ventas_bloqueadas.append({'numero': venta['numero_venta'],
+                                              'motivo': _motivo})
+                    log_evento('WARNING', 'clearsale', 'entrega_bloqueada',
+                               f'{venta["numero_venta"]}: {_motivo} (masivo)',
+                               venta_id=int(venta_id),
+                               usuario=current_user.username if current_user.is_authenticated else 'Sistema')
+                    continue
+
                 # Actualizar estado Y FECHA DE ENTREGA (NO descuenta stock)
                 # NOTA: VPS corre en UTC; restamos 3 horas para guardar fecha/hora Argentina (GMT-3)
                 cursor.execute('''
@@ -3399,11 +3534,19 @@ def proceso_marcar_entregadas_multiple():
         cursor.close()
         conn.close()
         
-        if ventas_procesadas == 0:
+        if ventas_bloqueadas:
+            msg_cs = ('<div class="alert alert-danger"><strong>🛡️ El antifraude frenó '
+                      'estas ventas:</strong><ul class="mt-2">')
+            for v in ventas_bloqueadas:
+                msg_cs += f'<li><strong>{v["numero"]}</strong> — {v["motivo"]}</li>'
+            msg_cs += '</ul></div>'
+            flash(msg_cs, 'error_stock')
+
+        if ventas_procesadas == 0 and not ventas_bloqueadas:
             flash('❌ No se pudieron procesar las ventas seleccionadas', 'error')
-        else:
+        elif ventas_procesadas:
             flash(f'✅ {ventas_procesadas} venta(s) marcadas como Entregadas.', 'success')
-        
+
         # Mantener filtros
         filtros = {}
         if request.form.get('buscar'):
