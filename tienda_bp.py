@@ -5307,8 +5307,24 @@ def checkout():
             except Exception as _em3:
                 logger.warning(f"[checkout] no se pudo crear preference 3 cuotas MP: {_em3}")
 
+        # ── ClearSale Behavior Analytics ─────────────────────────────────────
+        # El SessionID lo genera el backend y tiene que ser EL MISMO que viaja
+        # en la orden, así ClearSale puede asociar la huella del dispositivo
+        # con la transacción. Se guarda en la sesión para que pago_payway lo
+        # lea sin que el navegador pueda alterarlo.
+        try:
+            import clearsale as _cs
+            cs_session_id = _cs.nuevo_session_id(pedido_ref)
+            cs_app_id     = _cs.client_id()
+            session['cs_session_id'] = cs_session_id
+        except Exception as _e_cs:
+            logger.warning(f'[checkout] no se pudo preparar el SessionID de ClearSale: {_e_cs}')
+            cs_session_id = cs_app_id = ''
+
         return render_template(
             'tienda/checkout_bricks.html',
+            cs_session_id    = cs_session_id,
+            cs_app_id        = cs_app_id,
             preference_id    = preference['id'],
             mp_init_point    = preference['init_point'],
             mp_public_key    = os.getenv('MP_PUBLIC_KEY', ''),
@@ -6317,6 +6333,9 @@ def pago_payway():
             # ClearSale reciba BillingData real y no una copia del envío.
             _cli_cs = dict(cli)
             _cli_cs['_birth_date'] = birth_date
+            # Mismo SessionID que se inyectó en el script del checkout. Sale
+            # de la sesión, no del request: el navegador no puede alterarlo.
+            _cli_cs['_cs_session'] = session.get('cs_session_id') or ''
             if not billing_igual and billing['calle']:
                 _cli_cs['_billing'] = {
                     'calle': bl_street1, 'ciudad': bl_city,

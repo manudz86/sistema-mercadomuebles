@@ -3,6 +3,29 @@
 {% block titulo %}Pago seguro — Mercadomuebles{% endblock %}
 
 {% block contenido %}
+{# ── ClearSale Behavior Analytics ───────────────────────────────────────────
+   Huella del dispositivo y comportamiento de navegacion. El snippet es el
+   oficial de https://www.clear.sale/docs/behavior-analytics/sdk/browser
+   (script fp.js, objeto csdp). El objeto legacy csdm, de cs.js, NO va:
+   ClearSale lo confirmo el 27/10/2026.
+
+   El sessionid lo genera el backend y es el mismo que viaja en la orden; si
+   no coinciden, ClearSale no puede asociar la huella con la transaccion.
+   Va arriba de todo para que el script tenga tiempo de recolectar antes de
+   que el comprador apriete pagar. #}
+{% if cs_app_id and cs_session_id %}
+<script>
+  (function (a, b, c, d, e, f, g) {
+    a['CsdpObject'] = e; a[e] = a[e] || function () {
+      (a[e].q = a[e].q || []).push(arguments)
+    }, a[e].l = 1 * new Date(); f = b.createElement(c),
+    g = b.getElementsByTagName(c)[0]; f.async = 1; f.src = d;
+    g.parentNode.insertBefore(f, g)
+  })(window, document, 'script', '//device.clearsale.com.br/p/fp.js', 'csdp');
+  csdp('app', '{{ cs_app_id }}');
+  csdp('sessionid', '{{ cs_session_id }}');
+</script>
+{% endif %}
 <div style="max-width:600px; margin:40px auto; padding:0 16px 60px;">
 
   <h2 style="font-size:1.4rem; font-weight:700; color:#1a1a2e; margin-bottom:8px;">Completá tu pago</h2>

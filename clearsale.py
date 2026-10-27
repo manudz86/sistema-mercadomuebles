@@ -25,6 +25,7 @@ import json
 import os
 import re
 import threading
+import uuid
 import time
 from datetime import datetime
 
@@ -49,7 +50,27 @@ def _db():
 
 # ── Configuración ────────────────────────────────────────────────────────────
 def _base():
-    return (os.getenv('CLEARSALE_SANDBOX_URL') or 'https://sandbox.clear.sale').rstrip('/')
+    """URL base de la API. CLEARSALE_API_URL manda; si no está, se usa
+    CLEARSALE_SANDBOX_URL y por último el sandbox. Para pasar a producción
+    alcanza con definir CLEARSALE_API_URL=https://integration.clear.sale
+    (confirmada por ClearSale el 27/10/2026) junto con las credenciales
+    productivas, sin tocar código."""
+    return (os.getenv('CLEARSALE_API_URL')
+            or os.getenv('CLEARSALE_SANDBOX_URL')
+            or 'https://sandbox.clear.sale').rstrip('/')
+
+
+def client_id():
+    """El ClientId es además el AppID del script de Behavior Analytics, que
+    se inyecta en el HTML del checkout. No es un secreto."""
+    return os.getenv('CLEARSALE_CLIENT_ID', '').strip()
+
+
+def nuevo_session_id(numero_venta=''):
+    """SessionID para el fingerprint. ClearSale exige entre 7 y 128
+    caracteres y que sea EL MISMO que viaja en la orden."""
+    base = re.sub(r'[^A-Za-z0-9]', '', str(numero_venta or '')) or 'mm'
+    return f'{base}-{uuid.uuid4().hex}'[:128]
 
 
 def _creds():
@@ -322,28 +343,23 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
 
     tipo_entrega = str(cli.get('tipo_entrega') or 'envio')
     hist = historial_cliente(cli.get('dni'), cli.get('email'))
+    # Solo los cinco que ClearSale confirmó como funcionales para su algoritmo
+    # (mail de Mauricio Cortes, 27/10/2026). Pidió mantener el conjunto mínimo:
+    # el detalle de la pasarela no les aporta porque trabajan con muchas. Lo
+    # que sacamos de acá no se pierde, va a Obs, que es texto libre que lee el
+    # analista.
+    #
+    # MONTHS_WITHOUT_INTEREST queda afuera por dos razones: ClearSale lo pide
+    # "sólo en caso de que no se comparta en el Payments array" y nosotros ya
+    # mandamos QtyInstallments ahí; y además nuestras cuotas llevan coeficiente
+    # (3 cuotas = 1,116), así que no son sin interés salvo en la promo de
+    # miércoles y sábado — declararlas ahí sería un dato falso.
     custom = [c for c in [
         _cf('SHIPPING_TYPE',    tipo_entrega),
-        # En un retiro no hay transportista, así que metodo_envio viene vacío
-        # y el campo se caía. ClearSale lo quiere igual para distinguir el
-        # retiro en local, que es un patrón de riesgo propio.
-        _cf('SHIPPING_METHOD',  'Pick up' if tipo_entrega == 'retiro'
-                                else totales.get('metodo_envio')),
         _cf('IS_GUEST',         'true'),          # la tienda no tiene cuentas
-        _cf('REQUIRES_SHIPPING', 'false' if tipo_entrega == 'retiro' else 'true'),
-        # El código VTE de Payway es la validación de domicilio de Visa.
-        _cf('AVS_RESPONSE',     pago.get('valdom')),
-        _cf('GATEWAY',          'Payway'),
-        _cf('TRANSACTION_ID',   pago.get('payment_id')),
-        # MONTHS_WITHOUT_INTEREST queda afuera a propósito: nuestras cuotas
-        # llevan coeficiente (3 cuotas = 1,116), así que NO son sin interés
-        # salvo en la promo de miércoles y sábado. Mandar la cantidad ahí le
-        # daría un dato falso al analista; las cuotas van en Obs.
         _cf('TOTALORDERS',      hist.get('compras')),
         _cf('FIRSTORDERDATE',   hist.get('primera')),
         _cf('DECLINED_ATTEMPTS', hist.get('rechazos')),
-        _cf('BANK_RESULT_CODE', pago.get('bank_code')),
-        _cf('BANK_RESULT_DESCRIPTION', pago.get('bank_desc')),
     ] if c]
 
     # Obs duplica parte de lo anterior a propósito: es texto libre que el
@@ -364,6 +380,11 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
         f"tid={pago.get('tid')}" if pago.get('tid') else '',
         f"cuotas={pago.get('installments')}" if pago.get('installments') else '',
         f"banco={pago.get('bank_code')}/{pago.get('bank_desc')}" if pago.get('bank_code') else '',
+        # Estos tres salieron de CustomFields a pedido de ClearSale, pero el
+        # envío y la validación de domicilio del emisor sí le sirven al
+        # analista, así que quedan en el texto libre.
+        f"envio={'Pick up' if tipo_entrega == 'retiro' else (totales.get('metodo_envio') or 'sin especificar')}",
+        f"avs_visa={pago.get('valdom')}" if pago.get('valdom') else '',
         f"compras_previas={hist.get('compras')}" if hist.get('compras') is not None else '',
         f"primera_compra={hist.get('primera')}" if hist.get('primera') else '',
         f"rechazos_previos={hist.get('rechazos')}" if hist.get('rechazos') is not None else '',

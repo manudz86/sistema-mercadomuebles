@@ -100,6 +100,9 @@ def reconstruir(venta_id):
         'provincia': prov, 'cp': cp, 'piso_depto': '',
         'tipo_entrega': v.get('tipo_entrega'),
         '_capi_ip': '181.47.1.1', '_capi_ua': 'Mozilla/5.0',
+        # En vivo lo genera checkout() y lo inyecta en el script csdp; acá se
+        # genera igual para que el payload de prueba tenga la misma forma.
+        '_cs_session': clearsale.nuevo_session_id(v.get('numero_venta')),
     }
     nac = _nota(notas, 'Nacimiento')
     if nac:
