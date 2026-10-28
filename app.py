@@ -18766,13 +18766,17 @@ def iniciar_scheduler():
         # aplicar_veredicto_clearsale hace que solo uno avise.
         try:
             from tienda_bp import job_clearsale_respaldo
+            from datetime import datetime as _dt_cs, timedelta as _td_cs
             scheduler.add_job(
                 job_clearsale_respaldo,
                 'interval',
                 minutes=15,
                 id='clearsale_respaldo',
                 replace_existing=True,
-                max_instances=1
+                max_instances=1,
+                # Sin esto, cada reinicio corre el reloj 15 minutos y una venta
+                # esperando veredicto se demora de más. Arranca al minuto.
+                next_run_time=_dt_cs.now() + _td_cs(minutes=1)
             )
         except Exception as _e_cs:
             print(f"[clearsale] no se pudo programar el job de respaldo: {_e_cs}")

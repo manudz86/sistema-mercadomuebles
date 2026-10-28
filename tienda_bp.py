@@ -6414,9 +6414,9 @@ def pago_payway():
                       'bank_desc': ((_pw_det.get('error') or {}).get('reason') or {}).get('description')},
                 fecha=fecha_now)
             clearsale.enviar_async(venta_id, _orden_cs)
-            logger.info(f'[clearsale] venta {venta_id} encolada (modo={_cs_modo})')
+            _cs_log('info', f'[clearsale] venta {venta_id} encolada (modo={_cs_modo})')
     except Exception as _e_cs:
-        logger.error(f'[clearsale] no se pudo encolar la venta {venta_id}: {_e_cs}')
+        _cs_log('error', f'[clearsale] no se pudo encolar la venta {venta_id}: {_e_cs}')
 
     try:
         notificar_nueva_venta(venta_id)   # push a los iPhone suscriptos
@@ -7135,23 +7135,23 @@ def avisar_estado_pago(tipo, nombre_cliente, numero_venta, email_cliente=None,
     tumbar la venta que lo disparó."""
     cfg = AVISOS_PAGO.get(tipo)
     if not cfg:
-        logger.warning(f'[aviso_pago] tipo desconocido: {tipo}')
+        _cs_log('warning', f'[aviso_pago] tipo desconocido: {tipo}')
         return
     nombre = (nombre_cliente or 'Cliente').split()[0].title()
 
     if email_cliente:
         try:
             _email_estado_pago(cfg, nombre, numero_venta, email_cliente)
-            logger.info(f'[aviso_pago] mail {tipo} enviado para {numero_venta}')
+            _cs_log('info', f'[aviso_pago] mail {tipo} enviado para {numero_venta}')
         except Exception as e:
-            logger.warning(f'[aviso_pago] mail {tipo} fallo para {numero_venta}: {e}')
+            _cs_log('warning', f'[aviso_pago] mail {tipo} fallo para {numero_venta}: {e}')
 
     if telefono_cliente:
         try:
             r = _wa_estado_pago(cfg, nombre, numero_venta, telefono_cliente)
-            logger.info(f'[aviso_pago] wa {tipo} para {numero_venta}: {r}')
+            _cs_log('info', f'[aviso_pago] wa {tipo} para {numero_venta}: {r}')
         except Exception as e:
-            logger.warning(f'[aviso_pago] wa {tipo} fallo para {numero_venta}: {e}')
+            _cs_log('warning', f'[aviso_pago] wa {tipo} fallo para {numero_venta}: {e}')
 
 
 def _wa_estado_pago(cfg, nombre, numero_venta, telefono):
@@ -7229,6 +7229,15 @@ def _email_estado_pago(cfg, nombre, numero_venta, email_cliente):
             s.send_message(msg)
 
 
+def _cs_log(nivel, msg):
+    """Imprime SIEMPRE, además de loguear. La app no configura logging, así
+    que nada de lo que pasa por `logger` llega al journal. Este flujo frena
+    entregas y le escribe a compradores: necesitamos el rastro."""
+    print(f'[{nivel}] {msg}', flush=True)
+    getattr(logger, nivel if nivel in ('info', 'warning', 'error') else 'info',
+            logger.info)(msg)
+
+
 def job_clearsale_respaldo():
     """Red de seguridad por si un webhook se pierde: consulta a ClearSale el
     estado de las ventas que siguen esperando veredicto y aplica lo que
@@ -7273,10 +7282,10 @@ def job_clearsale_respaldo():
                 if aplicar_veredicto_clearsale(v, nuevo, origen='respaldo'):
                     cambios += 1
         if cambios:
-            logger.info(f'[clearsale_respaldo] {cambios} venta(s) actualizadas '
+            _cs_log('info', f'[clearsale_respaldo] {cambios} venta(s) actualizadas '
                         f'de {len(pendientes)} pendientes — el webhook no habia llegado')
     except Exception as e:
-        logger.error(f'[clearsale_respaldo] {type(e).__name__}: {e}')
+        _cs_log('error', f'[clearsale_respaldo] {type(e).__name__}: {e}')
     finally:
         try:
             if cur:
@@ -7315,11 +7324,11 @@ def aplicar_veredicto_clearsale(venta, estado, score=None, origen='webhook'):
                     (estado, score, venta['id'], anterior))
         db.commit()
         if not cur.rowcount:
-            logger.info(f'[clearsale] venta {venta["id"]}: otro proceso ya asentó '
+            _cs_log('info', f'[clearsale] venta {venta["id"]}: otro proceso ya asentó '
                         f'el estado, no aviso ({origen})')
             return False
 
-        logger.info(f'[clearsale] venta {venta["id"]} ({venta["numero_venta"]}): '
+        _cs_log('info', f'[clearsale] venta {venta["id"]} ({venta["numero_venta"]}): '
                     f'{anterior or "sin estado"} -> {estado} ({origen})')
         log_evento('INFO', 'clearsale', 'cambio_estado',
                    f'{venta["numero_venta"]}: {anterior or "sin estado"} -> {estado}'
@@ -7367,7 +7376,7 @@ def aplicar_veredicto_clearsale(venta, estado, score=None, origen='webhook'):
                          args=(dict(venta), estado, _ahora), daemon=True).start()
         return True
     except Exception as e:
-        logger.error(f'[clearsale] error aplicando el veredicto de '
+        _cs_log('error', f'[clearsale] error aplicando el veredicto de '
                      f'{venta.get("numero_venta")}: {e}')
         return False
     finally:
@@ -7392,7 +7401,7 @@ def _cs_avisar_veredicto(venta, estado, grupo):
         if grupo == 'rechazado':
             _aviso_interno_rechazo(venta, estado)
     except Exception as e:
-        logger.error(f'[clearsale] no pude avisar el veredicto de '
+        _cs_log('error', f'[clearsale] no pude avisar el veredicto de '
                      f'{venta.get("numero_venta")}: {e}')
 
 
@@ -7469,7 +7478,7 @@ def _aviso_interno_rechazo(venta, estado):
             s.starttls()
             s.login(smtp_user, smtp_pass)
             s.sendmail(mail_from, destinatarios, msg.as_string())
-    logger.info(f'[clearsale] aviso interno de rechazo enviado para {venta.get("numero_venta")}')
+    _cs_log('info', f'[clearsale] aviso interno de rechazo enviado para {venta.get("numero_venta")}')
 
 
 def enviar_email_confirmacion(payment_id, nombre_cliente, email_cliente, items,

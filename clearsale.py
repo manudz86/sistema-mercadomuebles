@@ -230,10 +230,17 @@ def bloquea_entrega(clearsale_estado, modo_actual):
 
 
 def _log(nivel, msg):
+    """Siempre imprime, además de loguear.
+
+    La app no configura logging, así que nada de lo que pasa por `logger`
+    llega al journal — ni INFO ni WARNING. Con el modo '1' este flujo frena
+    entregas y le escribe a los compradores, así que quedarnos sin rastro de
+    si un aviso salió o falló no es aceptable. print() sí se ve.
+    """
+    linea = f'[clearsale] {nivel.upper() if nivel != "info" else "info"}: {msg}'
+    print(linea, flush=True)
     if logger:
         getattr(logger, nivel, logger.info)(f'[clearsale] {msg}')
-    else:
-        print(f'[clearsale] {msg}', flush=True)
 
 
 def modo():
