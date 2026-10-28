@@ -6534,6 +6534,9 @@ def pago_payway():
             demora_dias=cli.get('demora_dias', 0),
             fecha_disponible=cli.get('fecha_disponible', ''),
             canal='payway',
+            # En modo '1' la venta entra esperando el veredicto de ClearSale y
+            # no se puede despachar: el mail tiene que decirlo.
+            en_verificacion=(_cs_modo == '1'),
         )
     except Exception as e:
         logger.warning(f"[pago_payway] Error email vendedor: {e}")
@@ -7400,16 +7403,32 @@ def _cs_avisar_veredicto(venta, estado, grupo):
                            telefono_cliente=venta.get('telefono_cliente'))
         if grupo == 'rechazado':
             _aviso_interno_rechazo(venta, estado)
+        else:
+            _aviso_interno_aprobacion(venta, estado)
     except Exception as e:
         _cs_log('error', f'[clearsale] no pude avisar el veredicto de '
                      f'{venta.get("numero_venta")}: {e}')
 
 
-def _aviso_interno_rechazo(venta, estado):
-    """Mail al equipo. Hay dos cosas que el sistema NO puede hacer solo y
-    alguien tiene que hacer a mano: cancelar el envío en Zipnova (su API no
-    expone cancelación y no guardamos el id del envío) y devolverle la plata
-    al comprador desde el panel de Payway."""
+def _aviso_interno_aprobacion(venta, estado):
+    """Mail al equipo cuando ClearSale aprueba: la venta que habia entrado
+    'en verificacion' ya se puede despachar. Sin esto el vendedor recibia el
+    aviso de que no podia tocarla y despues nada — tenia que acordarse de
+    volver a mirar."""
+    _mail_interno(
+        venta,
+        asunto=f"✅ Venta aprobada {venta.get('numero_venta')} — ya se puede despachar",
+        color='#28a745',
+        titulo='🛡️ ClearSale aprobó la venta',
+        cuerpo=(f"La venta <strong>{venta.get('numero_venta')}</strong> quedó aprobada "
+                f"(estado {estado}). Ya se puede pasar a proceso y despachar "
+                f"con normalidad."),
+        recuadro='')
+
+
+def _mail_interno(venta, asunto, color, titulo, cuerpo, recuadro=''):
+    """Mail al equipo con el encabezado y los datos de la venta. Lo comparten
+    el aviso de aprobación y el de rechazo para no duplicar el armado."""
     smtp_host = os.getenv('MAIL_SMTP_HOST', '')
     smtp_port = int(os.getenv('MAIL_SMTP_PORT', '465'))
     smtp_user = os.getenv('MAIL_SMTP_USER', '')
@@ -7419,25 +7438,18 @@ def _aviso_interno_rechazo(venta, estado):
                      (os.getenv('MAIL_VENDEDOR', smtp_user) or '').replace(';', ',').split(',')
                      if d.strip()]
     if not smtp_user or not smtp_pass or not destinatarios:
-        logger.warning('[clearsale] aviso interno de rechazo sin destinatarios')
+        _cs_log('warning', '[clearsale] aviso interno sin destinatarios configurados')
         return
 
-    envio_txt = ('Retiro en el local, no hay envío que cancelar.'
-                 if str(venta.get('tipo_entrega')) == 'retiro'
-                 else f"Envío por <strong>{venta.get('metodo_envio') or 'sin especificar'}</strong>: "
-                      f"hay que cancelarlo a mano.")
     html = f"""
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
                 background:#f6f6f6; padding:28px 12px;">
       <div style="max-width:600px; margin:0 auto; background:#fff; border-radius:12px; overflow:hidden;">
-        <div style="background:#dc3545; padding:20px 24px; color:#fff;">
-          <div style="font-size:1.1rem; font-weight:700;">🛡️ ClearSale rechazó una venta</div>
+        <div style="background:{color}; padding:20px 24px; color:#fff;">
+          <div style="font-size:1.1rem; font-weight:700;">{titulo}</div>
         </div>
         <div style="padding:24px;">
-          <p style="margin:0 0 16px; font-size:0.95rem;">
-            La venta <strong>{venta.get('numero_venta')}</strong> fue cancelada
-            automáticamente. Estado de ClearSale: <strong>{estado}</strong>.
-          </p>
+          <p style="margin:0 0 16px; font-size:0.95rem;">{cuerpo}</p>
           <table style="width:100%; font-size:0.9rem; border-collapse:collapse;">
             <tr><td style="padding:6px 0; color:#666;">Cliente</td>
                 <td style="padding:6px 0;"><strong>{venta.get('nombre_cliente') or '-'}</strong></td></tr>
@@ -7446,24 +7458,13 @@ def _aviso_interno_rechazo(venta, estado):
             <tr><td style="padding:6px 0; color:#666;">Contacto</td>
                 <td style="padding:6px 0;">{venta.get('email_cliente') or '-'} · {venta.get('telefono_cliente') or '-'}</td></tr>
           </table>
-          <div style="background:#fff3cd; border:1px solid #ffe69c; border-radius:8px;
-                      padding:14px 16px; margin-top:18px; font-size:0.9rem;">
-            <strong>Hay que hacer a mano:</strong>
-            <ol style="margin:8px 0 0 18px; padding:0;">
-              <li style="margin-bottom:6px;">Devolver el importe desde el panel de Payway.</li>
-              <li>{envio_txt}</li>
-            </ol>
-          </div>
-          <p style="font-size:0.85rem; color:#666; margin:16px 0 0;">
-            Al comprador ya se le avisó por mail y WhatsApp que la operación
-            fue cancelada y que se le reintegra el importe.
-          </p>
+          {recuadro}
         </div>
       </div>
     </div>"""
 
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = f"🛡️ ClearSale rechazó {venta.get('numero_venta')} — devolver ${float(venta.get('importe_abonado') or 0):,.0f}"
+    msg['Subject'] = asunto
     msg['From']    = f"Mercadomuebles <{mail_from}>"
     msg['To']      = ', '.join(destinatarios)
     msg.attach(MIMEText(html, 'html', 'utf-8'))
@@ -7478,7 +7479,41 @@ def _aviso_interno_rechazo(venta, estado):
             s.starttls()
             s.login(smtp_user, smtp_pass)
             s.sendmail(mail_from, destinatarios, msg.as_string())
-    _cs_log('info', f'[clearsale] aviso interno de rechazo enviado para {venta.get("numero_venta")}')
+    _cs_log('info', f'[clearsale] aviso interno enviado para {venta.get("numero_venta")}')
+
+
+def _aviso_interno_rechazo(venta, estado):
+    """Mail al equipo. Hay dos cosas que el sistema NO puede hacer solo y
+    alguien tiene que hacer a mano: devolverle la plata al comprador desde el
+    panel de Payway y cancelar el envio (Zipnova no expone cancelacion por
+    API y ademas no guardamos el id del envio)."""
+    envio_txt = ('Retiro en el local, no hay envio que cancelar.'
+                 if str(venta.get('tipo_entrega')) == 'retiro'
+                 else f"Envio por <strong>{venta.get('metodo_envio') or 'sin especificar'}</strong>: "
+                      f"hay que cancelarlo a mano.")
+    recuadro = f"""
+          <div style="background:#fff3cd; border:1px solid #ffe69c; border-radius:8px;
+                      padding:14px 16px; margin-top:18px; font-size:0.9rem;">
+            <strong>Hay que hacer a mano:</strong>
+            <ol style="margin:8px 0 0 18px; padding:0;">
+              <li style="margin-bottom:6px;">Devolver el importe desde el panel de Payway.</li>
+              <li>{envio_txt}</li>
+            </ol>
+          </div>
+          <p style="font-size:0.85rem; color:#666; margin:16px 0 0;">
+            Al comprador ya se le aviso por mail y WhatsApp que la operacion
+            fue cancelada y que se le reintegra el importe.
+          </p>"""
+    _mail_interno(
+        venta,
+        asunto=(f"🛡️ ClearSale rechazó {venta.get('numero_venta')} — "
+                f"devolver ${float(venta.get('importe_abonado') or 0):,.0f}"),
+        color='#dc3545',
+        titulo='🛡️ ClearSale rechazó una venta',
+        cuerpo=(f"La venta <strong>{venta.get('numero_venta')}</strong> fue cancelada "
+                f"automaticamente. Estado de ClearSale: <strong>{estado}</strong>."),
+        recuadro=recuadro)
+
 
 
 def enviar_email_confirmacion(payment_id, nombre_cliente, email_cliente, items,
@@ -7618,8 +7653,14 @@ def enviar_email_confirmacion(payment_id, nombre_cliente, email_cliente, items,
 
 def enviar_email_vendedor(payment_id, nombre_cliente, email_cliente, telefono,
                           items, tipo_entrega, direccion, importe_total, metodo_envio,
-                          demora_dias=0, fecha_disponible='', canal='mp'):
-    """Notifica al vendedor cuando entra una venta nueva."""
+                          demora_dias=0, fecha_disponible='', canal='mp',
+                          en_verificacion=False):
+    """Notifica al vendedor cuando entra una venta nueva.
+
+    `en_verificacion`: la venta esta esperando el veredicto de ClearSale y NO
+    se puede despachar todavia. Al vendedor se le dice "en verificacion"
+    porque es la verdad y es interno; al comprador se le dice "procesando".
+    """
     try:
         smtp_host   = os.getenv('MAIL_SMTP_HOST', '')
         smtp_port   = int(os.getenv('MAIL_SMTP_PORT', '465'))
@@ -7650,12 +7691,23 @@ def enviar_email_vendedor(payment_id, nombre_cliente, email_cliente, telefono,
               {f'(a partir del {fecha_disponible})' if fecha_disponible else ''}
             </div>"""
 
+        verificacion_html = ''
+        if en_verificacion:
+            verificacion_html = """
+            <div style="background:#fff3cd;border:2px solid #f0ad4e;border-radius:8px;padding:14px 16px;margin:0 0 14px;">
+              <strong>&#128737;&#65039; VENTA EN VERIFICACI&Oacute;N — NO DESPACHAR</strong><br>
+              El antifraude todav&iacute;a no se expidi&oacute;. El sistema no permite
+              pasarla a proceso ni marcarla como entregada hasta que se apruebe.
+              Te llega otro mail con el resultado.
+            </div>"""
+
         html = f"""
         <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;color:#1a1a2e;">
-          <div style="background:#1a7fe8;padding:20px;border-radius:10px 10px 0 0;text-align:center;">
-            <h2 style="color:#fff;margin:0;font-size:1.2rem;">🛒 Nueva venta — {("PW" if canal == "payway" else ("GN" if canal == "getnet" else "MP"))}-{payment_id}</h2>
+          <div style="background:{'#f0ad4e' if en_verificacion else '#1a7fe8'};padding:20px;border-radius:10px 10px 0 0;text-align:center;">
+            <h2 style="color:#fff;margin:0;font-size:1.2rem;">{'🛡️ Venta en verificación' if en_verificacion else '🛒 Nueva venta'} — {("PW" if canal == "payway" else ("GN" if canal == "getnet" else "MP"))}-{payment_id}</h2>
           </div>
           <div style="background:#fff;padding:24px;border:1px solid #e8e8e8;border-top:none;border-radius:0 0 10px 10px;">
+            {verificacion_html}
             {demora_html}
             <p><strong>Cliente:</strong> {nombre_cliente}</p>
             <p><strong>Email:</strong> {email_cliente or '—'}</p>
@@ -7678,7 +7730,9 @@ def enviar_email_vendedor(payment_id, nombre_cliente, email_cliente, telefono,
 
         msg = MIMEMultipart('alternative')
         prefijo_vend = 'PW' if canal == 'payway' else ('GN' if canal == 'getnet' else 'MP')
-        msg['Subject'] = f"🛒 Nueva venta {prefijo_vend}-{payment_id} — ${importe_total:,.0f}"
+        msg['Subject'] = (f"🛡️ Venta EN VERIFICACIÓN {prefijo_vend}-{payment_id} — ${importe_total:,.0f}"
+                          if en_verificacion else
+                          f"🛒 Nueva venta {prefijo_vend}-{payment_id} — ${importe_total:,.0f}")
         msg['From']    = f"Mercadomuebles <{mail_from}>"
         msg['To']      = mail_vend
         msg.attach(MIMEText(html, 'html'))
