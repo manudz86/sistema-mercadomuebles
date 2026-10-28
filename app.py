@@ -20966,6 +20966,11 @@ def productos_lista():
     coef_mp3_row = query_one("SELECT valor FROM configuracion WHERE clave='cuotas_mp3_coef'")
     cuotas_3_coef = float(coef_3_row['valor']) if coef_3_row and coef_3_row['valor'] else 1.11
     cuotas_6_coef = float(coef_6_row['valor']) if coef_6_row and coef_6_row['valor'] else 1.22
+    # 6 cuotas de Payway: coeficiente propio. GetNet 6 es MiPyME subsidiado y
+    # Payway 6 es plan comun, cuestan muy distinto. Si no esta, cae al de GetNet.
+    coef_6_pw_row = query_one("SELECT valor FROM configuracion WHERE clave='cuotas_6_payway_coef'")
+    cuotas_6_payway_coef = (float(coef_6_pw_row['valor'])
+                            if coef_6_pw_row and coef_6_pw_row['valor'] else cuotas_6_coef)
     cuotas_12_coef = float(coef_12_row['valor']) if coef_12_row and coef_12_row['valor'] else 1.6
     cuotas_mp3_coef = float(coef_mp3_row['valor']) if coef_mp3_row and coef_mp3_row['valor'] else 1.18
 
@@ -21000,6 +21005,7 @@ def productos_lista():
         nl_minimo     = nl_minimo,
         cuotas_3_coef = cuotas_3_coef,
         cuotas_6_coef = cuotas_6_coef,
+        cuotas_6_payway_coef = cuotas_6_payway_coef,
         cuotas_12_coef = cuotas_12_coef,
         cuotas_mp3_coef = cuotas_mp3_coef,
         payway_enabled = payway_enabled,
@@ -21060,11 +21066,13 @@ def productos_cuotas_coeficientes():
     coef_6 = request.form.get('coef_6', '').strip()
     coef_12 = request.form.get('coef_12', '').strip()
     coef_mp3 = request.form.get('coef_mp3', '').strip()
+    coef_6_pw = request.form.get('coef_6_pw', '').strip()
     try:
         coef_3_f = round(max(1.0, float(coef_3)), 4) if coef_3 else 1.11
         coef_6_f = round(max(1.0, float(coef_6)), 4) if coef_6 else 1.22
         coef_12_f = round(max(1.0, float(coef_12)), 4) if coef_12 else 1.6
         coef_mp3_f = round(max(1.0, float(coef_mp3)), 4) if coef_mp3 else 1.18
+        coef_6_pw_f = round(max(1.0, float(coef_6_pw)), 4) if coef_6_pw else coef_6_f
         execute_db(
             "INSERT INTO configuracion (clave, valor) VALUES ('cuotas_3_coef', %s) ON DUPLICATE KEY UPDATE valor=%s",
             (str(coef_3_f), str(coef_3_f))
@@ -21080,6 +21088,10 @@ def productos_cuotas_coeficientes():
         execute_db(
             "INSERT INTO configuracion (clave, valor) VALUES ('cuotas_mp3_coef', %s) ON DUPLICATE KEY UPDATE valor=%s",
             (str(coef_mp3_f), str(coef_mp3_f))
+        )
+        execute_db(
+            "INSERT INTO configuracion (clave, valor) VALUES ('cuotas_6_payway_coef', %s) ON DUPLICATE KEY UPDATE valor=%s",
+            (str(coef_6_pw_f), str(coef_6_pw_f))
         )
         pct_3 = round((coef_3_f - 1) * 100, 1)
         pct_6 = round((coef_6_f - 1) * 100, 1)

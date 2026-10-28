@@ -2132,6 +2132,28 @@ def get_coeficientes_cuotas():
     return coef_3, coef_6
 
 
+def get_coef_6_payway():
+    """Coeficiente de 6 cuotas de PAYWAY, separado del de GetNet.
+
+    Los dos son "6 cuotas" pero cuestan muy distinto: el de GetNet es MiPyME
+    de Santander (subsidiado) y el de Payway es plan común, que al 28/10/2026
+    tiene una tasa directa de 23,61% — o sea un equilibrio de 1,3175. Con un
+    único coeficiente compartido, ajustar uno rompía el otro.
+
+    Si la clave no está, cae a cuotas_6_coef para no cambiar nada en silencio.
+    """
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("SELECT valor FROM configuracion WHERE clave='cuotas_6_payway_coef'")
+        row = cur.fetchone()
+        cur.close(); db.close()
+        if row and row['valor']:
+            return float(row['valor'])
+    except Exception:
+        pass
+    return get_coeficientes_cuotas()[1]
+
+
 def get_coef_12():
     """Coeficiente de recargo para 12 cuotas (MercadoPago). Default 1.6."""
     try:
@@ -2267,6 +2289,26 @@ def hay_3cuotas_activo():
     return payway_cuotas_activo() or mp_3_cuotas_activo()
 
 
+def _flag_activo(clave):
+    """Lee un flag on/off de configuracion. Default OFF."""
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("SELECT valor FROM configuracion WHERE clave=%s", (clave,))
+        row = cur.fetchone()
+        cur.close(); db.close()
+        return bool(row and row['valor'] == '1')
+    except Exception:
+        return False
+
+
+def getnet_activo():
+    return _flag_activo('getnet_enabled')
+
+
+def payway_6_activo():
+    return _flag_activo('payway_6_enabled')
+
+
 def calc_cuotas_producto(precio):
     """calc_cuotas para la página de producto: la de '3 cuotas' usa el MENOR
     coeficiente entre los medios de 3 cuotas ACTIVOS (Payway 3c / MercadoPago 3c)."""
@@ -2275,7 +2317,13 @@ def calc_cuotas_producto(precio):
     if payway_cuotas_activo(): coefs.append(get_coef_3_payway())
     if mp_3_cuotas_activo():   coefs.append(get_coef_mp3())
     c3_ef = min(coefs) if coefs else c3
-    return calc_cuotas(precio, c3_ef, c6, get_coef_12())
+    # 6 cuotas: mismo criterio que arriba. GetNet y Payway 6 tienen costos
+    # distintos, asi que se muestra el menor de los que esten activos.
+    coefs6 = []
+    if getnet_activo():     coefs6.append(c6)
+    if payway_6_activo():   coefs6.append(get_coef_6_payway())
+    c6_ef = min(coefs6) if coefs6 else c6
+    return calc_cuotas(precio, c3_ef, c6_ef, get_coef_12())
 
 
 def sku_colchon_a_conjunto(sku):
@@ -5136,7 +5184,7 @@ def checkout():
         coef_3, coef_6   = get_coeficientes_cuotas()
         # 3 cuotas: en días de promo el coef es 1.0 (mismo helper que usa el cobro real)
         total_pw_3       = round(total_a_pagar * get_coef_3_payway())
-        total_pw_6       = round(total_a_pagar * coef_6)
+        total_pw_6       = round(total_a_pagar * get_coef_6_payway())
         payway_api_url = os.getenv('PAYWAY_API_URL', 'https://live.decidir.com/api/v2')
         # SDK JS de Payway: sandbox usa developers.decidir.com, prod usa live.decidir.com
         payway_sdk_url = 'https://developers.decidir.com/static/v2.6.4/decidir.js' \
@@ -6014,7 +6062,7 @@ def pago_payway():
     coef_3, coef_6    = get_coeficientes_cuotas()
     # 3 cuotas: mismo helper que la vitrina del checkout (en días de promo = 1.0),
     # así el monto mostrado y el cobrado no pueden divergir.
-    coef              = get_coef_3_payway() if installments == 3 else coef_6
+    coef              = get_coef_3_payway() if installments == 3 else get_coef_6_payway()
     total_productos   = sum(float(it['precio']) * int(it['cantidad']) for it in cart_items)
 
     # Cupón aplica solo a productos (no al flete)

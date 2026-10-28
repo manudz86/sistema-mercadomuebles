@@ -85,6 +85,13 @@
             <input type="number" id="coef-3-input" class="form-control" min="1" max="3" step="0.01"
                    value="{{ cuotas_3_coef }}" placeholder="1.11">
           </div>
+          {# Payway 6 y GetNet 6 tienen coeficiente propio: el de GetNet es
+             MiPyME subsidiado y el de Payway es plan comun, mucho mas caro. #}
+          <div class="input-group input-group-sm" style="width:180px">
+            <span class="input-group-text">6c (Payway) ×</span>
+            <input type="number" id="coef-6-pw-input" class="form-control" min="1" max="3" step="0.01"
+                   value="{{ cuotas_6_payway_coef }}" placeholder="1.32">
+          </div>
           <div class="input-group input-group-sm" style="width:175px">
             <span class="input-group-text">6c (GetNet) ×</span>
             <input type="number" id="coef-6-input" class="form-control" min="1" max="3" step="0.01"
@@ -486,17 +493,19 @@ if (btnDes) {
   });
 }
 
-// ── Coeficientes cuotas (Payway 3c / GetNet 6c / MP 12c) ──────────────────────
+// ── Coeficientes cuotas (Payway 3c y 6c / GetNet 6c / MP 12c y 3c) ───────────
 document.getElementById('btn-coef-guardar').addEventListener('click', function() {
   const coef3 = document.getElementById('coef-3-input').value;
   const coef6 = document.getElementById('coef-6-input').value;
   const coef12 = document.getElementById('coef-12-input').value;
   const coefmp3 = document.getElementById('coef-mp3-input').value;
+  const coef6pw = document.getElementById('coef-6-pw-input').value;
   const fd = new FormData();
   fd.append('coef_3', coef3);
   fd.append('coef_6', coef6);
   fd.append('coef_12', coef12);
   fd.append('coef_mp3', coefmp3);
+  fd.append('coef_6_pw', coef6pw);
   fetch('/productos/cuotas-coeficientes', { method: 'POST', body: fd })
     .then(r => r.json())
     .then(data => {
