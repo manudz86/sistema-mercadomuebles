@@ -18759,6 +18759,23 @@ def iniciar_scheduler():
             replace_existing=True,
             max_instances=1
         )
+        # Red de seguridad de ClearSale: si un webhook se pierde, la venta
+        # queda esperando veredicto para siempre. Cada 15 minutos alcanza:
+        # el webhook normalmente llega en segundos y esto es el plan B.
+        # Corre en los 5 workers, pero el UPDATE condicional de
+        # aplicar_veredicto_clearsale hace que solo uno avise.
+        try:
+            from tienda_bp import job_clearsale_respaldo
+            scheduler.add_job(
+                job_clearsale_respaldo,
+                'interval',
+                minutes=15,
+                id='clearsale_respaldo',
+                replace_existing=True,
+                max_instances=1
+            )
+        except Exception as _e_cs:
+            print(f"[clearsale] no se pudo programar el job de respaldo: {_e_cs}")
 
         # Envío automático del email HOT MERCADOMUEBLES
         # Programado para el lunes 11/05/2026 a las 9:00 AM hora Argentina.

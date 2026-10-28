@@ -7181,6 +7181,157 @@ def _email_estado_pago(cfg, nombre, numero_venta, email_cliente):
             s.send_message(msg)
 
 
+def job_clearsale_respaldo():
+    """Red de seguridad por si un webhook se pierde: consulta a ClearSale el
+    estado de las ventas que siguen esperando veredicto y aplica lo que
+    encuentre, con la misma lógica que el webhook.
+
+    Sin esto, un aviso que no llega deja la venta trabada para siempre: en
+    modo '1' no se puede despachar y el comprador nunca recibe respuesta.
+
+    Mira solo los últimos 7 días y deja un margen de 10 minutos para no
+    pisarse con el webhook, que normalmente llega en segundos. Las que
+    quedaron en ERR no se consultan: esas nunca entraron a ClearSale, así que
+    preguntar por ellas no sirve — se avisan aparte para revisarlas a mano.
+    """
+    db = cur = None
+    try:
+        import clearsale as _cs
+        if _cs.modo() == '0':
+            return
+        db = get_db(); cur = db.cursor()
+        cur.execute("""SELECT id, numero_venta, clearsale_estado, clearsale_order_id,
+                              estado_entrega, nombre_cliente, email_cliente,
+                              telefono_cliente, importe_abonado, metodo_envio,
+                              tipo_entrega
+                       FROM ventas
+                       WHERE clearsale_estado IN ('NVO','AMA','SUS')
+                         AND clearsale_actualizado < NOW() - INTERVAL 10 MINUTE
+                         AND fecha_venta > NOW() - INTERVAL 7 DAY
+                       ORDER BY id""")
+        pendientes = cur.fetchall() or []
+        cur.close(); cur = None
+        db.close(); db = None
+        if not pendientes:
+            return
+
+        ids = [(v.get('clearsale_order_id') or v['numero_venta']) for v in pendientes]
+        estados = _cs.consultar(ids)       # una sola llamada para todas
+        cambios = 0
+        for v in pendientes:
+            oid = (v.get('clearsale_order_id') or v['numero_venta'])
+            nuevo = estados.get(oid.upper()) or estados.get(oid)
+            if nuevo and nuevo != (v.get('clearsale_estado') or ''):
+                if aplicar_veredicto_clearsale(v, nuevo, origen='respaldo'):
+                    cambios += 1
+        if cambios:
+            logger.info(f'[clearsale_respaldo] {cambios} venta(s) actualizadas '
+                        f'de {len(pendientes)} pendientes — el webhook no habia llegado')
+    except Exception as e:
+        logger.error(f'[clearsale_respaldo] {type(e).__name__}: {e}')
+    finally:
+        try:
+            if cur:
+                cur.close()
+            if db:
+                db.close()
+        except Exception:
+            pass
+
+
+def aplicar_veredicto_clearsale(venta, estado, score=None, origen='webhook'):
+    """Asienta un estado de ClearSale sobre una venta y actúa en consecuencia.
+    Lo usan el webhook y el job de respaldo, para que la lógica viva en un
+    solo lugar.
+
+    El UPDATE es CONDICIONAL Y ATÓMICO: solo escribe si el estado guardado
+    sigue siendo el que leímos. Si otro proceso se adelantó, rowcount es 0 y
+    salimos sin avisar. Hace falta porque gunicorn corre 5 workers y cada uno
+    levanta su propio scheduler: sin esto, el comprador podría recibir cinco
+    mails iguales. También cubre reintentos concurrentes de ClearSale.
+
+    Devuelve True si fue este proceso el que aplicó el cambio.
+    """
+    anterior = venta.get('clearsale_estado') or ''
+    if anterior == estado:
+        return False
+
+    db = cur = None
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("""UPDATE ventas
+                       SET clearsale_estado=%s, clearsale_score=%s,
+                           clearsale_actualizado=NOW()
+                       WHERE id=%s
+                         AND COALESCE(clearsale_estado,'')=%s""",
+                    (estado, score, venta['id'], anterior))
+        db.commit()
+        if not cur.rowcount:
+            logger.info(f'[clearsale] venta {venta["id"]}: otro proceso ya asentó '
+                        f'el estado, no aviso ({origen})')
+            return False
+
+        logger.info(f'[clearsale] venta {venta["id"]} ({venta["numero_venta"]}): '
+                    f'{anterior or "sin estado"} -> {estado} ({origen})')
+        log_evento('INFO', 'clearsale', 'cambio_estado',
+                   f'{venta["numero_venta"]}: {anterior or "sin estado"} -> {estado}'
+                   + (f' (score {score})' if score else '')
+                   + (f' [{origen}]' if origen != 'webhook' else ''),
+                   venta_id=venta['id'])
+
+        # ── Modo '1': actuar sobre el veredicto ──────────────────────────────
+        # Se dispara SOLO cuando cambia el GRUPO del estado: un APA que pasa a
+        # APM sigue siendo aprobado y no vuelve a avisarle al comprador.
+        import clearsale as _cs
+        if _cs.modo() != '1':
+            return True
+        _antes, _ahora = _cs.grupo_estado(anterior), _cs.grupo_estado(estado)
+        if _ahora == _antes or _ahora not in ('aprobado', 'rechazado'):
+            return True
+
+        if _ahora == 'aprobado' and _antes == 'rechazado':
+            # Un analista dio vuelta un rechazo. Sin esto la venta quedaría
+            # cancelada para siempre aunque ClearSale ya la haya aprobado.
+            cur.execute("""UPDATE ventas SET estado_entrega='pendiente',
+                                  fecha_modificacion=NOW()
+                           WHERE id=%s AND estado_entrega='cancelada'""",
+                        (venta['id'],))
+            db.commit()
+            if cur.rowcount:
+                log_evento('INFO', 'clearsale', 'venta_reactivada',
+                           f'{venta["numero_venta"]}: ClearSale revirtió el rechazo '
+                           f'({estado}), vuelve a activas', venta_id=venta['id'])
+        elif _ahora == 'rechazado':
+            # El bloqueo de despacho ya impedía que saliera, así que el stock
+            # no se descontó; por las dudas no tocamos una ya entregada.
+            cur.execute("""UPDATE ventas SET estado_entrega='cancelada',
+                                  fecha_modificacion=NOW()
+                           WHERE id=%s AND estado_entrega<>'entregada'""",
+                        (venta['id'],))
+            db.commit()
+            log_evento('WARNING', 'clearsale', 'venta_cancelada',
+                       f'{venta["numero_venta"]}: cancelada por ClearSale ({estado})',
+                       venta_id=venta['id'])
+
+        # Los avisos van en un hilo: ClearSale espera un 200 rápido y
+        # reintenta 5 veces si tardamos.
+        threading.Thread(target=_cs_avisar_veredicto,
+                         args=(dict(venta), estado, _ahora), daemon=True).start()
+        return True
+    except Exception as e:
+        logger.error(f'[clearsale] error aplicando el veredicto de '
+                     f'{venta.get("numero_venta")}: {e}')
+        return False
+    finally:
+        try:
+            if cur:
+                cur.close()
+            if db:
+                db.close()
+        except Exception:
+            pass
+
+
 def _cs_avisar_veredicto(venta, estado, grupo):
     """Avisos del veredicto de ClearSale. Corre en un hilo aparte porque
     ClearSale espera un 200 rápido y reintenta 5 veces si tardamos."""
@@ -9405,72 +9556,8 @@ def webhook_clearsale():
             logger.info(f'[clearsale_webhook] {order_id}: sin venta asociada, ignorado')
             return jsonify({'ok': True}), 200
 
-        if (venta.get('clearsale_estado') or '') == estado:
-            # Reintento de ClearSale: ya lo teníamos. Idempotente.
-            logger.info(f'[clearsale_webhook] venta {venta["id"]} ya estaba en {estado}')
-            return jsonify({'ok': True}), 200
+        aplicar_veredicto_clearsale(venta, estado, score, origen='webhook')
 
-        anterior = venta.get('clearsale_estado')
-        cur.execute("""UPDATE ventas
-                       SET clearsale_estado=%s, clearsale_score=%s,
-                           clearsale_actualizado=NOW()
-                       WHERE id=%s""", (estado, score, venta['id']))
-        db.commit()
-
-        logger.info(f'[clearsale_webhook] venta {venta["id"]} ({venta["numero_venta"]}): '
-                    f'{anterior} -> {estado}')
-        log_evento('INFO', 'clearsale', 'cambio_estado',
-                   f'{venta["numero_venta"]}: {anterior or "sin estado"} -> {estado}'
-                   + (f' (score {score})' if score else ''),
-                   venta_id=venta['id'])
-
-        # ── Modo '1': actuar sobre el veredicto ──────────────────────────────
-        # Se dispara SOLO cuando cambia el grupo del estado (en curso ->
-        # aprobado, en curso -> rechazado). Un APA que después pasa a APM sigue
-        # siendo aprobado y no vuelve a avisarle al comprador.
-        try:
-            import clearsale as _cs
-            if _cs.modo() == '1':
-                _antes  = _cs.grupo_estado(anterior)
-                _ahora  = _cs.grupo_estado(estado)
-                if _ahora != _antes and _ahora in ('aprobado', 'rechazado'):
-                    if _ahora == 'aprobado' and _antes == 'rechazado':
-                        # Un analista dio vuelta un rechazo. Si no la
-                        # reactivamos, la venta queda cancelada para siempre
-                        # aunque ClearSale ya la haya aprobado.
-                        cur.execute("""UPDATE ventas
-                                       SET estado_entrega='pendiente',
-                                           fecha_modificacion=NOW()
-                                       WHERE id=%s AND estado_entrega='cancelada'""",
-                                    (venta['id'],))
-                        db.commit()
-                        if cur.rowcount:
-                            log_evento('INFO', 'clearsale', 'venta_reactivada',
-                                       f'{venta["numero_venta"]}: ClearSale revirtió el '
-                                       f'rechazo ({estado}), vuelve a activas',
-                                       venta_id=venta['id'])
-                    if _ahora == 'rechazado':
-                        # Cancelar la venta. El bloqueo de despacho ya impedía
-                        # que saliera, así que el stock no se descontó.
-                        cur.execute("""UPDATE ventas
-                                       SET estado_entrega='cancelada',
-                                           fecha_modificacion=NOW()
-                                       WHERE id=%s AND estado_entrega<>'entregada'""",
-                                    (venta['id'],))
-                        db.commit()
-                        log_evento('WARNING', 'clearsale', 'venta_cancelada',
-                                   f'{venta["numero_venta"]}: cancelada por ClearSale ({estado})',
-                                   venta_id=venta['id'])
-                    # Mail + WhatsApp al comprador y, si se rechazó, aviso
-                    # interno. Va en un hilo: ClearSale espera un 200 rápido y
-                    # reintenta 5 veces si tardamos.
-                    threading.Thread(
-                        target=_cs_avisar_veredicto,
-                        args=(dict(venta), estado, _ahora),
-                        daemon=True).start()
-        except Exception as _e_v:
-            # Nunca romper el webhook por esto: el estado ya quedó guardado.
-            logger.error(f'[clearsale_webhook] error actuando sobre {order_id}: {_e_v}')
     except Exception as e:
         logger.error(f'[clearsale_webhook] error procesando {order_id}: {e}')
         # 500 haría que reintenten; preferimos cortar y revisarlo por log.
