@@ -5997,7 +5997,10 @@ def pago_payway():
 
     # El payment_method_id lo elige el cliente en un <select>: validarlo acá.
     # En los días de promo la promo bancaria es solo Visa (1) y Mastercard (104).
-    tarjetas_ok = {1, 104} if promo_3sin_activa() else {1, 104, 65, 63}
+    # Solo Visa (1) y Mastercard (104). Los dos planes de Payway que ofrecemos,
+    # 3 y 6 cuotas, son promos bancarias que no aplican a Amex ni Cabal: con
+    # esas el emisor rechazaba y el comprador veia un error sin explicacion.
+    tarjetas_ok = {1, 104}
     if payment_method_id not in tarjetas_ok:
         return jsonify({'status': 'error',
                         'msg': 'Medio de pago no disponible. Usá Visa o Mastercard de crédito.'}), 400

@@ -103,7 +103,7 @@
           <div class="card-sub" style="font-size:0.78rem; color:#4a8c68;">Total {{ total_3_fmt }} · Solo Visa y Mastercard de crédito</div>
           {% else %}
           <div style="font-weight:700; font-size:0.95rem;">3 cuotas de {{ cuota_3_fmt }}</div>
-          <div class="card-sub" style="font-size:0.78rem; color:#888;">Total {{ total_3_fmt }} · Visa, Mastercard, Amex, Cabal (bancarias)</div>
+          <div class="card-sub" style="font-size:0.78rem; color:#888;">Total {{ total_3_fmt }} · Solo Visa y Mastercard bancarizadas</div>
           {% endif %}
         </div>
       </label>
@@ -130,7 +130,7 @@
         <span class="card-icon" style="font-size:1.4rem; color:#003087;">🏦</span>
         <div>
           <div style="font-weight:700; font-size:0.95rem;">6 cuotas de {{ cuota_6_fmt }}</div>
-          <div class="card-sub" style="font-size:0.78rem; color:#888;">Total {{ total_6_fmt }} · Visa, Mastercard, Amex, Cabal (bancarias)</div>
+          <div class="card-sub" style="font-size:0.78rem; color:#888;">Total {{ total_6_fmt }} · Solo Visa y Mastercard bancarizadas</div>
         </div>
       </label>
       {% endif %}
@@ -205,30 +205,28 @@
   <div id="payway-form-container" style="display:none;">
     <form id="payway-form" autocomplete="off">
 
-      <!-- Tipo de tarjeta -->
-      <div style="margin-bottom:14px;">
-        <label style="display:block; font-size:0.85rem; font-weight:600; color:#444; margin-bottom:5px;">Tipo de tarjeta</label>
-        <select id="pw-card-type" style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; background:#fff;">
-          <option value="1">Visa</option>
-          <option value="104">Mastercard</option>
-          {% if not promo_3sin %}
-          <option value="65">American Express</option>
-          <option value="63">Cabal</option>
-          {% endif %}
-        </select>
-        {% if promo_3sin %}
-        <div style="font-size:0.72rem; color:#1e8e4e; margin-top:5px; font-weight:600;">
-          La promo de 3 cuotas sin interés aplica solo con Visa y Mastercard de crédito.
-        </div>
-        {% endif %}
-      </div>
-
-      <!-- Numero de tarjeta -->
+      <!-- Numero de tarjeta. Va PRIMERO: el tipo se deduce del BIN, asi que
+           pedirlo antes obligaba al comprador a elegir algo que el sistema
+           ya sabe, y una eleccion equivocada hacia fallar el cobro. -->
       <div style="margin-bottom:14px;">
         <label style="display:block; font-size:0.85rem; font-weight:600; color:#444; margin-bottom:5px;">Numero de tarjeta</label>
         <input type="text" data-decidir="card_number" id="pw-card-number" maxlength="19"
           placeholder="0000 0000 0000 0000" autocomplete="cc-number"
           style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box; letter-spacing:1px;">
+        <div id="pw-marca-aviso" style="display:none; font-size:0.76rem; color:#c00; margin-top:5px; font-weight:600;"></div>
+      </div>
+
+      <!-- Tipo de tarjeta. Solo Visa y Mastercard: las promos de 3 y 6 cuotas
+           de Payway son bancarias y no aplican a Amex ni Cabal. -->
+      <div style="margin-bottom:14px;">
+        <label style="display:block; font-size:0.85rem; font-weight:600; color:#444; margin-bottom:5px;">Tipo de tarjeta</label>
+        <select id="pw-card-type" style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; background:#fff;">
+          <option value="1">Visa</option>
+          <option value="104">Mastercard</option>
+        </select>
+        <div style="font-size:0.72rem; color:#666; margin-top:5px;">
+          Se completa solo con los primeros números de la tarjeta.
+        </div>
       </div>
 
       <!-- Vencimiento y CVV -->
@@ -841,12 +839,24 @@ function marcaPorBin(numero) {
   var inp = document.getElementById('pw-card-number');
   var sel = document.getElementById('pw-card-type');
   if (!inp || !sel) return;
+  var aviso = document.getElementById('pw-marca-aviso');
   inp.addEventListener('input', function () {
     var m = marcaPorBin(inp.value);
+    if (aviso) { aviso.style.display = 'none'; aviso.textContent = ''; }
     if (m === null) return;
-    // Solo autocompletamos si la marca existe entre las opciones ofrecidas.
+    var encontrada = false;
     for (var i = 0; i < sel.options.length; i++) {
-      if (parseInt(sel.options[i].value, 10) === m) { sel.value = String(m); break; }
+      if (parseInt(sel.options[i].value, 10) === m) {
+        sel.value = String(m); encontrada = true; break;
+      }
+    }
+    // Si la marca no esta entre las ofrecidas (Amex, Cabal...), avisarlo en el
+    // momento. Antes el selector quedaba en Visa en silencio y el comprador se
+    // enteraba recien con un rechazo generico del emisor.
+    if (!encontrada && aviso && inp.value.replace(/\D/g, '').length >= 6) {
+      aviso.textContent = 'Esta tarjeta no participa de la promoción. '
+                        + 'Solo Visa y Mastercard de crédito bancarias.';
+      aviso.style.display = 'block';
     }
   });
 })();
