@@ -25,7 +25,9 @@ pago_payway: inserta directo y llama a clearsale.
 """
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+TZ_AR = timezone(timedelta(hours=-3))
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -127,7 +129,7 @@ def listar():
 
 
 def crear():
-    ahora = datetime.now()
+    ahora = datetime.now(TZ_AR).replace(tzinfo=None)   # el servidor corre en UTC
     sello = ahora.strftime('%m%d%H%M')
     db = _conn(); cur = db.cursor()
     creadas = []
@@ -203,7 +205,7 @@ def enviar(creadas):
                   'payment_id': f'SIM{venta_id}', 'auth_code': '0' + str(venta_id)[-5:],
                   'tid': None, 'valdom': 'VTE0011',
                   'bank_code': None, 'bank_desc': None},
-            fecha=datetime.now())
+            fecha=datetime.now(TZ_AR).replace(tzinfo=None))
         print(f'\n  --> {numero} (espera {c["esperado"]})')
         clearsale._procesar(venta_id, orden)
 

@@ -27,7 +27,7 @@ import re
 import threading
 import uuid
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import pymysql
 import requests as req_lib
@@ -256,14 +256,36 @@ def cod_provincia(nombre):
                           (str(nombre or 'XX')[:2]).upper())
 
 
+# Códigos de área de 3 dígitos. En Argentina el área tiene 2, 3 o 4 dígitos y
+# el total son 10: 11 es CABA/GBA, estos son los de 3, y el resto son de 4.
+# Antes se cortaba siempre en 2 y el interior salía mal: un 351-4028866 de
+# Córdoba viajaba como área 35 / número 14028866 (visto en el panel de
+# ClearSale, que muestra el número mutilado).
+AREAS_3 = {
+    '220', '221', '223', '226', '227', '229', '230', '236', '237', '249',
+    '260', '261', '263', '264', '266', '280', '291', '294', '297', '299',
+    '336', '341', '342', '343', '345', '348', '351', '353', '358', '362',
+    '364', '370', '376', '379', '380', '381', '383', '385', '387', '388',
+}
+
+
 def partir_telefono(tel):
-    """'1126940003' -> ('11', '26940003')."""
+    """'1126940003' -> ('11', '26940003'); '3514028866' -> ('351', '4028866')."""
     d = re.sub(r'\D', '', str(tel or ''))
     if d.startswith('54'):
         d = d[2:]
-    if d.startswith('9'):
-        d = d[1:]
-    return (d[:2], d[2:]) if len(d) > 4 else ('', d)
+    d = d.lstrip('0')
+    if d.startswith('9') and len(d) > 10:
+        d = d[1:]            # el 9 de los móviles, solo si sobra un dígito
+    if len(d) <= 4:
+        return '', d
+    if d.startswith('11'):
+        n = 2
+    elif d[:3] in AREAS_3:
+        n = 3
+    else:
+        n = 4
+    return d[:n], d[n:]
 
 
 def historial_cliente(dni, email):
@@ -301,7 +323,12 @@ def historial_cliente(dni, email):
 def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
     """Construye el payload. `totales` y `pago` son dicts planos; ver
     tienda_bp.pago_payway para los valores que se le pasan."""
-    f = fecha or datetime.now()
+    # El sello lleva -03:00, así que la hora TIENE que ser la argentina. El
+    # servidor corre en UTC: un datetime.now() pelado la mandaría 3 horas
+    # adelantada y en el panel de ClearSale la orden figura en el futuro
+    # respecto de cuando ellos la recibieron. pago_payway ya pasa la hora AR;
+    # este default cubre a cualquier otro que llame sin fecha.
+    f = fecha or datetime.now(timezone(timedelta(hours=-3))).replace(tzinfo=None)
     fecha_iso = f.strftime('%Y-%m-%dT%H:%M:%S-03:00')
 
     calle = (cli.get('calle') or '').strip()
