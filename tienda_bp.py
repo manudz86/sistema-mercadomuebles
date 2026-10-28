@@ -7287,9 +7287,17 @@ def job_clearsale_respaldo():
             if nuevo and nuevo != (v.get('clearsale_estado') or ''):
                 if aplicar_veredicto_clearsale(v, nuevo, origen='respaldo'):
                     cambios += 1
+        # Loguea SIEMPRE que haya pendientes, aunque no haya cambios: si solo
+        # avisara al encontrar algo, el silencio no distinguiria entre "corrio
+        # y no habia nada" y "no corrio". Es una red de seguridad: tiene que
+        # poder comprobarse que esta viva. Sin pendientes no dice nada, para
+        # no llenar el log cada 15 minutos.
         if cambios:
-            _cs_log('info', f'[clearsale_respaldo] {cambios} venta(s) actualizadas '
-                        f'de {len(pendientes)} pendientes — el webhook no habia llegado')
+            _cs_log('info', f'[clearsale_respaldo] {cambios} de {len(pendientes)} '
+                            f'actualizadas — el webhook no habia llegado')
+        else:
+            _cs_log('info', f'[clearsale_respaldo] {len(pendientes)} esperando '
+                            f'veredicto, sin novedades')
     except Exception as e:
         _cs_log('error', f'[clearsale_respaldo] {type(e).__name__}: {e}')
     finally:
