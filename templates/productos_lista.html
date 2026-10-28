@@ -139,6 +139,13 @@
                    id="toggle-payway" data-clave="payway_enabled" {% if payway_enabled %}checked{% endif %}>
             <label class="form-check-label small" for="toggle-payway">Payway 3 cuotas</label>
           </div>
+          {# Payway 6 cuotas manda installments=6 (plan común). No usa el 16 de
+             MiPyME, que el emisor deniega con Visa. #}
+          <div class="form-check form-switch m-0">
+            <input class="form-check-input medio-toggle" type="checkbox" role="switch"
+                   id="toggle-payway6" data-clave="payway_6_enabled" {% if payway_6_enabled %}checked{% endif %}>
+            <label class="form-check-label small" for="toggle-payway6">Payway 6 cuotas</label>
+          </div>
           <div class="form-check form-switch m-0">
             <input class="form-check-input medio-toggle" type="checkbox" role="switch"
                    id="toggle-getnet" data-clave="getnet_enabled" {% if getnet_enabled %}checked{% endif %}>

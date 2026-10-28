@@ -20973,6 +20973,10 @@ def productos_lista():
     # GetNet y MP 12 default OFF.
     pw_row = query_one("SELECT valor FROM configuracion WHERE clave='payway_enabled'")
     payway_enabled = (pw_row['valor'] == '1') if pw_row else True
+    # Payway 6 cuotas: manda installments=6 (plan común), no el 16 de MiPyME,
+    # que el emisor deniega con Visa. Default OFF.
+    pw6_row = query_one("SELECT valor FROM configuracion WHERE clave='payway_6_enabled'")
+    payway_6_enabled = bool(pw6_row and pw6_row['valor'] == '1')
     gn_row = query_one("SELECT valor FROM configuracion WHERE clave='getnet_enabled'")
     getnet_enabled = bool(gn_row and gn_row['valor'] == '1')
     mp12_row = query_one("SELECT valor FROM configuracion WHERE clave='mp_12_enabled'")
@@ -20999,6 +21003,7 @@ def productos_lista():
         cuotas_12_coef = cuotas_12_coef,
         cuotas_mp3_coef = cuotas_mp3_coef,
         payway_enabled = payway_enabled,
+        payway_6_enabled = payway_6_enabled,
         getnet_enabled = getnet_enabled,
         mp_12_enabled  = mp_12_enabled,
         mp_3_enabled   = mp_3_enabled,
@@ -21115,7 +21120,8 @@ def productos_flete_almohadas():
 @admin_required
 def productos_medio_toggle():
     """Prende/apaga un medio de pago desde el catálogo. Allowlist de claves."""
-    PERMITIDAS = {'payway_enabled', 'getnet_enabled', 'mp_12_enabled', 'mp_3_enabled'}
+    PERMITIDAS = {'payway_enabled', 'payway_6_enabled', 'getnet_enabled',
+                  'mp_12_enabled', 'mp_3_enabled'}
     clave = request.form.get('clave', '').strip()
     valor = '1' if request.form.get('valor', '').strip() in ('1', 'true', 'on') else '0'
     if clave not in PERMITIDAS:
