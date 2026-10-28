@@ -82,6 +82,10 @@ def _creds():
 LOCATION = 'ARG'          # confirmado con ClearSale: ISO-3
 TIMEOUT = 20
 
+# El local. Es el domicilio de entrega real cuando el comprador retira.
+LOCAL = {'calle': 'Bahia Blanca 1777', 'ciudad': 'Floresta',
+         'provincia': 'Capital Federal', 'cp': '1407'}
+
 # Address.State se trunca a 2 caracteres (comprobado: "Buenos Aires" -> "BU").
 PROVINCIAS = {
     'capital federal': 'CF', 'caba': 'CF', 'ciudad autonoma de buenos aires': 'CF',
@@ -367,8 +371,17 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
             p['BirthDate'] = f"{cli['_birth_date']}T00:00:00"
         return p
 
-    envio = _persona(linea1, cli.get('ciudad'), cli.get('provincia'),
-                     cli.get('cp'), cli.get('piso_depto'))
+    # En un retiro no hay domicilio de entrega y el que quedaba armado era
+    # ruido ("Capital Federal" como calle, ciudad vacía). La mercadería va al
+    # local, así que ese es el domicilio verdadero y geolocalizable; quien
+    # recibe sigue siendo el comprador y SHIPPING_TYPE ya dice que es retiro.
+    tipo_entrega = str(cli.get('tipo_entrega') or 'envio')
+    if tipo_entrega == 'retiro':
+        envio = _persona(LOCAL['calle'], LOCAL['ciudad'], LOCAL['provincia'],
+                         LOCAL['cp'])
+    else:
+        envio = _persona(linea1, cli.get('ciudad'), cli.get('provincia'),
+                         cli.get('cp'), cli.get('piso_depto'))
     # BillingData solo es distinto si el comprador declaró otro domicilio de
     # resumen. Si no lo declaró es una copia del de envío: no sabemos el real.
     bl = cli.get('_billing')
@@ -423,7 +436,6 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
     if pago.get('cupon'):
         p['Nsu'] = str(pago['cupon'])[:50]
 
-    tipo_entrega = str(cli.get('tipo_entrega') or 'envio')
     hist = historial_cliente(cli.get('dni'), cli.get('email'))
     # Solo los cinco que ClearSale confirmó como funcionales para su algoritmo
     # (mail de Mauricio Cortes, 27/10/2026). Pidió mantener el conjunto mínimo:
