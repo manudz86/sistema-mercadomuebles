@@ -1416,9 +1416,7 @@ def exportar_ventas_activas_excel():
     query = '''SELECT v.id, v.numero_venta, v.fecha_venta, v.canal, v.mla_code,
         v.nombre_cliente, v.telefono_cliente, v.tipo_entrega, v.metodo_envio, v.zona_envio,
         v.direccion_entrega, v.costo_flete, v.metodo_pago, v.importe_total, v.importe_abonado,
-        v.estado_pago, v.notas, v.cancelada_en_ml,
-        v.clearsale_estado, v.clearsale_score
-        FROM ventas v WHERE v.estado_entrega = 'pendiente' '''
+        v.estado_pago, v.notas, v.cancelada_en_ml FROM ventas v WHERE v.estado_entrega = 'pendiente' '''
     params = []
     if filtro_buscar:
         query += ' AND (v.mla_code LIKE %s OR v.nombre_cliente LIKE %s OR v.id IN (SELECT venta_id FROM items_venta WHERE sku LIKE %s))'
@@ -1505,7 +1503,8 @@ def ventas_activas():
 metodo_pago, importe_total, importe_abonado,
                 pago_mercadopago, pago_efectivo, pago_transferencia, pago_tarjeta,
                 estado_entrega, estado_pago, notas, cancelada_en_ml,
-                fecha_entrega_estimada
+                fecha_entrega_estimada,
+                clearsale_estado, clearsale_score
             FROM ventas
             WHERE estado_entrega = 'pendiente'
         '''
