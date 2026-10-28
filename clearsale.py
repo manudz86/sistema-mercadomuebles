@@ -176,6 +176,22 @@ CS_ETIQUETAS = {
 }
 
 
+def grupo_estado(clearsale_estado):
+    """A qué grupo pertenece un código: 'aprobado', 'rechazado', 'en_curso',
+    'revisar' o 'sin_estado'. Sirve para actuar solo cuando el veredicto
+    cambia de grupo y no en cada idita y vuelta entre códigos equivalentes."""
+    e = str(clearsale_estado or '').strip().upper()
+    if not e:
+        return 'sin_estado'
+    if e in CS_APRUEBAN:
+        return 'aprobado'
+    if e in CS_RECHAZAN:
+        return 'rechazado'
+    if e in CS_EN_CURSO:
+        return 'en_curso'
+    return 'revisar'
+
+
 def en_proceso(clearsale_estado, modo_actual):
     """¿La operación está todavía en proceso en ClearSale? Es lo que decide
     qué ve el comprador: "estamos procesando tu pago" en vez de "compra

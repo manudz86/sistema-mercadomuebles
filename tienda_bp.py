@@ -7181,6 +7181,98 @@ def _email_estado_pago(cfg, nombre, numero_venta, email_cliente):
             s.send_message(msg)
 
 
+def _cs_avisar_veredicto(venta, estado, grupo):
+    """Avisos del veredicto de ClearSale. Corre en un hilo aparte porque
+    ClearSale espera un 200 rápido y reintenta 5 veces si tardamos."""
+    try:
+        tipo = 'confirmado' if grupo == 'aprobado' else 'rechazado'
+        avisar_estado_pago(tipo, venta.get('nombre_cliente'),
+                           venta.get('numero_venta'),
+                           email_cliente=venta.get('email_cliente'),
+                           telefono_cliente=venta.get('telefono_cliente'))
+        if grupo == 'rechazado':
+            _aviso_interno_rechazo(venta, estado)
+    except Exception as e:
+        logger.error(f'[clearsale] no pude avisar el veredicto de '
+                     f'{venta.get("numero_venta")}: {e}')
+
+
+def _aviso_interno_rechazo(venta, estado):
+    """Mail al equipo. Hay dos cosas que el sistema NO puede hacer solo y
+    alguien tiene que hacer a mano: cancelar el envío en Zipnova (su API no
+    expone cancelación y no guardamos el id del envío) y devolverle la plata
+    al comprador desde el panel de Payway."""
+    smtp_host = os.getenv('MAIL_SMTP_HOST', '')
+    smtp_port = int(os.getenv('MAIL_SMTP_PORT', '465'))
+    smtp_user = os.getenv('MAIL_SMTP_USER', '')
+    smtp_pass = os.getenv('MAIL_SMTP_PASS', '')
+    mail_from = os.getenv('MAIL_FROM', smtp_user)
+    destinatarios = [d.strip() for d in
+                     (os.getenv('MAIL_VENDEDOR', smtp_user) or '').replace(';', ',').split(',')
+                     if d.strip()]
+    if not smtp_user or not smtp_pass or not destinatarios:
+        logger.warning('[clearsale] aviso interno de rechazo sin destinatarios')
+        return
+
+    envio_txt = ('Retiro en el local, no hay envío que cancelar.'
+                 if str(venta.get('tipo_entrega')) == 'retiro'
+                 else f"Envío por <strong>{venta.get('metodo_envio') or 'sin especificar'}</strong>: "
+                      f"hay que cancelarlo a mano.")
+    html = f"""
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+                background:#f6f6f6; padding:28px 12px;">
+      <div style="max-width:600px; margin:0 auto; background:#fff; border-radius:12px; overflow:hidden;">
+        <div style="background:#dc3545; padding:20px 24px; color:#fff;">
+          <div style="font-size:1.1rem; font-weight:700;">🛡️ ClearSale rechazó una venta</div>
+        </div>
+        <div style="padding:24px;">
+          <p style="margin:0 0 16px; font-size:0.95rem;">
+            La venta <strong>{venta.get('numero_venta')}</strong> fue cancelada
+            automáticamente. Estado de ClearSale: <strong>{estado}</strong>.
+          </p>
+          <table style="width:100%; font-size:0.9rem; border-collapse:collapse;">
+            <tr><td style="padding:6px 0; color:#666;">Cliente</td>
+                <td style="padding:6px 0;"><strong>{venta.get('nombre_cliente') or '-'}</strong></td></tr>
+            <tr><td style="padding:6px 0; color:#666;">Importe</td>
+                <td style="padding:6px 0;"><strong>${float(venta.get('importe_abonado') or 0):,.0f}</strong></td></tr>
+            <tr><td style="padding:6px 0; color:#666;">Contacto</td>
+                <td style="padding:6px 0;">{venta.get('email_cliente') or '-'} · {venta.get('telefono_cliente') or '-'}</td></tr>
+          </table>
+          <div style="background:#fff3cd; border:1px solid #ffe69c; border-radius:8px;
+                      padding:14px 16px; margin-top:18px; font-size:0.9rem;">
+            <strong>Hay que hacer a mano:</strong>
+            <ol style="margin:8px 0 0 18px; padding:0;">
+              <li style="margin-bottom:6px;">Devolver el importe desde el panel de Payway.</li>
+              <li>{envio_txt}</li>
+            </ol>
+          </div>
+          <p style="font-size:0.85rem; color:#666; margin:16px 0 0;">
+            Al comprador ya se le avisó por mail y WhatsApp que la operación
+            fue cancelada y que se le reintegra el importe.
+          </p>
+        </div>
+      </div>
+    </div>"""
+
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = f"🛡️ ClearSale rechazó {venta.get('numero_venta')} — devolver ${float(venta.get('importe_abonado') or 0):,.0f}"
+    msg['From']    = f"Mercadomuebles <{mail_from}>"
+    msg['To']      = ', '.join(destinatarios)
+    msg.attach(MIMEText(html, 'html', 'utf-8'))
+    if smtp_port == 465:
+        import ssl
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, context=ctx) as s:
+            s.login(smtp_user, smtp_pass)
+            s.sendmail(mail_from, destinatarios, msg.as_string())
+    else:
+        with smtplib.SMTP(smtp_host, smtp_port) as s:
+            s.starttls()
+            s.login(smtp_user, smtp_pass)
+            s.sendmail(mail_from, destinatarios, msg.as_string())
+    logger.info(f'[clearsale] aviso interno de rechazo enviado para {venta.get("numero_venta")}')
+
+
 def enviar_email_confirmacion(payment_id, nombre_cliente, email_cliente, items,
                                tipo_entrega, direccion, fecha_entrega, importe_total, costo_flete,
                                zipnova_tracking_url=None, canal="mp",
@@ -9299,7 +9391,9 @@ def webhook_clearsale():
         db  = get_db()
         cur = db.cursor()
         # El ID vuelve en mayúsculas; nuestros numero_venta son 'PW-...'
-        cur.execute("""SELECT id, numero_venta, clearsale_estado
+        cur.execute("""SELECT id, numero_venta, clearsale_estado, estado_entrega,
+                              nombre_cliente, email_cliente, telefono_cliente,
+                              importe_abonado, metodo_envio, tipo_entrega
                        FROM ventas
                        WHERE UPPER(clearsale_order_id) = %s
                           OR UPPER(numero_venta) = %s
@@ -9330,8 +9424,53 @@ def webhook_clearsale():
                    + (f' (score {score})' if score else ''),
                    venta_id=venta['id'])
 
-        # En modo '1' acá se dispara la confirmación o la cancelación de la
-        # venta. Todavía no está implementado: en 'sombra' solo se registra.
+        # ── Modo '1': actuar sobre el veredicto ──────────────────────────────
+        # Se dispara SOLO cuando cambia el grupo del estado (en curso ->
+        # aprobado, en curso -> rechazado). Un APA que después pasa a APM sigue
+        # siendo aprobado y no vuelve a avisarle al comprador.
+        try:
+            import clearsale as _cs
+            if _cs.modo() == '1':
+                _antes  = _cs.grupo_estado(anterior)
+                _ahora  = _cs.grupo_estado(estado)
+                if _ahora != _antes and _ahora in ('aprobado', 'rechazado'):
+                    if _ahora == 'aprobado' and _antes == 'rechazado':
+                        # Un analista dio vuelta un rechazo. Si no la
+                        # reactivamos, la venta queda cancelada para siempre
+                        # aunque ClearSale ya la haya aprobado.
+                        cur.execute("""UPDATE ventas
+                                       SET estado_entrega='pendiente',
+                                           fecha_modificacion=NOW()
+                                       WHERE id=%s AND estado_entrega='cancelada'""",
+                                    (venta['id'],))
+                        db.commit()
+                        if cur.rowcount:
+                            log_evento('INFO', 'clearsale', 'venta_reactivada',
+                                       f'{venta["numero_venta"]}: ClearSale revirtió el '
+                                       f'rechazo ({estado}), vuelve a activas',
+                                       venta_id=venta['id'])
+                    if _ahora == 'rechazado':
+                        # Cancelar la venta. El bloqueo de despacho ya impedía
+                        # que saliera, así que el stock no se descontó.
+                        cur.execute("""UPDATE ventas
+                                       SET estado_entrega='cancelada',
+                                           fecha_modificacion=NOW()
+                                       WHERE id=%s AND estado_entrega<>'entregada'""",
+                                    (venta['id'],))
+                        db.commit()
+                        log_evento('WARNING', 'clearsale', 'venta_cancelada',
+                                   f'{venta["numero_venta"]}: cancelada por ClearSale ({estado})',
+                                   venta_id=venta['id'])
+                    # Mail + WhatsApp al comprador y, si se rechazó, aviso
+                    # interno. Va en un hilo: ClearSale espera un 200 rápido y
+                    # reintenta 5 veces si tardamos.
+                    threading.Thread(
+                        target=_cs_avisar_veredicto,
+                        args=(dict(venta), estado, _ahora),
+                        daemon=True).start()
+        except Exception as _e_v:
+            # Nunca romper el webhook por esto: el estado ya quedó guardado.
+            logger.error(f'[clearsale_webhook] error actuando sobre {order_id}: {_e_v}')
     except Exception as e:
         logger.error(f'[clearsale_webhook] error procesando {order_id}: {e}')
         # 500 haría que reintenten; preferimos cortar y revisarlo por log.
