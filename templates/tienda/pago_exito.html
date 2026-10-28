@@ -53,6 +53,19 @@
 {% endif %}
 <div class="pago-container">
   <div class="pago-card pago-exito">
+    {# Con ClearSale en modo '1' la compra entra en proceso y el veredicto
+       llega después, asi que no se le anuncia una confirmacion que todavia no
+       existe. Se dice PROCESANDO, nunca "verificando": no estamos poniendo en
+       duda al comprador, estamos procesando su operacion. #}
+    {% if pago_en_proceso %}
+    <div class="pago-icon">⏳</div>
+    <h1>¡Gracias por tu compra!</h1>
+    <p>Recibimos tu pago y estamos procesando la operación.</p>
+    {% if payment_id %}
+    <div class="pago-ref">Referencia de pago: <strong>#{{ payment_id }}</strong></div>
+    {% endif %}
+    <p class="pago-info">Te confirmamos por mail y WhatsApp dentro de las próximas 24 horas.</p>
+    {% else %}
     <div class="pago-icon">✅</div>
     <h1>¡Gracias por tu compra!</h1>
     <p>Tu pago fue procesado correctamente.</p>
@@ -60,6 +73,7 @@
     <div class="pago-ref">Referencia de pago: <strong>#{{ payment_id }}</strong></div>
     {% endif %}
     <p class="pago-info">Nos pondremos en contacto a la brevedad para coordinar la entrega.</p>
+    {% endif %}
     <div class="pago-acciones">
       <a href="/tienda/" class="btn-primary">Seguir comprando</a>
     </div>

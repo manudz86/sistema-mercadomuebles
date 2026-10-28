@@ -172,6 +172,16 @@ CS_ETIQUETAS = {
 }
 
 
+def en_proceso(clearsale_estado, modo_actual):
+    """¿La operación está todavía en proceso en ClearSale? Es lo que decide
+    qué ve el comprador: "estamos procesando tu pago" en vez de "compra
+    confirmada". Solo aplica en modo '1'; en sombra el comprador ve lo de
+    siempre."""
+    if str(modo_actual or '0') != '1':
+        return False
+    return str(clearsale_estado or '').strip().upper() in CS_EN_CURSO
+
+
 def bloquea_entrega(clearsale_estado, modo_actual):
     """¿Hay que frenar el despacho de esta venta? Devuelve (bloquea, motivo).
 

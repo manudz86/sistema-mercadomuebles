@@ -6320,9 +6320,10 @@ def pago_payway():
     # Solo ventas de Payway. Gobernado por la clave clearsale_enabled:
     #   '0'      apagado (default) — no se envía nada
     #   'sombra' se envía y se registra, pero la venta sigue el flujo normal
-    #   '1'      flujo completo con estado intermedio (fase siguiente)
+    #   '1'      flujo completo: la compra queda en proceso hasta el veredicto
     # Corre en un hilo aparte y con try/except: un problema de ClearSale no
     # puede voltear una venta que Payway ya aprobó y el cliente ya vio.
+    _cs_modo = '0'        # si el import falla, el flujo sigue como siempre
     try:
         import clearsale
         clearsale.logger = logger
@@ -6456,17 +6457,26 @@ def pago_payway():
         except Exception as e:
             logger.warning(f"[pago_payway] Error Zipnova: {e}")
 
-    # ── Emails ────────────────────────────────────────────────────────────────
-    try:
-        enviar_email_confirmacion(
-            pw_id, nombre_cliente, email_cliente, cart_items_adj,
-            tipo_entrega_val, direccion, None, total_con_coef, costo_flete_adj,
-            zipnova_tracking_url=zn_tracking_url, canal="payway",
-            demora_dias=cli.get('demora_dias', 0),
-            fecha_disponible=cli.get('fecha_disponible', ''),
-        )
-    except Exception as e:
-        logger.warning(f"[pago_payway] Error email cliente: {e}")
+    # ── Avisos al comprador ───────────────────────────────────────────────────
+    # En modo '1' la compra todavía no está confirmada: ClearSale la está
+    # procesando. Mandar el mail de "pedido confirmado" ahí y después uno de
+    # rechazo sería contradictorio, así que va el aviso de "en proceso" y el
+    # definitivo lo dispara el webhook con el veredicto.
+    if _cs_modo == '1':
+        avisar_estado_pago('en_proceso', nombre_cliente, numero_venta,
+                           email_cliente=email_cliente,
+                           telefono_cliente=telefono_cliente)
+    else:
+        try:
+            enviar_email_confirmacion(
+                pw_id, nombre_cliente, email_cliente, cart_items_adj,
+                tipo_entrega_val, direccion, None, total_con_coef, costo_flete_adj,
+                zipnova_tracking_url=zn_tracking_url, canal="payway",
+                demora_dias=cli.get('demora_dias', 0),
+                fecha_disponible=cli.get('fecha_disponible', ''),
+            )
+        except Exception as e:
+            logger.warning(f"[pago_payway] Error email cliente: {e}")
 
     try:
         enviar_email_vendedor(
@@ -6935,6 +6945,22 @@ def pago_exito():
         except Exception:
             pass
 
+    # ¿Mostrarle "estamos procesando tu pago" en vez de "gracias por tu
+    # compra"? Solo si ClearSale está en modo '1' y todavía no se expidió.
+    pago_en_proceso = False
+    try:
+        import clearsale
+        _row_cs = None
+        db = get_db(); cur = db.cursor()
+        cur.execute("SELECT clearsale_estado FROM ventas WHERE numero_venta=%s",
+                    (numero_venta,))
+        _row_cs = cur.fetchone()
+        cur.close(); db.close()
+        pago_en_proceso = clearsale.en_proceso(
+            (_row_cs or {}).get('clearsale_estado'), clearsale.modo())
+    except Exception as e:
+        logger.warning(f'[pago_exito] no pude leer el estado de ClearSale: {e}')
+
     return render_template('tienda/pago_exito.html',
         payment_id    = payment_id,
         carrito_count = 0,
@@ -6942,6 +6968,7 @@ def pago_exito():
         ga_items      = ga_items,
         importe_abonado = importe_abonado,
         numero_venta  = numero_venta,
+        pago_en_proceso = pago_en_proceso,
     )
 
 
@@ -6987,6 +7014,172 @@ def pago_error():
 
 
 # ── EMAIL CONFIRMACIÓN DE COMPRA ───────────────────────────────────────────────
+
+# ════════════════════════════════════════════════════════════════════════════
+# AVISOS DE ESTADO DEL PAGO (ClearSale, modo '1')
+#
+# Tres momentos: la compra entra y queda en proceso, después se confirma o se
+# cancela. Las plantillas de WhatsApp ya están aprobadas por Meta con estos
+# nombres y toman dos variables: nombre y número de venta.
+#
+# El texto dice "procesando", nunca "verificando": no estamos poniendo en duda
+# al comprador, estamos procesando su operación.
+# ════════════════════════════════════════════════════════════════════════════
+AVISOS_PAGO = {
+    'en_proceso': {
+        'wa':      'tienda_pago_en_proceso',
+        'asunto':  'Estamos procesando tu pago {numero} — Mercadomuebles',
+        'icono':   '⏳',
+        'titulo':  'Estamos procesando tu pago',
+        'cuerpo':  'Recibimos tu pago y estamos procesando la operación. '
+                   'Te confirmamos por este mismo medio dentro de las próximas '
+                   '24 horas.',
+        'color':   '#f0ad4e',
+    },
+    'confirmado': {
+        'wa':      'tienda_pago_confirmado',
+        'asunto':  '✅ Pago confirmado {numero} — Mercadomuebles',
+        'icono':   '✅',
+        'titulo':  'Tu pago fue confirmado',
+        'cuerpo':  'Tu pago quedó confirmado. En las próximas horas te '
+                   'contactamos para coordinar la entrega.',
+        'color':   '#28a745',
+    },
+    'rechazado': {
+        'wa':      'tienda_pago_rechazado',
+        'asunto':  'No pudimos confirmar tu pago {numero} — Mercadomuebles',
+        'icono':   '❌',
+        'titulo':  'No pudimos confirmar tu pago',
+        'cuerpo':  'No pudimos confirmar el pago y la operación fue cancelada. '
+                   'El importe será reintegrado a tu tarjeta.',
+        'color':   '#dc3545',
+    },
+}
+
+CONTACTO_HTML = ('Por consultas escribinos al '
+                 '<a href="https://wa.me/5491126275185" style="color:#1a1a2e;">'
+                 '+54 9 11 2627-5185</a> o llamanos al (011) 4639-7370, '
+                 'de lunes a viernes de 8 a 16.30 hs.')
+
+
+def _wa_normalizar(telefono):
+    """A formato internacional sin '+', como lo pide la Cloud API."""
+    t = re.sub(r'[^\d+]', '', str(telefono or '')).lstrip('+')
+    if t.startswith('0054'):
+        t = t[2:]
+    if t.startswith('00'):
+        t = t[2:]
+    if t.startswith('0'):
+        t = '54' + t[1:]
+    elif t.startswith('15'):
+        t = '5491' + t[2:]
+    elif t.startswith('11'):
+        t = '549' + t
+    elif not t.startswith('54'):
+        t = '549' + t
+    return t
+
+
+def avisar_estado_pago(tipo, nombre_cliente, numero_venta, email_cliente=None,
+                       telefono_cliente=None):
+    """Manda el aviso de estado por mail y WhatsApp. Cada canal va en su
+    try/except: que falle WhatsApp no puede impedir el mail, ni al revés, ni
+    tumbar la venta que lo disparó."""
+    cfg = AVISOS_PAGO.get(tipo)
+    if not cfg:
+        logger.warning(f'[aviso_pago] tipo desconocido: {tipo}')
+        return
+    nombre = (nombre_cliente or 'Cliente').split()[0].title()
+
+    if email_cliente:
+        try:
+            _email_estado_pago(cfg, nombre, numero_venta, email_cliente)
+            logger.info(f'[aviso_pago] mail {tipo} enviado para {numero_venta}')
+        except Exception as e:
+            logger.warning(f'[aviso_pago] mail {tipo} fallo para {numero_venta}: {e}')
+
+    if telefono_cliente:
+        try:
+            r = _wa_estado_pago(cfg, nombre, numero_venta, telefono_cliente)
+            logger.info(f'[aviso_pago] wa {tipo} para {numero_venta}: {r}')
+        except Exception as e:
+            logger.warning(f'[aviso_pago] wa {tipo} fallo para {numero_venta}: {e}')
+
+
+def _wa_estado_pago(cfg, nombre, numero_venta, telefono):
+    token    = os.getenv('WA_ACCESS_TOKEN', '')
+    phone_id = os.getenv('WA_PHONE_NUMBER_ID', '')
+    if not token or not phone_id:
+        return 'WhatsApp no configurado'
+    r = http_requests.post(
+        f'https://graph.facebook.com/v25.0/{phone_id}/messages',
+        headers={'Authorization': f'Bearer {token}',
+                 'Content-Type': 'application/json'},
+        json={'messaging_product': 'whatsapp',
+              'to': _wa_normalizar(telefono),
+              'type': 'template',
+              'template': {'name': cfg['wa'],
+                           'language': {'code': 'es_AR'},
+                           'components': [{'type': 'body', 'parameters': [
+                               {'type': 'text', 'text': nombre},
+                               {'type': 'text', 'text': numero_venta}]}]}},
+        timeout=15)
+    return 'ok' if r.ok else f'HTTP {r.status_code} {r.text[:200]}'
+
+
+def _email_estado_pago(cfg, nombre, numero_venta, email_cliente):
+    smtp_host = os.getenv('MAIL_SMTP_HOST', 'smtp.gmail.com')
+    smtp_port = int(os.getenv('MAIL_SMTP_PORT', '587'))
+    smtp_user = os.getenv('MAIL_SMTP_USER', '')
+    smtp_pass = os.getenv('MAIL_SMTP_PASS', '')
+    mail_from = os.getenv('MAIL_FROM', smtp_user)
+    if not smtp_user or not smtp_pass:
+        raise RuntimeError('MAIL_SMTP_USER/MAIL_SMTP_PASS vacíos')
+
+    html = f"""
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+                background:#f6f6f6; padding:28px 12px;">
+      <div style="max-width:560px; margin:0 auto; background:#fff; border-radius:12px;
+                  overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.06);">
+        <div style="background:{cfg['color']}; padding:22px 24px; text-align:center;">
+          <div style="font-size:2rem; line-height:1;">{cfg['icono']}</div>
+          <div style="color:#fff; font-size:1.15rem; font-weight:700; margin-top:8px;">
+            {cfg['titulo']}
+          </div>
+        </div>
+        <div style="padding:24px;">
+          <p style="font-size:1rem; margin:0 0 14px;">Hola {nombre},</p>
+          <p style="font-size:0.95rem; color:#444; margin:0 0 18px;">{cfg['cuerpo']}</p>
+          <div style="background:#f7f7f9; border-radius:8px; padding:14px 16px;
+                      font-size:0.92rem; margin-bottom:18px;">
+            Número de compra: <strong>{numero_venta}</strong>
+          </div>
+          <p style="font-size:0.86rem; color:#666; margin:0;">{CONTACTO_HTML}</p>
+          <hr style="border:none; border-top:1px solid #f0f0f0; margin:24px 0;">
+          <p style="font-size:0.78rem; color:#aaa; text-align:center; margin:0;">
+            Mercadomuebles · Bahía Blanca 1777, Floresta, CABA · contacto@mercadomuebles.com.ar
+          </p>
+        </div>
+      </div>
+    </div>"""
+
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = cfg['asunto'].format(numero=numero_venta)
+    msg['From']    = f"Mercadomuebles <{mail_from}>"
+    msg['To']      = email_cliente
+    msg.attach(MIMEText(html, 'html', 'utf-8'))
+    if smtp_port == 465:
+        import ssl           # como en el resto del archivo, import local
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, context=ctx) as s:
+            s.login(smtp_user, smtp_pass)
+            s.send_message(msg)
+    else:
+        with smtplib.SMTP(smtp_host, smtp_port) as s:
+            s.starttls()
+            s.login(smtp_user, smtp_pass)
+            s.send_message(msg)
+
 
 def enviar_email_confirmacion(payment_id, nombre_cliente, email_cliente, items,
                                tipo_entrega, direccion, fecha_entrega, importe_total, costo_flete,
