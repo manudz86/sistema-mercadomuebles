@@ -179,16 +179,24 @@
             <tr>
               <td>{{ med.medida }}</td>
               <td>
+                {# La premium se habia quedado afuera del evento: mostraba el
+                   precio de catalogo y nada del cupon. #}
+                {% set pc = med.precio | con_cupon %}
                 <a class="pr-precio" href="{{ med.url }}">
-                  <b>{{ med.precio_fmt }}</b>
-                  {% if med.precio_lista %}<s>{{ med.precio_lista }}</s>{% endif %}
+                  <b{% if pc %} style="text-decoration:line-through; color:#999; font-weight:600;"{% endif %}>{{ med.precio_fmt }}</b>
+                  {% if med.precio_lista and not pc %}<s>{{ med.precio_lista }}</s>{% endif %}
+                  {% if pc %}<br><b style="color:#157a43;">{{ pc }}</b>
+                  <span style="display:inline-block; background:#1e8e4e; color:#fff; border-radius:4px; padding:0 5px; font-size:0.6rem; font-weight:800; vertical-align:middle;">{{ hot_event.cupon }}</span>{% endif %}
                 </a>
               </td>
               <td>
                 {% if med.conj_precio_fmt %}
+                {% set pcc = med.conj_precio | con_cupon %}
                 <a class="pr-precio pr-oro" href="{{ med.conj_url }}">
-                  <b>{{ med.conj_precio_fmt }}</b>
-                  {% if med.conj_precio_lista %}<s>{{ med.conj_precio_lista }}</s>{% endif %}
+                  <b{% if pcc %} style="text-decoration:line-through; color:#999; font-weight:600;"{% endif %}>{{ med.conj_precio_fmt }}</b>
+                  {% if med.conj_precio_lista and not pcc %}<s>{{ med.conj_precio_lista }}</s>{% endif %}
+                  {% if pcc %}<br><b style="color:#157a43;">{{ pcc }}</b>
+                  <span style="display:inline-block; background:#1e8e4e; color:#fff; border-radius:4px; padding:0 5px; font-size:0.6rem; font-weight:800; vertical-align:middle;">{{ hot_event.cupon }}</span>{% endif %}
                 </a>
                 {% else %}
                 <span class="pr-sin">—</span>
