@@ -71,6 +71,106 @@
     </div>
   </div>
 
+  <!-- Panel del evento promocional -->
+  <div class="card border-0 shadow-sm mb-3" style="border-left:4px solid #e7501e!important;">
+    <div class="card-body py-2">
+      <div class="row g-2 align-items-center">
+        <div class="col-auto">
+          <span class="fw-semibold">🔥 Evento promocional</span>
+          <small class="text-muted ms-1">banner, barra con cuenta regresiva, fueguito en los descuentos y promos del evento</small>
+        </div>
+        <div class="col-auto ms-auto">
+          {% set _m = evento.hot_event_activo | default('0') %}
+          <span class="badge {% if _m == '1' %}bg-success{% elif _m == 'auto' %}bg-info text-dark{% else %}bg-secondary{% endif %}">
+            {% if _m == '1' %}🟢 ENCENDIDO (manual){% elif _m == 'auto' %}🕒 Automático por fechas{% else %}⚫ Apagado{% endif %}
+          </span>
+        </div>
+      </div>
+
+      <div class="row g-2 align-items-end mt-1">
+        <div class="col-auto">
+          <label class="form-label small mb-1 fw-semibold">Modo</label>
+          <select id="ev-modo" class="form-select form-select-sm" style="width:215px">
+            <option value="0"    {% if _m == '0' %}selected{% endif %}>⚫ Apagado</option>
+            <option value="1"    {% if _m == '1' %}selected{% endif %}>🟢 Encendido ahora</option>
+            <option value="auto" {% if _m == 'auto' %}selected{% endif %}>🕒 Automático por fechas</option>
+          </select>
+        </div>
+        <div class="col-auto">
+          <label class="form-label small mb-1">Arranca</label>
+          <input type="datetime-local" id="ev-inicio" class="form-control form-control-sm"
+                 style="width:200px" value="{{ evento.hot_event_fecha_inicio_input }}">
+        </div>
+        <div class="col-auto">
+          <label class="form-label small mb-1">Termina</label>
+          <input type="datetime-local" id="ev-fin" class="form-control form-control-sm"
+                 style="width:200px" value="{{ evento.hot_event_fecha_fin_input }}">
+        </div>
+        <div class="col-auto">
+          <label class="form-label small mb-1">Banner "extendido" desde</label>
+          <input type="datetime-local" id="ev-corte" class="form-control form-control-sm"
+                 style="width:200px" value="{{ evento.evento_fecha_corte_input }}">
+        </div>
+      </div>
+
+      <div class="row g-2 align-items-end mt-1">
+        <div class="col-auto">
+          <label class="form-label small mb-1">Título</label>
+          <input type="text" id="ev-titulo" class="form-control form-control-sm"
+                 style="width:170px" value="{{ evento.evento_titulo }}" placeholder="CYBERSALE">
+        </div>
+        <div class="col-auto">
+          <label class="form-label small mb-1">Fechas (texto del cartel)</label>
+          <input type="text" id="ev-fechas" class="form-control form-control-sm"
+                 style="width:215px" value="{{ evento.evento_fechas }}" placeholder="1 AL 8 DE NOVIEMBRE">
+        </div>
+        <div class="col-auto">
+          <label class="form-label small mb-1">Hasta % OFF</label>
+          <input type="number" id="ev-desc" class="form-control form-control-sm" min="0" max="90"
+                 style="width:105px" value="{{ evento.evento_descuento_max }}">
+        </div>
+        <div class="col-auto">
+          <label class="form-label small mb-1">Cupón</label>
+          <input type="text" id="ev-cupon" class="form-control form-control-sm"
+                 style="width:140px" value="{{ evento.evento_cupon }}" placeholder="CYBERSALE">
+        </div>
+        <div class="col-auto">
+          <label class="form-label small mb-1">% del cupón</label>
+          <input type="number" id="ev-cupon-pct" class="form-control form-control-sm" min="0" max="90"
+                 style="width:105px" value="{{ evento.evento_cupon_pct }}">
+        </div>
+      </div>
+
+      <div class="row g-2 align-items-center mt-1">
+        <div class="col-auto d-flex align-items-center gap-3 flex-wrap">
+          <div class="form-check form-switch m-0">
+            <input class="form-check-input" type="checkbox" role="switch" id="ev-2x1"
+                   {% if evento.promo_2x1_almohadas == '1' %}checked{% endif %}>
+            <label class="form-check-label small" for="ev-2x1">2x1 en almohadas <span class="text-muted">(de a 2 del mismo modelo)</span></label>
+          </div>
+          <div class="form-check form-switch m-0">
+            <input class="form-check-input" type="checkbox" role="switch" id="ev-envio-caba"
+                   {% if evento.evento_envio_gratis_caba == '1' %}checked{% endif %}>
+            <label class="form-check-label small" for="ev-envio-caba">Envío sin cargo en CABA</label>
+          </div>
+        </div>
+        <div class="col-auto ms-auto d-flex align-items-center gap-2">
+          <span id="ev-status" class="small text-muted"></span>
+          <button id="btn-ev-guardar" class="btn btn-sm" style="background:#e7501e;color:#fff;">Guardar evento</button>
+        </div>
+      </div>
+      <div class="row mt-1">
+        <div class="col">
+          <small class="text-muted">
+            El cupón y el 2x1 solo corren con el evento encendido. En modo automático las fechas
+            se evalúan en hora argentina; <strong>Encendido</strong> y <strong>Apagado</strong> mandan sobre las fechas,
+            para probarlo antes o cortarlo sin tocar el calendario.
+          </small>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Config coeficientes cuotas Payway -->
   <div class="card border-0 shadow-sm mb-3" style="border-left:4px solid #10b981!important;">
     <div class="card-body py-2">
@@ -492,6 +592,35 @@ if (btnDes) {
     document.getElementById('btn-demora-guardar').click();
   });
 }
+
+// ── Evento promocional ───────────────────────────────────────────────────────
+document.getElementById('btn-ev-guardar').addEventListener('click', function() {
+  const btn = this, st = document.getElementById('ev-status');
+  const v = id => document.getElementById(id).value;
+  const fd = new FormData();
+  fd.append('modo',       v('ev-modo'));
+  fd.append('inicio',     v('ev-inicio'));
+  fd.append('fin',        v('ev-fin'));
+  fd.append('corte',      v('ev-corte'));
+  fd.append('titulo',     v('ev-titulo'));
+  fd.append('fechas',     v('ev-fechas'));
+  fd.append('desc_max',   v('ev-desc') || 0);
+  fd.append('cupon',      v('ev-cupon'));
+  fd.append('cupon_pct',  v('ev-cupon-pct') || 0);
+  fd.append('promo_2x1',  document.getElementById('ev-2x1').checked ? '1' : '0');
+  fd.append('envio_caba', document.getElementById('ev-envio-caba').checked ? '1' : '0');
+  btn.disabled = true; st.className = 'small text-muted'; st.textContent = 'Guardando...';
+  fetch('/productos/evento-guardar', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(d => {
+      st.className = 'small ' + (d.ok ? 'text-success' : 'text-danger');
+      st.textContent = d.msg;
+      // Recargar para que el badge de estado refleje lo guardado.
+      if (d.ok) setTimeout(() => location.reload(), 900);
+    })
+    .catch(() => { st.className = 'small text-danger'; st.textContent = 'Error de conexión'; })
+    .finally(() => { btn.disabled = false; });
+});
 
 // ── Coeficientes cuotas (Payway 3c y 6c / GetNet 6c / MP 12c y 3c) ───────────
 document.getElementById('btn-coef-guardar').addEventListener('click', function() {

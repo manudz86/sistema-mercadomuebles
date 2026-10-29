@@ -20972,6 +20972,18 @@ def productos_lista():
     cuotas_6_coef = float(coef_6_row['valor']) if coef_6_row and coef_6_row['valor'] else 1.22
     # 6 cuotas de Payway: coeficiente propio. GetNet 6 es MiPyME subsidiado y
     # Payway 6 es plan comun, cuestan muy distinto. Si no esta, cae al de GetNet.
+    # Panel del evento promocional
+    _ev_claves = ('hot_event_activo', 'hot_event_fecha_inicio', 'hot_event_fecha_fin',
+                  'evento_fecha_corte', 'evento_titulo', 'evento_fechas',
+                  'evento_descuento_max', 'evento_cupon', 'evento_cupon_pct',
+                  'promo_2x1_almohadas', 'evento_envio_gratis_caba')
+    _ev_rows = query_db("SELECT clave, valor FROM configuracion WHERE clave IN "
+                        "(" + ",".join(["%s"] * len(_ev_claves)) + ")", _ev_claves) or []
+    evento = {r['clave']: (r['valor'] or '') for r in _ev_rows}
+    # datetime-local necesita 'YYYY-MM-DDTHH:MM'
+    for _k in ('hot_event_fecha_inicio', 'hot_event_fecha_fin', 'evento_fecha_corte'):
+        evento[_k + '_input'] = (evento.get(_k, '') or '')[:16].replace(' ', 'T')
+
     coef_6_pw_row = query_one("SELECT valor FROM configuracion WHERE clave='cuotas_6_payway_coef'")
     cuotas_6_payway_coef = (float(coef_6_pw_row['valor'])
                             if coef_6_pw_row and coef_6_pw_row['valor'] else cuotas_6_coef)
@@ -21010,6 +21022,7 @@ def productos_lista():
         cuotas_3_coef = cuotas_3_coef,
         cuotas_6_coef = cuotas_6_coef,
         cuotas_6_payway_coef = cuotas_6_payway_coef,
+        evento = evento,
         cuotas_12_coef = cuotas_12_coef,
         cuotas_mp3_coef = cuotas_mp3_coef,
         payway_enabled = payway_enabled,
@@ -21128,6 +21141,59 @@ def productos_flete_almohadas():
         return jsonify(ok=True,
                        msg=f'✅ Almohadas a CABA: ${hasta6_f:,.0f} hasta 6 u. · '
                            f'${mas6_f:,.0f} más de 6')
+    except Exception as e:
+        return jsonify(ok=False, msg=str(e))
+
+
+@app.route('/productos/evento-guardar', methods=['POST'])
+@admin_required
+def productos_evento_guardar():
+    """Panel del evento promocional (CYBERSALE, HOT SALE, etc).
+
+    El modo 'auto' prende y apaga solo entre las dos fechas, en hora
+    argentina. '1' y '0' son override manual y ganan sobre las fechas, para
+    poder probarlo antes o cortarlo de urgencia sin tocar el calendario.
+    """
+    def _fecha(campo, defecto=''):
+        """'2026-11-01T00:00' (datetime-local) -> '2026-11-01 00:00:00'."""
+        v = (request.form.get(campo, '') or '').strip().replace('T', ' ')
+        if not v:
+            return defecto
+        if len(v) == 16:          # sin segundos
+            v += ':00'
+        try:
+            datetime.strptime(v, '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            raise ValueError(f'Fecha inválida en {campo}: {v}')
+        return v
+
+    try:
+        modo = (request.form.get('modo', '') or '0').strip().lower()
+        if modo not in ('0', '1', 'auto'):
+            return jsonify(ok=False, msg='Modo inválido')
+
+        vals = {
+            'hot_event_activo':         modo,
+            'hot_event_fecha_inicio':   _fecha('inicio'),
+            'hot_event_fecha_fin':      _fecha('fin'),
+            'evento_fecha_corte':       _fecha('corte'),
+            'evento_titulo':            (request.form.get('titulo', '') or '').strip()[:60],
+            'evento_fechas':            (request.form.get('fechas', '') or '').strip()[:80],
+            'evento_descuento_max':     str(max(0, int(request.form.get('desc_max') or 0))),
+            'evento_cupon':             (request.form.get('cupon', '') or '').strip().upper()[:30],
+            'evento_cupon_pct':         str(max(0, int(request.form.get('cupon_pct') or 0))),
+            'promo_2x1_almohadas':      '1' if request.form.get('promo_2x1') in ('1', 'true', 'on') else '0',
+            'evento_envio_gratis_caba': '1' if request.form.get('envio_caba') in ('1', 'true', 'on') else '0',
+        }
+        for clave, valor in vals.items():
+            execute_db("INSERT INTO configuracion (clave, valor) VALUES (%s, %s) "
+                       "ON DUPLICATE KEY UPDATE valor=%s", (clave, valor, valor))
+
+        estado = {'1': '🟢 ENCENDIDO (manual)', '0': '⚫ apagado',
+                  'auto': '🕒 automático por fechas'}[modo]
+        return jsonify(ok=True, msg=f'✅ Evento guardado · {estado}')
+    except ValueError as e:
+        return jsonify(ok=False, msg=str(e))
     except Exception as e:
         return jsonify(ok=False, msg=str(e))
 
