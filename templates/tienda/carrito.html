@@ -111,7 +111,7 @@
 
       <div class="resumen-fila">
         <span>Productos</span>
-        <strong id="resumen-subtotal">{{ subtotal_fmt }}</strong>
+        <strong id="resumen-subtotal">{{ subtotal_bruto_fmt if ahorro_2x1 else subtotal_fmt }}</strong>
       </div>
 
       {% if ahorro_2x1 %}

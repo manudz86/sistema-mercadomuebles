@@ -184,7 +184,7 @@
         {% endif %}
       </div>
       <p style="font-size:0.72rem; color:#bbb; margin-top:6px;">
-        Solo con tarjeta de crédito Visa y Mastercard
+        Solo con tarjeta de crédito Visa y Mastercard{% if hot_event.activo and hot_event.cupon_pct %} · <span style="color:#157a43; font-weight:700;">cuotas calculadas con el cupón {{ hot_event.cupon }}</span>{% endif %}
       </p>
       {% if promo_3sin %}
       <p style="font-size:0.75rem; color:#1e8e4e; margin-top:2px; font-weight:600;">

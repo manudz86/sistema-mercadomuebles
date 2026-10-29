@@ -2351,7 +2351,19 @@ def calc_cuotas_producto(precio):
     if getnet_activo():     coefs6.append(c6)
     if payway_6_activo():   coefs6.append(get_coef_6_payway())
     c6_ef = min(coefs6) if coefs6 else c6
-    return calc_cuotas(precio, c3_ef, c6_ef, get_coef_12())
+    # Durante el evento las cuotas se calculan sobre el precio CON cupon: es
+    # el que va a pagar casi todo el mundo, porque se aplica con un clic, y
+    # mostrar la cuota sobre un precio mas alto desalienta sin motivo. La
+    # ficha aclara al lado que el calculo incluye el cupon.
+    base = precio
+    try:
+        he = get_hot_event()
+        pct = int(he.get('cupon_pct') or 0)
+        if he.get('activo') and pct:
+            base = float(precio) * (100 - pct) / 100
+    except Exception:
+        pass
+    return calc_cuotas(base, c3_ef, c6_ef, get_coef_12())
 
 
 def sku_colchon_a_conjunto(sku):
@@ -3662,8 +3674,16 @@ def promo_2x1_activa():
 
 def unidades_bonificadas(sku, cantidad):
     """Cuántas unidades van gratis por el 2x1. Agrupa por SKU: 2 Platino dan
-    una gratis, pero 1 Platino + 1 Dual no. Con 3 va una sola."""
+    una gratis, pero 1 Platino + 1 Dual no. Con 3 va una sola.
+
+    Chequea la promo acá adentro: antes lo hacía solo subtotal_carrito, y
+    precio_efectivo_item descontaba el 2x1 aunque estuviera apagado. Mientras
+    el precio efectivo se usaba nada más que para mostrar no se notaba, pero
+    ahora gobierna lo que se cobra.
+    """
     if str(sku or '').strip().upper() not in SKUS_ALMOHADA:
+        return 0
+    if not promo_2x1_activa():
         return 0
     return int(cantidad or 0) // 2
 
@@ -4127,11 +4147,16 @@ def ver_carrito():
             it['gratis'] = unidades_bonificadas(it.get('sku'), it.get('cantidad'))
             it['ahorro'] = float(it.get('precio') or 0) * it['gratis']
     ahorro_2x1 = sum(i.get('ahorro', 0) for i in carrito)
+    # Con 2x1, `subtotal` ya viene con el descuento aplicado. La linea
+    # "Productos" muestra el bruto para que la del ahorro tenga de donde
+    # restar; si no, se veia 180.000 menos 180.000 y parecia que daba cero.
+    subtotal_bruto = subtotal + ahorro_2x1
 
     return render_template('tienda/carrito.html',
         carrito          = carrito,
         ahorro_2x1       = ahorro_2x1,
         ahorro_2x1_fmt   = format_price(ahorro_2x1) if ahorro_2x1 else None,
+        subtotal_bruto_fmt = format_price(subtotal_bruto),
         subtotal         = subtotal,
         subtotal_fmt     = format_price(subtotal),
         total            = total,
@@ -5207,7 +5232,10 @@ def checkout():
 
     items_mp = []
     for item in carrito:
-        precio_ajustado = round(float(item['precio']) * factor_cupon)
+        # precio_efectivo_item y no item['precio']: con el 2x1 activo, el
+        # precio de lista sobrestima. Sin esto el checkout mostraba (y MP
+        # cobraba) las cuatro almohadas al precio de cuatro.
+        precio_ajustado = round(precio_efectivo_item(item) * factor_cupon)
         items_mp.append({
             'id':          item['sku'],
             'title':       item['nombre'],
@@ -6259,7 +6287,7 @@ def pago_payway():
     # Items con precio ajustado por cupón + coeficiente
     # Se usan para guardar en la DB y en los emails — el cliente ve el precio real pagado
     cart_items_adj = [
-        dict(it, precio=round(float(it['precio']) * factor_cupon * coef))
+        dict(it, precio=round(precio_efectivo_item(it) * factor_cupon * coef))
         for it in cart_items
     ]
     costo_flete_adj = round(costo_flete * coef) if costo_flete else 0.0
@@ -6919,7 +6947,7 @@ def pago_getnet_crear():
         for it in cart_items:
             product.append({
                 'title':    (it.get('nombre') or it.get('sku') or 'Producto')[:50],
-                'value':    int(round(float(it['precio']) * factor_cupon * coef_6) * 100),
+                'value':    int(round(precio_efectivo_item(it) * factor_cupon * coef_6) * 100),
                 'quantity': int(it['cantidad']),
             })
         if costo_flete > 0:
@@ -8800,7 +8828,7 @@ def webhook_getnet():
         # Items con precio ajustado por cupón + coeficiente
         # cart_items_adj se reutiliza más abajo para los emails (mismo patrón que Payway)
         cart_items_adj = [
-            dict(it, precio=round(float(it['precio']) * factor_cupon * coef_6))
+            dict(it, precio=round(precio_efectivo_item(it) * factor_cupon * coef_6))
             for it in cart_items
         ]
         for it in cart_items_adj:
