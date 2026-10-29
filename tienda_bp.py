@@ -94,7 +94,13 @@ def inject_nl_popup_desc():
 
 @tienda_bp.context_processor
 def inject_hot_event():
-    return {'hot_event': get_hot_event()}
+    """Evento y promo 2x1, disponibles en todos los templates de la tienda.
+    `skus_2x1` va vacío si la promo está apagada, así las plantillas pueden
+    preguntar `item.sku in skus_2x1` sin chequear antes si está activa."""
+    return {
+        'hot_event': get_hot_event(),
+        'skus_2x1': SKUS_ALMOHADA if promo_2x1_activa() else set(),
+    }
 
 
 @tienda_bp.context_processor
@@ -4084,8 +4090,18 @@ def ver_carrito():
 
     fecha_disponible = calcular_fecha_demora(demora_dias) if (demora_dias and hay_demora) else None
 
+    # Unidades bonificadas por item, para mostrarlo en el carrito. La regla
+    # vive en el backend; el template solo pinta lo que recibe.
+    if promo_2x1_activa():
+        for it in carrito:
+            it['gratis'] = unidades_bonificadas(it.get('sku'), it.get('cantidad'))
+            it['ahorro'] = float(it.get('precio') or 0) * it['gratis']
+    ahorro_2x1 = sum(i.get('ahorro', 0) for i in carrito)
+
     return render_template('tienda/carrito.html',
         carrito          = carrito,
+        ahorro_2x1       = ahorro_2x1,
+        ahorro_2x1_fmt   = format_price(ahorro_2x1) if ahorro_2x1 else None,
         subtotal         = subtotal,
         subtotal_fmt     = format_price(subtotal),
         total            = total,

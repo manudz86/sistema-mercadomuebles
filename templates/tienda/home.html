@@ -101,6 +101,11 @@
 .catalogo-header-line { flex:1; height:1px; background:#e8e8e8; }
 
 /* ── BADGE HOT EVENT ── */
+.badge-2x1 {
+  display:inline-block; background:#1e8e4e; color:#fff; border-radius:6px;
+  padding:4px 10px; font-size:0.74rem; font-weight:800; letter-spacing:0.5px;
+  box-shadow:0 2px 8px rgba(30,142,78,.35);
+}
 .offer-badge.offer-badge--hot {
   background: #0a0a0f;
   color: #fff;
@@ -365,7 +370,7 @@
         <div class="carousel-track" id="track-masvendidos">
           {% for p in mas_vendidos %}
           <div class="product-card {% if p.stock == 0 and not (demora_dias and p.demora_aplica) %}sin-stock{% endif %}">
-            {% if p.descuento_catalogo %}<span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_catalogo | int }}%</span>{% endif %}
+            {% if p.descuento_catalogo %}<span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_catalogo | int }}%</span>{% endif %}{% if p.sku in skus_2x1 %}<span class="badge-2x1">2x1</span>{% endif %}
             {% if p.tipo == 'conjunto' %}<span class="badge badge-conjunto">Con Sommier</span>{% endif %}
             <div class="product-img" data-sku="{{ p.sku_url }}" data-fotos='{{ p.fotos | tojson }}' data-idx="0">
               <a href="/tienda/producto/{{ p.slug or p.sku_url }}" class="product-img-link">
@@ -581,7 +586,7 @@
     <div class="products-grid">
       {% for p in productos %}
       <div class="product-card {% if p.stock == 0 and not (demora_dias and p.demora_aplica) %}sin-stock{% endif %}">
-        {% if p.descuento_catalogo %}<span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_catalogo | int }}%</span>{% endif %}
+        {% if p.descuento_catalogo %}<span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_catalogo | int }}%</span>{% endif %}{% if p.sku in skus_2x1 %}<span class="badge-2x1">2x1</span>{% endif %}
         {% if p.tipo == 'conjunto' %}
           <span class="badge badge-conjunto">Con Sommier</span>
         {% endif %}

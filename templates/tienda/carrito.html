@@ -70,6 +70,17 @@
             <div class="item-nombre">{{ item.nombre }}</div>
             <div class="item-sku">SKU: {{ item.sku }}</div>
             <div class="item-precio-unit">${{ "{:,.0f}".format(item.precio).replace(',','.') }} c/u</div>
+            {# 2x1: se avisa tanto cuando ya aplica como cuando falta una
+               unidad, que es donde se gana la venta extra. #}
+            {% if item.gratis %}
+            <div style="display:inline-block; background:#1e8e4e; color:#fff; border-radius:5px; padding:2px 8px; font-size:0.72rem; font-weight:800; margin-top:5px; letter-spacing:0.3px;">
+              2x1 · {{ item.gratis }} GRATIS
+            </div>
+            {% elif hot_event.activo and item.cantidad == 1 and item.sku in skus_2x1 %}
+            <div style="font-size:0.74rem; color:#1e8e4e; font-weight:700; margin-top:5px;">
+              ⊕ Sumá otra y la segunda es gratis
+            </div>
+            {% endif %}
           </div>
           <div class="item-right">
             <span class="item-subtotal" id="cart-sub-{{ item.sku | replace('+','PLUS') }}">${{ "{:,.0f}".format(item.precio * item.cantidad).replace(',','.') }}</span>
@@ -101,6 +112,13 @@
         <strong id="resumen-subtotal">{{ subtotal_fmt }}</strong>
       </div>
 
+      {% if ahorro_2x1 %}
+      <div class="resumen-fila" style="color:#1e8e4e; margin-bottom:4px;">
+        <span>🛏️ Ahorro 2x1 en almohadas</span>
+        <strong>-{{ ahorro_2x1_fmt }}</strong>
+      </div>
+      {% endif %}
+
       <hr style="border:none; border-top:1px solid #eee; margin:10px 0;">
 
       <!-- CUPÓN — opcional, colapsable -->
@@ -117,6 +135,29 @@
         <strong>-{{ descuento_fmt }}</strong>
       </div>
       {% else %}
+      {# Cupon del evento: un boton grande en vez de hacerle escribir el
+         codigo. Usa el mismo endpoint de validacion, asi que respeta el
+         minimo de compra, el vencimiento y el tope de usos como cualquier
+         otro cupon: no es un atajo que saltee los controles. #}
+      {% if hot_event.activo and hot_event.cupon %}
+      <div id="cupon-evento" style="background:linear-gradient(135deg,#1e8e4e,#14663a); border-radius:9px; padding:12px 14px; margin-bottom:10px; color:#fff;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+          <div style="min-width:0;">
+            <div style="font-weight:800; font-size:0.95rem; line-height:1.2;">
+              Sumá {{ hot_event.cupon_pct }}% extra de descuento
+            </div>
+            <div style="font-size:0.76rem; opacity:0.9; margin-top:2px;">
+              Cupón {{ hot_event.cupon }} · {{ hot_event.titulo }}
+            </div>
+          </div>
+          <button onclick="aplicarCuponEvento(this)"
+            style="padding:9px 16px; background:#ffdd33; color:#14663a; border:none; border-radius:7px; cursor:pointer; font-size:0.86rem; font-weight:800; white-space:nowrap; touch-action:manipulation;">
+            Aplicar
+          </button>
+        </div>
+        <div id="cupon-evento-msg" style="font-size:0.8rem; margin-top:7px; display:none;"></div>
+      </div>
+      {% endif %}
       <details style="margin-bottom:10px;">
         <summary style="font-size:0.8rem; color:#aaa; cursor:pointer; list-style:none; user-select:none;">
           + Tengo un cupón de descuento
@@ -400,6 +441,28 @@ if (btnBuscarCp) {
   btnBuscarCp.addEventListener('click', buscarCP);
 }
 inputCp && inputCp.addEventListener('keydown', e => { if (e.key === 'Enter') buscarCP(); });
+
+async function aplicarCuponEvento(btn) {
+  const msg = document.getElementById('cupon-evento-msg');
+  const txt = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Aplicando...';
+  msg.style.display = 'none';
+  try {
+    const res  = await fetch('/tienda/carrito/validar-cupon', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({codigo: '{{ hot_event.cupon }}'}),
+    });
+    const data = await res.json();
+    if (data.ok) { location.reload(); return; }
+    msg.textContent = '⚠️ ' + data.error;
+    msg.style.display = 'block';
+  } catch(e) {
+    msg.textContent = 'Error de conexión, probá de nuevo';
+    msg.style.display = 'block';
+  }
+  btn.disabled = false; btn.textContent = txt;
+}
 
 async function aplicarCupon() {
   const codigo = document.getElementById('input-cupon')?.value.trim().toUpperCase();
