@@ -210,10 +210,16 @@
 {% if hot_event.activo %}
 <section class="slider hot-event-banner">
   <a href="/tienda/#catalogo" style="display:block;">
+    {# Dos piezas distintas, no la misma encogida: la de escritorio es
+       panoramica (2,98:1) y la de celular es cuadrada (1:1). Antes el
+       <source> de mobile apuntaba al MISMO archivo, asi que no hacia nada y
+       en el telefono se veia la panoramica miniaturizada.
+       El navegador descarga solo la que corresponde. #}
     <picture>
-      <source media="(max-width: 700px)" srcset="/static/img/banners/banner5.png">
-      <img src="/static/img/banners/banner5.png"
-           alt="{{ hot_event.titulo }} - Hasta {{ hot_event.descuento_max }}% OFF"
+      <source media="(max-width: 700px)" srcset="{{ hot_event.banner_mobile }}">
+      <img src="{{ hot_event.banner_desktop }}"
+           alt="{{ hot_event.titulo }}{% if hot_event.fechas %} · {{ hot_event.fechas }}{% endif %}"
+           width="2167" height="726"
            style="width:100%; height:auto; display:block;">
     </picture>
   </a>

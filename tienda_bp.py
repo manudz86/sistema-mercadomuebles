@@ -2436,12 +2436,13 @@ def get_hot_event():
         TZ_AR = None
 
     activo = False
+    config = {}
     try:
         db = get_db()
         cur = db.cursor()
         cur.execute("""
             SELECT clave, valor FROM configuracion
-            WHERE clave IN ('hot_event_activo', 'hot_event_fecha_inicio', 'hot_event_fecha_fin')
+            WHERE clave LIKE 'hot_event_%' OR clave LIKE 'evento_%'
         """)
         rows = cur.fetchall()
         cur.close()
@@ -2483,14 +2484,43 @@ def get_hot_event():
             except (ValueError, NameError):
                 fecha_fin_iso = ''
 
+    # Titulo, fechas, descuento maximo, extras y banners salen de
+    # configuracion. Estaban escritos en el codigo, asi que cada evento
+    # nuevo era un deploy: con el Cyber encima no da.
+    def _cfg(clave, defecto=''):
+        return (config.get(clave) or defecto)
+
+    # El banner cambia a la version "extendida" pasada la fecha de corte.
+    extendido = False
+    corte = _cfg('evento_fecha_corte')
+    if activo and corte:
+        try:
+            dt_corte = datetime.strptime(corte, '%Y-%m-%d %H:%M:%S')
+            if TZ_AR is not None:
+                dt_corte = dt_corte.replace(tzinfo=TZ_AR)
+                ahora_c = datetime.now(TZ_AR)
+            else:
+                ahora_c = datetime.now()
+            extendido = ahora_c > dt_corte
+        except ValueError:
+            extendido = False
+    suf = '_ext' if extendido else ''
+
     return {
         'activo': activo,
-        'titulo': 'SEMANA DEL DESCANSO',
-        'fechas': '28 DE AGOSTO AL 4 DE SEPTIEMBRE',
-        'descuento_max': 15,
+        'titulo': _cfg('evento_titulo', 'SEMANA DEL DESCANSO'),
+        'fechas': _cfg('evento_fechas', ''),
+        'descuento_max': int(_cfg('evento_descuento_max', '15') or 15),
         'fecha_fin_iso': fecha_fin_iso,
-        'descuento_extra_catalogo': 3 if activo else 0,
-        'descuento_extra_oferta': 3 if activo else 0,
+        'descuento_extra_catalogo': int(_cfg('evento_extra_catalogo', '0') or 0) if activo else 0,
+        'descuento_extra_oferta': int(_cfg('evento_extra_oferta', '0') or 0) if activo else 0,
+        'extendido': extendido,
+        'banner_desktop': _cfg('evento_banner_desktop',
+                               f'/static/img/banners/cybersale_desktop{suf}.jpg'),
+        'banner_mobile': _cfg('evento_banner_mobile',
+                              f'/static/img/banners/cybersale_mobile{suf}.jpg'),
+        'cupon': _cfg('evento_cupon', ''),
+        'cupon_pct': int(_cfg('evento_cupon_pct', '0') or 0),
     }
 
 
@@ -3644,6 +3674,31 @@ def subtotal_carrito(carrito):
                    for i in carrito)
     return sum(precio_efectivo_item(i) * int(i.get('cantidad') or 0)
                for i in carrito)
+
+
+def envio_gratis_caba(cp):
+    """Durante el evento, los envios a CABA van sin cargo para todo el
+    catalogo. Se sigue cotizando contra Zipnova aunque el precio sea 0:
+    de esa respuesta salen el carrier, el service_type y el logistic_type
+    que despues necesita zipnova_crear_envio para generar la etiqueta.
+    Saltear la llamada dejaria el envio sin transportista.
+    """
+    if not _es_cp_caba(cp):
+        return False
+    try:
+        he = get_hot_event()
+        if not he.get('activo'):
+            return False
+        db = get_db(); cur = db.cursor()
+        cur.execute("INSERT IGNORE INTO configuracion (clave, valor) "
+                    "VALUES ('evento_envio_gratis_caba', '0')")
+        db.commit()
+        cur.execute("SELECT valor FROM configuracion WHERE clave='evento_envio_gratis_caba'")
+        row = cur.fetchone()
+        cur.close(); db.close()
+        return bool(row and str(row['valor']).strip() == '1')
+    except Exception:
+        return False
 
 
 def _carrito_solo_almohadas(carrito):
@@ -4809,6 +4864,15 @@ def cotizar_envio():
                         f'${precio:,.0f} sin recargo')
     else:
         precio = precio_zipnova + 10000
+
+    # El envio gratis del evento pisa cualquier regla anterior.
+    envio_promo = envio_gratis_caba(cp)
+    if envio_promo:
+        logger.info(f'[flete] CP {cp} es CABA y el evento esta activo: '
+                    f'sin cargo (Zipnova cotizo ${precio_zipnova:,.0f}, '
+                    f'la regla daba ${precio:,.0f})')
+        precio = 0.0
+
     dt     = mejor.get('delivery_time', {})
     if isinstance(dt, dict):
         dias = dt.get('max') or dt.get('min') or '?'
@@ -4862,6 +4926,7 @@ def cotizar_envio():
         'fecha_estimada':  fecha_entrega_str,
         'carrier':         session['zipnova_quote']['carrier_name'],
         'bultos':          len(bultos),
+        'envio_promo':     envio_promo,
         'ok':              True,
     })
 

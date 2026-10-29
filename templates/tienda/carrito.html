@@ -312,7 +312,18 @@ async function cotizarEnvio(cp, ciudad, prov) {
       const total    = totalSinFlete + data.precio;
       const fmtTotal = '$ ' + total.toLocaleString('es-AR', {maximumFractionDigits: 0});
       totalDisplay.textContent = fmtTotal;
-      resultadoDiv.innerHTML = `
+      // Con el envio bonificado del evento se muestra como lo que es: un
+      // beneficio, no un cero sin explicacion. Se deja a la vista lo que
+      // habria costado para que se entienda cuanto se ahorra.
+      resultadoDiv.innerHTML = data.envio_promo ? `
+        <div style="background:#eafaf0; border:2px solid #1e8e4e; border-radius:7px; padding:10px 12px; margin-top:4px;">
+          <strong style="color:#14663a;">🚚 ENVÍO SIN CARGO</strong>
+          <span style="display:inline-block; background:#1e8e4e; color:#fff; border-radius:4px; padding:1px 7px; font-size:0.66rem; font-weight:700; margin-left:6px; letter-spacing:0.3px; vertical-align:middle;">CYBERSALE</span>
+          <br><span style="font-size:0.8rem;color:#2e7d32;">Bonificado para CABA durante el evento</span>
+          ${data.dias ? `<br><span style="font-size:0.8rem;color:#555;">Entrega estimada: ${data.dias} días hábiles${data.fecha_estimada ? ` (aprox. ${data.fecha_estimada})` : ''}</span>` : ''}
+          ${data.demora_dias ? `<br><span style="font-size:0.78rem;color:#856404;">⏳ Incluye ${data.demora_dias} días por fabricación bajo demanda</span>` : ''}
+          ${data.carrier ? `<br><span style="font-size:0.8rem;color:#555;">${data.carrier}</span>` : ''}
+        </div>` : `
         <div style="background:#e8f5e9; border-radius:7px; padding:10px 12px; margin-top:4px;">
           <strong>Envío: ${data.precio_fmt}</strong>
           ${data.dias ? `<br><span style="font-size:0.8rem;color:#555;">Entrega estimada: ${data.dias} días hábiles${data.fecha_estimada ? ` (aprox. ${data.fecha_estimada})` : ''}</span>` : ''}
