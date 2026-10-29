@@ -118,13 +118,17 @@
   letter-spacing: 0.6px;
   font-weight: 800;
 }
+.offer-badge.offer-badge--hot .ob-extra {
+  background:#ffdd33; color:#0a0a0f; border-radius:4px; padding:1px 5px;
+  font-size:0.66rem; font-weight:900; margin-left:5px; letter-spacing:0;
+}
 .offer-badge.offer-badge--hot::before {
-  content: "";
+  content: "\26A1";
+  font-size: 0.86rem;
+  line-height: 1;
   display: inline-block;
-  width: 14px;
-  height: 14px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3ClinearGradient id='f' x1='50%25' y1='0%25' x2='50%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23FFE066'/%3E%3Cstop offset='50%25' stop-color='%23FF8A00'/%3E%3Cstop offset='100%25' stop-color='%23E63946'/%3E%3C/linearGradient%3E%3Cpath fill='url(%23f)' d='M16 2c.8 4 3.2 6.4 5.4 8.6 2 2 3.2 4.2 3.2 7.4 0 5-4 8.5-8.6 8.5s-8.6-3.5-8.6-8.5c0-2 .8-3.6 2-4.7.6 1 1.6 1.8 2.8 1.8-1-2-.8-4.4.4-6.4C14 6 15.4 4.2 16 2z'/%3E%3C/svg%3E");
-  background-size: contain;
+  width: auto;
+  height: auto;
   background-repeat: no-repeat;
   background-position: center;
   filter: drop-shadow(0 0 5px rgba(255,138,0,0.85));
@@ -370,7 +374,7 @@
         <div class="carousel-track" id="track-masvendidos">
           {% for p in mas_vendidos %}
           <div class="product-card {% if p.stock == 0 and not (demora_dias and p.demora_aplica) %}sin-stock{% endif %}">
-            {% if p.descuento_catalogo %}<span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_catalogo | int }}%</span>{% endif %}{% if p.sku in skus_2x1 %}<span class="badge-2x1">2x1</span>{% endif %}
+            {% if p.sku in skus_2x1 %}<span class="badge-2x1">2x1</span>{% elif p.descuento_catalogo %}<span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_catalogo | int }}%{% if hot_event.activo and hot_event.cupon_pct %}<span class="ob-extra">+{{ hot_event.cupon_pct }}%</span>{% endif %}</span>{% endif %}
             {% if p.tipo == 'conjunto' %}<span class="badge badge-conjunto">Con Sommier</span>{% endif %}
             <div class="product-img" data-sku="{{ p.sku_url }}" data-fotos='{{ p.fotos | tojson }}' data-idx="0">
               <a href="/tienda/producto/{{ p.slug or p.sku_url }}" class="product-img-link">
@@ -402,8 +406,9 @@
                      extra como si fuera el precio sin mas. #}
                   {% set pc = p.precio | con_cupon %}
                   {% if pc %}
-                  <div style="font-size:0.78rem; color:#1e8e4e; font-weight:700; margin-top:2px;">
-                    {{ pc }} con cupón {{ hot_event.cupon }}
+                  <div style="font-size:1.02rem; color:#157a43; font-weight:900; margin-top:3px; line-height:1.15;">
+                    {{ pc }}
+                    <span style="display:inline-block; background:#1e8e4e; color:#fff; border-radius:4px; padding:1px 6px; font-size:0.62rem; font-weight:800; vertical-align:middle; letter-spacing:0.3px;">CON {{ hot_event.cupon }}</span>
                   </div>
                   {% endif %}
                   <div class="stock-indicator">
@@ -596,7 +601,7 @@
     <div class="products-grid">
       {% for p in productos %}
       <div class="product-card {% if p.stock == 0 and not (demora_dias and p.demora_aplica) %}sin-stock{% endif %}">
-        {% if p.descuento_catalogo %}<span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_catalogo | int }}%</span>{% endif %}{% if p.sku in skus_2x1 %}<span class="badge-2x1">2x1</span>{% endif %}
+        {% if p.sku in skus_2x1 %}<span class="badge-2x1">2x1</span>{% elif p.descuento_catalogo %}<span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_catalogo | int }}%{% if hot_event.activo and hot_event.cupon_pct %}<span class="ob-extra">+{{ hot_event.cupon_pct }}%</span>{% endif %}</span>{% endif %}
         {% if p.tipo == 'conjunto' %}
           <span class="badge badge-conjunto">Con Sommier</span>
         {% endif %}
@@ -626,8 +631,9 @@
               {% endif %}
               {% set pc = p.precio | con_cupon %}
               {% if pc %}
-              <div style="font-size:0.78rem; color:#1e8e4e; font-weight:700; margin-top:2px;">
-                {{ pc }} con cupón {{ hot_event.cupon }}
+              <div style="font-size:1.02rem; color:#157a43; font-weight:900; margin-top:3px; line-height:1.15;">
+                {{ pc }}
+                <span style="display:inline-block; background:#1e8e4e; color:#fff; border-radius:4px; padding:1px 6px; font-size:0.62rem; font-weight:800; vertical-align:middle; letter-spacing:0.3px;">CON {{ hot_event.cupon }}</span>
               </div>
               {% endif %}
               <div class="stock-indicator">

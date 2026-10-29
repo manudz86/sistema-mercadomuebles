@@ -72,15 +72,17 @@
             <div class="item-precio-unit">${{ "{:,.0f}".format(item.precio).replace(',','.') }} c/u</div>
             {# 2x1: se avisa tanto cuando ya aplica como cuando falta una
                unidad, que es donde se gana la venta extra. #}
-            {% if item.gratis %}
-            <div style="display:inline-block; background:#1e8e4e; color:#fff; border-radius:5px; padding:2px 8px; font-size:0.72rem; font-weight:800; margin-top:5px; letter-spacing:0.3px;">
-              2x1 · {{ item.gratis }} GRATIS
+            <div id="cart-2x1-{{ item.sku | replace('+','PLUS') }}" style="margin-top:5px;{% if not item.gratis and not (item.cantidad == 1 and item.sku in skus_2x1) %}display:none;{% endif %}">
+              {% if item.gratis %}
+              <span style="display:inline-block; background:#1e8e4e; color:#fff; border-radius:5px; padding:2px 8px; font-size:0.72rem; font-weight:800; letter-spacing:0.3px;">
+                2x1 · {{ item.gratis }} GRATIS
+              </span>
+              {% elif item.cantidad == 1 and item.sku in skus_2x1 %}
+              <span style="font-size:0.74rem; color:#1e8e4e; font-weight:700;">
+                ⊕ Sumá otra y la segunda es gratis
+              </span>
+              {% endif %}
             </div>
-            {% elif hot_event.activo and item.cantidad == 1 and item.sku in skus_2x1 %}
-            <div style="font-size:0.74rem; color:#1e8e4e; font-weight:700; margin-top:5px;">
-              ⊕ Sumá otra y la segunda es gratis
-            </div>
-            {% endif %}
           </div>
           <div class="item-right">
             <span class="item-subtotal" id="cart-sub-{{ item.sku | replace('+','PLUS') }}">${{ "{:,.0f}".format(item.precio * item.cantidad).replace(',','.') }}</span>
@@ -255,7 +257,23 @@ async function cartCambiar(sku, delta, nombre, precio) {
   const qspan = document.getElementById('cart-qnum-' + id);
   if (qspan) qspan.textContent = data.cantidad_sku;
   const subspan = document.getElementById('cart-sub-' + id);
-  if (subspan) subspan.textContent = '$ ' + (precio * data.cantidad_sku).toLocaleString('es-AR', {maximumFractionDigits:0});
+  // El total de la linea lo manda el backend: es el unico que conoce el 2x1.
+  // Calcularlo aca como precio x cantidad mostraba el doble al sumar la
+  // segunda almohada.
+  if (subspan && data.total_item_fmt) subspan.textContent = data.total_item_fmt;
+  // Cartelito del 2x1 de esa fila, en vivo
+  const badge = document.getElementById('cart-2x1-' + id);
+  if (badge) {
+    if (data.gratis > 0) {
+      badge.innerHTML = '<span style="display:inline-block;background:#1e8e4e;color:#fff;border-radius:5px;padding:2px 8px;font-size:0.72rem;font-weight:800;letter-spacing:0.3px;">2x1 · ' + data.gratis + ' GRATIS</span>';
+      badge.style.display = 'block';
+    } else if (data.es_2x1 && data.cantidad_sku === 1) {
+      badge.innerHTML = '<span style="font-size:0.74rem;color:#1e8e4e;font-weight:700;">\u2295 Sumá otra y la segunda es gratis</span>';
+      badge.style.display = 'block';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
   // Actualizar total global
   document.getElementById('cart-count').textContent = data.total_items;
   // Recalcular subtotal y total en el resumen

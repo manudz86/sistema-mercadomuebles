@@ -129,6 +129,27 @@
         {% else %}
         <span class="precio-grande">{{ producto.precio_fmt }}</span>
         {% endif %}
+
+        {# La ficha no decia nada del cupon ni del 2x1: el comprador que
+           entraba desde la grilla perdia la promo de vista justo donde
+           decide. #}
+        {% set pc = producto.precio | con_cupon %}
+        {% if pc %}
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:#eafaf0; border:1.5px solid #1e8e4e; border-radius:9px; padding:10px 14px; margin-top:12px;">
+          <span style="font-size:1.35rem; font-weight:900; color:#157a43; line-height:1;">{{ pc }}</span>
+          <span style="font-size:0.84rem; color:#2e7d32; font-weight:600;">
+            con el cupón
+            <span style="display:inline-block; background:#1e8e4e; color:#fff; border-radius:5px; padding:2px 8px; font-weight:800; letter-spacing:0.4px;">{{ hot_event.cupon }}</span>
+            <span style="color:#555;">· lo aplicás en el carrito con un clic</span>
+          </span>
+        </div>
+        {% endif %}
+
+        {% if producto.sku in skus_2x1 or producto.sku_colchon in skus_2x1 %}
+        <div style="background:#1e8e4e; color:#fff; border-radius:9px; padding:10px 14px; margin-top:10px; font-weight:800; font-size:0.98rem;">
+          🛏️ 2x1 · Llevá 2 iguales y pagás 1
+        </div>
+        {% endif %}
       </div>
 
       {% if cuotas %}

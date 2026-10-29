@@ -4055,7 +4055,15 @@ def actualizar_carrito():
         'total_items': sum(i['cantidad'] for i in carrito),
         'subtotal_fmt': format_price(subtotal),
         'cantidad_sku': nueva_cant,
-        'total_item_fmt': format_price(precio_unit * nueva_cant) if nueva_cant > 0 else '',
+        # El total de la linea sale del backend, que es el unico que conoce el
+        # 2x1. El navegador hacia precio x cantidad y mostraba el doble al
+        # sumar la segunda almohada, hasta que se recargaba la pagina.
+        'total_item_fmt': (format_price(precio_efectivo_item(
+                              {'sku': sku, 'precio': precio_unit, 'cantidad': nueva_cant})
+                           * nueva_cant) if nueva_cant > 0 else ''),
+        'gratis': unidades_bonificadas(sku, nueva_cant) if promo_2x1_activa() else 0,
+        'es_2x1': bool(promo_2x1_activa() and
+                       str(sku or '').strip().upper() in SKUS_ALMOHADA),
         'hay_demora': hay_demora,
         'fecha_disponible': fecha_disponible,
         'demora_dias': _demora_dias if hay_demora else 0,
