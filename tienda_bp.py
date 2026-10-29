@@ -3586,6 +3586,66 @@ SKUS_ALMOHADA = {'CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL',
                  'DUAL','EXCLUSIVE','TRIANGULO','CONTOUR'}
 
 
+def promo_2x1_activa():
+    """2x1 en almohadas. Clave propia y no atada al evento, para poder
+    prenderla y apagarla sola."""
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("INSERT IGNORE INTO configuracion (clave, valor) "
+                    "VALUES ('promo_2x1_almohadas', '0')")
+        db.commit()
+        cur.execute("SELECT valor FROM configuracion WHERE clave='promo_2x1_almohadas'")
+        row = cur.fetchone()
+        cur.close(); db.close()
+        return bool(row and str(row['valor']).strip() == '1')
+    except Exception:
+        return False
+
+
+def unidades_bonificadas(sku, cantidad):
+    """Cuántas unidades van gratis por el 2x1. Agrupa por SKU: 2 Platino dan
+    una gratis, pero 1 Platino + 1 Dual no. Con 3 va una sola."""
+    if str(sku or '').strip().upper() not in SKUS_ALMOHADA:
+        return 0
+    return int(cantidad or 0) // 2
+
+
+def precio_efectivo_item(item):
+    """Precio unitario ya con el 2x1 repartido entre las unidades.
+
+    Se reparte en vez de marcar unidades gratis para que `precio × cantidad`
+    siga dando el total correcto en todos lados: items_venta, lo que se le
+    manda a ClearSale y el detalle de los mails no necesitan saber nada del
+    2x1. Dos a $10.000 quedan a $5.000 cada una; tres, a $6.666,67.
+    """
+    cant = int(item.get('cantidad') or 1)
+    precio = float(item.get('precio') or 0)
+    if cant <= 0:
+        return precio
+    libres = unidades_bonificadas(item.get('sku'), cant)
+    if not libres:
+        return precio
+    return precio * (cant - libres) / cant
+
+
+def subtotal_carrito(carrito):
+    """Subtotal del carrito, YA con el 2x1 aplicado si está activo.
+
+    Única fuente de verdad. Antes esta suma estaba repetida en nueve lugares
+    (carrito, alta/baja de items, cupón, cotización de envío, datos de envío
+    y los tres flujos de cobro). Con una promoción que cambia el precio, que
+    cada uno tenga su copia significa que lo que se muestra y lo que se cobra
+    pueden separarse: eso no es un error de pantalla, es cobrar distinto de
+    lo publicado.
+    """
+    carrito = carrito or []
+    if not promo_2x1_activa():
+        return sum(float(i.get('precio') or 0) * int(i.get('cantidad') or 0)
+                   for i in carrito)
+    return sum(precio_efectivo_item(i) * int(i.get('cantidad') or 0)
+               for i in carrito)
+
+
 def _carrito_solo_almohadas(carrito):
     """True si en el carrito no hay nada que no sea una almohada."""
     skus = [str(i.get('sku') or '').strip().upper() for i in (carrito or [])]
@@ -3870,7 +3930,7 @@ def actualizar_carrito():
 
     session['carrito'] = carrito
     session.modified = True
-    subtotal = sum(i['precio'] * i['cantidad'] for i in carrito)
+    subtotal = subtotal_carrito(carrito)
     nueva_cant = next((i['cantidad'] for i in carrito if i['sku'] == sku), 0)
     precio_unit = next((i['precio'] for i in carrito if i['sku'] == sku), 0)
 
@@ -3930,7 +3990,7 @@ def vaciar_carrito():
 @tienda_bp.route('/carrito')
 def ver_carrito():
     carrito  = session.get('carrito', [])
-    subtotal = sum(i['precio'] * i['cantidad'] for i in carrito)
+    subtotal = subtotal_carrito(carrito)
     cupon    = session.get('cupon')
     descuento_monto = 0
     if cupon:
@@ -3998,7 +4058,7 @@ def validar_cupon():
     codigo  = data.get('codigo', '').strip().upper()
     email   = data.get('email', '').strip().lower()
     carrito = session.get('carrito', [])
-    subtotal = sum(i['precio'] * i['cantidad'] for i in carrito)
+    subtotal = subtotal_carrito(carrito)
 
     if not codigo:
         return jsonify({'ok': False, 'error': 'Ingresá un código'})
@@ -4069,7 +4129,7 @@ def eliminar_carrito():
     sku  = data.get('sku')
     carrito = [i for i in session.get('carrito', []) if i['sku'] != sku]
     session['carrito'] = carrito
-    subtotal = sum(i['precio'] * i['cantidad'] for i in carrito)
+    subtotal = subtotal_carrito(carrito)
     return jsonify({
         'ok': True,
         'total_items': len(carrito),
@@ -4704,7 +4764,7 @@ def cotizar_envio():
     if not bultos:
         return jsonify({'error': 'No se pudieron determinar los bultos del pedido'}), 500
 
-    total = int(sum(float(i['precio']) * i['cantidad'] for i in carrito))
+    total = int(subtotal_carrito(carrito))
 
     try:
         logger.warning(f"[zipnova_cotizar] CP={cp} ciudad={ciudad} provincia={provincia} total={total} bultos={json.dumps(bultos, default=str)}")
@@ -4813,7 +4873,7 @@ def datos_envio():
     if not carrito:
         return redirect(url_for('tienda.ver_carrito'))
     carrito_count  = sum(i['cantidad'] for i in carrito)
-    total          = sum(float(i['precio']) * i['cantidad'] for i in carrito)
+    total          = subtotal_carrito(carrito)
     shipping_tipo, _ = get_shipping_info(carrito)
     zipnova_quote  = session.get('zipnova_quote')
 
@@ -5024,13 +5084,13 @@ def checkout():
 
     # ── Items para MP con category_id y description ───────────────────────────
     cupon = session.get('cupon')
-    subtotal_carrito = sum(float(i['precio']) * int(i['cantidad']) for i in carrito)
+    subtotal_prod = subtotal_carrito(carrito)
     if cupon:
         if cupon['tipo'] == 'pct':
             factor_cupon = 1 - cupon['valor'] / 100
         else:
-            descuento_fijo = min(cupon['valor'], subtotal_carrito)
-            factor_cupon = (subtotal_carrito - descuento_fijo) / subtotal_carrito if subtotal_carrito else 1
+            descuento_fijo = min(cupon['valor'], subtotal_prod)
+            factor_cupon = (subtotal_prod - descuento_fijo) / subtotal_prod if subtotal_prod else 1
     else:
         factor_cupon = 1
 
@@ -6066,7 +6126,7 @@ def pago_payway():
     # 3 cuotas: mismo helper que la vitrina del checkout (en días de promo = 1.0),
     # así el monto mostrado y el cobrado no pueden divergir.
     coef              = get_coef_3_payway() if installments == 3 else get_coef_6_payway()
-    total_productos   = sum(float(it['precio']) * int(it['cantidad']) for it in cart_items)
+    total_productos   = subtotal_carrito(cart_items)
 
     # Cupón aplica solo a productos (no al flete)
     cupon = cli.get('cupon')
@@ -6672,7 +6732,7 @@ def pago_getnet_crear():
 
     # Mismo coef que Payway 6c (también usado por la card de checkout)
     _, coef_6 = get_coeficientes_cuotas()
-    total_productos = sum(float(it['precio']) * int(it['cantidad']) for it in cart_items)
+    total_productos = subtotal_carrito(cart_items)
 
     # Cupón aplica solo a productos (no al flete)
     cupon = cli.get('cupon')
@@ -8326,7 +8386,7 @@ def webhook_mp():
                 db_zn = get_db()
                 bultos_zn = armar_bultos_zipnova(cart_items, db_zn)
                 db_zn.close()
-                total_productos = sum(float(i['precio']) * i['cantidad'] for i in cart_items)
+                total_productos = subtotal_carrito(cart_items)
                 zn_resp = zipnova_crear_envio(bultos_zn, cli, numero_venta, int(total_productos))
                 if not isinstance(zn_resp, dict):
                     logger.warning(f"[zipnova_crear_envio] respuesta inesperada (no dict): {zn_resp}")
@@ -8545,13 +8605,13 @@ def webhook_getnet():
 
         # Recalcular factor_cupon para que items_venta coincida con el total guardado
         cupon_cli = cli.get('cupon')
-        subtotal_carrito = sum(float(it['precio']) * int(it['cantidad']) for it in cart_items)
+        subtotal_prod = subtotal_carrito(cart_items)
         if cupon_cli:
             if cupon_cli['tipo'] == 'pct':
                 factor_cupon = 1 - float(cupon_cli['valor']) / 100
             else:
-                desc_fijo = min(float(cupon_cli['valor']), subtotal_carrito)
-                factor_cupon = (subtotal_carrito - desc_fijo) / subtotal_carrito if subtotal_carrito else 1
+                desc_fijo = min(float(cupon_cli['valor']), subtotal_prod)
+                factor_cupon = (subtotal_prod - desc_fijo) / subtotal_prod if subtotal_prod else 1
         else:
             factor_cupon = 1
 
