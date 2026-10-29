@@ -92,6 +92,30 @@ def inject_nl_popup_desc():
     return {'nl_popup_desc': texto}
 
 
+@tienda_bp.app_template_filter('ahorro_total')
+def _filtro_ahorro_total(p):
+    """Cuánto se ahorra contra el precio de lista, ya con el cupón del evento
+    si está activo. Devuelve None si no hay ahorro.
+
+    Toma un producto y no un número porque cada grilla trae campos
+    distintos: la de ofertas arma precio_original/precio_oferta y las demás
+    traen precio_base_real/precio. Con un filtro, las tres piden lo mismo.
+    """
+    try:
+        lista = float(p.get('precio_original') or p.get('precio_base_real') or 0)
+        final = float(p.get('precio_oferta') or p.get('precio') or 0)
+        if not lista or not final:
+            return None
+        he = get_hot_event()
+        pct = int(he.get('cupon_pct') or 0)
+        if he.get('activo') and pct:
+            final = final * (100 - pct) / 100
+        ahorro = round(lista - final)
+        return ahorro if ahorro > 0 else None
+    except Exception:
+        return None
+
+
 @tienda_bp.app_template_filter('con_cupon')
 def _filtro_con_cupon(precio):
     """Precio con el cupon del evento aplicado, ya formateado.

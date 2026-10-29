@@ -324,17 +324,14 @@
                     <span style="display:inline-block; background:#1e8e4e; color:#fff; border-radius:4px; padding:1px 6px; font-size:0.62rem; font-weight:800; vertical-align:middle; letter-spacing:0.3px;">CON {{ hot_event.cupon }}</span>
                   </div>
                   {% endif %}
-                  {# El ahorro se mide contra el precio final de verdad: con el
-                     cupon activo, comparar contra el de catalogo dejaba afuera
-                     casi la mitad de lo que el comprador se ahorra. #}
-                  {% if hot_event.activo and p.precio_original and p.precio_oferta %}
-                  {% set final = (p.precio_oferta * (100 - hot_event.cupon_pct) / 100) if hot_event.cupon_pct else p.precio_oferta %}
-                  {% set ahorro = (p.precio_original - final) | round | int %}
-                  {% if ahorro > 0 %}
+                  {# El ahorro se mide contra el precio de lista y ya incluye el
+                     cupon cuando el evento esta activo. Se muestra siempre,
+                     con evento o sin el: es informacion util todo el ano. #}
+                  {% set ahorro = p | ahorro_total %}
+                  {% if ahorro %}
                   <div style="margin-top:4px;">
                     <span class="price-ahorro">Ahorrás ${{ "{:,}".format(ahorro).replace(",", ".") }}</span>
                   </div>
-                  {% endif %}
                   {% endif %}
                   <div class="stock-indicator">
                     <span class="stock-dot {% if p.stock > 3 %}ok{% elif p.stock > 0 %}low{% elif demora_dias and p.demora_aplica %}low{% else %}out{% endif %}"></span>
@@ -421,6 +418,12 @@
                   <div style="font-size:1.02rem; color:#157a43; font-weight:900; margin-top:3px; line-height:1.15;">
                     {{ pc }}
                     <span style="display:inline-block; background:#1e8e4e; color:#fff; border-radius:4px; padding:1px 6px; font-size:0.62rem; font-weight:800; vertical-align:middle; letter-spacing:0.3px;">CON {{ hot_event.cupon }}</span>
+                  </div>
+                  {% endif %}
+                  {% set ahorro = p | ahorro_total %}
+                  {% if ahorro %}
+                  <div style="margin-top:4px;">
+                    <span class="price-ahorro">Ahorrás ${{ "{:,}".format(ahorro).replace(",", ".") }}</span>
                   </div>
                   {% endif %}
                   <div class="stock-indicator">
@@ -646,6 +649,12 @@
               <div style="font-size:1.02rem; color:#157a43; font-weight:900; margin-top:3px; line-height:1.15;">
                 {{ pc }}
                 <span style="display:inline-block; background:#1e8e4e; color:#fff; border-radius:4px; padding:1px 6px; font-size:0.62rem; font-weight:800; vertical-align:middle; letter-spacing:0.3px;">CON {{ hot_event.cupon }}</span>
+              </div>
+              {% endif %}
+              {% set ahorro = p | ahorro_total %}
+              {% if ahorro %}
+              <div style="margin-top:4px;">
+                <span class="price-ahorro">Ahorrás ${{ "{:,}".format(ahorro).replace(",", ".") }}</span>
               </div>
               {% endif %}
               <div class="stock-indicator">
