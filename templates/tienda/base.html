@@ -149,6 +149,10 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     <span>{{ hot_event.titulo }}</span>
     <span class="hpb-sep">·</span>
     <span>Hasta {{ hot_event.descuento_max }}% OFF</span>
+    {% if hot_event.cupon %}
+    <span class="hpb-sep">+</span>
+    <span>{{ hot_event.cupon_pct }}% extra con <strong>{{ hot_event.cupon }}</strong></span>
+    {% endif %}
     <span class="hpb-sep">·</span>
     <span>3 y 6 cuotas</span>
     {% if hot_event.fecha_fin_iso %}
@@ -460,7 +464,10 @@ document.querySelectorAll('a[href="#catalogo"]').forEach(a => {
       {{ hot_event.titulo }}
     </h2>
     <p style="color:rgba(255,255,255,0.95);margin:0;font-size:1rem;font-weight:600;">
-      Hasta {{ hot_event.descuento_max }}% OFF · 3 y 6 cuotas
+      Hasta {{ hot_event.descuento_max }}% OFF{% if hot_event.cupon %} + {{ hot_event.cupon_pct }}% extra con {{ hot_event.cupon }}{% endif %}
+    </p>
+    <p style="color:rgba(255,255,255,0.9);margin:6px 0 0;font-size:0.86rem;font-weight:600;">
+      3 y 6 cuotas · Envío sin cargo en CABA · 2x1 en almohadas
     </p>
   </div>
   <div style="padding:26px 28px 28px;text-align:center;">

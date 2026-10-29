@@ -92,6 +92,28 @@ def inject_nl_popup_desc():
     return {'nl_popup_desc': texto}
 
 
+@tienda_bp.app_template_filter('con_cupon')
+def _filtro_con_cupon(precio):
+    """Precio con el cupon del evento aplicado, ya formateado.
+
+    Va como filtro y no como un campo mas porque el precio se arma en cinco
+    lugares distintos del catalogo; agregarlo en cada uno era pedir que
+    alguno quedara afuera.
+
+    El precio de lista sigue siendo el principal en la pagina: es lo que se
+    cobra si el comprador no aplica el cupon, y publicar como precio algo
+    que requiere un paso extra seria publicar un precio que no se cumple.
+    """
+    try:
+        he = get_hot_event()
+        pct = int(he.get('cupon_pct') or 0)
+        if not he.get('activo') or not pct or not precio:
+            return None
+        return format_price(round(float(precio) * (100 - pct) / 100))
+    except Exception:
+        return None
+
+
 @tienda_bp.context_processor
 def inject_hot_event():
     """Evento y promo 2x1, disponibles en todos los templates de la tienda.

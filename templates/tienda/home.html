@@ -396,6 +396,16 @@
                   {% else %}
                   <div class="product-price">{{ p.precio_fmt }}</div>
                   {% endif %}
+                  {# El precio de arriba es el que se cobra si no se aplica el
+                     cupon; este es el que queda aplicandolo. Se muestran los
+                     dos para no publicar un precio que requiere un paso
+                     extra como si fuera el precio sin mas. #}
+                  {% set pc = p.precio | con_cupon %}
+                  {% if pc %}
+                  <div style="font-size:0.78rem; color:#1e8e4e; font-weight:700; margin-top:2px;">
+                    {{ pc }} con cupón {{ hot_event.cupon }}
+                  </div>
+                  {% endif %}
                   <div class="stock-indicator">
                     <span class="stock-dot {% if p.stock > 3 %}ok{% elif p.stock > 0 %}low{% elif demora_dias and p.demora_aplica %}low{% else %}out{% endif %}"></span>
                     {% if p.stock > 0 %}{{ p.stock }} en stock{% elif demora_dias and p.demora_aplica %}Disponible en {{ demora_dias }} días{% else %}Sin stock{% endif %}
@@ -613,6 +623,12 @@
               </div>
               {% else %}
               <div class="product-price">{{ p.precio_fmt }}</div>
+              {% endif %}
+              {% set pc = p.precio | con_cupon %}
+              {% if pc %}
+              <div style="font-size:0.78rem; color:#1e8e4e; font-weight:700; margin-top:2px;">
+                {{ pc }} con cupón {{ hot_event.cupon }}
+              </div>
               {% endif %}
               <div class="stock-indicator">
                 <span class="stock-dot {% if p.stock > 3 %}ok{% elif p.stock > 0 %}low{% elif demora_dias and p.demora_aplica %}low{% else %}out{% endif %}"></span>
