@@ -313,7 +313,7 @@
               <div class="product-footer">
                 <div>
                   <div class="price-row">
-                    <span class="price-original">{{ p.precio_original_fmt }}</span>
+                    {% if not hot_event.activo %}<span class="price-original">{{ p.precio_original_fmt }}</span>{% endif %}
                     <span class="price-oferta">{{ p.precio_oferta_fmt }}</span>
                   </div>
                   {% set pc = p.precio_oferta | con_cupon %}
@@ -401,7 +401,7 @@
                 <div>
                   {% if p.precio_original_fmt %}
                   <div class="price-row">
-                    <span class="price-original">{{ p.precio_original_fmt }}</span>
+                    {% if not hot_event.activo %}<span class="price-original">{{ p.precio_original_fmt }}</span>{% endif %}
                     <span class="price-oferta">{{ p.precio_fmt }}</span>
                   </div>
                   {% else %}
@@ -630,7 +630,7 @@
             <div>
               {% if p.precio_original_fmt %}
               <div class="price-row">
-                <span class="price-original">{{ p.precio_original_fmt }}</span>
+                {% if not hot_event.activo %}<span class="price-original">{{ p.precio_original_fmt }}</span>{% endif %}
                 <span class="price-oferta">{{ p.precio_fmt }}</span>
               </div>
               {% else %}
