@@ -21207,6 +21207,20 @@ def productos_evento_guardar():
         if modo not in ('0', '1', 'auto'):
             return jsonify(ok=False, msg='Modo inválido')
 
+        # El 2x1 y el envío CABA también son de tres estados: 'auto' los cuelga
+        # de las fechas del evento para no tener que prenderlos y apagarlos a
+        # mano el primer y el último día.
+        def _modo_promo(campo):
+            v = (request.form.get(campo, '') or '0').strip().lower()
+            if v in ('true', 'on'):      # compatibilidad con el checkbox viejo
+                v = '1'
+            if v not in ('0', '1', 'auto'):
+                raise ValueError(f'Valor inválido en {campo}')
+            return v
+
+        promo_2x1  = _modo_promo('promo_2x1')
+        envio_caba = _modo_promo('envio_caba')
+
         vals = {
             'hot_event_activo':         modo,
             'hot_event_fecha_inicio':   _fecha('inicio'),
@@ -21217,16 +21231,19 @@ def productos_evento_guardar():
             'evento_descuento_max':     str(max(0, int(request.form.get('desc_max') or 0))),
             'evento_cupon':             (request.form.get('cupon', '') or '').strip().upper()[:30],
             'evento_cupon_pct':         str(max(0, int(request.form.get('cupon_pct') or 0))),
-            'promo_2x1_almohadas':      '1' if request.form.get('promo_2x1') in ('1', 'true', 'on') else '0',
-            'evento_envio_gratis_caba': '1' if request.form.get('envio_caba') in ('1', 'true', 'on') else '0',
+            'promo_2x1_almohadas':      promo_2x1,
+            'evento_envio_gratis_caba': envio_caba,
         }
         for clave, valor in vals.items():
             execute_db("INSERT INTO configuracion (clave, valor) VALUES (%s, %s) "
                        "ON DUPLICATE KEY UPDATE valor=%s", (clave, valor, valor))
 
+        _ETIQUETA = {'1': '🟢 encendido', '0': '⚫ apagado', 'auto': '🕒 sigue al evento'}
         estado = {'1': '🟢 ENCENDIDO (manual)', '0': '⚫ apagado',
                   'auto': '🕒 automático por fechas'}[modo]
-        return jsonify(ok=True, msg=f'✅ Evento guardado · {estado}')
+        return jsonify(ok=True, msg=f'✅ Evento guardado · {estado} · '
+                                    f'2x1 {_ETIQUETA[promo_2x1]} · '
+                                    f'envío CABA {_ETIQUETA[envio_caba]}')
     except ValueError as e:
         return jsonify(ok=False, msg=str(e))
     except Exception as e:

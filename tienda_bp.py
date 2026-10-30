@@ -3718,20 +3718,60 @@ SKUS_ALMOHADA = {'CLASICA','SUBLIME','CERVICAL','RENOVATION','PLATINO','DORAL',
                  'DUAL','EXCLUSIVE','TRIANGULO','CONTOUR'}
 
 
-def promo_2x1_activa():
-    """2x1 en almohadas. Clave propia y no atada al evento, para poder
-    prenderla y apagarla sola."""
+def modo_promo_activa(clave):
+    """Resuelve un interruptor de promo de tres estados.
+
+      '0'     → apagada siempre
+      '1'     → encendida siempre (manual, ignora el calendario)
+      'auto'  → encendida mientras el evento este activo
+
+    El modo 'auto' es lo que evita tener que venir a prender y apagar la promo
+    a mano el primer y el ultimo dia: se cuelga de las fechas del evento.
+
+    Cachea por request en flask.g: esto se consulta una vez por item del
+    carrito (via unidades_bonificadas), y sin cache era una consulta por item.
+    """
+    from flask import g, has_request_context
+
+    cache = None
+    if has_request_context():
+        cache = getattr(g, '_modos_promo', None)
+        if cache is None:
+            cache = g._modos_promo = {}
+        if clave in cache:
+            return cache[clave]
+
+    valor = '0'
     try:
         db = get_db(); cur = db.cursor()
-        cur.execute("INSERT IGNORE INTO configuracion (clave, valor) "
-                    "VALUES ('promo_2x1_almohadas', '0')")
+        cur.execute("INSERT IGNORE INTO configuracion (clave, valor) VALUES (%s, '0')",
+                    (clave,))
         db.commit()
-        cur.execute("SELECT valor FROM configuracion WHERE clave='promo_2x1_almohadas'")
+        cur.execute("SELECT valor FROM configuracion WHERE clave=%s", (clave,))
         row = cur.fetchone()
         cur.close(); db.close()
-        return bool(row and str(row['valor']).strip() == '1')
+        if row:
+            valor = str(row['valor'] or '').strip().lower()
     except Exception:
-        return False
+        valor = '0'
+
+    if valor == 'auto':
+        try:
+            activa = bool(get_hot_event().get('activo'))
+        except Exception:
+            activa = False
+    else:
+        activa = (valor == '1')
+
+    if cache is not None:
+        cache[clave] = activa
+    return activa
+
+
+def promo_2x1_activa():
+    """2x1 en almohadas. Tiene clave propia para poder correrla fuera de un
+    evento, pero en modo 'auto' se prende y apaga con las fechas del evento."""
+    return modo_promo_activa('promo_2x1_almohadas')
 
 
 def unidades_bonificadas(sku, cantidad):
@@ -3857,17 +3897,12 @@ def envio_gratis_caba(cp):
     if not _es_cp_caba(cp):
         return False
     try:
-        he = get_hot_event()
-        if not he.get('activo'):
+        # Sigue exigiendo evento activo aunque el interruptor este en '1':
+        # el envio bonificado se comunica como parte del evento, y dejarlo
+        # prendido fuera de el seria regalar fletes sin que nadie lo note.
+        if not get_hot_event().get('activo'):
             return False
-        db = get_db(); cur = db.cursor()
-        cur.execute("INSERT IGNORE INTO configuracion (clave, valor) "
-                    "VALUES ('evento_envio_gratis_caba', '0')")
-        db.commit()
-        cur.execute("SELECT valor FROM configuracion WHERE clave='evento_envio_gratis_caba'")
-        row = cur.fetchone()
-        cur.close(); db.close()
-        return bool(row and str(row['valor']).strip() == '1')
+        return modo_promo_activa('evento_envio_gratis_caba')
     except Exception:
         return False
 
