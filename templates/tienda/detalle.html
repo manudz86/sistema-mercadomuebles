@@ -133,7 +133,7 @@
         {# La ficha no decia nada del cupon ni del 2x1: el comprador que
            entraba desde la grilla perdia la promo de vista justo donde
            decide. #}
-        {% set pc = producto.precio | con_cupon %}
+        {% set pc = producto.precio | con_cupon(producto.sku) %}
         {% if pc %}
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:#eafaf0; border:1.5px solid #1e8e4e; border-radius:9px; padding:10px 14px; margin-top:12px;">
           <span style="font-size:1.35rem; font-weight:900; color:#157a43; line-height:1;">{{ pc }}</span>
@@ -146,8 +146,16 @@
         {% endif %}
 
         {% if producto.sku in skus_2x1 or producto.sku_colchon in skus_2x1 %}
+        {# El precio por unidad llevando dos vende mejor que "2x1" solo: dice
+           cuanto sale cada una. Solo resuelve en almohadas. #}
+        {% set p2x1 = producto.precio | precio_2x1(producto.sku) %}
         <div style="background:#1e8e4e; color:#fff; border-radius:9px; padding:10px 14px; margin-top:10px; font-weight:800; font-size:0.98rem;">
           🛏️ 2x1 · Llevá 2 iguales y pagás 1
+          {% if p2x1 %}
+          <div style="font-weight:900; font-size:1.18rem; margin-top:4px;">
+            {{ p2x1 }} cada una llevando 2 unidades
+          </div>
+          {% endif %}
         </div>
         {% endif %}
       </div>
@@ -184,7 +192,7 @@
         {% endif %}
       </div>
       <p style="font-size:0.72rem; color:#bbb; margin-top:6px;">
-        Solo con tarjeta de crédito Visa y Mastercard{% if hot_event.activo and hot_event.cupon_pct %} · <span style="color:#157a43; font-weight:700;">cuotas calculadas con el cupón {{ hot_event.cupon }}</span>{% endif %}
+        Solo con tarjeta de crédito Visa y Mastercard{% if hot_event.activo and hot_event.cupon_pct and producto.sku | lleva_cupon %} · <span style="color:#157a43; font-weight:700;">cuotas calculadas con el cupón {{ hot_event.cupon }}</span>{% endif %}
       </p>
       {% if promo_3sin %}
       <p style="font-size:0.75rem; color:#1e8e4e; margin-top:2px; font-weight:600;">

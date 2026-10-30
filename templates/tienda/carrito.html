@@ -141,7 +141,7 @@
          codigo. Usa el mismo endpoint de validacion, asi que respeta el
          minimo de compra, el vencimiento y el tope de usos como cualquier
          otro cupon: no es un atajo que saltee los controles. #}
-      {% if hot_event.activo and hot_event.cupon %}
+      {% if hot_event.activo and hot_event.cupon and cupon_sirve %}
       <div id="cupon-evento" style="background:linear-gradient(135deg,#1e8e4e,#14663a); border-radius:9px; padding:12px 14px; margin-bottom:10px; color:#fff;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
           <div style="min-width:0;">

@@ -108,7 +108,9 @@ def _filtro_ahorro_total(p):
             return None
         he = get_hot_event()
         pct = int(he.get('cupon_pct') or 0)
-        if he.get('activo') and pct:
+        # El cupón no entra en las almohadas: su promoción es el 2x1, y sumarle
+        # el cupón al ahorro mostraría un número que el carrito no va a dar.
+        if he.get('activo') and pct and cupon_aplica_sku(p.get('sku')):
             final = final * (100 - pct) / 100
         ahorro = round(lista - final)
         return ahorro if ahorro > 0 else None
@@ -117,7 +119,7 @@ def _filtro_ahorro_total(p):
 
 
 @tienda_bp.app_template_filter('con_cupon')
-def _filtro_con_cupon(precio):
+def _filtro_con_cupon(precio, sku=None):
     """Precio con el cupon del evento aplicado, ya formateado.
 
     Va como filtro y no como un campo mas porque el precio se arma en cinco
@@ -127,13 +129,45 @@ def _filtro_con_cupon(precio):
     El precio de lista sigue siendo el principal en la pagina: es lo que se
     cobra si el comprador no aplica el cupon, y publicar como precio algo
     que requiere un paso extra seria publicar un precio que no se cumple.
+
+    Con `sku`, devuelve None en las almohadas: no les corre el cupon, su
+    promocion es el 2x1. Sin `sku` se comporta como antes, para las vistas
+    que solo muestran colchones y sommiers (la pagina premium).
     """
     try:
         he = get_hot_event()
         pct = int(he.get('cupon_pct') or 0)
         if not he.get('activo') or not pct or not precio:
             return None
+        if sku is not None and not cupon_aplica_sku(sku):
+            return None
         return format_price(round(float(precio) * (100 - pct) / 100))
+    except Exception:
+        return None
+
+
+@tienda_bp.app_template_filter('lleva_cupon')
+def _filtro_lleva_cupon(sku):
+    """True si al SKU le corre el cupón del evento. Para las plantillas, que
+    necesitan saberlo sin depender de si el 2x1 está prendido: una almohada no
+    lleva cupón ni siquiera con el 2x1 apagado."""
+    return cupon_aplica_sku(sku)
+
+
+@tienda_bp.app_template_filter('precio_2x1')
+def _filtro_precio_2x1(precio, sku):
+    """Precio por unidad llevando dos, formateado. Es el mensaje que reemplaza
+    al del cupón en las almohadas: una a $90.000 son dos a $45.000 cada una.
+
+    Devuelve None si el 2x1 está apagado o si el SKU no es una almohada. El
+    `sku` es obligatorio a propósito: sin él, aplicado a un colchón, esto
+    publicaría la mitad de su precio.
+    """
+    try:
+        if str(sku or '').strip().upper() not in SKUS_ALMOHADA:
+            return None
+        p = precio_2x1_por_unidad(precio)
+        return format_price(round(p)) if p else None
     except Exception:
         return None
 
@@ -2361,7 +2395,7 @@ def payway_6_activo():
     return _flag_activo('payway_6_enabled')
 
 
-def calc_cuotas_producto(precio):
+def calc_cuotas_producto(precio, sku=None):
     """calc_cuotas para la página de producto: la de '3 cuotas' usa el MENOR
     coeficiente entre los medios de 3 cuotas ACTIVOS (Payway 3c / MercadoPago 3c)."""
     c3, c6 = get_coeficientes_cuotas()
@@ -2383,7 +2417,8 @@ def calc_cuotas_producto(precio):
     try:
         he = get_hot_event()
         pct = int(he.get('cupon_pct') or 0)
-        if he.get('activo') and pct:
+        # En almohadas no se descuenta el cupón: no les corre.
+        if he.get('activo') and pct and cupon_aplica_sku(sku):
             base = float(precio) * (100 - pct) / 100
     except Exception:
         pass
@@ -3496,7 +3531,7 @@ def detalle(sku_url):
                 'item_category': prod_simple['tipo'],
                 'price': precio_venta_s,
             },
-            cuotas = calc_cuotas_producto(precio_venta_s),
+            cuotas = calc_cuotas_producto(precio_venta_s, prod_simple['sku']),
             mp_12_enabled = mp_12_cuotas_activo(),
             cuota_3_activa = hay_3cuotas_activo(),
         )
@@ -3666,7 +3701,8 @@ def detalle(sku_url):
             'item_category': producto.get('linea', ''),
             'price':         float(producto.get('precio', 0)),
         },
-        cuotas = calc_cuotas_producto(float(producto.get('precio', 0))),
+        cuotas = calc_cuotas_producto(float(producto.get('precio', 0)),
+                                      producto.get('sku')),
         mp_12_enabled = mp_12_cuotas_activo(),
         cuota_3_activa = hay_3cuotas_activo(),
     )
@@ -3746,6 +3782,67 @@ def subtotal_carrito(carrito):
                    for i in carrito)
     return sum(precio_efectivo_item(i) * int(i.get('cantidad') or 0)
                for i in carrito)
+
+
+# ── Cupón del evento: a qué productos alcanza ─────────────────────────────────
+# Las almohadas quedan afuera del cupón porque su promoción es el 2x1. Si les
+# corriera además el cupón, se llevarían las dos y el descuento del carrito
+# saldría más alto que el publicado. El criterio es el TIPO de producto, no el
+# estado del 2x1: si mañana se apaga el 2x1, las almohadas siguen sin cupón.
+
+def cupon_aplica_sku(sku):
+    """True si el cupón del evento alcanza a este SKU. Falso en almohadas."""
+    return str(sku or '').strip().upper() not in SKUS_ALMOHADA
+
+
+def subtotal_elegible_cupon(carrito):
+    """Parte del subtotal sobre la que corre el cupón (sin almohadas)."""
+    carrito = carrito or []
+    return sum(precio_efectivo_item(i) * int(i.get('cantidad') or 0)
+               for i in carrito if cupon_aplica_sku(i.get('sku')))
+
+
+def descuento_cupon(carrito, cupon):
+    """Descuento del cupón en pesos, contando solo los productos elegibles."""
+    if not cupon:
+        return 0.0
+    base = subtotal_elegible_cupon(carrito)
+    if base <= 0:
+        return 0.0
+    if cupon.get('tipo') == 'pct':
+        return base * float(cupon.get('valor') or 0) / 100
+    return min(float(cupon.get('valor') or 0), base)
+
+
+def factor_cupon_sku(sku, carrito, cupon):
+    """Factor a aplicar al precio unitario de un item por efecto del cupón.
+
+    Devuelve 1 cuando el cupón no alcanza al producto. Está construido para que
+    la suma de los precios por item dé exactamente el total cobrado: sobre lo
+    elegible el factor es (base - descuento) / base, y sobre lo no elegible 1,
+    así que la suma es subtotal - descuento, tanto con cupón porcentual como
+    de monto fijo.
+    """
+    if not cupon or not cupon_aplica_sku(sku):
+        return 1.0
+    base = subtotal_elegible_cupon(carrito)
+    if base <= 0:
+        return 1.0
+    return max(0.0, (base - descuento_cupon(carrito, cupon)) / base)
+
+
+def precio_2x1_por_unidad(precio):
+    """Precio por unidad llevando dos, cuando el 2x1 está activo.
+
+    Es el mensaje que reemplaza al del cupón en las almohadas: una a $90.000
+    son dos a $45.000 cada una. None si el 2x1 está apagado.
+    """
+    try:
+        if not promo_2x1_activa() or not precio:
+            return None
+        return float(precio) / 2
+    except Exception:
+        return None
 
 
 def envio_gratis_caba(cp):
@@ -4127,12 +4224,8 @@ def ver_carrito():
     carrito  = session.get('carrito', [])
     subtotal = subtotal_carrito(carrito)
     cupon    = session.get('cupon')
-    descuento_monto = 0
-    if cupon:
-        if cupon['tipo'] == 'pct':
-            descuento_monto = round(subtotal * cupon['valor'] / 100)
-        else:
-            descuento_monto = min(cupon['valor'], subtotal)
+    # El cupón corre solo sobre lo elegible: las almohadas tienen 2x1, no cupón.
+    descuento_monto = round(descuento_cupon(carrito, cupon))
     total = subtotal - descuento_monto
     shipping_tipo, _ = get_shipping_info(carrito) if carrito else (None, None)
 
@@ -4188,6 +4281,10 @@ def ver_carrito():
         descuento_monto  = descuento_monto,
         descuento_fmt    = format_price(descuento_monto) if descuento_monto else None,
         cupon            = cupon,
+        # ¿Hay algo en el carrito a lo que el cupón le sirva? Con un carrito
+        # de solo almohadas el cupón descuenta 0, así que ofrecerlo seria
+        # prometer un descuento que no va a aparecer.
+        cupon_sirve      = subtotal_elegible_cupon(carrito) > 0,
         carrito_count    = len(carrito),
         shipping_tipo    = shipping_tipo,
         demora_dias      = demora_dias,
@@ -5037,14 +5134,10 @@ def datos_envio():
     shipping_tipo, _ = get_shipping_info(carrito)
     zipnova_quote  = session.get('zipnova_quote')
 
-    # Cupón aplicado en carrito: mantenerlo visible en datos-envio
+    # Cupón aplicado en carrito: mantenerlo visible en datos-envio.
+    # Mismo criterio que el carrito y que el cobro: sin almohadas.
     cupon = session.get('cupon')
-    descuento_monto = 0
-    if cupon:
-        if cupon['tipo'] == 'pct':
-            descuento_monto = round(total * float(cupon['valor']) / 100)
-        else:
-            descuento_monto = min(float(cupon['valor']), total)
+    descuento_monto = round(descuento_cupon(carrito, cupon))
 
     # Para zipnova: precargar localidades desde georef server-side
     localidades_precargadas = []
@@ -5244,22 +5337,16 @@ def checkout():
 
     # ── Items para MP con category_id y description ───────────────────────────
     cupon = session.get('cupon')
-    subtotal_prod = subtotal_carrito(carrito)
-    if cupon:
-        if cupon['tipo'] == 'pct':
-            factor_cupon = 1 - cupon['valor'] / 100
-        else:
-            descuento_fijo = min(cupon['valor'], subtotal_prod)
-            factor_cupon = (subtotal_prod - descuento_fijo) / subtotal_prod if subtotal_prod else 1
-    else:
-        factor_cupon = 1
 
     items_mp = []
     for item in carrito:
         # precio_efectivo_item y no item['precio']: con el 2x1 activo, el
         # precio de lista sobrestima. Sin esto el checkout mostraba (y MP
         # cobraba) las cuatro almohadas al precio de cuatro.
-        precio_ajustado = round(precio_efectivo_item(item) * factor_cupon)
+        # El factor del cupón es POR ITEM: en almohadas vale 1, porque su
+        # promoción es el 2x1 y el cupón no las alcanza.
+        precio_ajustado = round(precio_efectivo_item(item)
+                                * factor_cupon_sku(item['sku'], carrito, cupon))
         items_mp.append({
             'id':          item['sku'],
             'title':       item['nombre'],
@@ -6291,27 +6378,22 @@ def pago_payway():
     coef              = get_coef_3_payway() if installments == 3 else get_coef_6_payway()
     total_productos   = subtotal_carrito(cart_items)
 
-    # Cupón aplica solo a productos (no al flete)
+    # Cupón: aplica solo a productos (no al flete) y solo a los elegibles —
+    # las almohadas quedan afuera porque su promoción es el 2x1.
     cupon = cli.get('cupon')
-    if cupon:
-        if cupon['tipo'] == 'pct':
-            factor_cupon = 1 - float(cupon['valor']) / 100
-        else:
-            descuento_fijo = min(float(cupon['valor']), total_productos)
-            factor_cupon = (total_productos - descuento_fijo) / total_productos if total_productos else 1
-    else:
-        factor_cupon = 1
+    descuento_cup     = descuento_cupon(cart_items, cupon)
 
     zipnova_quote     = cli.get('zipnova_quote')
     costo_flete       = float(zipnova_quote.get('precio', 0)) if zipnova_quote else 0.0
-    total_base        = (total_productos * factor_cupon) + costo_flete
+    total_base        = (total_productos - descuento_cup) + costo_flete
     total_con_coef    = round(total_base * coef)
     amount_centavos   = int(total_con_coef * 100)  # Payway espera centavos
 
     # Items con precio ajustado por cupón + coeficiente
     # Se usan para guardar en la DB y en los emails — el cliente ve el precio real pagado
     cart_items_adj = [
-        dict(it, precio=round(precio_efectivo_item(it) * factor_cupon * coef))
+        dict(it, precio=round(precio_efectivo_item(it)
+                              * factor_cupon_sku(it['sku'], cart_items, cupon) * coef))
         for it in cart_items
     ]
     costo_flete_adj = round(costo_flete * coef) if costo_flete else 0.0
@@ -6903,20 +6985,14 @@ def pago_getnet_crear():
     _, coef_6 = get_coeficientes_cuotas()
     total_productos = subtotal_carrito(cart_items)
 
-    # Cupón aplica solo a productos (no al flete)
+    # Cupón: solo a productos (no al flete) y solo a los elegibles — las
+    # almohadas quedan afuera porque su promoción es el 2x1.
     cupon = cli.get('cupon')
-    if cupon:
-        if cupon['tipo'] == 'pct':
-            factor_cupon = 1 - float(cupon['valor']) / 100
-        else:
-            descuento_fijo = min(float(cupon['valor']), total_productos)
-            factor_cupon = (total_productos - descuento_fijo) / total_productos if total_productos else 1
-    else:
-        factor_cupon = 1
+    descuento_cup   = descuento_cupon(cart_items, cupon)
 
     zipnova_quote   = cli.get('zipnova_quote')
     costo_flete     = float(zipnova_quote.get('precio', 0)) if zipnova_quote else 0.0
-    total_con_coef  = round(((total_productos * factor_cupon) + costo_flete) * coef_6)
+    total_con_coef  = round(((total_productos - descuento_cup) + costo_flete) * coef_6)
     costo_flete_adj = round(costo_flete * coef_6) if costo_flete else 0
 
     # Derivar metodo_envio para el snapshot (mismo criterio que webhook_getnet)
@@ -6977,7 +7053,9 @@ def pago_getnet_crear():
         for it in cart_items:
             product.append({
                 'title':    (it.get('nombre') or it.get('sku') or 'Producto')[:50],
-                'value':    int(round(precio_efectivo_item(it) * factor_cupon * coef_6) * 100),
+                'value':    int(round(precio_efectivo_item(it)
+                                      * factor_cupon_sku(it['sku'], cart_items, cupon)
+                                      * coef_6) * 100),
                 'quantity': int(it['cantidad']),
             })
         if costo_flete > 0:
@@ -8772,17 +8850,10 @@ def webhook_getnet():
 
         _, coef_6 = get_coeficientes_cuotas()  # solo para la nota informativa
 
-        # Recalcular factor_cupon para que items_venta coincida con el total guardado
+        # El cupón se recalcula acá para que items_venta coincida con el total
+        # cobrado. Mismo criterio que pago_getnet_crear: por item, y sin tocar
+        # las almohadas, cuya promoción es el 2x1.
         cupon_cli = cli.get('cupon')
-        subtotal_prod = subtotal_carrito(cart_items)
-        if cupon_cli:
-            if cupon_cli['tipo'] == 'pct':
-                factor_cupon = 1 - float(cupon_cli['valor']) / 100
-            else:
-                desc_fijo = min(float(cupon_cli['valor']), subtotal_prod)
-                factor_cupon = (subtotal_prod - desc_fijo) / subtotal_prod if subtotal_prod else 1
-        else:
-            factor_cupon = 1
 
         tz_ar     = timezone(timedelta(hours=-3))
         fecha_now = datetime.now(tz_ar).replace(tzinfo=None)
@@ -8858,7 +8929,9 @@ def webhook_getnet():
         # Items con precio ajustado por cupón + coeficiente
         # cart_items_adj se reutiliza más abajo para los emails (mismo patrón que Payway)
         cart_items_adj = [
-            dict(it, precio=round(precio_efectivo_item(it) * factor_cupon * coef_6))
+            dict(it, precio=round(precio_efectivo_item(it)
+                                  * factor_cupon_sku(it['sku'], cart_items, cupon_cli)
+                                  * coef_6))
             for it in cart_items
         ]
         for it in cart_items_adj:

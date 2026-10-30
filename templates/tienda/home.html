@@ -295,7 +295,7 @@
         <div class="{% if hot_event.activo %}ofertas-track-hot{% else %}carousel-track{% endif %}" id="track-ofertas">
           {% for p in productos_oferta %}
           <div class="product-card {% if p.stock == 0 and not (demora_dias and p.demora_aplica) %}sin-stock{% endif %}" style="position:relative;">
-            {% if p.sku in skus_2x1 %}<span class="badge-2x1">2x1</span>{% else %}<span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_pct }}%{% if hot_event.activo and hot_event.cupon_pct %}<span class="ob-extra">-{{ hot_event.cupon_pct }}%</span>{% endif %}</span>{% endif %}
+            {% if p.sku in skus_2x1 %}<span class="badge-2x1">2x1</span>{% else %}<span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_pct }}%{% if hot_event.activo and hot_event.cupon_pct and p.sku | lleva_cupon %}<span class="ob-extra">-{{ hot_event.cupon_pct }}%</span>{% endif %}</span>{% endif %}
             {% if p.tipo == 'conjunto' %}<span class="badge badge-conjunto">Con Sommier</span>{% endif %}
             <div class="product-img" data-sku="{{ p.sku_url }}" data-fotos='{{ p.fotos | tojson }}' data-idx="0">
               <a href="/tienda/producto/{{ p.slug or p.sku_url }}" class="product-img-link">
@@ -313,15 +313,24 @@
               <div class="product-medida">{{ p.plaza }}{% if p.tipo_label %} · {{ p.tipo_label }}{% endif %}</div>
               <div class="product-footer">
                 <div>
+                  {# pc se calcula ANTES del precio porque decide si va tachado:
+                     se tacha solo cuando abajo aparece el precio del cupon. En
+                     almohadas pc es None (no les corre el cupon, su promo es el
+                     2x1), asi que su precio no se tacha y se muestra el de lista. #}
+                  {% set pc   = p.precio_oferta | con_cupon(p.sku) %}
+                  {% set p2x1 = p.precio_oferta | precio_2x1(p.sku) %}
                   <div class="price-row">
-                    {% if not hot_event.activo %}<span class="price-original">{{ p.precio_original_fmt }}</span>{% endif %}
-                    <span class="price-oferta{% if hot_event.activo and hot_event.cupon_pct %} price-tachado{% endif %}">{{ p.precio_oferta_fmt }}</span>
+                    {% if not pc %}<span class="price-original">{{ p.precio_original_fmt }}</span>{% endif %}
+                    <span class="price-oferta{% if pc %} price-tachado{% endif %}">{{ p.precio_oferta_fmt }}</span>
                   </div>
-                  {% set pc = p.precio_oferta | con_cupon %}
                   {% if pc %}
                   <div style="font-size:1.02rem; color:#157a43; font-weight:900; margin-top:3px; line-height:1.15;">
                     {{ pc }}
                     <span style="display:inline-block; background:#1e8e4e; color:#fff; border-radius:4px; padding:1px 6px; font-size:0.62rem; font-weight:800; vertical-align:middle; letter-spacing:0.3px;">CON {{ hot_event.cupon }}</span>
+                  </div>
+                  {% elif p2x1 %}
+                  <div style="font-size:0.94rem; color:#157a43; font-weight:900; margin-top:3px; line-height:1.2;">
+                    {{ p2x1 }} cada una llevando 2 unidades
                   </div>
                   {% endif %}
                   {# El ahorro se mide contra el precio de lista y ya incluye el
@@ -383,7 +392,7 @@
         <div class="carousel-track" id="track-masvendidos">
           {% for p in mas_vendidos %}
           <div class="product-card {% if p.stock == 0 and not (demora_dias and p.demora_aplica) %}sin-stock{% endif %}">
-            {% if p.sku in skus_2x1 %}<span class="badge-2x1">2x1</span>{% elif p.descuento_catalogo %}<span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_catalogo | int }}%{% if hot_event.activo and hot_event.cupon_pct %}<span class="ob-extra">-{{ hot_event.cupon_pct }}%</span>{% endif %}</span>{% endif %}
+            {% if p.sku in skus_2x1 %}<span class="badge-2x1">2x1</span>{% elif p.descuento_catalogo %}<span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_catalogo | int }}%{% if hot_event.activo and hot_event.cupon_pct and p.sku | lleva_cupon %}<span class="ob-extra">-{{ hot_event.cupon_pct }}%</span>{% endif %}</span>{% endif %}
             {% if p.tipo == 'conjunto' %}<span class="badge badge-conjunto">Con Sommier</span>{% endif %}
             <div class="product-img" data-sku="{{ p.sku_url }}" data-fotos='{{ p.fotos | tojson }}' data-idx="0">
               <a href="/tienda/producto/{{ p.slug or p.sku_url }}" class="product-img-link">
@@ -401,23 +410,30 @@
               <div class="product-medida">{{ p.plaza }}{% if p.tipo_label %} · {{ p.tipo_label }}{% endif %}</div>
               <div class="product-footer">
                 <div>
+                  {# El precio de arriba es el que se cobra si no se aplica el
+                     cupon; el de abajo es el que queda aplicandolo. Se muestran
+                     los dos para no publicar un precio que requiere un paso
+                     extra como si fuera el precio sin mas.
+                     pc va primero porque decide si el de arriba se tacha. En
+                     almohadas es None: no llevan cupon, llevan 2x1. #}
+                  {% set pc   = p.precio | con_cupon(p.sku) %}
+                  {% set p2x1 = p.precio | precio_2x1(p.sku) %}
                   {% if p.precio_original_fmt %}
                   <div class="price-row">
-                    {% if not hot_event.activo %}<span class="price-original">{{ p.precio_original_fmt }}</span>{% endif %}
-                    <span class="price-oferta{% if hot_event.activo and hot_event.cupon_pct %} price-tachado{% endif %}">{{ p.precio_fmt }}</span>
+                    {% if not pc %}<span class="price-original">{{ p.precio_original_fmt }}</span>{% endif %}
+                    <span class="price-oferta{% if pc %} price-tachado{% endif %}">{{ p.precio_fmt }}</span>
                   </div>
                   {% else %}
                   <div class="product-price">{{ p.precio_fmt }}</div>
                   {% endif %}
-                  {# El precio de arriba es el que se cobra si no se aplica el
-                     cupon; este es el que queda aplicandolo. Se muestran los
-                     dos para no publicar un precio que requiere un paso
-                     extra como si fuera el precio sin mas. #}
-                  {% set pc = p.precio | con_cupon %}
                   {% if pc %}
                   <div style="font-size:1.02rem; color:#157a43; font-weight:900; margin-top:3px; line-height:1.15;">
                     {{ pc }}
                     <span style="display:inline-block; background:#1e8e4e; color:#fff; border-radius:4px; padding:1px 6px; font-size:0.62rem; font-weight:800; vertical-align:middle; letter-spacing:0.3px;">CON {{ hot_event.cupon }}</span>
+                  </div>
+                  {% elif p2x1 %}
+                  <div style="font-size:0.94rem; color:#157a43; font-weight:900; margin-top:3px; line-height:1.2;">
+                    {{ p2x1 }} cada una llevando 2 unidades
                   </div>
                   {% endif %}
                   {% set ahorro = p | ahorro_total %}
@@ -616,7 +632,7 @@
     <div class="products-grid">
       {% for p in productos %}
       <div class="product-card {% if p.stock == 0 and not (demora_dias and p.demora_aplica) %}sin-stock{% endif %}">
-        {% if p.sku in skus_2x1 %}<span class="badge-2x1">2x1</span>{% elif p.descuento_catalogo %}<span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_catalogo | int }}%{% if hot_event.activo and hot_event.cupon_pct %}<span class="ob-extra">-{{ hot_event.cupon_pct }}%</span>{% endif %}</span>{% endif %}
+        {% if p.sku in skus_2x1 %}<span class="badge-2x1">2x1</span>{% elif p.descuento_catalogo %}<span class="offer-badge {% if hot_event.activo %}offer-badge--hot{% endif %}">-{{ p.descuento_catalogo | int }}%{% if hot_event.activo and hot_event.cupon_pct and p.sku | lleva_cupon %}<span class="ob-extra">-{{ hot_event.cupon_pct }}%</span>{% endif %}</span>{% endif %}
         {% if p.tipo == 'conjunto' %}
           <span class="badge badge-conjunto">Con Sommier</span>
         {% endif %}
@@ -636,19 +652,26 @@
           <div class="product-medida">{{ p.plaza }}{% if p.tipo_label %} · {{ p.tipo_label }}{% endif %}</div>
           <div class="product-footer">
             <div>
+              {# pc primero: define si el precio de arriba va tachado. None en
+                 almohadas, que llevan 2x1 y no cupon. #}
+              {% set pc   = p.precio | con_cupon(p.sku) %}
+              {% set p2x1 = p.precio | precio_2x1(p.sku) %}
               {% if p.precio_original_fmt %}
               <div class="price-row">
-                {% if not hot_event.activo %}<span class="price-original">{{ p.precio_original_fmt }}</span>{% endif %}
-                <span class="price-oferta{% if hot_event.activo and hot_event.cupon_pct %} price-tachado{% endif %}">{{ p.precio_fmt }}</span>
+                {% if not pc %}<span class="price-original">{{ p.precio_original_fmt }}</span>{% endif %}
+                <span class="price-oferta{% if pc %} price-tachado{% endif %}">{{ p.precio_fmt }}</span>
               </div>
               {% else %}
               <div class="product-price">{{ p.precio_fmt }}</div>
               {% endif %}
-              {% set pc = p.precio | con_cupon %}
               {% if pc %}
               <div style="font-size:1.02rem; color:#157a43; font-weight:900; margin-top:3px; line-height:1.15;">
                 {{ pc }}
                 <span style="display:inline-block; background:#1e8e4e; color:#fff; border-radius:4px; padding:1px 6px; font-size:0.62rem; font-weight:800; vertical-align:middle; letter-spacing:0.3px;">CON {{ hot_event.cupon }}</span>
+              </div>
+              {% elif p2x1 %}
+              <div style="font-size:0.94rem; color:#157a43; font-weight:900; margin-top:3px; line-height:1.2;">
+                {{ p2x1 }} cada una llevando 2 unidades
               </div>
               {% endif %}
               {% set ahorro = p | ahorro_total %}
