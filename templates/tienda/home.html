@@ -241,32 +241,54 @@
 <section class="slider">
   <div class="slider-track">
     <div class="slide active">
-      <img src="/static/img/banners/Banners-03.jpg"
-           alt="Miércoles y sábados: 3 cuotas sin interés con tarjetas de crédito Visa y Mastercard">
+      {# Misma logica que el banner del evento: la pieza de escritorio es
+         panoramica (2,98:1) y la de celular cuadrada (1:1). El navegador baja
+         solo la que corresponde, no las dos. #}
+      <picture>
+        <source media="(max-width: 700px)" srcset="/static/img/banners/Banners-03_mobile.jpg">
+        <img src="/static/img/banners/Banners-03.jpg"
+             alt="Miércoles y sábados: 3 cuotas sin interés con tarjetas de crédito Visa y Mastercard">
+      </picture>
     </div>
   </div>
 </section>
 {% else %}
 <section class="slider">
   <div class="slider-track">
+    {# Cada banner tiene dos piezas: la de escritorio es panoramica (2,98:1) y
+       la de celular cuadrada (1:1), igual que la del evento. No es la misma
+       imagen encogida — en el telefono la panoramica quedaba miniaturizada.
+       El navegador descarga solo la que corresponde. #}
     <div class="slide active">
-      <img src="/static/img/banners/Banners-01.jpg"
-           alt="Todo empieza con un buen descanso — Colchones Cannon">
+      <picture>
+        <source media="(max-width: 700px)" srcset="/static/img/banners/Banners-01_mobile.jpg">
+        <img src="/static/img/banners/Banners-01.jpg"
+             alt="Todo empieza con un buen descanso — Colchones Cannon">
+      </picture>
     </div>
     <div class="slide">
-      <img src="/static/img/banners/Banners-02.jpg"
-           alt="Todo lo que necesitás para dormir mejor: colchones, sommiers y almohadas Cannon">
+      <picture>
+        <source media="(max-width: 700px)" srcset="/static/img/banners/Banners-02_mobile.jpg">
+        <img src="/static/img/banners/Banners-02.jpg"
+             alt="Todo lo que necesitás para dormir mejor: colchones, sommiers y almohadas Cannon">
+      </picture>
     </div>
     {# El de 3 cuotas va también en la rotación: la pieza anuncia los días,
        así que sirve de aviso el resto de la semana. Los miércoles y sábados
        pasa a ser el único, arriba. #}
     <div class="slide">
-      <img src="/static/img/banners/Banners-03.jpg"
-           alt="Miércoles y sábados: 3 cuotas sin interés con tarjetas de crédito Visa y Mastercard">
+      <picture>
+        <source media="(max-width: 700px)" srcset="/static/img/banners/Banners-03_mobile.jpg">
+        <img src="/static/img/banners/Banners-03.jpg"
+             alt="Miércoles y sábados: 3 cuotas sin interés con tarjetas de crédito Visa y Mastercard">
+      </picture>
     </div>
     <div class="slide">
-      <img src="/static/img/banners/Banners-04.jpg"
-           alt="Todo el confort de Cannon, ahora en una caja — Compac Plus">
+      <picture>
+        <source media="(max-width: 700px)" srcset="/static/img/banners/Banners-04_mobile.jpg">
+        <img src="/static/img/banners/Banners-04.jpg"
+             alt="Todo el confort de Cannon, ahora en una caja — Compac Plus">
+      </picture>
     </div>
   </div>
   <div class="slider-dots">
