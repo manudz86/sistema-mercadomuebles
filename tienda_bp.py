@@ -9137,48 +9137,234 @@ FEED_CATEGORIAS = {
 }
 
 
+# ── Imágenes del feed ─────────────────────────────────────────────────────────
+# Meta pide 500x500 como mínimo y acepta hasta 8 MB. Las fotos de la tienda van
+# de 708x370 (por debajo del mínimo) a 8688x5792 (demasiado pesadas), así que
+# para el feed se normalizan a un cuadrado de 1024x1024 sobre blanco: se reduce
+# solo si la foto excede el lado (nunca se amplía) y se centra. No deforma
+# (mantiene el aspecto) ni recorta (agrega fondo, no quita imagen).
+#
+# La preparación está acoplada a la publicación a propósito: el feed solo emite
+# una imagen de catálogo que exista Y sea más nueva que su foto original. Si
+# cambió la foto, la regenera en el momento; si no alcanza el presupuesto del
+# request, el item queda afuera de ese build. Nunca entrega una versión vieja
+# ni la foto original sin preparar.
+FEED_IMG_LADO    = 1024
+FEED_IMG_CALIDAD = 88
+FEED_IMG_EXTRA   = 3     # cuántas additional_image_link por producto
+# Tope de imágenes a normalizar dentro de un request del feed, para que una
+# carga masiva de fotos no haga que el feed tarde una eternidad. El job del
+# scheduler (job_imagenes_catalogo, cada 10 min) hace el trabajo de fondo, así
+# que en condiciones normales el feed no consume nada de este presupuesto.
+FEED_IMG_PRESUPUESTO = 6
+
+_FEED_RAIZ   = os.path.dirname(os.path.abspath(__file__))
+FEED_IMG_DIR = os.path.join(_FEED_RAIZ, 'static', 'img', 'catalogo')
+FEED_IMG_SRC = os.path.join(_FEED_RAIZ, 'static', 'img', 'productos')
+
+
 def _feed_nombre_archivo(sku):
-    """SKU -> nombre de archivo de la imagen. Igual que generar_imagenes_catalogo.py."""
+    """SKU -> nombre de archivo de la imagen. 'SEX140+2' -> 'SEX140_2'."""
     return re.sub(r'[^A-Za-z0-9_-]', '_', str(sku))
 
 
-def _feed_imagenes(sku):
-    """URLs absolutas de las imágenes de catálogo ya normalizadas a 1024x1024.
+def feed_fotos_origen(sku):
+    """Rutas absolutas de las fotos de un SKU, en orden, con la misma regla que
+    get_fotos_producto(): tabla productos_fotos y fallback a archivos numerados,
+    probando también el SKU sin sufijo _DEP/_FULL.
 
-    Devuelve (principal, [adicionales]). Si no existe la versión de catálogo
-    cae a la foto original de la tienda, y si tampoco hay devuelve (None, []):
-    el item queda fuera del feed, porque Meta exige imagen.
+    No incluye el placeholder: get_fotos_producto() devuelve
+    placeholder-colchon.svg cuando el producto no tiene foto, y publicar un SVG
+    genérico como si fuera el producto es motivo de rechazo en Meta.
     """
-    from flask import current_app
-    base = _feed_nombre_archivo(sku)
-    dir_cat = os.path.join(current_app.root_path, 'static', 'img', 'catalogo')
+    candidatos = [sku]
+    for suf in ('_DEP', '_FULL'):
+        if str(sku).endswith(suf):
+            candidatos.append(str(sku)[:-len(suf)])
+            break
 
+    for s in candidatos:
+        rutas = []
+        try:
+            db = get_db(); cur = db.cursor()
+            cur.execute('SELECT filename FROM productos_fotos WHERE sku=%s '
+                        'ORDER BY orden, id', (s,))
+            filas = cur.fetchall()
+            cur.close(); db.close()
+        except Exception:
+            filas = []
+        for r in filas:
+            p = os.path.join(FEED_IMG_SRC, s, r['filename'])
+            if os.path.exists(p) and p not in rutas:
+                rutas.append(p)
+        if not rutas:
+            for n in range(1, 10):
+                for ext in ('png', 'jpg', 'jpeg', 'webp'):
+                    p = os.path.join(FEED_IMG_SRC, s, f'{n}.{ext}')
+                    if os.path.exists(p) and p not in rutas:
+                        rutas.append(p)
+        if rutas:
+            return rutas
+    return []
+
+
+def feed_normalizar_imagen(origen, destino):
+    """Normaliza una foto a FEED_IMG_LADO² sobre blanco. Sin deformar ni recortar.
+
+    Escribe a un temporal y hace os.replace(), que es atómico en POSIX: el
+    scheduler corre en los 5 workers de Gunicorn a la vez, así que dos procesos
+    pueden generar la misma imagen al mismo tiempo y nadie debe leer un archivo
+    a medio escribir.
+    """
+    from PIL import Image
+
+    os.makedirs(os.path.dirname(destino), exist_ok=True)
+    tmp = f'{destino}.tmp{os.getpid()}'
+    try:
+        with Image.open(origen) as im:
+            if im.mode in ('RGBA', 'LA', 'P'):
+                im = im.convert('RGBA')
+                fondo = Image.new('RGBA', im.size, (255, 255, 255, 255))
+                fondo.paste(im, mask=im.split()[-1])
+                im = fondo.convert('RGB')
+            else:
+                im = im.convert('RGB')
+
+            w, h = im.size
+            if max(w, h) > FEED_IMG_LADO:
+                esc = FEED_IMG_LADO / float(max(w, h))
+                im = im.resize((max(1, int(w * esc)), max(1, int(h * esc))),
+                               Image.LANCZOS)
+
+            lienzo = Image.new('RGB', (FEED_IMG_LADO, FEED_IMG_LADO), (255, 255, 255))
+            lienzo.paste(im, ((FEED_IMG_LADO - im.size[0]) // 2,
+                              (FEED_IMG_LADO - im.size[1]) // 2))
+            lienzo.save(tmp, 'JPEG', quality=FEED_IMG_CALIDAD,
+                        optimize=True, progressive=True)
+        os.replace(tmp, destino)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+
+def _feed_vencida(destino, origen):
+    """True si hay que (re)generar: no existe, o la foto original es más nueva."""
+    if not os.path.exists(destino):
+        return True
+    try:
+        return os.path.getmtime(destino) < os.path.getmtime(origen)
+    except OSError:
+        return True
+
+
+def feed_preparar_imagenes(sku, presupuesto=None):
+    """Deja las imágenes de catálogo del SKU al día y devuelve sus URLs.
+
+    Devuelve (principal, [adicionales], consumido). principal es None si el
+    producto no tiene foto, o si su imagen está vencida y no quedó presupuesto
+    para regenerarla: en ese caso el item sale del feed, que es preferible a
+    publicar una imagen vieja o sin preparar.
+    """
+    origenes = feed_fotos_origen(sku)
+    if not origenes:
+        return None, [], 0
+
+    base = _feed_nombre_archivo(sku)
+    consumido = 0
     principal, extras = None, []
-    p = os.path.join(dir_cat, f'{base}.jpg')
-    if os.path.exists(p):
-        principal = f'{FEED_BASE}/static/img/catalogo/{base}.jpg'
-        for i in range(2, 5):
-            pe = os.path.join(dir_cat, f'{base}_{i}.jpg')
-            if os.path.exists(pe):
-                extras.append(f'{FEED_BASE}/static/img/catalogo/{base}_{i}.jpg')
-    else:
-        # Fallback: la foto original de la tienda (puede estar por debajo de
-        # los 500px que pide Meta, pero es mejor que perder el producto).
-        # OJO: get_fotos_producto() devuelve placeholder-colchon.svg cuando el
-        # producto no tiene ninguna foto cargada. Ese placeholder NO puede ir al
-        # feed — Meta no acepta SVG y publicar una foto genérica como si fuera
-        # el producto es motivo de rechazo. En ese caso el item queda afuera.
-        fotos = [f for f in (get_fotos_producto(sku) or [])
-                 if 'placeholder' not in f.lower() and not f.lower().endswith('.svg')]
-        if fotos:
-            principal = FEED_BASE + fotos[0]
-            extras = [FEED_BASE + f for f in fotos[1:4]]
-    return principal, extras
+
+    for i, origen in enumerate(origenes[:1 + FEED_IMG_EXTRA]):
+        nombre  = f'{base}.jpg' if i == 0 else f'{base}_{i + 1}.jpg'
+        destino = os.path.join(FEED_IMG_DIR, nombre)
+
+        if _feed_vencida(destino, origen):
+            if presupuesto is not None and consumido >= presupuesto:
+                if i == 0:
+                    return None, [], consumido      # sin principal, no se publica
+                break                               # las adicionales se omiten
+            try:
+                feed_normalizar_imagen(origen, destino)
+                consumido += 1
+                print(f'[feed_img] normalizada {nombre}', flush=True)
+            except Exception as e:
+                print(f'[feed_img] fallo {nombre}: {e}', flush=True)
+                if i == 0:
+                    return None, [], consumido
+                break
+
+        url = f'{FEED_BASE}/static/img/catalogo/{nombre}'
+        if i == 0:
+            principal = url
+        else:
+            extras.append(url)
+
+    return principal, extras, consumido
+
+
+def feed_skus_publicados(cursor):
+    """SKU que la tienda publica hoy. Mismos criterios que la home y el feed."""
+    skus = []
+    for sql in (
+        """SELECT sku FROM productos_base
+           WHERE tipo='colchon' AND COALESCE(activo,1)=1
+             AND medida IS NOT NULL AND sku NOT LIKE '%%_FULL%%'""",
+        """SELECT sku FROM productos_base
+           WHERE activo=1 AND tipo='almohada' AND precio_base>0""",
+        """SELECT sku FROM productos_base
+           WHERE activo=1 AND tipo='base' AND precio_base>0""",
+        """SELECT sku FROM productos_compuestos WHERE activo=1""",
+    ):
+        cursor.execute(sql)
+        for r in cursor.fetchall():
+            if r['sku'] not in skus:
+                skus.append(r['sku'])
+    return skus
+
+
+def feed_regenerar_todas(forzar=False):
+    """Normaliza las imágenes nuevas y las que cambiaron. Idempotente.
+
+    La usa job_imagenes_catalogo (scheduler, cada 10 min) y también el script
+    scripts/generar_imagenes_catalogo.py. Sin presupuesto: procesa todo.
+    """
+    db = get_db(); cur = db.cursor()
+    try:
+        skus = feed_skus_publicados(cur)
+    finally:
+        cur.close(); db.close()
+
+    st = {'skus': len(skus), 'generadas': 0, 'al_dia': 0, 'sin_foto': 0, 'fallidas': 0}
+    for sku in skus:
+        origenes = feed_fotos_origen(sku)
+        if not origenes:
+            st['sin_foto'] += 1
+            continue
+        base = _feed_nombre_archivo(sku)
+        for i, origen in enumerate(origenes[:1 + FEED_IMG_EXTRA]):
+            nombre  = f'{base}.jpg' if i == 0 else f'{base}_{i + 1}.jpg'
+            destino = os.path.join(FEED_IMG_DIR, nombre)
+            if not forzar and not _feed_vencida(destino, origen):
+                st['al_dia'] += 1
+                continue
+            try:
+                feed_normalizar_imagen(origen, destino)
+                st['generadas'] += 1
+            except Exception as e:
+                st['fallidas'] += 1
+                print(f'[feed_img] fallo {nombre}: {e}', flush=True)
+    return st
 
 
 def _feed_item(sku, nombre, precio_lista, precio_venta, stock, tipo,
-               descripcion='', medida='', grupo=''):
-    """Arma un <item> del feed, o None si el producto no es publicable."""
+               descripcion='', medida='', grupo='', presupuesto=None):
+    """Arma un <item> del feed, o None si el producto no es publicable.
+
+    `presupuesto` es un dict {'restante': N} compartido por todo el build: cada
+    imagen que haya que normalizar en el momento lo descuenta.
+    """
     from xml.sax.saxutils import escape
     from urllib.parse import quote
 
@@ -9186,9 +9372,13 @@ def _feed_item(sku, nombre, precio_lista, precio_venta, stock, tipo,
         return None
     if float(precio_lista or 0) <= 0:
         return None                      # sin precio no se publica
-    img, extras = _feed_imagenes(sku)
+
+    restante = presupuesto.get('restante') if presupuesto is not None else None
+    img, extras, usado = feed_preparar_imagenes(sku, presupuesto=restante)
+    if presupuesto is not None and usado:
+        presupuesto['restante'] = max(0, restante - usado)
     if not img:
-        return None                      # Meta exige imagen
+        return None                      # Meta exige imagen preparada
 
     desc = (descripcion or '').strip() or (
         f'{nombre}. Distribuidores oficiales Cannon. Envío a todo el país, '
@@ -9240,13 +9430,15 @@ def _feed_construir():
     items, vistos = [], set()
     stats = {'colchon': 0, 'conjunto': 0, 'almohada': 0, 'base': 0,
              'sin_imagen': 0, 'sin_precio': 0, 'duplicados': 0}
+    # Presupuesto compartido de normalizaciones para este build
+    presupuesto = {'restante': FEED_IMG_PRESUPUESTO}
 
     def agregar(tipo, **kw):
         sku = kw.get('sku')
         if sku in vistos:
             stats['duplicados'] += 1
             return
-        it = _feed_item(tipo=tipo, **kw)
+        it = _feed_item(tipo=tipo, presupuesto=presupuesto, **kw)
         if it is None:
             if float(kw.get('precio_lista') or 0) <= 0:
                 stats['sin_precio'] += 1
@@ -9367,6 +9559,9 @@ def _feed_construir():
         '\n  </channel>\n</rss>'
     )
     stats['total'] = len(items)
+    # Cuántas imágenes hubo que normalizar dentro de este build: en régimen
+    # normal es 0, porque el job del scheduler ya las dejó listas.
+    stats['img_normalizadas'] = FEED_IMG_PRESUPUESTO - presupuesto['restante']
     return xml, stats
 
 

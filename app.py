@@ -18690,11 +18690,46 @@ def intentos_pago_blocklist_toggle(bl_id):
     return redirect(url_for('intentos_pago', tab=tab))
 
 
+def job_imagenes_catalogo():
+    """Normaliza para el feed de Meta las fotos nuevas y las que cambiaron.
+
+    Compara por fecha de modificación, así que una foto reemplazada regenera su
+    versión de catálogo. Es idempotente y la escritura es atómica (os.replace),
+    lo que importa porque el scheduler corre en los 5 workers de Gunicorn y
+    varios pueden procesar la misma imagen a la vez.
+
+    El feed igual verifica cada imagen al publicar, así que este job no es la
+    garantía de correctitud sino la forma de que el trabajo ya esté hecho y el
+    request del feed no tenga que normalizar nada.
+    """
+    try:
+        from tienda_bp import feed_regenerar_todas
+        st = feed_regenerar_todas()
+        if st['generadas'] or st['fallidas']:
+            print(f"[feed_img] job: {st}", flush=True)
+    except Exception as e:
+        print(f"[feed_img] job error: {e}", flush=True)
+
+
 def iniciar_scheduler():
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         _init_auto_import_table()
         scheduler = BackgroundScheduler(daemon=True)
+
+        # Imágenes del feed de Meta: arranca 45 s después del boot (para no
+        # pelear con el arranque) y después cada 10 min.
+        from datetime import datetime as _dt_img, timedelta as _td_img
+        scheduler.add_job(
+            job_imagenes_catalogo,
+            'interval',
+            minutes=10,
+            id='imagenes_catalogo_meta',
+            replace_existing=True,
+            max_instances=1,
+            misfire_grace_time=600,
+            next_run_time=_dt_img.now() + _td_img(seconds=45),
+        )
         scheduler.add_job(
             job_auto_importar_ml,
             'interval',
