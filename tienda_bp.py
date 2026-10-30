@@ -9119,7 +9119,13 @@ def _descontar_stock_fallback(items, cursor):
 # El `link` apunta a /tienda/producto/<SKU>: la app resuelve sola el slug
 # canónico con un 301, así que un cambio de nombre no puede romper el feed.
 FEED_BASE = 'https://www.mercadomuebles.com.ar'
-FEED_TTL  = 900          # segundos de cache en proceso (Meta baja el feed 1-2 veces al día)
+# Cache en proceso, corto y solo como freno de abuso: armar el feed cuesta
+# ~0,65 s y unas 300 consultas, así que un endpoint público sin ningún límite
+# sería martillable. Con 60 s, cualquier descarga de Meta (que pasa una vez al
+# día) encuentra el cache vencido y vuelve a consultar precios y stock a la
+# base. El cache es por worker de Gunicorn: con un TTL largo, dos descargas
+# simultáneas podían recibir versiones distintas.
+FEED_TTL  = 60
 _feed_cache = {'xml': None, 'ts': 0, 'stats': {}}
 
 # Rutas de taxonomía de Google (Meta acepta el texto, no hace falta el ID numérico)
