@@ -2571,39 +2571,41 @@ def get_hot_event():
     except Exception:
         activo = False
 
-    fecha_fin_iso = ''
-    if activo:
-        fin_str = config.get('hot_event_fecha_fin', '')
-        if fin_str:
-            try:
-                fin_dt = datetime.strptime(fin_str, '%Y-%m-%d %H:%M:%S')
-                if TZ_AR is not None:
-                    fin_dt = fin_dt.replace(tzinfo=TZ_AR)
-                fecha_fin_iso = fin_dt.isoformat()
-            except (ValueError, NameError):
-                fecha_fin_iso = ''
-
     # Titulo, fechas, descuento maximo, extras y banners salen de
     # configuracion. Estaban escritos en el codigo, asi que cada evento
     # nuevo era un deploy: con el Cyber encima no da.
     def _cfg(clave, defecto=''):
         return (config.get(clave) or defecto)
 
-    # El banner cambia a la version "extendida" pasada la fecha de corte.
-    extendido = False
-    corte = _cfg('evento_fecha_corte')
-    if activo and corte:
+    def _a_fecha(txt):
+        """'YYYY-MM-DD HH:MM:SS' -> datetime en hora AR. None si no parsea."""
+        if not txt:
+            return None
         try:
-            dt_corte = datetime.strptime(corte, '%Y-%m-%d %H:%M:%S')
-            if TZ_AR is not None:
-                dt_corte = dt_corte.replace(tzinfo=TZ_AR)
-                ahora_c = datetime.now(TZ_AR)
-            else:
-                ahora_c = datetime.now()
-            extendido = ahora_c > dt_corte
+            dt = datetime.strptime(txt, '%Y-%m-%d %H:%M:%S')
         except ValueError:
-            extendido = False
+            return None
+        return dt.replace(tzinfo=TZ_AR) if TZ_AR is not None else dt
+
+    # El evento tiene dos etapas y el banner cambia a su version "extendida"
+    # pasada la fecha de corte.
+    dt_corte = _a_fecha(_cfg('evento_fecha_corte'))
+    dt_fin   = _a_fecha(config.get('hot_event_fecha_fin', ''))
+    ahora_c  = datetime.now(TZ_AR) if TZ_AR is not None else datetime.now()
+
+    extendido = bool(activo and dt_corte and ahora_c > dt_corte)
     suf = '_ext' if extendido else ''
+
+    # La cuenta regresiva apunta al final de la ETAPA en curso, no al final del
+    # evento: en la primera etapa cuenta hasta el corte y en la segunda hasta
+    # el cierre. Asi el contador llega a cero en el mismo instante en que
+    # cambian los banners — los dos salen de dt_corte, no pueden desfasarse.
+    # Sin fecha de corte se comporta como antes: cuenta hasta el final.
+    fecha_fin_iso = ''
+    if activo:
+        objetivo = dt_fin if (extendido or not dt_corte) else dt_corte
+        if objetivo is not None:
+            fecha_fin_iso = objetivo.isoformat()
 
     return {
         'activo': activo,
