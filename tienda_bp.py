@@ -9106,6 +9106,303 @@ def _descontar_stock_fallback(items, cursor):
             """, (qty, row['sku']))
 
 
+# ── FEED DE CATALOGO PARA META ────────────────────────────────────────────────
+# Feed público en formato RSS 2.0 con namespace g: (el de Google Shopping, que
+# Meta acepta). Reemplaza la vieja sincronización vía Tiendanube, que se cortó
+# cuando tiendanube_bp.py se borró (commit a4bab38, 19/04/2026) y que además
+# hoy está bloqueada porque la tienda de Tiendanube está suspendida (HTTP 402).
+#
+# El `id` de cada item es el SKU, que es exactamente el content_id que ya mandan
+# el píxel (AddToCart/InitiateCheckout/Purchase) y la CAPI. Eso permite que Meta
+# vincule los eventos con los productos del catálogo sin ninguna traducción.
+#
+# El `link` apunta a /tienda/producto/<SKU>: la app resuelve sola el slug
+# canónico con un 301, así que un cambio de nombre no puede romper el feed.
+FEED_BASE = 'https://www.mercadomuebles.com.ar'
+FEED_TTL  = 900          # segundos de cache en proceso (Meta baja el feed 1-2 veces al día)
+_feed_cache = {'xml': None, 'ts': 0, 'stats': {}}
+
+# Rutas de taxonomía de Google (Meta acepta el texto, no hace falta el ID numérico)
+FEED_CATEGORIAS = {
+    'colchon':  'Furniture > Beds & Accessories > Mattresses',
+    'conjunto': 'Furniture > Beds & Accessories > Beds & Bed Frames',
+    'base':     'Furniture > Beds & Accessories > Beds & Bed Frames',
+    'almohada': 'Home & Garden > Linens & Bedding > Bedding > Bed Pillows',
+}
+
+
+def _feed_nombre_archivo(sku):
+    """SKU -> nombre de archivo de la imagen. Igual que generar_imagenes_catalogo.py."""
+    return re.sub(r'[^A-Za-z0-9_-]', '_', str(sku))
+
+
+def _feed_imagenes(sku):
+    """URLs absolutas de las imágenes de catálogo ya normalizadas a 1024x1024.
+
+    Devuelve (principal, [adicionales]). Si no existe la versión de catálogo
+    cae a la foto original de la tienda, y si tampoco hay devuelve (None, []):
+    el item queda fuera del feed, porque Meta exige imagen.
+    """
+    from flask import current_app
+    base = _feed_nombre_archivo(sku)
+    dir_cat = os.path.join(current_app.root_path, 'static', 'img', 'catalogo')
+
+    principal, extras = None, []
+    p = os.path.join(dir_cat, f'{base}.jpg')
+    if os.path.exists(p):
+        principal = f'{FEED_BASE}/static/img/catalogo/{base}.jpg'
+        for i in range(2, 5):
+            pe = os.path.join(dir_cat, f'{base}_{i}.jpg')
+            if os.path.exists(pe):
+                extras.append(f'{FEED_BASE}/static/img/catalogo/{base}_{i}.jpg')
+    else:
+        # Fallback: la foto original de la tienda (puede estar por debajo de
+        # los 500px que pide Meta, pero es mejor que perder el producto).
+        # OJO: get_fotos_producto() devuelve placeholder-colchon.svg cuando el
+        # producto no tiene ninguna foto cargada. Ese placeholder NO puede ir al
+        # feed — Meta no acepta SVG y publicar una foto genérica como si fuera
+        # el producto es motivo de rechazo. En ese caso el item queda afuera.
+        fotos = [f for f in (get_fotos_producto(sku) or [])
+                 if 'placeholder' not in f.lower() and not f.lower().endswith('.svg')]
+        if fotos:
+            principal = FEED_BASE + fotos[0]
+            extras = [FEED_BASE + f for f in fotos[1:4]]
+    return principal, extras
+
+
+def _feed_item(sku, nombre, precio_lista, precio_venta, stock, tipo,
+               descripcion='', medida='', grupo=''):
+    """Arma un <item> del feed, o None si el producto no es publicable."""
+    from xml.sax.saxutils import escape
+    from urllib.parse import quote
+
+    if not sku or not nombre:
+        return None
+    if float(precio_lista or 0) <= 0:
+        return None                      # sin precio no se publica
+    img, extras = _feed_imagenes(sku)
+    if not img:
+        return None                      # Meta exige imagen
+
+    desc = (descripcion or '').strip() or (
+        f'{nombre}. Distribuidores oficiales Cannon. Envío a todo el país, '
+        f'garantía oficial y financiación en cuotas.')
+
+    partes = [
+        f'<g:id>{escape(str(sku))}</g:id>',
+        f'<g:title>{escape(nombre[:200])}</g:title>',
+        f'<g:description>{escape(desc[:4900])}</g:description>',
+        f'<g:link>{FEED_BASE}/tienda/producto/{quote(str(sku), safe="")}</g:link>',
+        f'<g:image_link>{escape(img)}</g:image_link>',
+    ]
+    for e in extras:
+        partes.append(f'<g:additional_image_link>{escape(e)}</g:additional_image_link>')
+
+    partes.append(
+        f'<g:availability>{"in stock" if int(stock or 0) > 0 else "out of stock"}</g:availability>')
+    partes.append('<g:condition>new</g:condition>')
+    partes.append(f'<g:price>{float(precio_lista):.2f} ARS</g:price>')
+    # sale_price solo si hay descuento real vigente, para que el feed coincida
+    # con lo que muestra la ficha del producto.
+    pv = float(precio_venta or 0)
+    if pv > 0 and pv < float(precio_lista) - 0.5:
+        partes.append(f'<g:sale_price>{pv:.2f} ARS</g:sale_price>')
+    partes.append('<g:brand>Cannon</g:brand>')
+    partes.append(f'<g:mpn>{escape(str(sku))}</g:mpn>')
+    partes.append('<g:identifier_exists>no</g:identifier_exists>')
+    cat = FEED_CATEGORIAS.get(tipo)
+    if cat:
+        partes.append(f'<g:google_product_category>{escape(cat)}</g:google_product_category>')
+    partes.append(f'<g:product_type>{escape(tipo)}</g:product_type>')
+    # Agrupar variantes: mismo item_group_id + size distinto. Solo cuando hay
+    # una medida real, porque Meta pide un atributo que diferencie las variantes.
+    if grupo and medida:
+        partes.append(f'<g:item_group_id>{escape(str(grupo))}</g:item_group_id>')
+        partes.append(f'<g:size>{escape(str(medida))}</g:size>')
+
+    return '    <item>\n      ' + '\n      '.join(partes) + '\n    </item>'
+
+
+def _feed_construir():
+    """Arma el feed replicando la misma lógica de publicación que la home.
+
+    Devuelve (xml, stats). Las fuentes son las tablas vivas del sistema; no se
+    usa nada heredado de Tiendanube.
+    """
+    db = get_db()
+    cursor = db.cursor()
+    items, vistos = [], set()
+    stats = {'colchon': 0, 'conjunto': 0, 'almohada': 0, 'base': 0,
+             'sin_imagen': 0, 'sin_precio': 0, 'duplicados': 0}
+
+    def agregar(tipo, **kw):
+        sku = kw.get('sku')
+        if sku in vistos:
+            stats['duplicados'] += 1
+            return
+        it = _feed_item(tipo=tipo, **kw)
+        if it is None:
+            if float(kw.get('precio_lista') or 0) <= 0:
+                stats['sin_precio'] += 1
+            else:
+                stats['sin_imagen'] += 1
+            return
+        vistos.add(sku)
+        items.append(it)
+        stats[tipo] += 1
+
+    # ── Colchones y conjuntos (sommier + colchón) ──────────────────────────
+    cursor.execute("""
+        SELECT sku, nombre, linea, modelo, medida, precio_base,
+               descuento_catalogo
+        FROM productos_base
+        WHERE tipo = 'colchon' AND COALESCE(activo,1) = 1
+          AND medida IS NOT NULL AND sku NOT LIKE '%%_FULL%%'
+        ORDER BY modelo, medida
+    """)
+    colchones = cursor.fetchall()
+
+    cursor.execute("SELECT sku, precio_base FROM productos_base WHERE tipo = 'base'")
+    bases_precio = {r['sku']: float(r['precio_base'] or 0) for r in cursor.fetchall()}
+
+    cursor.execute("""SELECT colchon_sku, base_sku_default, cantidad_bases
+                      FROM conjunto_configuracion WHERE activo = 1""")
+    conj_cfg = {r['colchon_sku']: r for r in cursor.fetchall()}
+
+    cursor.execute("""
+        SELECT cc.colchon_sku, pc.sku AS sku_comp, pc.nombre AS nombre_comp,
+               pc.descripcion AS desc_comp
+        FROM conjunto_configuracion cc
+        JOIN productos_compuestos pc
+          ON pc.sku = CONCAT('S', SUBSTRING(cc.colchon_sku, 2))
+        WHERE cc.activo = 1 AND pc.activo = 1
+    """)
+    comp = {r['colchon_sku']: r for r in cursor.fetchall()}
+
+    try:
+        cursor.execute("SELECT sku, descuento_pct FROM ofertas_home WHERE activo=1")
+        ofertas = {r['sku']: float(r['descuento_pct'] or 0) for r in cursor.fetchall()}
+    except Exception:
+        ofertas = {}
+
+    for col in colchones:
+        sku    = col['sku']
+        medida = col['medida'] or ''
+        modelo = col['modelo'] or ''
+        precio = float(col['precio_base'] or 0)
+        stock  = get_stock_disponible_sku(cursor, sku)
+        desc   = _aplicar_extra_hot(float(col.get('descuento_catalogo') or 0),
+                                    ofertas.get(sku, 0.0))
+
+        agregar('colchon',
+                sku=sku,
+                nombre=f"Colchón Cannon {modelo} {medida}cm",
+                precio_lista=precio,
+                precio_venta=precio * (1 - desc / 100) if desc else precio,
+                stock=stock, medida=medida,
+                grupo=f'colchon-{slugify(modelo)}' if modelo else '')
+
+        # Conjunto: mismo criterio y mismo precio compuesto que la home
+        if sku in comp and sku in conj_cfg:
+            cfg       = conj_cfg[sku]
+            cant      = int(cfg['cantidad_bases'] or 1)
+            p_base    = bases_precio.get(cfg['base_sku_default'], 0.0)
+            stock_b   = get_stock_disponible_sku(cursor, cfg['base_sku_default'])
+            precio_cj = precio + p_base * cant
+            desc_cj   = _aplicar_extra_hot(float(col.get('descuento_catalogo') or 0),
+                                           ofertas.get(comp[sku]['sku_comp'], 0.0))
+            agregar('conjunto',
+                    sku=comp[sku]['sku_comp'],
+                    nombre=comp[sku]['nombre_comp'] or
+                           f"Sommier y Colchón Cannon {modelo} {medida}cm",
+                    descripcion=comp[sku]['desc_comp'] or '',
+                    precio_lista=precio_cj,
+                    precio_venta=precio_cj * (1 - desc_cj / 100) if desc_cj else precio_cj,
+                    stock=min(stock, stock_b // cant if cant else 0),
+                    medida=medida,
+                    grupo=f'sommier-{slugify(modelo)}' if modelo else '')
+
+    # ── Almohadas ──────────────────────────────────────────────────────────
+    cursor.execute("""SELECT sku, nombre, precio_base, descuento_catalogo
+                      FROM productos_base
+                      WHERE activo = 1 AND tipo = 'almohada' AND precio_base > 0
+                      ORDER BY nombre""")
+    for a in cursor.fetchall():
+        precio = float(a['precio_base'] or 0)
+        d = _aplicar_extra_hot(float(a.get('descuento_catalogo') or 0), 0)
+        agregar('almohada', sku=a['sku'], nombre=a['nombre'],
+                precio_lista=precio,
+                precio_venta=precio * (1 - d / 100) if d else precio,
+                stock=get_stock_disponible_sku(cursor, a['sku']))
+
+    # ── Bases ──────────────────────────────────────────────────────────────
+    cursor.execute("""SELECT sku, nombre, precio_base, medida
+                      FROM productos_base
+                      WHERE activo = 1 AND tipo = 'base' AND precio_base > 0
+                      ORDER BY nombre""")
+    for b in cursor.fetchall():
+        precio = float(b['precio_base'] or 0)
+        agregar('base', sku=b['sku'], nombre=b['nombre'],
+                precio_lista=precio, precio_venta=precio,
+                stock=get_stock_disponible_sku(cursor, b['sku']),
+                medida=b['medida'] or '')
+
+    cursor.close()
+    db.close()
+
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">\n'
+        '  <channel>\n'
+        '    <title>Mercadomuebles — Catálogo</title>\n'
+        f'    <link>{FEED_BASE}/tienda/</link>\n'
+        '    <description>Colchones, sommiers, bases y almohadas Cannon</description>\n'
+        + '\n'.join(items) +
+        '\n  </channel>\n</rss>'
+    )
+    stats['total'] = len(items)
+    return xml, stats
+
+
+@tienda_bp.route('/feed/meta.xml')
+def feed_meta():
+    """Feed de productos para el catálogo de Meta. Público (Meta lo baja sin login)."""
+    from flask import Response, request as _rq
+
+    ahora = time.time()
+    forzar = _rq.args.get('nocache') == '1'
+    if (not forzar and _feed_cache['xml']
+            and ahora - _feed_cache['ts'] < FEED_TTL):
+        xml = _feed_cache['xml']
+    else:
+        xml, stats = _feed_construir()
+        _feed_cache.update({'xml': xml, 'ts': ahora, 'stats': stats})
+        print(f'[feed_meta] generado {stats}', flush=True)
+
+    resp = Response(xml, mimetype='application/xml; charset=utf-8')
+    resp.headers['Cache-Control'] = f'public, max-age={FEED_TTL}'
+    return resp
+
+
+@tienda_bp.route('/feed/meta.json')
+def feed_meta_stats():
+    """Resumen del feed en JSON: para chequear de un vistazo qué se está publicando.
+
+    No confundir con /meta.json en la raíz del dominio, que Meta viene pidiendo
+    desde la época de Tiendanube y hoy devuelve 404. Ese 404 se deja a propósito:
+    si empezáramos a servir contenido ahí, el catálogo viejo (148028294888362)
+    podría volver a ingerir productos, y la instrucción es no tocarlo.
+    """
+    if not _feed_cache['stats'] or _feed_cache['xml'] is None:
+        _, stats = _feed_construir()
+        _feed_cache.update({'xml': None, 'ts': 0, 'stats': stats})
+    return jsonify({
+        'feed': f'{FEED_BASE}/tienda/feed/meta.xml',
+        'generado_hace_seg': int(time.time() - _feed_cache['ts']) if _feed_cache['ts'] else None,
+        'conteos': _feed_cache['stats'],
+    })
+
+
 # ── SITEMAP ───────────────────────────────────────────────────────────────────
 
 @tienda_bp.route('/sitemap.xml')
