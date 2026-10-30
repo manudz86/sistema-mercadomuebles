@@ -6431,8 +6431,14 @@ def pago_payway():
         "establishment_name":  "MERCADOMUEBLES",
         "plan_gobierno":        False,
         "sub_payments":        [],
-        "template_id":         2,
-        "fraud_detection":     fraud_detection,
+        # CyberSource dado de baja en la cuenta de Payway (30/10/2026): ya no se
+        # mandan template_id ni fraud_detection. Probado en /test-payway con la
+        # Mastercard 516585: aprobado en 1 pago (auth 008473) y en 6 cuotas
+        # (auth 008806) sin el bloque. El antifraude ahora lo hace ClearSale,
+        # más abajo en esta misma función. El dict fraud_detection se sigue
+        # armando a propósito: si se recontrata CS, volver son estas dos líneas.
+        # "template_id":         2,
+        # "fraud_detection":     fraud_detection,
     }
 
     logger.info(f"[pago_payway] device_fp={device_fingerprint_id!r} ship_street={cli.get('calle')!r} ship_city={cli.get('ciudad')!r}")

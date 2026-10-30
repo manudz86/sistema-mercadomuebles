@@ -926,11 +926,11 @@ document.getElementById('pw-btn').addEventListener('click', function(e) {
     card_expiration_year:   expYear,
     security_code:          cvv,
     card_holder_name:       holderName,
-    card_holder_identification: { type: docType, number: docNumber },
-    // Device fingerprint en la tokenización (requerido por CyberSource retail)
-    fraud_detection: {
-      device_unique_identifier: (typeof TMXSESSIONID !== 'undefined' ? TMXSESSIONID : '')
-    }
+    card_holder_identification: { type: docType, number: docNumber }
+    // CyberSource dado de baja (30/10/2026): sin el bloque fraud_detection,
+    // igual que el flujo probado en /test-payway con el checkbox destildado.
+    // Si se recontrata CS, vuelve acá el device fingerprint:
+    //   fraud_detection: { device_unique_identifier: TMXSESSIONID }
   };
 
   // Tokenizamos via nuestro proxy Flask (CORS impide llamar directo a Payway desde el browser)
