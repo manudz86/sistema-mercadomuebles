@@ -390,8 +390,18 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
             },
             'Phones': [{'Type': 6, 'AreaCode': area, 'Number': numero}],
         }
-        if cli.get('_birth_date'):
-            p['BirthDate'] = f"{cli['_birth_date']}T00:00:00"
+        # Segunda barrera: una fecha mal formada hace que ClearSale rechace la
+        # orden COMPLETA con HTTP 400, no solo que ignore el campo. Ya pasó con
+        # '20001-08-0' (venta PW-1041164792). Si no es un YYYY-MM-DD real, se
+        # omite: BirthDate es opcional y perderlo cuesta mucho menos que perder
+        # el análisis de fraude de la venta.
+        _bd = str(cli.get('_birth_date') or '').strip()
+        if _bd:
+            try:
+                datetime.strptime(_bd, '%Y-%m-%d')
+                p['BirthDate'] = f"{_bd}T00:00:00"
+            except ValueError:
+                _log('error', f'BirthDate descartado por mal formado: {_bd!r}')
         return p
 
     # En un retiro no hay domicilio de entrega y el que quedaba armado era

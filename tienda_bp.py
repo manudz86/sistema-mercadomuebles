@@ -180,6 +180,10 @@ def inject_hot_event():
     return {
         'hot_event': get_hot_event(),
         'skus_2x1': SKUS_ALMOHADA if promo_2x1_activa() else set(),
+        # Tope del campo "fecha de nacimiento del titular" en el checkout.
+        # Se calcula acá y no se escribe fijo en la plantilla para que no
+        # quede viejo con el correr de los años.
+        'hoy_menos_18': (datetime.now().date() - timedelta(days=18 * 365)).isoformat(),
     }
 
 
@@ -3873,6 +3877,34 @@ def factor_cupon_sku(sku, carrito, cupon):
     return max(0.0, (base - descuento_cupon(carrito, cupon)) / base)
 
 
+def _fecha_nacimiento_valida(valor):
+    """Normaliza la fecha de nacimiento del titular, o '' si no es creíble.
+
+    Antes esto era un `[:10]` a secas, que asumía que del formulario siempre
+    llegaba YYYY-MM-DD. No es así: el input type="date" de Chrome acepta años
+    de más de cuatro dígitos, así que un cliente puede tipear 20001 y mandar
+    '20001-08-05'. Cortado a 10 queda '20001-08-0', que ya no es una fecha, y
+    ClearSale rechazaba la orden ENTERA con HTTP 400 — la venta quedaba sin
+    análisis de fraude y con la entrega bloqueada (caso real PW-1041164792,
+    01/11/2026, $355.341).
+
+    Ante la duda se devuelve '' y el campo no se manda: BirthDate es opcional
+    en el payload. Perder un dato es mucho más barato que perder la orden.
+    """
+    s = (valor or '').strip()
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', s):
+        return ''
+    try:
+        d = datetime.strptime(s, '%Y-%m-%d').date()
+    except ValueError:
+        return ''                      # 2026-02-31 y compañía
+    hoy = datetime.now().date()
+    edad = hoy.year - d.year - ((hoy.month, hoy.day) < (d.month, d.day))
+    if not (18 <= edad <= 110):
+        return ''                      # titular de tarjeta fuera de rango creíble
+    return s
+
+
 def precio_2x1_por_unidad(precio):
     """Precio por unidad llevando dos, cuando el 2x1 está activo.
 
@@ -6324,7 +6356,7 @@ def pago_payway():
     card_holder_doc       = re.sub(r'\D', '', data.get('card_holder_doc') or '')[:11]
     card_holder_doc_type  = (data.get('card_holder_doc_type') or 'dni').strip()[:10]
     card_expiration       = (data.get('card_expiration') or '').strip()[:7]
-    birth_date            = (data.get('birth_date') or '').strip()[:10]
+    birth_date            = _fecha_nacimiento_valida(data.get('birth_date'))
     # Domicilio del resumen de la tarjeta. Si coincide con el de entrega el
     # formulario no lo pide y más abajo se completa con el de envío. Hasta
     # ahora mandábamos el de entrega rotulado como "billing", que es un dato

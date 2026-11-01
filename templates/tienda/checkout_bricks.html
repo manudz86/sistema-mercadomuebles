@@ -275,7 +275,11 @@
       <!-- Fecha de nacimiento del titular -->
       <div style="margin-bottom:14px;">
         <label style="display:block; font-size:0.85rem; font-weight:600; color:#444; margin-bottom:5px;">Fecha de nacimiento del titular</label>
+        <!-- min/max acotan el año: sin ellos Chrome acepta años de 5 y 6
+             dígitos en un input date, y un tipeo como "20001" hacía que
+             ClearSale rechazara la orden entera. -->
         <input type="date" id="pw-nacimiento" autocomplete="bday"
+          min="1915-01-01" max="{{ hoy_menos_18 }}"
           style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
         <div style="font-size:0.76rem; color:#888; margin-top:4px;">La valida el banco emisor junto con el documento.</div>
       </div>
