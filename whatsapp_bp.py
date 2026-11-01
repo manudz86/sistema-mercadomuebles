@@ -474,32 +474,40 @@ def get_productos_context():
         comp_stocks = [stock_real.get(sku, 0) for sku in s.get('_comp_skus', [])]
         s['stock_actual'] = min(comp_stocks) if comp_stocks else 0
 
-    # Recargos cuotas — reflejan los medios REALMENTE activos (igual que la tienda)
-    coefs = _q("SELECT clave, valor FROM configuracion WHERE clave LIKE 'cuotas_%_coef'")
-    _cf = {r['clave']: float(r['valor']) for r in coefs}
-    coef_6  = _cf.get('cuotas_6_coef', 1.25)      # GetNet (6 cuotas)
-    coef_12 = _cf.get('cuotas_12_coef', 1.6)      # MercadoPago (12 cuotas, solo online)
-    flags = _q("SELECT clave, valor FROM configuracion WHERE clave IN ('payway_enabled','getnet_enabled','mp_3_enabled','mp_12_enabled')")
-    _fl = {r['clave']: str(r['valor']) for r in flags}
-    payway_on = _fl.get('payway_enabled', '1') == '1'    # Payway 3 cuotas
-    mp3_on    = _fl.get('mp_3_enabled', '0') == '1'       # MercadoPago 3 cuotas
-    getnet_on = _fl.get('getnet_enabled', '1') == '1'     # GetNet 6 cuotas
-    mp_12_on  = _fl.get('mp_12_enabled', '0') == '1'      # MercadoPago 12 cuotas
-    # 3 cuotas: MENOR coeficiente entre los medios de 3 cuotas ACTIVOS (Payway 3 / MP 3)
-    _c3 = []
-    if payway_on: _c3.append(_cf.get('cuotas_3_coef', 1.25))
-    if mp3_on:    _c3.append(_cf.get('cuotas_mp3_coef', 1.18))
-    coef_3_ef = min(_c3) if _c3 else None   # None → no hay 3 cuotas activas
+    # Cuotas: se delegan en la tienda en vez de recalcularlas acá.
+    #
+    # Antes este bloque tenía su propia copia de la lógica y se fue quedando
+    # atrás: las 6 cuotas colgaban solo de getnet_enabled, así que cuando se
+    # habilitó Payway 6 el bot dejó de ofrecerlas; y los miércoles y sábados
+    # cotizaba con recargo unas 3 cuotas que la web cobra sin interés.
+    # Llamando a las mismas funciones que la ficha del producto, el bot y la
+    # web no pueden volver a divergir.
+    import tienda_bp as _t
 
-    def _cuotas_web_line(pf):
-        """Línea de cuotas para el contexto, SOLO con los medios activos."""
+    tres_on  = _t.hay_3cuotas_activo()
+    seis_on  = _t.getnet_activo() or _t.payway_6_activo()
+    doce_on  = _t.mp_12_cuotas_activo()
+    promo3   = _t.promo_3sin_activa()
+
+    def _cuotas_web_line(pf, sku=None):
+        """Línea de cuotas para el contexto, SOLO con los medios activos.
+
+        Los importes salen de calc_cuotas_producto, que es lo que usa la ficha
+        del producto: elige el menor coeficiente entre los medios activos y,
+        durante el evento, calcula sobre el precio con cupón.
+        """
+        try:
+            c = _t.calc_cuotas_producto(pf, sku)
+        except Exception:
+            return None
         partes = []
-        if coef_3_ef is not None:
-            t3 = round(pf * coef_3_ef); partes.append(f"3 fijas de ${round(t3/3):,} (total ${t3:,})")
-        if getnet_on:
-            t6 = round(pf * coef_6);    partes.append(f"6 fijas de ${round(t6/6):,} (total ${t6:,})")
-        if mp_12_on:
-            t12 = round(pf * coef_12);  partes.append(f"12 fijas de ${round(t12/12):,} (total ${t12:,})")
+        if tres_on:
+            etiqueta = "3 SIN INTERÉS" if promo3 else "3 fijas"
+            partes.append(f"{etiqueta} de {c['3']['cuota']} (total {c['3']['total']})")
+        if seis_on:
+            partes.append(f"6 fijas de {c['6']['cuota']} (total {c['6']['total']})")
+        if doce_on:
+            partes.append(f"12 fijas de {c['12']['cuota']} (total {c['12']['total']})")
         return ("  Cuotas Web: " + " | ".join(partes)) if partes else None
 
     # Demora sin stock
@@ -540,7 +548,7 @@ def get_productos_context():
             f"• {p['nombre']} (SKU:{p['sku']}) | {precio_str} | {stock_txt} | {link}"
         )
         # Cuotas sobre precio web (solo medios activos)
-        _cl = _cuotas_web_line(pf)
+        _cl = _cuotas_web_line(pf, p['sku'])
         if _cl:
             lines.append(_cl)
 
@@ -561,7 +569,7 @@ def get_productos_context():
             f"• {p['nombre']} (SKU:{p['sku']}) | {precio_str} | {stock_txt} | {link}"
         )
         # Cuotas sobre precio web (solo medios activos)
-        _cl = _cuotas_web_line(pf)
+        _cl = _cuotas_web_line(pf, p['sku'])
         if _cl:
             lines.append(_cl)
 
@@ -660,13 +668,88 @@ ENVÍOS Y RETIRO:
 
 MEDIOS DE PAGO:
 - MercadoPago: todas las formas (débito, crédito, transferencia, depósito, PagoFácil/RapiPago, dinero en cuenta MP).
-- Tarjeta de crédito Visa o Mastercard bancarizadas: 3, 6 o 12 cuotas fijas (las 12 cuotas son solo online).
+- Tarjeta de crédito Visa o Mastercard bancarizadas: se financia en cuotas fijas. NO enumeres acá cuántas: los planes vigentes salen del contexto de productos, que refleja los medios realmente activos hoy.
 
 GARANTÍA: 5 años de garantía de fábrica.
 """
 
+def get_promos_context():
+    """Bloque de promociones VIGENTES hoy, para el system prompt.
+
+    Sale de las mismas funciones que la tienda, así que el bot no puede
+    anunciar una promo apagada ni callarse una encendida.
+
+    Sobre las fechas del evento: se usa el mismo texto que el cartel de la web
+    (evento_fechas). Es a propósito — mientras ese cartel diga "1 AL 4", el bot
+    dice lo mismo y no se adelanta a anunciar una extensión que todavía no se
+    comunicó. Cuando se cambie el cartel, el bot cambia solo.
+    """
+    import tienda_bp as _t
+
+    partes = []
+    try:
+        if _t.promo_3sin_activa():
+            partes.append(
+                "PROMO DE HOY — 3 CUOTAS SIN INTERÉS:\n"
+                "- Hoy corre la promo bancaria de 3 cuotas SIN INTERÉS con tarjetas de "
+                "crédito Visa y Mastercard BANCARIZADAS (no billeteras ni tarjetas de débito).\n"
+                "- Sin interés de verdad: el total en 3 cuotas es igual al precio de contado.\n"
+                "- Corre los miércoles y los sábados. Si el cliente escribe otro día, podés "
+                "mencionarle que esos días tiene esa financiación.")
+        else:
+            partes.append(
+                "PROMO DE 3 CUOTAS SIN INTERÉS (hoy NO corre):\n"
+                "- Los miércoles y sábados hay 3 cuotas SIN INTERÉS con Visa y Mastercard "
+                "bancarizadas. Hoy no es uno de esos días, así que NO la ofrezcas como "
+                "vigente, pero sí podés mencionarla si al cliente le sirve esperar.")
+    except Exception:
+        pass
+
+    try:
+        he = _t.get_hot_event()
+        if he.get('activo'):
+            bloque = [f"EVENTO VIGENTE — {he.get('titulo') or 'PROMOCIÓN'}"]
+            if he.get('fechas'):
+                bloque.append(f"- Fechas: {he['fechas']}. Si el cliente pregunta hasta "
+                              f"cuándo, decí exactamente eso y nada más: no anticipes "
+                              f"prórrogas ni fechas que no estén en esa línea.")
+            if he.get('descuento_max'):
+                bloque.append(f"- Hasta {he['descuento_max']}% de descuento de catálogo.")
+            if he.get('cupon') and he.get('cupon_pct'):
+                bloque.append(
+                    f"- Cupón {he['cupon']}: {he['cupon_pct']}% EXTRA sobre el precio ya "
+                    f"rebajado. Se aplica con un clic en el carrito. Aplica a colchones y "
+                    f"sommiers; NO aplica a almohadas, que tienen su propia promo.")
+            if _t.promo_2x1_activa():
+                bloque.append("- 2x1 en almohadas: llevando 2 iguales se paga 1. Es la promo "
+                              "de las almohadas, en vez del cupón.")
+            try:
+                if _t.modo_promo_activa('evento_envio_gratis_caba'):
+                    bloque.append("- Envío SIN CARGO en CABA (según código postal) durante "
+                                  "el evento, para todo el catálogo.")
+            except Exception:
+                pass
+            # Preciso a propósito: el precio "Web" del contexto NO lleva el
+            # cupón (es lo que se paga sin aplicarlo) pero las cuotas SÍ se
+            # calculan con el cupón, igual que la ficha del producto. Decirlo
+            # mal haría que el bot explique de más o de menos.
+            if he.get('cupon_pct'):
+                bloque.append(
+                    f"- IMPORTANTE sobre los números del contexto: el precio 'Web' de cada "
+                    f"producto es SIN el cupón. Las cuotas que figuran en 'Cuotas Web' YA "
+                    f"están calculadas CON el {he['cupon_pct']}% del cupón aplicado, igual "
+                    f"que en la página. Si el cliente paga en 1 pago y aplica el cupón, "
+                    f"paga el precio Web menos {he['cupon_pct']}%.")
+            partes.append("\n".join(bloque))
+    except Exception:
+        pass
+
+    return "\n\n".join(partes) if partes else ""
+
+
 def get_system_prompt():
     productos = get_productos_context()
+    promos = get_promos_context()
     # Horario de atención
     now = datetime.now()
     # Argentina es UTC-3
@@ -740,9 +823,11 @@ FOTOS:
 - Usá solo la primera foto — no mandes varias fotos seguidas
 - Solo enviá foto cuando el cliente pregunta por un modelo específico
 
+{promos}
+
 MEDIOS DE PAGO:
 - MercadoPago (online en la tienda web): todas las formas (débito, crédito, transferencia, PagoFácil/RapiPago).
-- Tarjeta de crédito Visa o Mastercard bancarizadas: 3 o 6 cuotas fijas (online y en el local) y 12 cuotas fijas (solo online), sin mencionar la marca del procesador de pagos.
+- Tarjeta de crédito Visa o Mastercard bancarizadas, sin mencionar la marca del procesador de pagos. Los planes de cuotas vigentes son EXACTAMENTE los que figuran en "Cuotas Web" de cada producto: no inventes ni agregues planes que no estén ahí, y si un plan no aparece es porque hoy no está disponible. Las 12 cuotas son solo online.
 - En el local también se acepta efectivo y transferencia.
 
 HORARIO: {horario_txt}
