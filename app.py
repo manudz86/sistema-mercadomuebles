@@ -1923,6 +1923,44 @@ def orden_retiro_pdf(venta_id):
     elif venta.get('dni_cliente'):
         doc_num = str(venta['dni_cliente'])
 
+    # Quiénes pueden retirar. ClearSale solo acepta como prueba de retiro la
+    # firma del comprador, del titular de la tarjeta o de un receptor que se
+    # haya declarado en la compra. Los tres se imprimen para que en el
+    # depósito sepan contra quién pedir el DNI, sin tener que consultar.
+    import re as _re                      # app.py no importa re a nivel módulo
+    _notas_v = venta.get('notas') or ''
+    def _de_notas(etiqueta):
+        m = _re.search(rf'{etiqueta}:\s*([^\n]+)', _notas_v)
+        return m.group(1).strip() if m else ''
+
+    def _solo_numero(v):
+        """'DNI 5530075' -> '5530075'. Las notas guardan el tipo adelante."""
+        return _re.sub(r'^\s*(DNI|CUIT|CUIL|LC|LE|PAS|PASAPORTE)\s+', '',
+                       str(v or ''), flags=_re.I).strip()
+
+    autorizados = []
+    if nombre:
+        autorizados.append(('Comprador', nombre, _solo_numero(doc_num)))
+    _tit = _de_notas('Titular')
+    # El titular solo se lista aparte si es OTRA persona. La tarjeta suele
+    # traer el nombre incompleto ('Francisco Gutnisky' por 'Francisco Alberto
+    # Gutnisky'), asi que se compara como lo hace clearsale: si un nombre
+    # contiene al otro, es el mismo y no se repite la linea.
+    if _tit:
+        try:
+            import clearsale as _cs
+            _es_otro = not _cs._mismo_nombre(_tit, nombre)
+        except Exception:
+            _es_otro = _tit.strip().lower() != (nombre or '').strip().lower()
+        if _es_otro:
+            autorizados.append(('Titular de la tarjeta', _tit,
+                                _solo_numero(_de_notas('Doc titular'))))
+    _ret = _de_notas('RETIRA')
+    if _ret:
+        _m = _re.match(r'(.+?)\s*\(DNI\s*([\d]+)\)', _ret)
+        autorizados.append(('Autorizado por el comprador',
+                            _m.group(1) if _m else _ret, _m.group(2) if _m else ''))
+
     fecha_hoy = date.today().strftime('%d/%m/%Y')
 
     def dibujar_copia(c, y_offset, tipo_copia):
@@ -1995,7 +2033,26 @@ def orden_retiro_pdf(venta_id):
 
         # Dirección
         campo('Dirección de retiro', 'Emilio Lamarca 1870, CABA', m, y, ancho)
-        y -= 12 * mm
+        y -= 11 * mm
+
+        # Quiénes pueden retirar — se pide DNI contra esta lista
+        c.setFillColor(colors.HexColor('#1a237e'))
+        c.setFont('Helvetica-Bold', 7.5)
+        c.drawString(m, y, 'Pueden retirar (pedir DNI):')
+        y -= 5 * mm
+        c.setFont('Helvetica', 7.5)
+        for rol, nom, dni in autorizados:
+            c.setFillColor(colors.HexColor('#666666'))
+            c.drawString(m + 2*mm, y, f'{rol}:')
+            c.setFillColor(colors.black)
+            c.setFont('Helvetica-Bold', 7.5)
+            c.drawString(m + 42*mm, y, str(nom)[:46])
+            c.setFont('Helvetica', 7.5)
+            if dni:
+                c.setFillColor(colors.HexColor('#666666'))
+                c.drawRightString(m + ancho, y, f'DNI {dni}')
+            y -= 4.5 * mm
+        y -= 7 * mm
 
         # ── SECCIÓN 2: PRODUCTOS ──────────────────────────────────────
         c.setFillColor(colors.HexColor('#e8eaf6'))
@@ -2331,6 +2388,21 @@ def remito_conforme_pdf(venta_id):
         pw, ph = p.wrap(ancho - 4*mm, 30*mm)
         p.drawOn(c, m + 2*mm, y - ph)
         y -= (ph + 4*mm)
+
+        # Instrucción de quién completa qué. Va explícito porque este documento
+        # es la prueba de entrega ante un contracargo, y ClearSale rechaza los
+        # comprobantes con la conformidad incompleta o con una firma que no
+        # permita identificar quién recibió.
+        c.setFillColor(colors.HexColor('#c62828'))
+        c.setFont('Helvetica-Bold', 7)
+        c.drawString(m, y, 'IMPORTANTE — completar al momento de la entrega, de puño y letra:')
+        y -= 4.5 * mm
+        c.setFillColor(colors.HexColor('#444444'))
+        c.setFont('Helvetica', 6.8)
+        c.drawString(m + 2*mm, y, 'Lo completa QUIEN RECIBE: aclaración, DNI, fecha y hora de recepción, y firma.')
+        y -= 4 * mm
+        c.drawString(m + 2*mm, y, 'Lo completa MERCADOMUEBLES: firma o sello del responsable de la entrega.')
+        y -= 6 * mm
 
         # Quién recibe + casillas titular/tercero
         c.setFillColor(colors.HexColor('#666666'))

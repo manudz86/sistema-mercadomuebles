@@ -6357,6 +6357,14 @@ def pago_payway():
     card_holder_doc_type  = (data.get('card_holder_doc_type') or 'dni').strip()[:10]
     card_expiration       = (data.get('card_expiration') or '').strip()[:7]
     birth_date            = _fecha_nacimiento_valida(data.get('birth_date'))
+    # Receptor declarado para el retiro. ClearSale solo acepta como prueba la
+    # firma del comprador, del titular de la tarjeta o de un receptor que se
+    # haya declarado EN LA COMPRA; si llega después no sirve. Vacío = retira
+    # el comprador o el titular, que no hace falta declarar.
+    retira_nombre         = (data.get('retira_nombre') or '').strip()[:150]
+    retira_dni            = re.sub(r'\D', '', data.get('retira_dni') or '')[:11]
+    if not (retira_nombre and len(retira_dni) >= 7):
+        retira_nombre, retira_dni = '', ''      # incompleto no se guarda a medias
     # Domicilio del resumen de la tarjeta. Si coincide con el de entrega el
     # formulario no lo pide y más abajo se completa con el de envío. Hasta
     # ahora mandábamos el de entrega rotulado como "billing", que es un dato
@@ -6680,6 +6688,10 @@ def pago_payway():
     if not billing_igual and billing['calle']:
         notas_parts.append(
             f"Domicilio resumen: {bl_street1}, {bl_city}, {billing['provincia']} CP {bl_cp}")
+    if retira_nombre:
+        # Visible en el panel: el depósito tiene que saber a quién entregarle
+        # antes de que la persona se presente.
+        notas_parts.append(f"RETIRA: {retira_nombre} (DNI {retira_dni})")
     if cli.get('demora_dias'):
         notas_parts.append(f"DEMORA: {cli['demora_dias']} dias ({cli.get('fecha_disponible','')})")
     notas_extra = "\n".join(notas_parts)
@@ -6768,6 +6780,11 @@ def pago_payway():
             # Mismo SessionID que se inyectó en el script del checkout. Sale
             # de la sesión, no del request: el navegador no puede alterarlo.
             _cli_cs['_cs_session'] = session.get('cs_session_id') or ''
+            # Receptor declarado del retiro. ClearSale exige que los pedidos
+            # BOPIS identifiquen en la transacción original a quien va a
+            # retirar: sin eso, la firma de un tercero no vale como prueba.
+            if retira_nombre:
+                _cli_cs['_retira'] = {'nombre': retira_nombre, 'dni': retira_dni}
             if not billing_igual and billing['calle']:
                 _cli_cs['_billing'] = {
                     'calle': bl_street1, 'ciudad': bl_city,

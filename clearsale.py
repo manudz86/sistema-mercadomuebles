@@ -83,7 +83,12 @@ LOCATION = 'ARG'          # confirmado con ClearSale: ISO-3
 TIMEOUT = 20
 
 # El local. Es el domicilio de entrega real cuando el comprador retira.
-LOCAL = {'calle': 'Bahia Blanca 1777', 'ciudad': 'Floresta',
+# Domicilio REAL donde se retira la mercadería. Tiene que ser el mismo que
+# figura en la orden de retiro: ClearSale aprueba esta dirección y después
+# exige que la prueba de entrega confirme el retiro "en la dirección aprobada".
+# Si acá dice una cosa y el comprobante otra, todo retiro queda con
+# discrepancia de domicilio ante un contracargo.
+LOCAL = {'calle': 'Emilio Lamarca 1870', 'ciudad': 'Floresta',
          'provincia': 'Capital Federal', 'cp': '1407'}
 
 # Address.State se trunca a 2 caracteres (comprobado: "Buenos Aires" -> "BU").
@@ -501,6 +506,13 @@ def armar_orden(numero_venta, cli, cart_items, totales, pago, fecha=None):
         f" doc={doc_titular or 'sin dato'}"
         f" | comprador={cli.get('nombre')} doc={dni_comprador or 'sin dato'}"
         if otra_persona else '',
+        # Receptor declarado del retiro. ClearSale pide que los pedidos BOPIS
+        # identifiquen en la transacción original a quien va a retirar: es lo
+        # que convierte a un tercero en "receptor aprobado" y hace que su
+        # firma valga como prueba.
+        f"RETIRA UN TERCERO AUTORIZADO: {cli['_retira'].get('nombre')}"
+        f" doc={cli['_retira'].get('dni')}"
+        if cli.get('_retira') else '',
         f"transaction_id={pago.get('payment_id')}" if pago.get('payment_id') else '',
         f"auth_code={pago.get('auth_code')}" if pago.get('auth_code') else '',
         f"cupon={pago.get('cupon')}" if pago.get('cupon') else '',

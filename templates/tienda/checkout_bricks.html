@@ -284,6 +284,38 @@
         <div style="font-size:0.76rem; color:#888; margin-top:4px;">La valida el banco emisor junto con el documento.</div>
       </div>
 
+      {% if cliente.tipo_entrega == 'retiro' %}
+      <!-- Quién retira — solo en retiros, y solo en el pago con tarjeta.
+           ClearSale acepta como prueba de retiro unicamente la firma del
+           comprador, del titular de la tarjeta o de un receptor declarado EN
+           LA COMPRA. Si aparece un tercero que no se declaro acá, su firma no
+           sirve como comprobante ante un contracargo, aunque la entrega haya
+           sido correcta. Por eso se pide antes y no despues. -->
+      <div style="margin-bottom:18px; padding:14px; background:#fff8e1; border:1px solid #ffe082; border-radius:8px;">
+        <div style="font-size:0.88rem; font-weight:700; color:#444;">¿Quién va a retirar el pedido?</div>
+        <div style="font-size:0.8rem; color:#6d5600; margin-top:7px; line-height:1.45;">
+          Solo pueden retirar <strong>el comprador</strong>, <strong>el titular de la tarjeta</strong>
+          o <strong>la persona que completes acá abajo</strong>. Van a pedir DNI al retirar.
+        </div>
+        <div style="font-size:0.78rem; color:#888; margin-top:9px;">
+          Si retirás vos o el titular de la tarjeta, dejá estos campos vacíos.
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+          <div style="flex:1; min-width:170px;">
+            <label style="display:block; font-size:0.8rem; font-weight:600; color:#444; margin-bottom:5px;">Nombre y apellido</label>
+            <input type="text" id="pw-retira-nombre" maxlength="150" placeholder="Opcional"
+              style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+          </div>
+          <div style="flex:1; min-width:140px;">
+            <label style="display:block; font-size:0.8rem; font-weight:600; color:#444; margin-bottom:5px;">DNI</label>
+            <input type="text" id="pw-retira-dni" maxlength="11" inputmode="numeric" placeholder="Opcional"
+              style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+          </div>
+        </div>
+        <div id="pw-retira-error" style="display:none; font-size:0.8rem; color:#c62828; margin-top:7px;"></div>
+      </div>
+      {% endif %}
+
       <!-- Domicilio del resumen de la tarjeta -->
       <div style="margin-bottom:18px; padding:14px; background:#fafafa; border:1px solid #eee; border-radius:8px;">
         {% if cliente.tipo_entrega == 'retiro' %}
@@ -915,6 +947,26 @@ document.getElementById('pw-btn').addEventListener('click', function(e) {
     }
   }
 
+  // Receptor del retiro: los dos campos juntos o ninguno. Un nombre sin DNI
+  // no sirve para identificar a quien firma, que es lo unico que ClearSale
+  // mira en la prueba de retiro.
+  var rNom = (document.getElementById('pw-retira-nombre') || {}).value || '';
+  var rDni = (document.getElementById('pw-retira-dni') || {}).value || '';
+  var rErr = document.getElementById('pw-retira-error');
+  if (rErr) rErr.style.display = 'none';
+  if (rNom.trim() || rDni.trim()) {
+    var dniLimpio = rDni.replace(/\D/g, '');
+    var msgR = '';
+    if (!rNom.trim())            msgR = 'Falta el nombre de quien retira.';
+    else if (dniLimpio.length < 7) msgR = 'El DNI de quien retira no parece válido.';
+    if (msgR) {
+      if (rErr) { rErr.textContent = msgR; rErr.style.display = 'block'; }
+      errDiv.textContent = msgR;
+      errDiv.style.display = 'block';
+      return;
+    }
+  }
+
   btn.disabled = true;
   btnText.textContent = 'Procesando...';
   errDiv.style.display = 'none';
@@ -971,6 +1023,10 @@ document.getElementById('pw-btn').addEventListener('click', function(e) {
         // mejoran el analisis antifraude. Si el domicilio coincide con el de
         // entrega va vacio y el backend usa el de envio.
         birth_date:            (document.getElementById('pw-nacimiento') || {}).value || '',
+        // Receptor declarado para el retiro. Vacio = retira el comprador o el
+        // titular de la tarjeta, que ClearSale acepta sin declararlos.
+        retira_nombre:         (document.getElementById('pw-retira-nombre') || {}).value || '',
+        retira_dni:            (document.getElementById('pw-retira-dni') || {}).value || '',
         billing_igual:         !!(document.getElementById('pw-billing-igual') || {}).checked,
         billing_calle:         (document.getElementById('pw-bill-calle') || {}).value || '',
         billing_altura:        (document.getElementById('pw-bill-altura') || {}).value || '',
