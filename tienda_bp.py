@@ -5031,10 +5031,40 @@ def zipnova_crear_envio(bultos, cliente, numero_venta, declared_value):
     return resp.json()
 
 
+# Los 48 barrios de CABA (Ley 1.777 de Comunas). Se ofrecen todos en lugar de
+# deducirlos del código postal: un CP porteño cubre varios barrios y un barrio
+# tiene varios CP, así que no hay forma de acertar con una tabla CP→barrio.
+# CP_LOCALIDADES tenía 35 entradas de CABA, una por CP y con ocho barrios
+# repetidos en dos códigos distintos; con 1424→Belgrano como única opción,
+# alguien de Caballito no tenía más remedio que elegir Belgrano. Esos 35 CP
+# quedan sin efecto: la rama de CABA se resuelve antes.
+BARRIOS_CABA = [
+    'Agronomía', 'Almagro', 'Balvanera', 'Barracas', 'Belgrano', 'Boedo',
+    'Caballito', 'Chacarita', 'Coghlan', 'Colegiales', 'Constitución',
+    'Flores', 'Floresta', 'La Boca', 'La Paternal', 'Liniers', 'Mataderos',
+    'Monte Castro', 'Montserrat', 'Nueva Pompeya', 'Núñez', 'Palermo',
+    'Parque Avellaneda', 'Parque Chacabuco', 'Parque Chas', 'Parque Patricios',
+    'Puerto Madero', 'Recoleta', 'Retiro', 'Saavedra', 'San Cristóbal',
+    'San Nicolás', 'San Telmo', 'Vélez Sársfield', 'Versalles',
+    'Villa Crespo', 'Villa del Parque', 'Villa Devoto', 'Villa General Mitre',
+    'Villa Lugano', 'Villa Luro', 'Villa Ortúzar', 'Villa Pueyrredón',
+    'Villa Real', 'Villa Riachuelo', 'Villa Santa Rita', 'Villa Soldati',
+    'Villa Urquiza',
+]
+
+
 @tienda_bp.route('/localidades')
 def localidades():
-    """Devuelve lista de localidades para un CP dado, usando dict estático."""
+    """Devuelve las localidades para un CP. En CABA, los 48 barrios.
+
+    El barrio se usa para armar la hoja de ruta del flete propio: sirve para
+    ubicar la dirección sin abrir el mapa. Por eso conviene que lo elija el
+    comprador de una lista correcta y no que lo deduzcamos del CP, que es lo
+    que venía dando barrios que no se correspondían con la dirección.
+    """
     cp = request.args.get('cp', '').strip().lstrip('0') or request.args.get('cp', '').strip()
+    if _es_cp_caba(cp):
+        return jsonify(BARRIOS_CABA)
     # Normalizar: probar con y sin ceros a la izquierda
     nombres = CP_LOCALIDADES.get(cp, [])
     if not nombres:
