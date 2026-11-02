@@ -7456,6 +7456,31 @@ def obtener_shipping_details(access_token, shipping_id):
         return False, str(e)
 
 # ─── FUNCIÓN 4: Mapeo automático al importar - quita la Z del SKU ───
+_SKUS_ML_CACHE = {'ts': 0, 'skus': None}
+
+
+def _sku_ml_existe(sku_up):
+    """¿Existe ese SKU tal cual como producto, base o compuesto?
+
+    Cachea 5 minutos: normalizar_sku_ml corre por cada item de cada orden
+    importada y no vale la pena una consulta por item. Dar de alta un combo
+    nuevo tarda como mucho ese rato en tomar efecto.
+    """
+    import time as _t
+    c = _SKUS_ML_CACHE
+    if c['skus'] is None or _t.time() - c['ts'] > 300:
+        try:
+            filas = (query_db("SELECT UPPER(sku) s FROM productos_base") or []) + \
+                    (query_db("SELECT UPPER(sku) s FROM productos_compuestos") or [])
+            c['skus'] = {r['s'] for r in filas}
+            c['ts'] = _t.time()
+        except Exception:
+            # Ante un error de base, mejor seguir con el comportamiento viejo
+            # (recortar el sufijo) que romper la importación de órdenes.
+            return False
+    return sku_up in c['skus']
+
+
 def normalizar_sku_ml(sku_ml):
     """
     Normaliza SKUs de ML que difieren del SKU en la BD.
@@ -7478,6 +7503,19 @@ def normalizar_sku_ml(sku_ml):
     }
     if sku_up in SKU_MAP:
         return SKU_MAP[sku_up]
+
+    # Si el SKU existe TAL CUAL como producto, no se toca.
+    #
+    # Es lo que permite modelar un combo de ML como producto compuesto en vez
+    # de recortarle el sufijo. Antes, 'CPR8020+' (colchón + almohada) se
+    # guardaba como 'CPR8020' y la almohada del combo nunca se descontaba del
+    # stock. Creando CPR8020+ en productos_compuestos con sus componentes,
+    # descontar_stock_item lo descompone solo.
+    #
+    # La regla es general a propósito: alcanza con dar de alta el compuesto
+    # para que deje de recortarse, sin volver a tocar esta función.
+    if _sku_ml_existe(sku_up):
+        return sku_ml, 0
 
     # Quitar Z o + del final (variantes del mismo SKU base: Z=envío, +=con almohada)
     if sku_up.endswith('Z') or sku_up.endswith('+'):
@@ -18712,6 +18750,13 @@ def job_imagenes_catalogo():
 
 
 def iniciar_scheduler():
+    # Escotilla para los scripts: importar app.py arranca TODOS los jobs, asi
+    # que un script de diagnostico que tarde mas de dos minutos termina
+    # importando ordenes de ML desde un proceso suelto. Con
+    # CANNON_SIN_SCHEDULER=1 el modulo se puede importar sin efectos.
+    if os.environ.get('CANNON_SIN_SCHEDULER') == '1':
+        print('[scheduler] desactivado por CANNON_SIN_SCHEDULER=1', flush=True)
+        return None
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         _init_auto_import_table()
