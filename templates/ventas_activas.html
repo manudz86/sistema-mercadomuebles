@@ -531,10 +531,23 @@
                        cobro, y evita sumar una columna al ancho de la tabla. #}
                     {% if venta.clearsale_estado %}
                         {% set _cs = venta.clearsale_estado|upper %}
-                        <br><span class="badge {% if _cs in cs_aprueban %}bg-success{% elif _cs in cs_rechazan %}bg-danger{% elif _cs in cs_en_curso %}bg-warning text-dark{% else %}bg-secondary{% endif %}"
+                        {% if _cs in cs_rechazan %}
+                        {# Rechazo de ClearSale: no es un badge mas. La venta
+                           sigue en activas a proposito —el sistema no puede
+                           devolver la plata— asi que el cartel tiene que
+                           empujar a cancelarla y reintegrar en Payway. #}
+                        <div class="alert alert-danger py-1 px-2 mt-1 mb-0"
+                             style="font-size:0.78rem; line-height:1.3;">
+                          <strong>&#9940; ClearSale: {{ cs_etiquetas.get(_cs, _cs) }}</strong>
+                          {% if venta.clearsale_score %} · score {{ venta.clearsale_score }}{% endif %}
+                          <br>Cancelar y devolver en Payway.
+                        </div>
+                        {% else %}
+                        <br><span class="badge {% if _cs in cs_aprueban %}bg-success{% elif _cs in cs_en_curso %}bg-warning text-dark{% else %}bg-secondary{% endif %}"
                               title="ClearSale: {{ cs_etiquetas.get(_cs, _cs) }}{% if venta.clearsale_score %} · score {{ venta.clearsale_score }}{% endif %}">
                             🛡️ {{ _cs }}{% if venta.clearsale_score %} · {{ venta.clearsale_score }}{% endif %}
                         </span>
+                        {% endif %}
                     {% endif %}
                 </td>
 
@@ -817,10 +830,23 @@
                        desde el celular no se veia nada. #}
                     {% if venta.clearsale_estado %}
                         {% set _cs = venta.clearsale_estado|upper %}
-                        <br><span class="badge {% if _cs in cs_aprueban %}bg-success{% elif _cs in cs_rechazan %}bg-danger{% elif _cs in cs_en_curso %}bg-warning text-dark{% else %}bg-secondary{% endif %}"
+                        {% if _cs in cs_rechazan %}
+                        {# Rechazo de ClearSale: no es un badge mas. La venta
+                           sigue en activas a proposito —el sistema no puede
+                           devolver la plata— asi que el cartel tiene que
+                           empujar a cancelarla y reintegrar en Payway. #}
+                        <div class="alert alert-danger py-1 px-2 mt-1 mb-0"
+                             style="font-size:0.78rem; line-height:1.3;">
+                          <strong>&#9940; ClearSale: {{ cs_etiquetas.get(_cs, _cs) }}</strong>
+                          {% if venta.clearsale_score %} · score {{ venta.clearsale_score }}{% endif %}
+                          <br>Cancelar y devolver en Payway.
+                        </div>
+                        {% else %}
+                        <br><span class="badge {% if _cs in cs_aprueban %}bg-success{% elif _cs in cs_en_curso %}bg-warning text-dark{% else %}bg-secondary{% endif %}"
                               title="ClearSale: {{ cs_etiquetas.get(_cs, _cs) }}">
                             🛡️ {{ _cs }}{% if venta.clearsale_score %} · {{ venta.clearsale_score }}{% endif %}
                         </span>
+                        {% endif %}
                     {% endif %}
                 </div>
             </div>

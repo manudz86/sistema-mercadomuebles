@@ -7796,15 +7796,25 @@ def aplicar_veredicto_clearsale(venta, estado, score=None, origen='webhook'):
                            f'{venta["numero_venta"]}: ClearSale revirtió el rechazo '
                            f'({estado}), vuelve a activas', venta_id=venta['id'])
         elif _ahora == 'rechazado':
-            # El bloqueo de despacho ya impedía que saliera, así que el stock
-            # no se descontó; por las dudas no tocamos una ya entregada.
-            cur.execute("""UPDATE ventas SET estado_entrega='cancelada',
-                                  fecha_modificacion=NOW()
-                           WHERE id=%s AND estado_entrega<>'entregada'""",
-                        (venta['id'],))
-            db.commit()
-            log_evento('WARNING', 'clearsale', 'venta_cancelada',
-                       f'{venta["numero_venta"]}: cancelada por ClearSale ({estado})',
+            # La venta NO se cancela sola: queda en activas con el badge rojo
+            # para que alguien la cancele a mano.
+            #
+            # Dos motivos. El sistema no puede devolver la plata —eso se hace
+            # en el panel de Payway—, así que cancelar automáticamente daba por
+            # terminada una operación que todavía tiene plata del cliente
+            # retenida. Y al pasar a históricas, si el mail no se veía, la
+            # venta desaparecía sin que nadie devolviera nada.
+            #
+            # Además, cancelar desde el panel pasa por cancelar_venta(), que
+            # sincroniza las publicaciones de ML al liberar el stock. El UPDATE
+            # directo que había acá se salteaba esa sincronización y dejaba las
+            # publicaciones con una unidad de menos.
+            #
+            # El despacho igual está frenado: bloquea_entrega() devuelve True
+            # para todos los estados de este grupo.
+            log_evento('WARNING', 'clearsale', 'venta_rechazada',
+                       f'{venta["numero_venta"]}: ClearSale rechazó ({estado}). '
+                       f'Queda en activas para cancelar y devolver a mano.',
                        venta_id=venta['id'])
 
         # Los avisos van en un hilo: ClearSale espera un 200 rápido y
