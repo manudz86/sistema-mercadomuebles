@@ -495,9 +495,15 @@ function renderTabla(rows) {
     <span class="badge bg-light text-dark ms-2" style="font-size:.7rem">${meta.modelo} ${meta.medida}cm</span>
     ${catalogId ? `<span class="font-monospace text-white-50 ms-2" style="font-size:.72rem">${catalogId}</span>` : ''}
   </span>
-  ${catalogId ? `<a href="https://www.mercadolibre.com.ar/p/${catalogId}" target="_blank"
+  ${catalogId ? `<span class="d-flex gap-1">
+    <a href="/buscar-sku-ml?sku_buscar=${catalogId}" target="_blank"
+      class="btn btn-sm btn-light py-0 px-2" style="font-size:.75rem"
+      title="Ver y editar mis publicaciones de este catálogo">
+      <i class="bi bi-pencil-square me-1"></i>Mis publis</a>
+    <a href="https://www.mercadolibre.com.ar/p/${catalogId}" target="_blank"
       class="btn btn-sm btn-outline-light py-0 px-2" style="font-size:.75rem">
-      <i class="bi bi-box-arrow-up-right me-1"></i>Ver catálogo ML</a>` : ''}
+      <i class="bi bi-box-arrow-up-right me-1"></i>Ver catálogo ML</a>
+  </span>` : ''}
 </div>
 ${skuHtml}
 </div>`;

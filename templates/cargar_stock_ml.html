@@ -169,13 +169,13 @@
                 <div class="row g-3 align-items-end">
                     <div class="col-md-9">
                         <label for="sku_buscar" class="form-label">
-                            <i class="bi bi-upc-scan"></i> Buscar por SKU
+                            <i class="bi bi-upc-scan"></i> Buscar por SKU, MLA o MLA de catálogo
                         </label>
                         <input type="text"
                                class="form-control form-control-lg"
                                id="sku_buscar"
                                name="sku_buscar"
-                               placeholder="Ej: CEX80, SDOP140Z"
+                               placeholder="Ej: CEX80, MLA1234567890, MLA34984270 (catálogo)"
                                value="{% if sku_buscado %}{{ sku_buscado }}{% endif %}"
                                autofocus
                                required>
@@ -196,6 +196,20 @@
         <div class="card-header bg-primary text-white">
             <h5 class="mb-0">
                 <i class="bi bi-tag"></i> Resultados para: <strong>{{ sku_buscado }}</strong>
+                {% if catalogo_buscado %}
+                    <span class="badge bg-light text-dark ms-2" style="font-size:.72rem">
+                        <i class="bi bi-collection"></i> Catálogo {{ catalogo_buscado }}
+                    </span>
+                    {% if skus_catalogo and skus_catalogo|length > 1 %}
+                        <span class="badge bg-warning text-dark ms-1" style="font-size:.72rem">
+                            {{ skus_catalogo|join(' · ') }}
+                        </span>
+                    {% endif %}
+                    <a href="https://www.mercadolibre.com.ar/p/{{ catalogo_buscado }}" target="_blank"
+                       class="btn btn-sm btn-outline-light py-0 px-2 ms-2" style="font-size:.72rem">
+                        <i class="bi bi-box-arrow-up-right"></i> Ver catálogo en ML
+                    </a>
+                {% endif %}
             </h5>
         </div>
         <div class="card-body">

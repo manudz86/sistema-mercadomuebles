@@ -10829,10 +10829,89 @@ def promociones_ml_activas():
                     'limite_aporte': _promo_limite_aporte()})
 
 
-@app.route('/buscar-sku-ml', methods=['POST'])
+def _indexar_catalogo_mla(publicaciones):
+    """Guarda en mla_catalogo el catálogo de las publis que se acaban de consultar.
+    Sale gratis: la pantalla de Modificar Publis ML ya recibe catalog_product_id
+    de cada publicación, así el índice se mantiene al día en lo que se usa sin
+    esperar al job diario. Nunca interrumpe la búsqueda si falla."""
+    # Se saltean las que ML no devolvió (status_raw 'unknown'): si alguien busca
+    # un MLA mal tipeado, no queda una fila basura en el índice.
+    filas = [(p['mla'],
+              p.get('catalog_product_id') if p.get('catalog_listing') else None,
+              p.get('status_raw'))
+             for p in publicaciones
+             if p.get('mla') and p.get('status_raw') not in (None, '', 'unknown')]
+    if not filas:
+        return
+    try:
+        conn = get_db_connection()
+        try:
+            # actualizado_at se escribe a mano: ON UPDATE CURRENT_TIMESTAMP no se
+            # dispara si los valores no cambian, y acá interesa cuándo se
+            # verificó por última vez, no cuándo cambió.
+            with conn.cursor() as cur:
+                cur.executemany(
+                    "INSERT INTO mla_catalogo (mla_id, catalog_product_id, status) "
+                    "VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE "
+                    "catalog_product_id = VALUES(catalog_product_id), "
+                    "status = VALUES(status), "
+                    "actualizado_at = CURRENT_TIMESTAMP", filas)
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f'[CATALOGO-MLA] no se pudo indexar: {e}')
+
+
+def _publis_de_catalogo(catalog_id, access_token):
+    """Nuestras publicaciones en un producto de catálogo de ML.
+
+    Devuelve (mla_ids, skus). ([], []) si ese MLA no es un catálogo donde
+    publiquemos (entonces quien llama lo trata como publicación propia).
+
+    Primero el índice local mla_catalogo, que es el único que incluye las
+    PAUSADAS: /products/{id}/items solo devuelve las activas. Ese endpoint queda
+    como red de seguridad para un catálogo que el índice todavía no tenga.
+    """
+    mlas = [r['mla_id'] for r in query_db(
+        "SELECT mla_id FROM mla_catalogo WHERE catalog_product_id = %s", (catalog_id,))]
+
+    if not mlas:
+        try:
+            r = ml_request('get', f'https://api.mercadolibre.com/products/{catalog_id}/items',
+                           access_token, params={'limit': 50})
+            if r.status_code == 200:
+                mlas = [it.get('item_id') for it in (r.json().get('results') or [])
+                        if str(it.get('seller_id')) == str(ML_SELLER_ID) and it.get('item_id')]
+        except Exception as e:
+            print(f'[CATALOGO-MLA] fallback /products/{catalog_id}/items: {e}')
+
+    if not mlas:
+        return [], []
+
+    # SKUs internos de esas publis, y de ahí TODAS sus publis: así aparecen
+    # también las del mismo SKU en ese catálogo que el índice no tuviera.
+    skus, mlas_final = [], list(mlas)
+    for r in query_db(
+            "SELECT DISTINCT sku FROM sku_mla_mapeo WHERE activo = TRUE AND mla_id IN "
+            f"({','.join(['%s'] * len(mlas))})", tuple(mlas)):
+        if r['sku'] not in skus:
+            skus.append(r['sku'])
+    if skus:
+        for r in query_db(
+                "SELECT DISTINCT mla_id FROM sku_mla_mapeo WHERE activo = TRUE AND sku IN "
+                f"({','.join(['%s'] * len(skus))})", tuple(skus)):
+            if r['mla_id'] not in mlas_final:
+                mlas_final.append(r['mla_id'])
+    return mlas_final, skus
+
+
+@app.route('/buscar-sku-ml', methods=['GET', 'POST'])
 @login_required
 def buscar_sku_ml():
-    sku_buscado = request.form.get('sku_buscar', '').strip().upper()
+    # GET además de POST: así se puede linkear directo desde otra pantalla
+    # (el botón "Mis publis" del monitor de competencia).
+    sku_buscado = request.values.get('sku_buscar', '').strip().upper()
 
     if not sku_buscado:
         flash('Debes ingresar un SKU', 'warning')
@@ -10861,10 +10940,27 @@ def buscar_sku_ml():
     elif sku_buscado.isdigit():
         mla_directo = f'MLA{sku_buscado}'
 
-    if mla_directo:
+    # ¿Es el MLA de un producto de CATÁLOGO y no de una publi nuestra? Entonces
+    # se buscan nuestras publis de ese catálogo. Se pregunta solo si el MLA no
+    # figura como publicación propia, así la búsqueda de siempre no cambia.
+    catalogo_buscado = None
+    skus_catalogo = []
+    if mla_directo and not query_one(
+            "SELECT 1 AS x FROM sku_mla_mapeo WHERE mla_id = %s LIMIT 1", (mla_directo,)):
+        mlas_cat, skus_catalogo = _publis_de_catalogo(mla_directo, access_token)
+        if mlas_cat:
+            catalogo_buscado = mla_directo
+            mla_ids = mlas_cat
+            es_sku_con_z = False
+            # La pantalla es por SKU (precio por costos, form de stock, cuotas
+            # faltantes): se usa el primero de los SKUs del catálogo.
+            if skus_catalogo:
+                sku_buscado = skus_catalogo[0]
+
+    if mla_directo and not catalogo_buscado:
         mla_ids = [mla_directo]
         es_sku_con_z = False
-    else:
+    elif not catalogo_buscado:
         es_sku_con_z = sku_buscado.endswith('Z')
         # ── SKU→MLAs desde sku_mla_mapeo (tabla local recargada del export de ML).
         # ML restringió /users/{id}/items/search (403). La forma vieja por API
@@ -10947,6 +11043,30 @@ def buscar_sku_ml():
     # Ordenar por tipo de publicación
     publicaciones.sort(key=lambda p: ORDEN_TIPOS.get(p.get('listing_type', ''), 99))
 
+    # Mantener al día el índice de catálogos con lo que ML acaba de responder
+    _indexar_catalogo_mla(publicaciones)
+
+    # Búsqueda por catálogo: dejar solo las publis que ML reporta en ESE catálogo,
+    # para no mezclar las de listado general del mismo SKU. Si ninguna lo reporta
+    # (índice viejo), se muestran todas avisando.
+    if catalogo_buscado:
+        # Se exige catalog_listing además del id: en ML una publi de listado
+        # general puede tener catalog_product_id apuntando al catálogo sin ser
+        # una publicación de catálogo, y esas no compiten por la buy box.
+        del_catalogo = [p for p in publicaciones
+                        if p.get('catalog_listing')
+                        and p.get('catalog_product_id') == catalogo_buscado]
+        if del_catalogo:
+            publicaciones = del_catalogo
+        else:
+            flash(f'⚠️ Ninguna publicación de {", ".join(skus_catalogo) or sku_buscado} '
+                  f'figura hoy en el catálogo {catalogo_buscado}. Se muestran todas.',
+                  'warning')
+        if len(skus_catalogo) > 1:
+            flash(f'ℹ️ El catálogo {catalogo_buscado} tiene varios SKU: '
+                  f'{", ".join(skus_catalogo)}. El precio por costos y el tipo de SKU '
+                  f'de abajo son de {sku_buscado}.', 'info')
+
     # Buscar precio calculado por costos para este SKU
     precio_costos = _get_precio_costos_sku(sku_buscado, porcentajes)
 
@@ -11012,6 +11132,8 @@ def buscar_sku_ml():
                            precio_costos=precio_costos,
                            cuotas_faltantes=cuotas_faltantes,
                            catalog_meta=catalog_meta,
+                           catalogo_buscado=catalogo_buscado,
+                           skus_catalogo=skus_catalogo,
                            candidatos_hermana_mayor=candidatos_hermana_mayor,
                            candidatos_hermana_catalogo=candidatos_hermana_catalogo)
 
@@ -18885,6 +19007,104 @@ def job_imagenes_catalogo():
         print(f"[feed_img] job error: {e}", flush=True)
 
 
+def refrescar_catalogo_mla(log=print):
+    """Rearma mla_catalogo preguntándole a ML en qué producto de catálogo está
+    cada publicación nuestra. Es el índice del buscador por MLA de catálogo.
+
+    Hay que mantenerlo porque /products/{id}/items solo devuelve las publis
+    ACTIVAS del catálogo, y las pausadas son justamente las que hace falta
+    encontrar para reactivarlas o corregirles el precio.
+
+    Devuelve (consultadas, escritas, de_catalogo, fallidas).
+    """
+    tok = cargar_ml_token()
+    if not tok:
+        log('[CATALOGO-MLA] sin token de ML, no se refresca')
+        return 0, 0, 0, 0
+
+    mlas = [r['mla_id'] for r in query_db(
+        "SELECT DISTINCT mla_id FROM sku_mla_mapeo WHERE activo = TRUE")]
+    if not mlas:
+        return 0, 0, 0, 0
+
+    filas, fallidas = [], 0
+    for i in range(0, len(mlas), 20):          # 20 ids: tope del multiget de ML
+        chunk = mlas[i:i + 20]
+        try:
+            r = ml_request('get', 'https://api.mercadolibre.com/items', tok,
+                           params={'ids': ','.join(chunk),
+                                   'attributes': 'id,catalog_listing,catalog_product_id,status'})
+        except Exception:
+            fallidas += len(chunk)
+            continue
+        if r.status_code != 200:
+            fallidas += len(chunk)
+            continue
+        for it in r.json():
+            d = it.get('body') or {}
+            if it.get('code') != 200 or not d.get('id'):
+                fallidas += 1
+                continue
+            filas.append((d['id'],
+                          d.get('catalog_product_id') if d.get('catalog_listing') else None,
+                          d.get('status')))
+
+    de_catalogo = sum(1 for _, c, _ in filas if c)
+    escritas = 0
+    if filas:
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                for i in range(0, len(filas), 200):
+                    lote = filas[i:i + 200]
+                    cur.executemany(
+                        "INSERT INTO mla_catalogo (mla_id, catalog_product_id, status) "
+                        "VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE "
+                        "catalog_product_id = VALUES(catalog_product_id), "
+                        "status = VALUES(status), "
+                        "actualizado_at = CURRENT_TIMESTAMP", lote)
+                    escritas += len(lote)
+            conn.commit()
+        finally:
+            conn.close()
+
+    log(f'[CATALOGO-MLA] {escritas} publis indexadas, {de_catalogo} de catálogo, '
+        f'{fallidas} fallidas')
+    return len(mlas), escritas, de_catalogo, fallidas
+
+
+def job_catalogo_mla():
+    """Refresco diario del índice de catálogos, una sola vez por día.
+
+    El scheduler corre en los 5 workers de Gunicorn, así que sin candado serían
+    5 recorridas de ~76 llamadas a ML. El candado es un UPDATE condicional sobre
+    configuracion['catalogo_mla_ultimo_refresco']: solo el worker que logra
+    cambiar la fecha ejecuta; los otros cuatro salen.
+    """
+    hoy = datetime.now().strftime('%Y-%m-%d')
+    try:
+        execute_db("INSERT IGNORE INTO configuracion (clave, valor) "
+                   "VALUES ('catalogo_mla_ultimo_refresco', '')")
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("UPDATE configuracion SET valor = %s "
+                    "WHERE clave = 'catalogo_mla_ultimo_refresco' AND valor <> %s",
+                    (hoy, hoy))
+        conn.commit()
+        tomado = cur.rowcount == 1
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f'[CATALOGO-MLA] error tomando el candado: {e}', flush=True)
+        return
+    if not tomado:
+        return
+    try:
+        refrescar_catalogo_mla(log=lambda m: print(m, flush=True))
+    except Exception as e:
+        print(f'[CATALOGO-MLA] job error: {e}', flush=True)
+
+
 def iniciar_scheduler():
     # Escotilla para los scripts: importar app.py arranca TODOS los jobs, asi
     # que un script de diagnostico que tarde mas de dos minutos termina
@@ -19083,6 +19303,18 @@ def iniciar_scheduler():
             print("[COMPETENCIA-V2] Job Real Trends agendado: 16:30 UTC (13:30 AR), reintento c/1h si no hay datos")
         except Exception as e:
             print(f"[COMPETENCIA-V2] Error registrando job RT: {e}")
+
+        # Índice MLA→catálogo de ML, que alimenta la búsqueda por MLA de catálogo
+        # en Modificar Publis ML. Una vez por día (candado en configuracion).
+        try:
+            from zoneinfo import ZoneInfo as _ZI_cat
+            scheduler.add_job(job_catalogo_mla, 'cron', hour=6, minute=40,
+                              timezone=_ZI_cat('America/Argentina/Buenos_Aires'),
+                              id='catalogo_mla_refresco', replace_existing=True,
+                              max_instances=1, misfire_grace_time=3600)
+            print("[CATALOGO-MLA] Refresco del índice agendado: 6:40 (hora AR)")
+        except Exception as e:
+            print(f"[CATALOGO-MLA] Error registrando el refresco: {e}")
 
         return scheduler
     except Exception as e:
