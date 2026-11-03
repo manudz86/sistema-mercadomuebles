@@ -70,6 +70,20 @@ def inject_clearsale():
                 'cs_rechazan': set(), 'cs_en_curso': set()}
 
 
+def _cs_rechazan_sql():
+    """Devuelve ('%s,%s,...', [estados]) para un IN con los estados de ClearSale
+    que son rechazo. Si clearsale no se puede importar devuelve ('', []) y quien
+    llama simplemente no agrega la condición."""
+    try:
+        import clearsale
+        estados = sorted(clearsale.CS_RECHAZAN)
+    except Exception:
+        return '', []
+    if not estados:
+        return '', []
+    return ','.join(['%s'] * len(estados)), estados
+
+
 @app.context_processor
 def inject_alertas_pendientes():
     """Inyecta el contador de alertas en todos los templates"""
@@ -1513,7 +1527,16 @@ metodo_pago, importe_total, importe_abonado,
         filtro_solo_canceladas = request.args.get('solo_canceladas', '').strip() in ('1', 'true', 'on')
         if filtro_solo_canceladas:
             query += ' AND cancelada_en_ml = 1'
-        
+
+        # Filtro: solo ventas que ClearSale rechazó y siguen activas. La lista de
+        # estados sale de clearsale.CS_RECHAZAN, así una reclasificación futura
+        # arrastra el filtro sin tocar esta query.
+        filtro_solo_clearsale = request.args.get('solo_clearsale', '').strip() in ('1', 'true', 'on')
+        _cs_ph, _cs_par = _cs_rechazan_sql()
+        if filtro_solo_clearsale and _cs_ph:
+            query += f" AND UPPER(COALESCE(clearsale_estado,'')) IN ({_cs_ph})"
+            params.extend(_cs_par)
+
         # Filtro: Búsqueda de texto (apodo, nombre, productos)
         if filtro_buscar:
             query += '''
@@ -1597,10 +1620,20 @@ metodo_pago, importe_total, importe_abonado,
         _row_canc = query_one("SELECT COUNT(*) AS c FROM ventas WHERE estado_entrega='pendiente' AND cancelada_en_ml=1")
         n_canceladas = _row_canc['c'] if _row_canc else 0
 
+        # Contador de ventas rechazadas por ClearSale que siguen activas
+        n_cs_rechazadas = 0
+        if _cs_ph:
+            _row_cs = query_one(
+                "SELECT COUNT(*) AS c FROM ventas WHERE estado_entrega='pendiente' "
+                f"AND UPPER(COALESCE(clearsale_estado,'')) IN ({_cs_ph})", tuple(_cs_par))
+            n_cs_rechazadas = _row_cs['c'] if _row_cs else 0
+
         return render_template('ventas_activas.html',
                              ventas=ventas,
                              n_canceladas=n_canceladas,
                              filtro_solo_canceladas=filtro_solo_canceladas,
+                             n_cs_rechazadas=n_cs_rechazadas,
+                             filtro_solo_clearsale=filtro_solo_clearsale,
                              filtro_buscar=filtro_buscar,
                              filtro_tipo_entrega=filtro_tipo_entrega,
                              filtro_metodo_envio=filtro_metodo_envio,
