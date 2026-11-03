@@ -6198,7 +6198,7 @@ _FRAUDE_VELOCIDAD_ACTIVA = True  # kill-switch de las reglas de velocidad (block
 def _fraude_gate(cli, bin_num='', last4=''):
     """Devuelve (bloqueado, motivo). Reglas:
     1) blocklist (direccion/dni/email/telefono/nombre/tarjeta)
-    2) velocidad por tarjeta: bin+last4 con >=2 rechazos en 24h
+    2) velocidad por tarjeta: bin+last4 con >=3 rechazos en 24h
     3) velocidad por datos de envío: misma direccion/email/dni con >=3 rechazos en 48h
     El caller debe envolver la llamada en try/except (fail-open)."""
     db  = get_db()
@@ -6253,7 +6253,14 @@ def _fraude_gate(cli, bin_num='', last4=''):
                              AND fecha > DATE_SUB(NOW(), INTERVAL 24 HOUR)""",
                         (str(bin_num), str(last4)))
             r = cur.fetchone()
-            if r and int(r['c'] or 0) >= 2:
+            # Umbral 3 y no 2: con una tasa de rechazo de Payway del 65%, dos
+            # intentos fallidos los junta cualquier comprador legítimo, sobre
+            # todo en tickets altos, donde el emisor rechaza más. Pasó con la
+            # Visa 405071…6615 ($1.063.831, dos DENEGADA del banco): al tercer
+            # intento lo habríamos bloqueado nosotros, y como el bloqueo
+            # devuelve la misma respuesta que un rechazo del emisor, ni el
+            # comprador ni nosotros podíamos distinguir quién lo freno.
+            if r and int(r['c'] or 0) >= 3:
                 return True, 'velocidad_tarjeta'
 
         # 3) Velocidad por datos de envío (cruza rechazos recientes con pedidos)
