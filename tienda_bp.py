@@ -7938,15 +7938,33 @@ def _aviso_interno_rechazo(venta, estado):
             Al comprador ya se le aviso por mail y WhatsApp que la operacion
             fue cancelada y que se le reintegra el importe.
           </p>"""
-    _mail_interno(
-        venta,
-        asunto=(f"🛡️ ClearSale rechazó {venta.get('numero_venta')} — "
-                f"devolver ${float(venta.get('importe_abonado') or 0):,.0f}"),
-        color='#dc3545',
-        titulo='🛡️ ClearSale rechazó una venta',
-        cuerpo=(f"La venta <strong>{venta.get('numero_venta')}</strong> fue cancelada "
-                f"automaticamente. Estado de ClearSale: <strong>{estado}</strong>."),
-        recuadro=recuadro)
+    # CAN no es un rechazo de ClearSale: es el comprador que pidió cancelar.
+    # Las acciones a mano son las mismas (devolver y cancelar el envío), pero
+    # decir "ClearSale rechazó" mandaría a buscar un fraude que no hubo.
+    _cancelo_el_cliente = str(estado or '').strip().upper() == 'CAN'
+    try:
+        import clearsale as _cs
+        _etiqueta = _cs.CS_ETIQUETAS.get(str(estado or '').strip().upper(), estado)
+    except Exception:
+        _etiqueta = estado
+
+    if _cancelo_el_cliente:
+        _asunto = (f"🛡️ {venta.get('numero_venta')}: el comprador pidió cancelar — "
+                   f"devolver ${float(venta.get('importe_abonado') or 0):,.0f}")
+        _titulo = '🛡️ El comprador pidió cancelar la compra'
+        _cuerpo = (f"La venta <strong>{venta.get('numero_venta')}</strong> fue cancelada "
+                   f"automaticamente: el comprador le pidió a un analista de ClearSale "
+                   f"cancelar la compra. Estado: <strong>{estado}</strong>.")
+    else:
+        _asunto = (f"🛡️ ClearSale rechazó {venta.get('numero_venta')} — "
+                   f"devolver ${float(venta.get('importe_abonado') or 0):,.0f}")
+        _titulo = '🛡️ ClearSale rechazó una venta'
+        _cuerpo = (f"La venta <strong>{venta.get('numero_venta')}</strong> fue cancelada "
+                   f"automaticamente. Estado de ClearSale: "
+                   f"<strong>{estado} — {_etiqueta}</strong>.")
+
+    _mail_interno(venta, asunto=_asunto, color='#dc3545',
+                  titulo=_titulo, cuerpo=_cuerpo, recuadro=recuadro)
 
 
 

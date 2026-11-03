@@ -166,18 +166,42 @@ def _mismo_nombre(a, b):
 # ── Estados y qué habilitan ──────────────────────────────────────────────────
 # Clasificación de los códigos de ClearSale. De esto depende qué se puede
 # despachar, así que cualquier cambio acá se mira dos veces.
-CS_APRUEBAN = {'APA', 'APM', 'APG'}            # aprobada: se puede entregar
-CS_RECHAZAN = {'RPA', 'RPM', 'RPP', 'FRD'}     # rechazada / fraude confirmado
-CS_EN_CURSO = {'NVO', 'AMA', 'SUS'}            # todavía analizando
-CS_REVISAR  = {'ERR', 'CAN'}                   # error de envío o cancelada
+# Clasificación de los doce estados, contra la Status List oficial de
+# ClearSale (www2.clear.sale/developers/api). Tres estaban mal y cada uno
+# tenía una consecuencia distinta:
+#
+#  SUS  estaba como "todavía analizando". La doc dice "The order was DENIED
+#       due to a suspicion of fraud": es un rechazo final. Con la
+#       clasificación vieja el sistema se quedaba esperando un veredicto que
+#       ya había llegado, no cancelaba la venta ni avisaba a nadie, y el job
+#       de respaldo la consultaba cada 15 minutos para siempre. Paso real:
+#       PW-1043068513, $822.755, 02/11/2026.
+#
+#  CAN  estaba en "revisar a mano", así que bloqueaba la entrega y nada más.
+#       Es "Customer Asked for Cancellation": el comprador pidió cancelar, o
+#       sea que hay que devolverle la plata igual que en un rechazo.
+#
+#  APG  estaba como aprobada y habilitaba la entrega. Es "Awaiting Payment:
+#       approved by the FIRST STEP analysis and can be submitted to the
+#       payment gateway" — no es un veredicto final. Aplica a los flujos que
+#       consultan a ClearSale ANTES de cobrar; el nuestro cobra con Payway y
+#       después manda la orden, así que probablemente no lo veamos nunca,
+#       pero si llega no puede desbloquear un despacho.
+CS_APRUEBAN = {'APA', 'APM'}                             # se puede entregar
+CS_RECHAZAN = {'RPA', 'RPM', 'RPP', 'FRD', 'SUS', 'CAN'} # cancelar y devolver
+CS_EN_CURSO = {'NVO', 'AMA', 'APG'}                      # todavía sin veredicto
+CS_REVISAR  = {'ERR'}                                    # no llegó a ClearSale
 
 CS_ETIQUETAS = {
     'NVO': 'Nueva, sin analizar',   'AMA': 'En análisis',
-    'SUS': 'Suspendida',            'APA': 'Aprobada automáticamente',
-    'APM': 'Aprobada por analista', 'APG': 'Aprobada por regla',
+    'SUS': 'Sospecha de fraude (rechazada)',
+    'APA': 'Aprobada automáticamente',
+    'APM': 'Aprobada por analista',
+    'APG': 'Aprobada 1ª etapa, esperando pago',
     'RPA': 'Rechazada automáticamente', 'RPM': 'Rechazada por analista',
     'RPP': 'Rechazada por política',    'FRD': 'Fraude confirmado',
-    'CAN': 'Cancelada',             'ERR': 'Error al enviar a ClearSale',
+    'CAN': 'Cancelada a pedido del comprador',
+    'ERR': 'Error al enviar a ClearSale',
 }
 
 
