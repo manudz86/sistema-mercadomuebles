@@ -404,6 +404,14 @@ async function cargarHist(){
 
 // ── Filtro por estado en "Por publicación" y "Por campaña" ──
 function filtrarEstado(sel, tablaSel){
+  // En la campaña el estado convive con el filtro de "tu % ≤", así que se
+  // delega en el que aplica los dos a la vez. Si cada uno escribiera
+  // tr.style.display por su cuenta, el último en correr borraría al otro.
+  if (tablaSel === '#campTabla') {
+    _fEstadoCamp = sel.value;
+    aplicarFiltrosCamp();
+    return;
+  }
   var v = sel.value;
   document.querySelectorAll(tablaSel + ' tbody tr').forEach(function(tr){
     var e = tr.dataset.estado || '';
@@ -563,22 +571,72 @@ document.addEventListener('DOMContentLoaded', function(){ showTab('{{ active_tab
 var CAMP_ID = {{ (campania_sel or '')|tojson }};
 var CAMP_TIPO = {{ (campania_tipo or '')|tojson }};
 var CAMP_NOMBRE = {{ (campania_nombre or campania_sel or '')|tojson }};
+// ── Selección en la campaña ───────────────────────────────────────────────
+// Todo lo que cuenta o acciona mira SOLO las filas visibles. Antes se usaba
+// '.selItem:checked' a secas: si tildabas todo y después filtrabas, el contador
+// seguía mostrando el total viejo y "Participar" sumaba publicaciones que el
+// filtro había ocultado. En una campaña eso es inscribir publicaciones que no
+// elegiste.
+// Se mira el display propio de la fila y no offsetParent: la tabla vive en un
+// tab pane que arranca oculto, y con offsetParent todas las filas darían por
+// ocultas mientras la pestaña esté cerrada. Acá solo interesa si la ocultó un
+// filtro, que es lo único que escribe tr.style.display.
+function _filaVisible(tr){ return !!tr && tr.style.display !== 'none'; }
+
+function _seleccionadasVisibles(){
+  return Array.prototype.slice.call(
+    document.querySelectorAll('#campTabla tbody .selItem:checked')
+  ).filter(function(cb){ return _filaVisible(cb.closest('tr')); });
+}
+
 function contarSel(){
-  var n=document.querySelectorAll('.selItem:checked').length;
+  var n=_seleccionadasVisibles().length;
   var e=document.getElementById('selCount'); if(e) e.textContent=n;
   var b=document.getElementById('btnParticipar'); if(b) b.disabled=(n===0);
+  // El "todas" del encabezado refleja si están todas las visibles tildadas
+  var all=document.getElementById('selAll');
+  if(all){
+    var disp=Array.prototype.slice.call(
+      document.querySelectorAll('#campTabla tbody .selItem:not(:disabled)')
+    ).filter(function(cb){ return _filaVisible(cb.closest('tr')); });
+    all.checked = disp.length>0 && disp.every(function(cb){ return cb.checked; });
+    all.indeterminate = n>0 && !all.checked;
+  }
 }
+
 // No tildar las que ya participan (checkbox deshabilitado)
-function toggleAll(cb){ document.querySelectorAll('#campTabla tbody tr:not([style*="display: none"]) .selItem:not(:disabled)').forEach(function(x){x.checked=cb.checked;}); contarSel(); }
-// ── Campaña: filtro por tu % ──
-function filtrarCamp(){
-  var v=parseFloat(document.getElementById('filtroTu').value);
-  document.querySelectorAll('#campTabla tbody tr').forEach(function(tr){
-    var o=parseFloat(tr.dataset.orden);
-    tr.style.display=(isNaN(v)||(!isNaN(o)&&o<=v))?'':'none';
+function toggleAll(cb){
+  document.querySelectorAll('#campTabla tbody .selItem:not(:disabled)').forEach(function(x){
+    if(_filaVisible(x.closest('tr'))) x.checked=cb.checked;
   });
   contarSel();
 }
+// ── Campaña: filtro por tu % ──
+// Los dos filtros de la campaña (estado y "tu % ≤") se aplican JUNTOS.
+// Antes cada uno escribía tr.style.display por su cuenta, así que el segundo
+// deshacía al primero: filtrabas "Disponibles para sumar", escribías un % y
+// volvían a aparecer las activas que cumplían ese %.
+var _fEstadoCamp = '';
+
+function aplicarFiltrosCamp(){
+  var inp = document.getElementById('filtroTu');
+  var v = inp ? parseFloat(inp.value) : NaN;
+  document.querySelectorAll('#campTabla tbody tr').forEach(function(tr){
+    var o = parseFloat(tr.dataset.orden);
+    var pasaPct    = isNaN(v) || (!isNaN(o) && o <= v);
+    var pasaEstado = !_fEstadoCamp || (tr.dataset.estado || '') === _fEstadoCamp;
+    var visible    = pasaPct && pasaEstado;
+    tr.style.display = visible ? '' : 'none';
+    // Destildar lo que se oculta: si no se ve, no puede ir en el lote.
+    if(!visible){
+      var cb = tr.querySelector('.selItem');
+      if(cb) cb.checked = false;
+    }
+  });
+  contarSel();
+}
+
+function filtrarCamp(){ aplicarFiltrosCamp(); }
 // ── Campaña: ordenar por tu % ──
 var _tuAsc=true;
 function ordenarTu(){
@@ -603,7 +661,9 @@ function marcarCampFila(tr, ok, d){
   }
 }
 async function participarSel(){
-  var sel = Array.prototype.slice.call(document.querySelectorAll('.selItem:checked'));
+  // Solo las visibles: lo que el filtro oculta no entra en el lote, aunque
+  // haya quedado tildado de antes.
+  var sel = _seleccionadasVisibles();
   if(!sel.length) return;
   var esLight = (CAMP_TIPO === 'LIGHTNING');
   var esDeal = (CAMP_TIPO === 'DEAL');
