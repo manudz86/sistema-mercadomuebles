@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Verifica el cartel de arriba y el filtro de ventas rechazadas por ClearSale.
 
-Pide /ventas/activas con un usuario admin de la base (sesion armada a mano, sin
-pasar por el login) y comprueba que:
+Pide /ventas/activas a la propia app (con el login desactivado para la prueba)
+y comprueba que:
 
   - el cartel rojo aparece cuando hay ventas rechazadas activas
   - ?solo_clearsale=1 deja SOLO esas ventas
