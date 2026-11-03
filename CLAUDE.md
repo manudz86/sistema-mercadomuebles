@@ -27,30 +27,44 @@ cp -a "<archivo>" "backups/$(basename "<archivo>")_$(date +%Y%m%d_%H%M%S).bak"
 ```
 
 - Nunca editar un archivo sin haber hecho el backup primero.
+- **El backup NO se pide ni se pregunta: se hace.** Hay un hook `PreToolUse` (`scripts/hook_backup.py`) que respalda solo en cada Edit/Write, y queda registrado en `backups/_hook_backup.log`. Si el archivo se modifica por fuera de Edit/Write, hacer el `cp -a` a mano antes.
 - La carpeta `backups/` está en `.gitignore` (los backups NO se commitean).
 - Nunca borrar ni modificar lo que ya está en `backups/`.
 
-## Flujo de trabajo (obligatorio)
-1. **Pensar primero.** Entender bien el cambio pedido y revisar los mapas y el código real antes de proponer nada.
-2. **Presentar la idea**: qué archivos se van a tocar, qué se va a cambiar y por qué. Si algo es ambiguo, hacer 1–2 preguntas concretas en vez de asumir.
-3. **Esperar mi autorización explícita.** No editar nada antes de mi OK.
-   **Un OK autoriza la tarea entera, no cada paso.** Una vez que dije que sí, hacé de corrido backup → cambios → chequeo → diff → commit → push, sin volver a preguntarme. Solo frená si aparece algo que invalida el plan que aprobé (otro archivo, otro enfoque, un hallazgo que cambia el diagnóstico).
-4. Con mi OK: **backup** de cada archivo → hacer los cambios → **chequeo de sintaxis** (`python -m py_compile <archivo>` para `.py`; parseo Jinja2 para templates) → **diff** mostrándome que solo cambiaron las líneas previstas (cero borrados no intencionales).
-5. `git add` (rutas explícitas, nunca `git add .`) + `git commit` + `git push`. Esto es solo respaldo/versionado: **no afecta lo que está corriendo**.
-6. **Reiniciar = paso aparte, con confirmación.** El cambio NO entra en vivo hasta reiniciar (`--reload` está apagado). Reiniciar afecta a **tienda Y sistema** (es un solo proceso), así que: pedir confirmación, hacerlo en horario tranquilo, y una sola vez al final si hubo varios cambios:
+## Qué necesita mi autorización (y qué no)
+Solo dos cosas:
+
+1. **Escribir en la base de datos de producción** (`UPDATE` / `DELETE` / `INSERT`, `ALTER`, migraciones).
+2. **Reiniciar el servicio** (`systemctl restart cannon`).
+
+Todo lo demás va de corrido, sin preguntarme: leer, buscar, backupear, editar, compilar, parsear templates, correr pruebas y diagnósticos, mostrar el diff, `git add` / `commit` / `push`. Lo mismo para los `PUT`/`POST` a la API de ML que cambian publicaciones reales: esos sí, avisar antes.
+
+## Flujo de trabajo
+1. **Pensar primero.** Entender el cambio pedido y revisar los mapas y el código real antes de escribir nada.
+2. **Decir qué vas a hacer** — qué archivos, qué cambia y por qué — y seguir. No hace falta esperar un OK para código. Si algo es genuinamente ambiguo (dos lecturas que llevan a trabajos distintos), preguntar 1–2 cosas concretas; si no, elegir la opción razonable, decirla y avanzar.
+3. De corrido: **backup** (lo hace el hook) → cambios → **chequeo de sintaxis** (`py_compile` para `.py`, parseo Jinja2 para templates) → **prueba** cuando la lógica lo amerite → **diff** mostrando que solo cambiaron las líneas previstas → `git add` (rutas explícitas, nunca `git add .`) + `commit` + `push`. El push es respaldo/versionado: **no afecta lo que está corriendo**.
+4. **Frenar solo si aparece algo que invalida el plan** (otro enfoque, otro archivo, un hallazgo que cambia el diagnóstico). Ahí sí contarlo antes de seguir.
+5. **Reiniciar = paso aparte, con confirmación.** El cambio NO entra en vivo hasta reiniciar (`--reload` está apagado). Reiniciar afecta a **tienda Y sistema** (es un solo proceso), así que: pedir confirmación, chequear que no haya nadie en el embudo de compra, y una sola vez al final si hubo varios cambios:
 
 ```
 systemctl restart cannon && systemctl is-active cannon
 ```
 
 ## Cómo ejecutar comandos (para no generar autorizaciones de más)
-La allowlist de `.claude/settings.local.json` matchea por **texto del comando**. Estas tres costumbres la anulan y hacen que todo pida permiso:
+La allowlist de `.claude/settings.local.json` matchea por **texto del comando**, y en un comando compuesto alcanza con que una parte no esté permitida para que pregunte. Estas costumbres la anulan — medidas sobre una sesión real, explican casi todos los permisos de más:
 
-- **No usar `cd`.** El directorio de trabajo de la sesión ya es `/home/cannon/app`. Anteponer `cd /home/cannon/app` a cada comando es redundante y, como en un comando compuesto alcanza con que una parte no esté permitida para que pregunte, garantiza el prompt.
-- **No usar Python inline** (`venv/bin/python3 - <<'PY' ...`). Cada heredoc es texto único: no puede matchear ningún patrón, nunca. Si hace falta lógica de verdad, escribirla **una vez** en `scripts/` y después ejecutarla (esos sí están preautorizados).
+- **Nada de Python inline.** Ni `-c "..."` ni heredocs (`venv/bin/python3 - <<'PY'`). Son texto único: no matchean ningún patrón, nunca. Si hace falta lógica, escribirla **una vez** en `scripts/` y ejecutarla.
+- **Nada de `timeout N ...` como prefijo.** El tool Bash ya tiene su propio parámetro `timeout`; el prefijo rompe el match de todo el comando.
+- **Nada de `sed -i` ni `tee` para editar** — usar Edit/Write, que disparan el hook de backup. `sed -i` edita salteándolo.
+- **No usar `cd`.** El directorio de trabajo ya es `/home/cannon/app`.
+- **Nada de loops de shell** (`for f in ...; do`) ni `set -a`. Si hace falta iterar, un script en `scripts/`.
+- **Nombrar los scripts con los prefijos preautorizados**: `probar_`, `auditar_`, `verificar_`, `validar_`, `analizar_`, `revisar_`, `check_`, `diag_`, `generar_`. Un script de diagnóstico con nombre libre pide permiso cada vez. Los que escriben en producción o en ML van **sin** esos prefijos, a propósito, para que pidan autorización.
 - **Agrupar** los comandos independientes en una sola llamada en vez de encadenar muchas chicas.
+- `venv/bin/python` y `venv/bin/python3` están los dos permitidos: son el mismo intérprete.
 
-Herramientas preautorizadas para investigar: `scripts/q.py` (SQL de solo lectura), `scripts/ml.py` (GET a la API de ML), `scripts/dump.py` (backup de tablas antes de escribir en la DB).
+Herramientas preautorizadas para investigar: `scripts/q.py` (SQL de solo lectura, con usuario `cannon_ro` sin permiso de escritura), `scripts/ml.py` (GET a la API de ML), `scripts/dump.py` (backup de tablas antes de escribir en la DB).
+
+Para medir si esto se está cumpliendo: `scripts/verificar_permisos.py` pasa todos los comandos de una sesión por la allowlist real y dice cuántos no matchean y por qué.
 
 ## Estilo de cambios
 - **Quirúrgicos y mínimos.** No refactorizar, no renombrar, no reorganizar, no "modularizar" sin que lo pida. El código es un monolito grande y por ahora se mantiene así a propósito.
