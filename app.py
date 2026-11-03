@@ -16055,6 +16055,16 @@ def _init_auto_import_table():
         print(f"[AUTO-ML] Error init tabla: {e}")
 
 
+# Combos de ML que entran desglosados en sus piezas, por SKU exacto.
+# No se deduce del titulo: ML lo recorta en la orden y se come la parte del
+# combo (la orden 2000019305564544 llego como "Colchon Cannon Princess 24kg
+# 1 Plaza 80x190x20", sin "Almohada"). La primera pieza se lleva todo el
+# precio y las demas van en 0.
+COMBOS_ML_DESGLOSAR = {
+    'CPR8020+': [('CPR8020', 1), ('PLATINO', 1)],
+}
+
+
 def _importar_orden_automatica(orden, access_token):
     """
     Importa automáticamente una orden de ML sin intervención del usuario.
@@ -16117,6 +16127,27 @@ def _importar_orden_automatica(orden, access_token):
             elif not existe:
                 print(f"[AUTO-ML] Orden {orden_id}: SKU {sku_norm} no existe en BD, requiere mapeo manual")
                 return False, []
+
+            # Combos que se cargan desglosados en sus piezas (ver
+            # COMBOS_ML_DESGLOSAR). Se desglosan por SKU y no por el título,
+            # porque ML recorta el título de la orden: la de CPR8020+ llegó
+            # como "Colchón Cannon Princess 24kg 1 Plaza 80x190x20", sin la
+            # palabra "Almohada", así que el auto-agregado de más abajo no se
+            # disparaba y la almohada no quedaba en la venta.
+            _desglose = COMBOS_ML_DESGLOSAR.get(sku_norm.upper())
+            if _desglose and all(verificar_sku_en_bd(s)[0] for s, _ in _desglose):
+                for _i, (_s, _c) in enumerate(_desglose):
+                    items_bd.append({
+                        'sku': _s,
+                        'cantidad': _c * cantidad_final,
+                        # Todo el precio va en la pieza principal y el resto en
+                        # 0, igual que el auto-agregado por título.
+                        'precio': precio_final if _i == 0 else 0,
+                    })
+                print(f"[AUTO-ML] {sku_norm} desglosado en "
+                      f"{', '.join(f'{c}x {s}' for s, c in _desglose)}")
+                continue
+
             items_bd.append({'sku': sku_norm, 'cantidad': cantidad_final, 'precio': precio_final})
 
         # Auto-agregar PLATINO si el título contiene "almohada" y el SKU no es almohada
