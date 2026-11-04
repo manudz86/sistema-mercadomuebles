@@ -341,7 +341,11 @@ def _get_mis_publis_all(catalog_id):
 # ── Snapshot ──────────────────────────────────────────────────────
 def _snapshot_catalogo(sku, catalog_id):
     tipo, modelo, medida = _sku_meta(sku)
-    _exec("DELETE FROM competencia_snapshots WHERE sku=%s AND DATE(fecha)=CURDATE()", (sku,))
+    # El borrado va acotado al par (sku, catalogo): limpia la corrida anterior del
+    # mismo día sin pisar los otros catálogos del mismo SKU. Sin el catalog_id, el
+    # segundo catálogo de un SKU borraba lo que había guardado el primero.
+    _exec("DELETE FROM competencia_snapshots WHERE sku=%s AND catalog_product_id=%s "
+          "AND DATE(fecha)=CURDATE()", (sku, catalog_id))
     rows_insertados = 0
     cp = '1425'; cp_label = 'CABA'
 

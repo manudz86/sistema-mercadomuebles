@@ -88,6 +88,23 @@ def main():
         chequear(1.5 < tardo < 6, 'espera una sola vez entre los dos catalogos',
                  f'{tardo:.1f}s (esperado ~2s)')
 
+        print('el snapshot de un catalogo no borra el del otro (mismo SKU)')
+        A.execute_db("DELETE FROM competencia_snapshots WHERE sku=%s", (SKU,))
+        for cat in (CAT_A, CAT_B):
+            # Se escribe una fila a mano y despues se corre el borrado que hace
+            # _snapshot_catalogo, que es donde estaba el bug.
+            A.execute_db(
+                "INSERT INTO competencia_snapshots (sku, catalog_product_id, seller_id, "
+                "item_id, precio, es_propio) VALUES (%s,%s,1,%s,100,1)", (SKU, cat, 'MLAX'))
+        C._exec("DELETE FROM competencia_snapshots WHERE sku=%s AND catalog_product_id=%s "
+                "AND DATE(fecha)=CURDATE()", (SKU, CAT_B))
+        quedan_cat = sorted(r['catalog_product_id'] for r in A.query_db(
+            "SELECT catalog_product_id FROM competencia_snapshots WHERE sku=%s", (SKU,)))
+        chequear(quedan_cat == [CAT_A],
+                 'limpiar un catalogo deja intacto el del otro catalogo',
+                 str(quedan_cat))
+        A.execute_db("DELETE FROM competencia_snapshots WHERE sku=%s", (SKU,))
+
         print('quitar un catalogo deja el otro')
         app = C.competencia_bp
         import flask
