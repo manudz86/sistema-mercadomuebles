@@ -248,6 +248,16 @@
 
   <!-- ══ TAB ACTIVAS / PENDIENTES ══ -->
   <div id="pane-act" class="promo-pane" style="display:none">
+    {# Autorizaciones vigentes al tope de aporte propio. Se cargan con la solapa. #}
+    <div id="excWrap" class="card mb-3" style="display:none;border-color:#ffc107">
+      <div class="card-body py-2 px-3">
+        <div class="fw-bold mb-1" style="font-size:.85rem">
+          <i class="bi bi-shield-exclamation text-warning"></i>
+          Promos autorizadas por encima del tope
+        </div>
+        <div id="excBody" style="font-size:.8rem"></div>
+      </div>
+    </div>
     <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
       <button class="btn btn-sm btn-primary" onclick="cargarActivas(true)">
         <i class="bi bi-arrow-repeat"></i> Actualizar
@@ -331,6 +341,24 @@
       <div class="form-text" style="font-size:.72rem">Máximo 14 días (límite de ML).</div>
     </div>
 
+    {# Aparece solo cuando el aporte propio supera el tope. Sin tildarlo, la promo
+       se aplica y se revierte sola. Tildado, se guarda la autorización para ESE
+       par publicación/campaña y con ESE porcentaje. #}
+    <div id="mp-autorizar-wrap" class="alert alert-warning py-2 px-2 mb-2"
+         style="display:none;font-size:.82rem">
+      <div class="form-check mb-0">
+        <input class="form-check-input" type="checkbox" id="mp-autorizar">
+        <label class="form-check-label" for="mp-autorizar">
+          <strong>Aplicar igual: acepto poner <span id="mp-autorizar-pct"></span> de mi bolsillo.</strong>
+        </label>
+      </div>
+      <div class="text-muted mt-1" style="font-size:.74rem">
+        El tope automático es <span id="mp-autorizar-tope"></span>. Si no tildás esto,
+        la promo se revierte sola apenas se aplica. Tildándolo queda autorizada solo
+        para esta campaña y hasta ese porcentaje: si ML después lo sube, se quita igual.
+      </div>
+    </div>
+
     <div id="mp-error" class="alert alert-danger py-2 px-2 mb-2" style="display:none;font-size:.82rem"></div>
     <div class="d-flex justify-content-end gap-2">
       <button class="btn btn-sm btn-secondary" onclick="cerrarModalPromo()">Cancelar</button>
@@ -346,8 +374,49 @@ function showTab(t){
   document.querySelectorAll('#promoTabs .nav-link').forEach(function(a){a.classList.toggle('active', a.dataset.tab===t);});
   // La solapa de activas carga sola la primera vez (async, no bloquea la página)
   if(t==='act' && !_actData && !_actCargando) cargarActivas(false);
+  if(t==='act') cargarExcepciones();
   if(t==='hist' && !_histCargado) cargarHist();
   return false;
+}
+
+// ── Autorizaciones al tope de aporte propio ──────────────────────────────
+// Son por par (publicación, campaña) y guardan el % aceptado: si ML lo sube por
+// encima, el job de las 7:15 quita la promo igual.
+function cargarExcepciones(){
+  fetch('/promociones-ml/excepciones').then(function(r){return r.json();}).then(function(d){
+    var wrap = document.getElementById('excWrap'), body = document.getElementById('excBody');
+    if(!d.ok || !d.items || !d.items.length){ wrap.style.display='none'; return; }
+    wrap.style.display='';
+    var h = '<table class="table table-sm mb-1"><tbody>';
+    d.items.forEach(function(e){
+      h += '<tr>'
+        + '<td class="font-monospace" style="font-size:.76rem">'+(e.sku||'—')
+        + '<div class="text-muted" style="font-size:.68rem">'+e.mla_id+'</div></td>'
+        + '<td>'+e.campania+'<div class="text-muted" style="font-size:.68rem">'+(e.tipo||'')+'</div></td>'
+        + '<td class="text-nowrap"><span class="badge bg-warning text-dark">hasta '
+        + String(e.tope_pct).replace('.',',')+'%</span></td>'
+        + '<td class="text-muted" style="font-size:.7rem">'+(e.creado_por||'')+'<br>'+e.creado_at+'</td>'
+        + '<td class="text-end"><button class="btn btn-outline-danger btn-sm py-0 px-1"'
+        + ' onclick="quitarExcepcion(\''+e.mla_id+'\',\''+e.campania_id+'\')"'
+        + ' title="Sacar la autorización: vuelve a regir el tope">🗑️</button></td>'
+        + '</tr>';
+    });
+    h += '</tbody></table><div class="text-muted" style="font-size:.72rem">'
+       + 'Tope automático '+String(d.limite_aporte).replace('.',',')+'% · tope duro '
+       + String(d.tope_duro).replace('.',',')+'%. Si ML sube el aporte por encima de lo '
+       + 'autorizado, la promo se quita igual.</div>';
+    body.innerHTML = h;
+  }).catch(function(){});
+}
+function quitarExcepcion(mla, cid){
+  if(!confirm('¿Sacar la autorización de '+mla+'?\n\nLa promo vuelve a quedar sujeta al tope '
+              + 'y el chequeo diario la va a quitar si sigue por encima.')) return;
+  fetch('/promociones-ml/excepcion-quitar', {method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({mla:mla, campania_id:cid})})
+    .then(function(r){return r.json();})
+    .then(function(d){ if(d.ok) cargarExcepciones(); else alert('No se pudo: '+(d.error||'')); })
+    .catch(function(){ alert('Error de red'); });
 }
 
 // ── Historial: lo que se mostró vs lo que aplicó ML ──
@@ -782,6 +851,19 @@ function abrirModal(btn){
     mpModo('pct');
   }
   document.getElementById('mp-confirmar').textContent = (esFijo || d.tipo==='DEAL') ? 'Confirmar y participar' : 'Confirmar y aplicar';
+  // El checkbox de autorización solo tiene sentido si el aporte propio que ML
+  // informa ya supera el tope. Se destilda siempre al abrir: autorizar es un acto
+  // deliberado, no un estado que queda pegado de la promo anterior.
+  var _sellerPct = parseFloat(String(d.seller||'').replace(',','.'));
+  var _superaTope = !isNaN(_sellerPct) && _sellerPct > LIMITE_APORTE;
+  document.getElementById('mp-autorizar').checked = false;
+  _show('mp-autorizar-wrap', _superaTope);
+  if(_superaTope){
+    document.getElementById('mp-autorizar-pct').textContent =
+      String(_sellerPct).replace('.',',')+'%';
+    document.getElementById('mp-autorizar-tope').textContent =
+      String(LIMITE_APORTE).replace('.',',')+'%';
+  }
   document.getElementById('modalPromo').style.display='block';
 }
 function cerrarModalPromo(){ document.getElementById('modalPromo').style.display='none'; }
@@ -824,6 +906,10 @@ function mpConfirmar(){
   // % que se le mostró al usuario (para el historial mostrado-vs-aplicado)
   var _sel = parseFloat(String(_mp.seller || '').replace(',', '.'));
   if(!isNaN(_sel)) body.mostrado_pct = _sel;
+  // Autorización explícita para pasarse del tope: viaja el % que el usuario vio
+  // y aceptó, no un simple "sí". Si ML termina aplicando más que eso, se revierte.
+  var _chk = document.getElementById('mp-autorizar');
+  if(_chk && _chk.checked && !isNaN(_sel)) body.autorizar_aporte_pct = _sel;
   if(!esFijo){
     var deal = mpDeal(), lista = parseFloat(document.getElementById('mp-lista').value)||0;
     if(deal===null || deal<=0){ err.textContent='Ingresá un descuento válido.'; err.style.display='block'; return; }
@@ -837,7 +923,11 @@ function mpConfirmar(){
     .then(function(r){return r.json();})
     .then(function(d){
       btn.disabled=false; btn.textContent=txt;
-      if(d.ok){ mpAplicada(_mp.row, d); cerrarModalPromo(); }
+      if(d.ok){
+        mpAplicada(_mp.row, d);
+        cerrarModalPromo();
+        if(d.aviso) alert('✔ Aplicada.\n\n'+d.aviso);
+      }
       else { err.textContent = d.error||'No se pudo aplicar'; err.style.display='block'; }
     })
     .catch(function(e){ btn.disabled=false; btn.textContent=txt; err.textContent='Error de red: '+e; err.style.display='block'; });

@@ -9963,6 +9963,19 @@ def promociones_ml_aplicar():
     offer_id = (data.get('offer_id') or '').strip()
     if tipo not in ('PRICE_DISCOUNT', 'DEAL', 'SMART', 'PRICE_MATCHING', 'PRE_NEGOTIATED'):
         return jsonify({'ok': False, 'error': 'Tipo de promo no soportado'})
+    # Checkbox "aplicar aunque supere el tope": trae el aporte que el usuario vio
+    # y aceptó. Sin esto, toda promo por encima del tope se revierte sola.
+    _aut = data.get('autorizar_aporte_pct')
+    try:
+        autorizado_pct = (float(str(_aut).replace(',', '.'))
+                          if _aut not in (None, '', False) else None)
+    except (TypeError, ValueError):
+        autorizado_pct = None
+    if autorizado_pct is not None and autorizado_pct > _promo_tope_duro():
+        return jsonify({'ok': False,
+                        'error': (f'{autorizado_pct}% supera el tope duro de '
+                                  f'{_promo_tope_duro()}%. Si de verdad querés aplicarla, '
+                                  f'subí el tope duro desde el catálogo.')})
     if tipo in ('DEAL', 'SMART', 'PRICE_MATCHING', 'PRE_NEGOTIATED') and not promotion_id:
         return jsonify({'ok': False, 'error': 'Falta el id de la campaña'})
     access_token = cargar_ml_token()
@@ -10083,8 +10096,11 @@ def promociones_ml_aplicar():
             except (TypeError, ValueError):
                 _mp = None
             try:
-                res_ind = _promo_verificar_y_registrar(access_token, mla, tipo, promotion_id,
-                                                       res_ind, mostrado_pct=_mp, origen='individual')
+                res_ind = _promo_verificar_y_registrar(
+                    access_token, mla, tipo, promotion_id, res_ind,
+                    mostrado_pct=_mp, origen='individual',
+                    autorizado_pct=autorizado_pct,
+                    usuario=getattr(current_user, 'username', None))
             except Exception as e:
                 print(f"[promo_hist] verificación individual falló para {mla}: {e}")
         return jsonify(res_ind)
@@ -10107,6 +10123,71 @@ def _promo_limite_aporte():
     except Exception:
         pass
     return 5.0
+
+
+def _promo_tope_duro():
+    """Techo absoluto de aporte propio (%). Ni con excepción autorizada se aplica
+    una promo por encima de esto: es la red contra un error de tipeo.
+    Configurable en configuracion['promo_tope_duro_pct']. Default 25."""
+    try:
+        row = query_one("SELECT valor FROM configuracion WHERE clave='promo_tope_duro_pct'")
+        if row and row['valor'] not in (None, ''):
+            return float(str(row['valor']).replace(',', '.'))
+    except Exception:
+        pass
+    return 25.0
+
+
+def _promo_excepcion(mla, campania_id):
+    """La excepción autorizada para ese par (publicación, campaña), o None.
+
+    Es por par y no por MLA: autorizar una Relámpago no exime una Oferta del Día
+    de la misma publicación.
+    """
+    if not mla or not campania_id:
+        return None
+    try:
+        return query_one(
+            "SELECT tope_pct, campania_nombre, creado_at FROM promo_excepciones "
+            "WHERE mla_id=%s AND campania_id=%s", (mla, str(campania_id)))
+    except Exception:
+        return None
+
+
+def _promo_excepcion_cubre(mla, campania_id, aporte):
+    """True si hay excepción para ese par Y el aporte sigue dentro de lo aceptado.
+
+    Si ML sube el aporte por encima del número que se autorizó, la excepción deja
+    de cubrir y la promo se quita igual: esa es la razón de guardar el tope y no
+    un permiso en blanco.
+    """
+    if aporte is None:
+        return False
+    exc = _promo_excepcion(mla, campania_id)
+    if not exc:
+        return False
+    try:
+        return float(aporte) <= float(exc['tope_pct'])
+    except (TypeError, ValueError):
+        return False
+
+
+def _promo_excepcion_guardar(mla, campania_id, tope_pct, tipo=None, nombre=None,
+                             sku=None, motivo=None, usuario=None):
+    """Registra (o actualiza) la autorización para ese par publicación/campaña."""
+    try:
+        execute_db(
+            "INSERT INTO promo_excepciones (mla_id, campania_id, tipo, campania_nombre, "
+            "sku, tope_pct, motivo, creado_por) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) "
+            "ON DUPLICATE KEY UPDATE tope_pct=VALUES(tope_pct), tipo=VALUES(tipo), "
+            "campania_nombre=VALUES(campania_nombre), sku=VALUES(sku), "
+            "motivo=VALUES(motivo), creado_por=VALUES(creado_por), "
+            "creado_at=CURRENT_TIMESTAMP",
+            (mla, str(campania_id), tipo, nombre, sku, float(tope_pct), motivo, usuario))
+        return True
+    except Exception as e:
+        print(f'[PROMOS] no pude guardar la excepción de {mla}/{campania_id}: {e}')
+        return False
 
 
 def _promo_aporte_de(p):
@@ -10203,9 +10284,15 @@ def _promo_hist_registrar(**kw):
 
 
 def _promo_verificar_y_registrar(access_token, mla, tipo, promotion_id, res,
-                                 mostrado_pct=None, origen='panel', campania_nombre=None):
+                                 mostrado_pct=None, origen='panel', campania_nombre=None,
+                                 autorizado_pct=None, usuario=None):
     """Post-aplicación: relee lo que ML dejó, lo compara con lo que se mostró, lo
     registra en el historial y —si supera el tope— REVIERTE la promo.
+
+    `autorizado_pct` es el aporte que el usuario aceptó explícitamente desde el
+    panel (el checkbox "aplicar aunque supere el tope"). Si llega, y lo que ML
+    terminó aplicando no lo supera ni pasa el tope duro, la promo se deja puesta
+    y queda registrada la excepción para que el job de las 7:15 la respete.
 
     Devuelve el dict de resultado (modificado si hubo que revertir)."""
     if not res.get('ok'):
@@ -10226,8 +10313,28 @@ def _promo_verificar_y_registrar(access_token, mla, tipo, promotion_id, res,
     except Exception:
         pass
 
+    # ¿El usuario autorizó este aporte a mano? Cubre solo hasta lo que acepto, y
+    # nunca por encima del tope duro.
+    tope_duro = _promo_tope_duro()
+    autorizada = False
+    if supero and autorizado_pct is not None and promotion_id:
+        try:
+            _aut = float(autorizado_pct)
+        except (TypeError, ValueError):
+            _aut = None
+        if _aut is not None and aporte <= _aut and aporte <= tope_duro:
+            autorizada = _promo_excepcion_guardar(
+                mla, promotion_id, aporte, tipo=tipo, nombre=campania_nombre, sku=sku,
+                motivo=f'autorizada al aplicar (aceptado {_aut}%)', usuario=usuario)
+
     revertida = False
-    if supero:
+    if supero and autorizada:
+        # Queda puesta a propósito: se registra igual, con el aporte real.
+        res = {'ok': True, 'aporte_real': aporte, 'supero_limite': True,
+               'revertida': False, 'autorizada': True,
+               'aviso': (f'Aporte propio {aporte}% — autorizado por vos. '
+                         f'Si ML lo sube por encima de {aporte}%, se quita sola.')}
+    elif supero:
         # Deshacer: ML aplicó un aporte mayor al tope. No dejamos la promo puesta.
         try:
             qs = f'promotion_type={tipo}&app_version=v2&promotion_id={promotion_id}'
@@ -10239,8 +10346,15 @@ def _promo_verificar_y_registrar(access_token, mla, tipo, promotion_id, res,
             revertida = rd.status_code in (200, 204)
         except Exception:
             revertida = False
+        if autorizado_pct is None:
+            _motivo = f'supera el tope de {limite}%'
+        elif aporte > tope_duro:
+            _motivo = (f'supera el TOPE DURO de {tope_duro}%, que no se puede '
+                       f'autorizar desde el panel')
+        else:
+            _motivo = f'y vos autorizaste hasta {autorizado_pct}%'
         res = {'ok': False,
-               'error': (f'Aporte propio {aporte}% supera el tope de {limite}% '
+               'error': (f'Aporte propio {aporte}% {_motivo} '
                          f'→ {"revertida" if revertida else "NO se pudo revertir, revisar a mano"}'),
                'aporte_real': aporte, 'supero_limite': True, 'revertida': revertida}
 
@@ -10600,6 +10714,76 @@ def promociones_ml_quitar_lote():
                     'ok_count': ok, 'fail_count': len(resultados) - ok})
 
 
+@app.route('/promociones-ml/excepciones')
+@login_required
+def promociones_ml_excepciones():
+    """Las autorizaciones vigentes al tope de aporte propio, por par
+    (publicación, campaña)."""
+    filas = query_db(
+        "SELECT mla_id, campania_id, campania_nombre, tipo, sku, tope_pct, motivo, "
+        "creado_por, creado_at FROM promo_excepciones ORDER BY creado_at DESC") or []
+    return jsonify({
+        'ok': True,
+        'limite_aporte': _promo_limite_aporte(),
+        'tope_duro': _promo_tope_duro(),
+        'items': [{
+            'mla_id': f['mla_id'], 'campania_id': f['campania_id'],
+            'campania': f['campania_nombre'] or f['campania_id'],
+            'tipo': f['tipo'], 'sku': f['sku'],
+            'tope_pct': float(f['tope_pct']) if f['tope_pct'] is not None else None,
+            'motivo': f['motivo'], 'creado_por': f['creado_por'],
+            'creado_at': f['creado_at'].strftime('%d/%m/%Y %H:%M') if f['creado_at'] else '',
+        } for f in filas],
+    })
+
+
+@app.route('/promociones-ml/excepcion-quitar', methods=['POST'])
+@login_required
+def promociones_ml_excepcion_quitar():
+    """Saca una autorización: la promo vuelve a estar sujeta al tope y el job de
+    las 7:15 la va a quitar en la próxima corrida si sigue por encima."""
+    data = request.get_json(silent=True) or {}
+    mla = (data.get('mla') or '').strip()
+    cid = (data.get('campania_id') or '').strip()
+    if not mla or not cid:
+        return jsonify({'ok': False, 'error': 'Falta la publicación o la campaña'})
+    try:
+        execute_db("DELETE FROM promo_excepciones WHERE mla_id=%s AND campania_id=%s",
+                   (mla, cid))
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+    return jsonify({'ok': True})
+
+
+@app.route('/promociones-ml/topes-guardar', methods=['POST'])
+@login_required
+def promociones_ml_topes_guardar():
+    """Guarda el tope de aporte propio y el tope duro (ambos en %)."""
+    data = request.get_json(silent=True) or request.form or {}
+
+    def _num(v):
+        try:
+            n = float(str(v).replace(',', '.'))
+        except (TypeError, ValueError):
+            return None
+        return n if 0 < n <= 100 else None
+
+    tope = _num(data.get('max_aporte'))
+    duro = _num(data.get('tope_duro'))
+    if tope is None or duro is None:
+        return jsonify({'ok': False, 'error': 'Los dos topes tienen que ser un número entre 0 y 100'})
+    if duro < tope:
+        return jsonify({'ok': False, 'error': 'El tope duro no puede ser menor al tope normal'})
+    try:
+        for clave, valor in (('promo_max_aporte_pct', tope), ('promo_tope_duro_pct', duro)):
+            execute_db("INSERT INTO configuracion (clave, valor) VALUES (%s,%s) "
+                       "ON DUPLICATE KEY UPDATE valor=VALUES(valor)",
+                       (clave, str(valor).rstrip('0').rstrip('.') if '.' in str(valor) else str(valor)))
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})
+    return jsonify({'ok': True, 'msg': f'Tope {tope}% · tope duro {duro}%'})
+
+
 @app.route('/promociones-ml/historial')
 @login_required
 def promociones_ml_historial():
@@ -10678,16 +10862,19 @@ def job_promos_rechequeo():
         campanias = _promo_campanias(access_token)
         mapa = {r['mla_id']: r['sku'] for r in
                 (query_db("SELECT mla_id, sku FROM sku_mla_mapeo WHERE activo = TRUE") or [])}
-        # Publicaciones con promo cara aplicada A PROPÓSITO: se registran pero no
-        # se quitan. Lista separada por coma en configuracion['promo_excepciones'].
-        exceptos = set()
+        # Promos caras puestas A PROPÓSITO: se registran pero no se quitan. La
+        # autorización es por par (publicación, campaña) y guarda el aporte que se
+        # aceptó — ver tabla promo_excepciones. Si ML lo sube por encima de ese
+        # número, o del tope duro, se quita igual.
+        tope_duro = _promo_tope_duro()
+        exceptos = {}
         try:
-            _r = query_one("SELECT valor FROM configuracion WHERE clave='promo_excepciones'")
-            if _r and _r['valor']:
-                exceptos = {m.strip().upper() for m in str(_r['valor']).split(',') if m.strip()}
+            for _e in (query_db("SELECT mla_id, campania_id, tope_pct "
+                                "FROM promo_excepciones") or []):
+                exceptos[(_e['mla_id'], str(_e['campania_id']))] = float(_e['tope_pct'])
         except Exception:
             pass
-        desviadas = quitadas = 0
+        desviadas = quitadas = respetadas = 0
         for c in campanias:
             cid, ctype = c.get('id'), c.get('type')
             if not cid or not ctype:
@@ -10719,8 +10906,14 @@ def job_promos_rechequeo():
                         # aceptaron al 3,1% y terminaron en 17,2%. Antes esto solo
                         # se registraba y la promo seguía corriendo hasta que alguien
                         # la miraba. Ahora se quita, salvo las marcadas como excepción.
+                        _tope_aut = exceptos.get((mla, str(cid)))
+                        autorizada = (_tope_aut is not None
+                                      and aporte <= _tope_aut
+                                      and aporte <= tope_duro)
                         revertida = False
-                        if mla not in exceptos:
+                        if autorizada:
+                            respetadas += 1
+                        else:
                             try:
                                 qs = f'promotion_type={ctype}&app_version=v2&promotion_id={cid}'
                                 oid = it.get('offer_id') or it.get('ref_id')
@@ -10743,7 +10936,8 @@ def job_promos_rechequeo():
                             supero_limite=True, revertida=revertida, ok=True,
                             error=(f'Aporte {aporte}% supera el tope de {limite}% → '
                                    + ('quitada' if revertida
-                                      else ('excepción autorizada' if mla in exceptos
+                                      else (f'autorizada por vos hasta {_tope_aut}%'
+                                            if autorizada
                                             else 'NO se pudo quitar, revisar a mano'))))
                     search_after = (d.get('paging') or {}).get('searchAfter')
                     if not res or not search_after:
@@ -10751,7 +10945,7 @@ def job_promos_rechequeo():
         if desviadas:
             print(f"[PROMOS-RECHEQUEO] {desviadas} promo(s) con aporte propio sobre el "
                   f"tope de {limite}% — {quitadas} quitada(s)"
-                  f"{f', {len(exceptos)} excepción(es) respetada(s)' if exceptos else ''}"
+                  f"{f', {respetadas} autorizada(s) por vos' if respetadas else ''}"
                   f" — ver /promociones-ml (Historial)")
         else:
             print("[PROMOS-RECHEQUEO] sin desvíos")
@@ -21500,6 +21694,8 @@ def productos_lista():
         cuotas_3_coef = cuotas_3_coef,
         cuotas_6_coef = cuotas_6_coef,
         cuotas_6_payway_coef = cuotas_6_payway_coef,
+        promo_max_aporte_pct = _promo_limite_aporte(),
+        promo_tope_duro_pct  = _promo_tope_duro(),
         evento = evento,
         cuotas_12_coef = cuotas_12_coef,
         cuotas_mp3_coef = cuotas_mp3_coef,
