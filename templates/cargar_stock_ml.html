@@ -230,6 +230,40 @@
                 </div>
             </div>
 
+            {# Selector de catálogo: un SKU puede competir en varios, así se ve
+               cuáles de sus publicaciones están en cada uno. Filtra en la página,
+               sin recargar. #}
+            {% if catalogos_del_sku and (catalogos_del_sku|length > 1 or n_sin_catalogo) %}
+            <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
+                <span class="text-muted small">
+                    <i class="bi bi-collection"></i>
+                    {% if catalogos_del_sku|length > 1 %}
+                        Este SKU compite en <strong>{{ catalogos_del_sku|length }}</strong> catálogos:
+                    {% else %}
+                        Catálogo:
+                    {% endif %}
+                </span>
+                <button type="button" class="btn btn-sm btn-primary py-0 px-2 btn-filtro-cat"
+                        data-cat="" style="font-size:.78rem">
+                    Todas ({{ publicaciones|length }})
+                </button>
+                {% for c in catalogos_del_sku %}
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 btn-filtro-cat"
+                        data-cat="{{ c.id }}" style="font-size:.78rem"
+                        title="Ver solo las publicaciones de este catálogo">
+                    <i class="bi bi-bookmark-star-fill"></i> {{ c.id }} ({{ c.n }})
+                </button>
+                {% endfor %}
+                {% if n_sin_catalogo %}
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 btn-filtro-cat"
+                        data-cat="__sin__" style="font-size:.78rem"
+                        title="Publicaciones de listado general, fuera de catálogo">
+                    Sin catálogo ({{ n_sin_catalogo }})
+                </button>
+                {% endif %}
+            </div>
+            {% endif %}
+
             {% if publicaciones %}
 
             <!-- CALCULADORA DE PRECIOS -->
@@ -383,6 +417,7 @@
                         <tr data-status-raw="{{ pub.status_raw }}"
                             data-demora="{{ pub.demora or '' }}"
                             data-listing-type="{{ pub.listing_type or '' }}"
+                            data-catalogo="{{ pub.catalog_product_id if pub.catalog_listing else '' }}"
                             data-mla="{{ pub.mla }}">
                             <td class="text-center">
                                 <span class="d-flex align-items-center gap-2 justify-content-center">
@@ -436,9 +471,13 @@
                             </td>
                             <td class="text-center">
                                 {% if pub.catalog_listing %}
-                                    <span class="badge mb-1" style="font-size:.63rem; background:#fff3cd; color:#856404; border:1px solid #ffc107">
-                                        <i class="bi bi-bookmark-star-fill"></i> CATÁLOGO
-                                    </span><br>
+                                    <a href="https://www.mercadolibre.com.ar/p/{{ pub.catalog_product_id }}"
+                                       target="_blank" class="badge mb-1 text-decoration-none"
+                                       style="font-size:.63rem; background:#fff3cd; color:#856404; border:1px solid #ffc107"
+                                       title="Ver el catálogo {{ pub.catalog_product_id }} en Mercado Libre">
+                                        <i class="bi bi-bookmark-star-fill"></i>
+                                        {{ pub.catalog_product_id or 'CATÁLOGO' }}
+                                    </a><br>
                                 {% endif %}
                                 {% if pub.listing_type %}
                                     <span class="badge" style="font-size:.72rem; background:#e8f0fe; color:#1a56db">
@@ -591,7 +630,8 @@
             <!-- CARDS MOBILE publicaciones -->
             <div class="d-md-none mb-3">
                 {% for pub in publicaciones %}
-                <div class="card mb-2 shadow-sm">
+                <div class="card mb-2 shadow-sm"
+                     data-catalogo="{{ pub.catalog_product_id if pub.catalog_listing else '' }}">
                     <div class="card-header d-flex justify-content-between align-items-center py-2"
                          style="background:#1e2a38;">
                         <div>
@@ -640,9 +680,13 @@
                                 </span>
                             {% elif pub.precio %}<span><strong>Precio:</strong> ${{ "{:,.0f}".format(pub.precio) }}</span>{% endif %}
                             {% if pub.catalog_listing %}
-                                <span class="badge" style="font-size:0.63rem; background:#fff3cd; color:#856404; border:1px solid #ffc107;">
-                                    <i class="bi bi-bookmark-star-fill"></i> CATÁLOGO
-                                </span>
+                                <a href="https://www.mercadolibre.com.ar/p/{{ pub.catalog_product_id }}"
+                                   target="_blank" class="badge text-decoration-none"
+                                   style="font-size:0.63rem; background:#fff3cd; color:#856404; border:1px solid #ffc107;"
+                                   title="Ver el catálogo {{ pub.catalog_product_id }} en Mercado Libre">
+                                    <i class="bi bi-bookmark-star-fill"></i>
+                                    {{ pub.catalog_product_id or 'CATÁLOGO' }}
+                                </a>
                             {% endif %}
                             {% if pub.listing_type %}<span class="badge" style="background:#e8f0fe;color:#1a56db;font-size:0.7rem;">{{ pub.listing_type }}</span>{% endif %}
                             {% if pub.envio_tipo %}
@@ -1425,6 +1469,34 @@ document.addEventListener('click', async function(e) {
         btn.disabled = false;
         btn.innerHTML = original;
     }
+});
+
+// ── Filtro por catálogo ──────────────────────────────────────────────────
+// Un SKU puede competir en varios catálogos de ML. Esto muestra solo las
+// publicaciones del catálogo elegido, en la tabla y en las tarjetas mobile.
+// '' = todas · '__sin__' = las de listado general (fuera de catálogo).
+document.addEventListener('click', function (ev) {
+    const btn = ev.target.closest('.btn-filtro-cat');
+    if (!btn) return;
+    const cat = btn.dataset.cat || '';
+
+    document.querySelectorAll('.btn-filtro-cat').forEach(b => {
+        const activo = b === btn;
+        b.classList.toggle('btn-primary', activo);
+        b.classList.toggle('btn-outline-secondary', !activo);
+    });
+
+    const coincide = (valor) => {
+        if (cat === '') return true;
+        if (cat === '__sin__') return !valor;
+        return valor === cat;
+    };
+    document.querySelectorAll('tr[data-catalogo]').forEach(tr => {
+        tr.hidden = !coincide(tr.dataset.catalogo || '');
+    });
+    document.querySelectorAll('.d-md-none .card[data-catalogo]').forEach(c => {
+        c.hidden = !coincide(c.dataset.catalogo || '');
+    });
 });
 </script>
 {% endblock %}

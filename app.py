@@ -11122,6 +11122,16 @@ def buscar_sku_ml():
             and p.get('status_raw') == 'active'
         ]
 
+    # Catálogos presentes entre estas publicaciones, para el selector de la
+    # pantalla: un SKU puede competir en varios y conviene poder ver de a uno.
+    _cuenta_cat = {}
+    for p in publicaciones:
+        if p.get('catalog_listing') and p.get('catalog_product_id'):
+            _cuenta_cat[p['catalog_product_id']] = _cuenta_cat.get(p['catalog_product_id'], 0) + 1
+    catalogos_del_sku = [{'id': k, 'n': v} for k, v in
+                         sorted(_cuenta_cat.items(), key=lambda x: (-x[1], x[0]))]
+    n_sin_catalogo = sum(1 for p in publicaciones if not p.get('catalog_listing'))
+
     return render_template('cargar_stock_ml.html',
                            sku_buscado=sku_buscado,
                            publicaciones=publicaciones,
@@ -11130,6 +11140,8 @@ def buscar_sku_ml():
                            mensaje_tipo=None,
                            porcentajes=porcentajes,
                            precio_costos=precio_costos,
+                           catalogos_del_sku=catalogos_del_sku,
+                           n_sin_catalogo=n_sin_catalogo,
                            cuotas_faltantes=cuotas_faltantes,
                            catalog_meta=catalog_meta,
                            catalogo_buscado=catalogo_buscado,
