@@ -198,7 +198,7 @@ function cargarManuales() {
                     <td><span class="font-monospace">${it.catalog}</span></td>
                     <td class="text-muted">${it.fecha}</td>
                     <td class="text-end"><button class="btn btn-outline-danger btn-sm py-0 px-1"
-                        onclick="quitarManual('${it.sku}')" title="Quitar">🗑️</button></td>
+                        onclick="quitarManual('${it.sku}', '${it.catalog}')" title="Quitar">🗑️</button></td>
                 </tr>`;
             });
             h += '</tbody></table>';
@@ -237,12 +237,14 @@ function agregarManual() {
     .catch(e => { btn.disabled = false; btn.innerHTML = orig; msg.innerHTML = '<span class="text-danger">Error de red</span>'; });
 }
 
-function quitarManual(sku) {
-    if (!confirm(`¿Quitar ${sku} del monitoreo manual?`)) return;
+function quitarManual(sku, catalog) {
+    // Se manda el catálogo además del SKU: un SKU puede tener varios y hay que
+    // quitar solo el que se clickeó.
+    if (!confirm(`¿Quitar ${sku} → ${catalog} del monitoreo manual?`)) return;
     fetch('/admin/competencia/catalogo/quitar', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({sku})
+        body: JSON.stringify({sku, catalog})
     })
     .then(r => r.json())
     .then(d => { if (d.ok) cargarManuales(); else alert('No se pudo quitar: ' + (d.error || '')); })
@@ -356,20 +358,32 @@ function renderTabla(rows) {
         return;
     }
 
-    // Agrupar por SKU
+    // Agrupar por SKU + CATÁLOGO: un mismo SKU puede competir en varios
+    // catálogos de ML, y cada catálogo tiene sus propios competidores. Van uno
+    // debajo del otro, con el SKU repetido en el encabezado y un contador
+    // "Catálogo N de M" para que se vea que es el mismo SKU.
     const bySku = {};
+    const catsPorSku = {};
     rows.forEach(r => {
-        if (!bySku[r.sku]) bySku[r.sku] = { meta: r, byCuotas: {} };
+        const clave = r.sku + '||' + (r.catalog_product_id || '');
+        if (!bySku[clave]) bySku[clave] = { meta: r, byCuotas: {} };
         const cup = r.cuotas_publi || 'Sin cuotas';
-        if (!bySku[r.sku].byCuotas[cup]) bySku[r.sku].byCuotas[cup] = [];
-        bySku[r.sku].byCuotas[cup].push(r);
+        if (!bySku[clave].byCuotas[cup]) bySku[clave].byCuotas[cup] = [];
+        bySku[clave].byCuotas[cup].push(r);
+        if (!catsPorSku[r.sku]) catsPorSku[r.sku] = [];
+        if (r.catalog_product_id && !catsPorSku[r.sku].includes(r.catalog_product_id))
+            catsPorSku[r.sku].push(r.catalog_product_id);
     });
 
     let html = '';
 
-    for (const [sku, skuData] of Object.entries(bySku)) {
+    for (const [clave, skuData] of Object.entries(bySku)) {
         const { meta, byCuotas } = skuData;
+        const sku = meta.sku;
         const catalogId = meta.catalog_product_id;
+        const catsDelSku = catsPorSku[sku] || [];
+        const nCats = catsDelSku.length;
+        const iCat = catalogId ? catsDelSku.indexOf(catalogId) + 1 : 0;
         let skuHtml = '';
         let skuHasRows = false;
 
@@ -493,6 +507,8 @@ function renderTabla(rows) {
 <div class="sku-header d-flex justify-content-between align-items-center">
   <span>${tipoLabel} <strong>${sku}</strong>
     <span class="badge bg-light text-dark ms-2" style="font-size:.7rem">${meta.modelo} ${meta.medida}cm</span>
+    ${nCats > 1 ? `<span class="badge bg-info text-dark ms-2" style="font-size:.7rem"
+        title="Este SKU compite en ${nCats} catálogos de ML">Catálogo ${iCat} de ${nCats}</span>` : ''}
     ${catalogId ? `<span class="font-monospace text-white-50 ms-2" style="font-size:.72rem">${catalogId}</span>` : ''}
   </span>
   ${catalogId ? `<span class="d-flex gap-1">

@@ -100,11 +100,13 @@ def _crear_tablas():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS sku_catalog_map (
             id              INT AUTO_INCREMENT PRIMARY KEY,
-            sku             VARCHAR(50) UNIQUE,
+            sku             VARCHAR(50),
             catalog_product_id VARCHAR(30),
             category_id     VARCHAR(20),
             mla_ref         VARCHAR(20),
-            actualizado_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            actualizado_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uk_sku_catalogo (sku, catalog_product_id),
+            KEY idx_catalogo (catalog_product_id)
         )
     """)
     cur.execute("""
@@ -151,6 +153,23 @@ def _crear_tablas():
         pass
     try:
         cur.execute("ALTER TABLE sku_catalog_map MODIFY COLUMN category_id VARCHAR(60)")
+    except Exception:
+        pass
+    # sku_catalog_map: la clave pasa de sku a (sku, catalog_product_id). Un SKU
+    # puede estar en varios catálogos de ML, y antes había que inventarle una
+    # etiqueta de SKU por catálogo (PLATINOX2 / PLATINOX2-TOP / ...).
+    # Ver migrations/015_sku_catalog_map_multicatalogo.sql
+    try:
+        cur.execute("ALTER TABLE sku_catalog_map DROP INDEX `sku`")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE sku_catalog_map "
+                    "ADD UNIQUE KEY uk_sku_catalogo (sku, catalog_product_id)")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE sku_catalog_map ADD INDEX idx_catalogo (catalog_product_id)")
     except Exception:
         pass
     # Fix ENUM → VARCHAR for envio_tipo (allows COLECTA)
@@ -252,9 +271,23 @@ def _cuotas_efectivas(lt, campaign):
     return _cuotas_publi(lt, campaign)
 
 # ── Catalog ID ────────────────────────────────────────────────────
-def _get_catalog_id(sku):
-    cached = _q("SELECT catalog_product_id FROM sku_catalog_map WHERE sku=%s", (sku,), one=True)
-    if cached: return cached['catalog_product_id']
+def _get_catalogos(sku):
+    """Todos los catálogos de ML donde ese SKU compite (puede estar en varios).
+
+    Si no hay ninguno cargado, lo resuelve contra ML a partir de una publicación
+    del SKU y lo cachea, como se hacía siempre. Devuelve lista de catalog ids.
+    """
+    cached = _q("SELECT catalog_product_id FROM sku_catalog_map "
+                "WHERE sku=%s AND catalog_product_id IS NOT NULL "
+                "AND catalog_product_id <> '' ORDER BY catalog_product_id", (sku,))
+    if cached:
+        return [r['catalog_product_id'] for r in cached]
+    cat = _resolver_catalogo_ml(sku)
+    return [cat] if cat else []
+
+
+def _resolver_catalogo_ml(sku):
+    """Le pregunta a ML en qué catálogo está una publicación del SKU y lo cachea."""
     sku_base = sku.rstrip('Z')
     row = _q("SELECT mla_id FROM sku_mla_mapeo WHERE sku=%s AND activo=1 LIMIT 1", (sku_base,), one=True)
     if not row: return None
@@ -407,7 +440,7 @@ def _get_skus_monitorear():
     return skus
 
 # ── Agente principal ──────────────────────────────────────────────
-def correr_agente(skus_filtro=None, delay_entre_skus=60):
+def correr_agente(skus_filtro=None, delay_entre_skus=60, delay_entre_catalogos=15):
     todos = _get_skus_monitorear()
     if skus_filtro:
         skus_up = [s.upper().rstrip('Z') for s in skus_filtro]
@@ -428,26 +461,30 @@ def correr_agente(skus_filtro=None, delay_entre_skus=60):
         if i > 0 and delay_entre_skus > 0:
             time.sleep(delay_entre_skus)
 
-        # Hasta 2 intentos por SKU
-        ok = False
-        for intento in range(2):
-            try:
-                cat_id = _get_catalog_id(sku)
-                if not cat_id:
-                    resultado['sin_catalogo'].append(sku)
-                    ok = True
+        # Un SKU puede competir en varios catálogos: se recorren todos. El delay
+        # largo queda entre SKU y entre catálogos del mismo SKU va uno corto, así
+        # soportar multi-catálogo no estira la corrida de forma proporcional.
+        cats = _get_catalogos(sku)
+        if not cats:
+            resultado['sin_catalogo'].append(sku)
+            continue
+
+        for j, cat_id in enumerate(cats):
+            if j > 0 and delay_entre_catalogos > 0:
+                time.sleep(delay_entre_catalogos)
+            # Hasta 2 intentos por catálogo
+            for intento in range(2):
+                try:
+                    rows_n = _snapshot_catalogo(sku, cat_id)
+                    resultado['procesados'] += 1
+                    resultado['total_rows'] += rows_n
                     break
-                rows_n = _snapshot_catalogo(sku, cat_id)
-                resultado['procesados'] += 1
-                resultado['total_rows'] += rows_n
-                ok = True
-                break
-            except Exception as e:
-                if intento == 0:
-                    print(f"[COMP] Reintentando {sku} tras error: {e}")
-                    time.sleep(10)
-                else:
-                    resultado['errores'].append(f"{sku}: {e}")
+                except Exception as e:
+                    if intento == 0:
+                        print(f"[COMP] Reintentando {sku}/{cat_id} tras error: {e}")
+                        time.sleep(10)
+                    else:
+                        resultado['errores'].append(f"{sku}/{cat_id}: {e}")
 
     return {'ok': True, **resultado}
 
@@ -548,10 +585,17 @@ def competencia_catalogo_agregar():
 def competencia_catalogo_quitar():
     data = request.get_json() or {}
     sku = (data.get('sku') or '').strip().upper()
+    cat = (data.get('catalog') or '').strip().upper()
     if not sku:
         return jsonify({'ok': False, 'error': 'Falta el SKU'})
     try:
-        _exec("DELETE FROM sku_catalog_map WHERE sku=%s AND manual=1", (sku,))
+        # Un SKU puede tener varios catálogos: si viene el catálogo se borra solo
+        # ese par. Sin catálogo se borran todos los del SKU (como antes).
+        if cat:
+            _exec("DELETE FROM sku_catalog_map WHERE sku=%s AND catalog_product_id=%s "
+                  "AND manual=1", (sku, cat))
+        else:
+            _exec("DELETE FROM sku_catalog_map WHERE sku=%s AND manual=1", (sku,))
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)})
     return jsonify({'ok': True})
