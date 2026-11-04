@@ -19495,11 +19495,16 @@ def iniciar_scheduler():
         # Monitor de competencia — 2 veces por día
         try:
             from competencia_bp import job_competencia
-            scheduler.add_job(job_competencia, 'cron', hour=5, minute=0,
+            from zoneinfo import ZoneInfo as _ZI_comp
+            # timezone explícito: el VPS corre en UTC (sin esto caían 02:00 y 09:30 AR).
+            # 04:00 para que la corrida (~1 min por SKU) termine antes de las 07:00.
+            scheduler.add_job(job_competencia, 'cron', hour=4, minute=0,
+                             timezone=_ZI_comp('America/Argentina/Buenos_Aires'),
                              id='job_competencia_manana', replace_existing=True)
-            scheduler.add_job(job_competencia, 'cron', hour=12, minute=30,
+            scheduler.add_job(job_competencia, 'cron', hour=11, minute=0,
+                             timezone=_ZI_comp('America/Argentina/Buenos_Aires'),
                              id='job_competencia_tarde', replace_existing=True)
-            print("[COMPETENCIA] Jobs agendados: 5:00 y 12:30")
+            print("[COMPETENCIA] Jobs agendados: 4:00 y 11:00 (hora AR)")
         except Exception as e:
             print(f"[COMPETENCIA] Error registrando jobs: {e}")
 
@@ -19512,7 +19517,12 @@ def iniciar_scheduler():
                               timezone=_ZI('America/Argentina/Buenos_Aires'),
                               id='promos_ml_rechequeo', replace_existing=True,
                               max_instances=1)
-            print("[PROMOS-ML] Rechequeo de aporte agendado: 7:15 (hora AR)")
+            # Pasadas extra en el día: ML puede subir el aporte en cualquier momento.
+            scheduler.add_job(job_promos_rechequeo, 'cron', hour='13,17', minute=0,
+                              timezone=_ZI('America/Argentina/Buenos_Aires'),
+                              id='promos_ml_rechequeo_tarde', replace_existing=True,
+                              max_instances=1)
+            print("[PROMOS-ML] Rechequeo de aporte agendado: 7:15, 13:00 y 17:00 (hora AR)")
         except Exception as e:
             print(f"[PROMOS-ML] Error registrando rechequeo: {e}")
 
