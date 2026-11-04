@@ -11003,6 +11003,27 @@ def buscar_sku_ml():
     }
 
     datos_batch = obtener_datos_ml_batch(mla_ids, access_token)
+
+    # El índice de catálogos se mantiene con TODO lo que ML respondió, antes de
+    # cualquier recorte.
+    _indexar_catalogo_mla([
+        {'mla': m,
+         'catalog_listing':    d.get('catalog_listing'),
+         'catalog_product_id': d.get('catalog_product_id'),
+         'status_raw':         d.get('status_raw')}
+        for m, d in datos_batch.items()])
+
+    # Búsqueda por catálogo: recortar ACÁ a las publis de ese catálogo, antes de
+    # pedir promos. Las promos son una llamada a ML por publicación (~0,7 s cada
+    # una por el rate limit), así que pedirlas para las que después se filtraban
+    # era casi todo el tiempo de la página: 24-36 llamadas y 17-25 s.
+    if catalogo_buscado:
+        _del_cat = [m for m in mla_ids
+                    if (datos_batch.get(m) or {}).get('catalog_listing')
+                    and (datos_batch.get(m) or {}).get('catalog_product_id') == catalogo_buscado]
+        if _del_cat:
+            mla_ids = _del_cat
+
     permalinks = obtener_permalinks_ml(mla_ids, access_token)
     # Consultar promos vigentes en paralelo (solo devuelve los MLAs con promo activa)
     promos_batch = obtener_promos_ml(mla_ids, access_token)
@@ -11042,9 +11063,6 @@ def buscar_sku_ml():
 
     # Ordenar por tipo de publicación
     publicaciones.sort(key=lambda p: ORDEN_TIPOS.get(p.get('listing_type', ''), 99))
-
-    # Mantener al día el índice de catálogos con lo que ML acaba de responder
-    _indexar_catalogo_mla(publicaciones)
 
     # Búsqueda por catálogo: dejar solo las publis que ML reporta en ESE catálogo,
     # para no mezclar las de listado general del mismo SKU. Si ninguna lo reporta

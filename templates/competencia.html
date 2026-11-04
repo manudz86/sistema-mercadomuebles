@@ -512,9 +512,10 @@ function renderTabla(rows) {
     ${catalogId ? `<span class="font-monospace text-white-50 ms-2" style="font-size:.72rem">${catalogId}</span>` : ''}
   </span>
   ${catalogId ? `<span class="d-flex gap-1">
-    <a href="/buscar-sku-ml?sku_buscar=${catalogId}" target="_blank"
+    <a href="/buscar-sku-ml?sku_buscar=${catalogId}"
       class="btn btn-sm btn-light py-0 px-2" style="font-size:.75rem"
-      title="Ver y editar mis publicaciones de este catálogo">
+      title="Ver y editar mis publicaciones de este catálogo"
+      onclick="this.innerHTML='<i class=&quot;bi bi-hourglass-split me-1&quot;></i>Abriendo...'">
       <i class="bi bi-pencil-square me-1"></i>Mis publis</a>
     <a href="https://www.mercadolibre.com.ar/p/${catalogId}" target="_blank"
       class="btn btn-sm btn-outline-light py-0 px-2" style="font-size:.75rem">
