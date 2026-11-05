@@ -42,8 +42,19 @@ VENDOR_META = {
     'SanMartin': {'nombre': 'Colchonería San Martín', 'alias': 'COLCHONERIA SAN MARTIN', 'seller_id': 69984816, 'tienda': 'SanMartin'},
     'Mercadomuebles': {'nombre': 'Mercadomuebles (vos)', 'alias': 'MERCADOMUEBLES (YO)', 'seller_id': MY_ID,   'tienda': None},
     'Milesi':    {'nombre': 'Milesi Hogar',         'alias': 'MILESI HOGAR',          'seller_id': None,      'tienda': None},
+    'DescansoWeb': {'nombre': 'Descanso Web',       'alias': 'DESCANSO WEB',          'seller_id': 3434911863, 'tienda': 'DescansoWeb'},
 }
-VENDORS_ORDEN = ['TMS', 'Ivana', 'Lanus', 'Ballester', 'Bedpoint', 'Metymas', 'SanMartin', 'Mercadomuebles']
+VENDORS_ORDEN = ['TMS', 'Ivana', 'Lanus', 'Ballester', 'Bedpoint', 'Metymas', 'SanMartin', 'DescansoWeb', 'Mercadomuebles']
+# Alias propios para vendedores que Real Trends trae sin alias ('-'): nickname RT → alias.
+# (En RT, DESCANSOWEB figura con un nickname viejo; verificado por precio×catálogo.)
+NICK_ALIAS = {'TEMA.HILO.PASEO': 'DESCANSO WEB'}
+
+def _alias_rt(r):
+    """Alias de la fila: el de Real Trends si viene cargado; si no, NICK_ALIAS por nickname."""
+    al = (r.get('alias') or '').strip()
+    if al and al != '-':
+        return al
+    return NICK_ALIAS.get((r.get('nickname') or '').strip().upper(), al)
 # En "Ventas Competidores" además se puede ver a vendedores de solo-almohadas (Milesi).
 VENDORS_VC = VENDORS_ORDEN + ['Milesi']
 # Períodos DINÁMICOS: cada subcarpeta YYYY-MM de DATA_DIR con colchones.json/sommiers.json.
@@ -363,7 +374,7 @@ def _construir(periodo, vendedor):
         path = os.path.join(DATA_DIR, periodo, fname)
         if not os.path.exists(path): continue
         for r in json.load(open(path, encoding='utf-8')):
-            if r.get('alias') != alias: continue
+            if _alias_rt(r) != alias: continue
             sku, w = _match_sku(r, tipo, mis)
             q = int(r.get('sold_quantity') or 0)
             p = _price(r.get('price')); g = q * p   # GMV real (el del JSON viene redondeado)
@@ -1143,7 +1154,7 @@ def _ventas_detalle(periodo, vendor):
         path = os.path.join(DATA_DIR, periodo, fname)
         if not os.path.exists(path): continue
         for r in json.load(open(path, encoding='utf-8')):
-            if r.get('alias') != alias: continue
+            if _alias_rt(r) != alias: continue
             q = int(r.get('sold_quantity') or 0)
             if q <= 0: continue
             title_full = r.get('title') or ''
@@ -1214,7 +1225,7 @@ ALIAS_YO = 'MERCADOMUEBLES (YO)'
 def _vend_key(r):
     """(clave, etiqueta, nombrado) del vendedor: alias real si está cargado; si no
     ('-' o vacío), el nickname de ML (cada seller sin nombre = fila propia)."""
-    al = (r.get('alias') or '').strip()
+    al = _alias_rt(r)
     if al and al != '-':
         return al, al, True
     nk = (r.get('nickname') or '').strip() or '(sin dato)'

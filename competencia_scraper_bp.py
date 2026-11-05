@@ -176,7 +176,7 @@ def calcular_cuotas_real(cuotas_si, tipo, pasajes):
 TIENDA_NICK = {
     'TMS': 'TMS', 'Lanus': 'MUEBLESLANUS', 'Ivana': 'COLCHONERIA IVANA',
     'Ballester': 'BALLESTER', 'Bedpoint': 'BEDPOINT', 'Metymas': 'METYMAS',
-    'SanMartin': 'COLCHONERIASANMARTIN',
+    'SanMartin': 'COLCHONERIASANMARTIN', 'DescansoWeb': 'DESCANSOWEB',
 }
 def _cuota_label_num(lbl):
     """'6 cuotas s/interés' → '6'. Contado/Cuota Simple → None (no aplica override)."""
@@ -235,7 +235,7 @@ def _cuota_real_desde_monitor(mon, sku, tienda, precio, cuotas_mostrada):
 # ── Cuota real desde el CATÁLOGO de cada publi (por su URL), cacheado por día ──
 TIENDA_SELLER = {'TMS': 60351381, 'Lanus': 54898332, 'Ivana': 192769857,
                  'Ballester': 658910977, 'Bedpoint': 168211358, 'Metymas': 105539832,
-                 'SanMartin': 69984816}
+                 'SanMartin': 69984816, 'DescansoWeb': 3434911863}
 
 def _catalog_id_de_url(url):
     m = re.search(r'/p/(MLA\d+)', url or '')
