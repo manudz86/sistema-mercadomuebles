@@ -5927,15 +5927,18 @@ def cargar_stock():
 
             # Disparar actualización ML en background con progreso
             import threading
+            import uuid as _uuid
             skus_cargados = {item['sku'] for item in items}
+            run_id = _uuid.uuid4().hex[:12]
             def _update_ml_bg():
                 try:
-                    _sync_ml_por_venta(skus_cargados)
+                    _sync_ml_por_venta(skus_cargados, run_id=run_id)
                 except Exception as e_ml:
                     print(f"[AUTO-ML] Error actualizando ML tras carga stock: {e_ml}")
             threading.Thread(target=_update_ml_bg, daemon=True).start()
 
-            return jsonify({'success': True, 'message': f'Stock cargado: {len(items)} productos. Actualizando publicaciones ML en background...'})
+            return jsonify({'success': True, 'run_id': run_id,
+                            'message': f'Stock cargado: {len(items)} productos. Actualizando publicaciones ML en background...'})
         except Exception as e:
             conn.rollback()
             cursor.close()
@@ -6278,18 +6281,22 @@ def bajar_stock_guardar():
 
         conn.commit()
 
+        run_id = None
         if bajas:
             import threading
+            import uuid as _uuid
             skus_bajados = {sku for _, sku in bajas}
+            run_id = _uuid.uuid4().hex[:12]
             def _update_ml_bg():
                 try:
-                    _sync_ml_por_venta(skus_bajados)
+                    _sync_ml_por_venta(skus_bajados, run_id=run_id)
                 except Exception as e_ml:
                     print(f"[AUTO-ML] Error ML tras baja stock: {e_ml}")
             threading.Thread(target=_update_ml_bg, daemon=True).start()
 
         if es_json:
-            return _jsonify({'success': True, 'message': f'Baja registrada: {len(bajas)} productos. Actualizando ML...'})
+            return _jsonify({'success': True, 'run_id': run_id,
+                             'message': f'Baja registrada: {len(bajas)} productos. Actualizando ML...'})
 
         motivo_msg = f' - {motivo}' if motivo else ''
         flash(f'✅ Stock dado de baja correctamente ({len(bajas)} productos){motivo_msg}', 'success')
@@ -16231,10 +16238,11 @@ def _sync_almohadas_ml(skus_afectados):
             time.sleep(0.4)
 
 
-def _sync_ml_por_venta(skus_afectados):
+def _sync_ml_por_venta(skus_afectados, run_id=None):
     """Wrapper para eventos de VENTA (importar/cancelar/eliminar/editar):
-    sincroniza colchones+sommiers+compac (sync genérico) y además almohadas."""
-    actualizar_publicaciones_ml_con_progreso(skus_afectados)
+    sincroniza colchones+sommiers+compac (sync genérico) y además almohadas.
+    run_id: solo desde Cargar/Bajar stock, para que su modal muestre su corrida."""
+    actualizar_publicaciones_ml_con_progreso(skus_afectados, run_id=run_id)
     try:
         _sync_almohadas_ml(skus_afectados)
     except Exception as e:
@@ -17169,11 +17177,23 @@ def actualizar_stock_compac_dep_ml(sku_dep, cantidad_disponible, access_token):
             print(f"[COMPAC-ML] Error procesando {mla}: {e}")
 
 
+import threading as _threading_prog
+# run_id de la sincronización que corre en ESTE hilo. Solo las lanzadas desde
+# Cargar/Bajar stock tienen uno: las automáticas (ventas, cancelaciones,
+# auto-import, tienda) no escriben el progreso. Antes todas compartían el mismo
+# registro y una venta que entraba durante una carga de stock le pisaba el
+# detalle al modal (pasó el 05/11 con una venta de SEX140).
+_ML_PROGRESS_CTX = _threading_prog.local()
+
+
 def _ml_progress_save(data):
     """Guarda el progreso en la BD para que sea compartido entre workers."""
+    run_id = getattr(_ML_PROGRESS_CTX, 'run_id', None)
+    if not run_id:
+        return
     try:
         import json as _json
-        valor = _json.dumps(data)
+        valor = _json.dumps(dict(data, run_id=run_id))
         execute_db(
             "INSERT INTO configuracion (clave, valor) VALUES ('ml_progress', %s) "
             "ON DUPLICATE KEY UPDATE valor = %s",
@@ -17194,8 +17214,10 @@ def _ml_progress_get():
     return {'running': False, 'total': 0, 'done': 0, 'ok': [], 'errors': [], 'skus': []}
 
 
-def actualizar_publicaciones_ml_con_progreso(skus_base_afectados):
-    """Corre la actualización de ML guardando progreso en BD (compartido entre workers)."""
+def actualizar_publicaciones_ml_con_progreso(skus_base_afectados, run_id=None):
+    """Corre la actualización de ML guardando progreso en BD (compartido entre workers).
+    El progreso solo se guarda si viene run_id (ver _ML_PROGRESS_CTX)."""
+    _ML_PROGRESS_CTX.run_id = run_id
     resultados_ok = []
     resultados_err = []
 

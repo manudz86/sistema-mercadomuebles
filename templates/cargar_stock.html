@@ -554,7 +554,8 @@ async function ejecutarCarga() {
             carrito = [];
             actualizarCarrito();
             await cargarProductos();
-            // Abrir modal de progreso ML inmediatamente
+            // Abrir modal de progreso ML inmediatamente (solo sigue SU corrida)
+            _runId = result.run_id || null;
             iniciarProgresoML();
         } else {
             mostrarToast('❌ Error: ' + (result.error || 'desconocido'), 'bg-danger');
@@ -569,6 +570,7 @@ async function ejecutarCarga() {
 
 let _pollingTimer = null;
 let _pollingStart = null;
+let _runId = null;  // corrida de ESTA carga: el registro de progreso es compartido
 const _POLLING_TIMEOUT_MS = 180000; // 3 minutos máximo
 
 function iniciarProgresoML() {
@@ -594,6 +596,16 @@ async function pollProgresoML() {
     try {
         const r = await fetch('/ventas/ml-progress');
         const d = await r.json();
+
+        // Registro de otra corrida (o de una anterior): seguir esperando la nuestra
+        if (_runId && d.run_id !== _runId) {
+            if (Date.now() - _pollingStart > _POLLING_TIMEOUT_MS) {
+                clearInterval(_pollingTimer);
+                document.getElementById('progStatus').innerHTML = '<span class="text-warning">⚠️ Timeout esperando respuesta</span>';
+                document.getElementById('btnCerrarProgreso').style.display = 'inline-block';
+            }
+            return;
+        }
 
         const total = d.total || 1;
         const done  = d.done  || 0;

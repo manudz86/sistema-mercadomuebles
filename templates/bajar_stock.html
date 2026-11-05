@@ -354,7 +354,8 @@
                         const stock = parseInt(s.closest('tr').querySelector('.stock-actual').textContent);
                         s.textContent = stock; s.style.color = '';
                     });
-                    // Mostrar modal de progreso
+                    // Mostrar modal de progreso (solo sigue SU corrida)
+                    _runId = result.run_id || null;
                     setTimeout(() => iniciarProgresoML(), 300);
                 } else {
                     alert('❌ Error: ' + (result.error || 'desconocido'));
@@ -366,6 +367,7 @@
 
         // ── Modal de progreso ML (igual que cargar stock) ──────────────────
         let _pollingTimer = null;
+        let _runId = null;  // corrida de ESTA baja: el registro de progreso es compartido
 
         function iniciarProgresoML() {
             document.getElementById('progBar').style.width = '0%';
@@ -386,6 +388,8 @@
             try {
                 const r = await fetch('/ventas/ml-progress');
                 const d = await r.json();
+                // Registro de otra corrida (o de una anterior): seguir esperando la nuestra
+                if (_runId && d.run_id !== _runId) return;
                 const total = d.total || 1, done = d.done || 0;
                 const pct = Math.min(100, Math.round(done / total * 100));
                 document.getElementById('progBar').style.width = pct + '%';
