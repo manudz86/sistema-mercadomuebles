@@ -161,10 +161,17 @@
       <input type="text" name="cuit" id="input-cuit" inputmode="numeric" placeholder="30123456789"
         style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
       <p id="cuit-error" style="display:none; font-size:0.78rem; color:#c0392b; margin-top:4px;">CUIT inválido — revisá el número (11 dígitos).</p>
+      <p style="font-size:0.78rem; color:#888; margin-top:4px;">La factura sale a nombre de la razón social y el domicilio fiscal registrados en ARCA para este CUIT: no hace falta cargarlos.</p>
     </div>
 
     <!-- Dirección (solo envío) -->
     <div id="bloque-direccion">
+      {# Título propio: con Factura A los campos de calle quedaban pegados al
+         CUIT y se confundían con el domicilio fiscal. #}
+      <div style="margin:8px 0 14px; padding-top:14px; border-top:1px solid #eee;">
+        <div style="font-size:1rem; font-weight:700; color:#1a1a2e;">📦 Dirección de entrega</div>
+        <p style="font-size:0.78rem; color:#888; margin-top:2px;">Dónde llevamos tu pedido. Puede ser distinta del domicilio fiscal.</p>
+      </div>
       <div style="display:grid; grid-template-columns:2fr 1fr; gap:12px; margin-bottom:16px;">
         <div>
           <label style="display:block; font-size:0.88rem; font-weight:600; color:#444; margin-bottom:5px;">
