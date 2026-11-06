@@ -4461,6 +4461,70 @@ def link_recupero_carrito(ref, cupon=None):
             f"?utm_source=email&utm_medium=recupero_carrito&utm_campaign={(cupon or 'sin_cupon').lower()}")
 
 
+def crear_cupon_recupero(plantilla):
+    """Crea un cupón ÚNICO de un solo uso para un mail de recupero (ej. RECU-4F7K2N),
+    copiando tipo / valor / mínimo / vencimiento del cupón `plantilla` (ej. RECUCYBER).
+    Así el descuento solo lo usa quien recibió el mail; la plantilla puede quedar
+    pausada (se lee igual). ESCRIBE en `cupones`. Devuelve el código o None si la
+    plantilla no existe o ya venció."""
+    import random
+    from datetime import date
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute("SELECT tipo, valor, minimo_compra, fecha_vencimiento FROM cupones WHERE codigo = %s",
+                    ((plantilla or '').strip().upper(),))
+        p = cur.fetchone()
+        if not p or (p['fecha_vencimiento'] and p['fecha_vencimiento'] < date.today()):
+            return None
+        for _ in range(5):
+            codigo = 'RECU-' + ''.join(random.choices('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', k=6))
+            try:
+                cur.execute("""INSERT INTO cupones (codigo, tipo, valor, minimo_compra, usos_maximos,
+                                   usos_actuales, fecha_vencimiento, solo_un_uso, activo)
+                               VALUES (%s, %s, %s, %s, 1, 0, %s, 1, 1)""",
+                            (codigo, p['tipo'], p['valor'], p['minimo_compra'] or 0, p['fecha_vencimiento']))
+                db.commit()
+                return codigo
+            except pymysql.err.IntegrityError:
+                db.rollback()   # código repetido: probar otro
+        return None
+    finally:
+        cur.close()
+        db.close()
+
+
+def preparar_mail_recupero(ref, plantilla, crear_cupon=True):
+    """Todo lo que necesita el mail de recupero de un pedido pendiente.
+
+    Devuelve None si el carrito no aplica (no existe, o no tiene colchón ni
+    sommier disponible: a los de solo almohadas no se les manda). Si aplica y
+    `crear_cupon`, crea el cupón único (escribe en la base) y arma el link con
+    ese código. Con crear_cupon=False usa la plantilla tal cual (solo para
+    vistas previas). Devuelve dict(r, link, codigo, vence).
+    """
+    r = armar_recupero_carrito(ref, None)
+    if not r or not r['elegible']:
+        return None
+    codigo = crear_cupon_recupero(plantilla) if crear_cupon else (plantilla or '').strip().upper()
+    if not codigo:
+        return None
+    r = armar_recupero_carrito(ref, codigo)
+    if not r or not r['cupon']:
+        return None
+    vence = None
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute("SELECT fecha_vencimiento FROM cupones WHERE id = %s", (r['cupon']['id'],))
+        fv = (cur.fetchone() or {}).get('fecha_vencimiento')
+        vence = fv.strftime('%d/%m') if fv else None
+    finally:
+        cur.close()
+        db.close()
+    return {'r': r, 'link': link_recupero_carrito(ref, codigo), 'codigo': codigo, 'vence': vence}
+
+
 def _precio_tienda_sku(cur, sku):
     """Precio de hoy de un SKU, con la misma regla que la ficha (`detalle`).
     Devuelve dict(precio, lista, tipo, linea, modelo) o None si no se puede
