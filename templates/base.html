@@ -409,6 +409,11 @@
                 </li>
                 <div class="section-title">EMAIL MARKETING</div>
                 <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'recupero_carritos' %}active{% endif %}" href="/tienda-admin/recupero-carritos">
+                        <i class="bi bi-cart-x"></i> Recupero de carritos
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'email_hot_test' %}active{% endif %}" href="/tienda-admin/email-hot-test">
                         <i class="bi bi-envelope"></i> Test Email HOT
                     </a>
@@ -662,6 +667,11 @@
                             </a>
                         </li>
                         <div class="section-title">EMAIL MARKETING</div>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'recupero_carritos' %}active{% endif %}" href="/tienda-admin/recupero-carritos">
+                                <i class="bi bi-cart-x"></i> Recupero de carritos
+                            </a>
+                        </li>
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'email_hot_test' %}active{% endif %}" href="/tienda-admin/email-hot-test">
                                 <i class="bi bi-envelope"></i> Test Email HOT

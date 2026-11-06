@@ -4506,10 +4506,19 @@ def preparar_mail_recupero(ref, plantilla, crear_cupon=True):
     r = armar_recupero_carrito(ref, None)
     if not r or not r['elegible']:
         return None
-    codigo = crear_cupon_recupero(plantilla) if crear_cupon else (plantilla or '').strip().upper()
-    if not codigo:
-        return None
-    r = armar_recupero_carrito(ref, codigo)
+    plantilla = (plantilla or '').strip().upper()
+    if crear_cupon:
+        codigo = crear_cupon_recupero(plantilla)
+        if not codigo:
+            return None
+        r = armar_recupero_carrito(ref, codigo)
+    else:
+        # Vista previa: la plantilla tal cual, aunque esté pausada.
+        codigo = plantilla
+        pl = _cupon_plantilla(plantilla)
+        if not pl:
+            return None
+        r = armar_recupero_carrito(ref, None, cupon_dict=pl)
     if not r or not r['cupon']:
         return None
     vence = None
@@ -4523,6 +4532,274 @@ def preparar_mail_recupero(ref, plantilla, crear_cupon=True):
         cur.close()
         db.close()
     return {'r': r, 'link': link_recupero_carrito(ref, codigo), 'codigo': codigo, 'vence': vence}
+
+
+def _cupon_plantilla(codigo):
+    """Cupón plantilla como dict de sesión (sin validar activo/uso). None si no existe."""
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute("SELECT * FROM cupones WHERE codigo = %s", ((codigo or '').strip().upper(),))
+        c = cur.fetchone()
+    finally:
+        cur.close()
+        db.close()
+    if not c:
+        return None
+    label = f"-{int(c['valor'])}%" if c['tipo'] == 'pct' else f"-{format_price(c['valor'])}"
+    return {'id': c['id'], 'codigo': c['codigo'], 'tipo': c['tipo'], 'valor': float(c['valor']), 'label': label}
+
+
+# ── Baja de mails de marketing ────────────────────────────────────────────────
+def link_baja_mail(email):
+    from itsdangerous import URLSafeSerializer
+    tok = URLSafeSerializer(current_app.secret_key, salt='baja-mail').dumps((email or '').strip().lower())
+    return f"{TIENDA_URL_PUBLICA}/tienda/mails/baja/{tok}"
+
+
+def emails_dados_de_baja():
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute("SELECT email FROM email_bajas")
+        return {r['email'] for r in cur.fetchall()}
+    except Exception:
+        return set()
+    finally:
+        cur.close()
+        db.close()
+
+
+@tienda_bp.route('/mails/baja/<token>')
+def baja_mail(token):
+    from itsdangerous import URLSafeSerializer, BadSignature
+    try:
+        email = URLSafeSerializer(current_app.secret_key, salt='baja-mail').loads(token)
+    except BadSignature:
+        return redirect(url_for('tienda.home'))
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute("INSERT IGNORE INTO email_bajas (email, origen) VALUES (%s, 'recupero_carrito')", (email,))
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Baja mail {email}: {e}")
+    finally:
+        cur.close()
+        db.close()
+    return ('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<title>Listo</title><div style="font-family:Arial,sans-serif;max-width:480px;margin:60px auto;'
+            'text-align:center;color:#1a2744;padding:0 16px"><h2>Listo</h2><p>No te vamos a mandar más mails '
+            'promocionales. Si cambiás de idea, escribinos.</p><p><a href="/tienda/" style="color:#ff5a1f">'
+            'Volver a la tienda</a></p></div>')
+
+
+# ── Envío y seguimiento del recupero ──────────────────────────────────────────
+def _primer_nombre(n):
+    n = (n or '').strip().split()
+    if not n or '@' in n[0] or any(ch.isdigit() for ch in n[0]):
+        return 'Hola'
+    return n[0].capitalize()
+
+
+def _smtp_enviar(dest, asunto, html):
+    import ssl
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    host = os.getenv('MAIL_SMTP_HOST', 'smtp.gmail.com')
+    port = int(os.getenv('MAIL_SMTP_PORT', '587'))
+    user = os.getenv('MAIL_SMTP_USER', '')
+    pwd = os.getenv('MAIL_SMTP_PASS', '')
+    frm = os.getenv('MAIL_FROM', user)
+    if not user or not pwd:
+        raise RuntimeError('Falta configurar el SMTP (MAIL_SMTP_USER / MAIL_SMTP_PASS)')
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = asunto
+    msg['From'] = f'Mercadomuebles <{frm}>'
+    msg['To'] = dest
+    msg['Reply-To'] = frm
+    msg.attach(MIMEText(html, 'html', 'utf-8'))
+    if port == 465:
+        with smtplib.SMTP_SSL(host, port, context=ssl.create_default_context()) as s:
+            s.login(user, pwd)
+            s.send_message(msg)
+    else:
+        with smtplib.SMTP(host, port) as s:
+            s.starttls()
+            s.login(user, pwd)
+            s.send_message(msg)
+
+
+def render_mail_recupero(prep, nombre, email):
+    return render_template('tienda/email_recupero_carrito.html', r=prep['r'], nombre=nombre,
+                           link=prep['link'], fp=format_price, vence=prep['vence'],
+                           link_baja=link_baja_mail(email) if email else None)
+
+
+def enviar_mail_recupero(ref, plantilla):
+    """Crea el cupón único, manda el mail y lo registra en recupero_envios.
+    Escribe en la base (cupones + recupero_envios). Devuelve dict(ok, msg, codigo)."""
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute("SELECT cliente_json FROM pedidos_pendientes WHERE ref = %s", (ref,))
+        row = cur.fetchone()
+        if not row:
+            return {'ok': False, 'msg': 'El pedido ya no existe (¿compró?)'}
+        cli = json.loads(row['cliente_json'] or '{}') or {}
+        email = (cli.get('email') or '').strip().lower()
+        if not email:
+            return {'ok': False, 'msg': 'Sin email'}
+        cur.execute("SELECT id FROM recupero_envios WHERE ref = %s OR (email = %s AND fecha_envio > NOW() - INTERVAL 3 DAY) LIMIT 1",
+                    (ref, email))
+        if cur.fetchone():
+            return {'ok': False, 'msg': 'Ya se le mandó un mail de recupero (últimos 3 días)'}
+    finally:
+        cur.close()
+        db.close()
+    if email in emails_dados_de_baja():
+        return {'ok': False, 'msg': 'El cliente se dio de baja de los mails'}
+
+    prep = preparar_mail_recupero(ref, plantilla, crear_cupon=True)
+    if not prep:
+        return {'ok': False, 'msg': 'No aplica (sin colchón/sommier disponible o plantilla vencida)'}
+    nombre = _primer_nombre(cli.get('nombre'))
+    pct = prep['r']['cupon']['label'].replace('-', '')
+    asunto = f"{nombre}, te guardamos el carrito: {pct} OFF" + (f" hasta el {prep['vence']}" if prep['vence'] else '')
+    try:
+        _smtp_enviar(email, asunto, render_mail_recupero(prep, nombre, email))
+    except Exception as e:
+        # No dejar un cupón suelto si el mail no salió.
+        db = get_db(); cur = db.cursor()
+        try:
+            cur.execute("UPDATE cupones SET activo = 0 WHERE codigo = %s", (prep['codigo'],))
+            db.commit()
+        finally:
+            cur.close(); db.close()
+        return {'ok': False, 'msg': f'Error enviando: {e}'}
+    r = prep['r']
+    db = get_db(); cur = db.cursor()
+    try:
+        cur.execute("""INSERT INTO recupero_envios (email, ref, cupon_id, cupon_codigo, plantilla, total_mail, items_json)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                    (email, ref, r['cupon']['id'], prep['codigo'], (plantilla or '').upper(), r['total'],
+                     json.dumps([{'sku': i['sku'], 'nombre': i['nombre'], 'cantidad': i['cantidad'],
+                                  'estado': i['estado']} for i in r['items']], ensure_ascii=False)))
+        db.commit()
+    finally:
+        cur.close(); db.close()
+    print(f"[RECUPERO] mail enviado a {email} ref={ref} cupon={prep['codigo']} total={r['total']}", flush=True)
+    return {'ok': True, 'msg': f"Enviado con {prep['codigo']}", 'codigo': prep['codigo']}
+
+
+def listar_carritos_abandonados(desde_ar, hasta_ar, plantilla_pct=0):
+    """Clientes (por email) con pedido pendiente en el período (datetime AR, naive).
+    Por cliente: su pedido más reciente, productos y precios de HOY, y estado:
+    'compro' | 'baja' | 'enviado' | 'no_elegible' | 'pendiente'. Solo lectura."""
+    from datetime import timedelta
+    from collections import OrderedDict
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute("SELECT ref, cliente_json, carrito_json, fecha_creacion FROM pedidos_pendientes "
+                    "WHERE fecha_creacion BETWEEN %s AND %s ORDER BY fecha_creacion DESC",
+                    (desde_ar + timedelta(hours=3), hasta_ar + timedelta(hours=3)))
+        pend = cur.fetchall()
+        cur.execute("SELECT numero_venta, canal, importe_total, fecha_venta, LOWER(TRIM(email_cliente)) e, "
+                    "TRIM(dni_cliente) d FROM ventas WHERE fecha_venta >= %s", (desde_ar,))
+        ventas = cur.fetchall()
+        try:
+            cur.execute("SELECT * FROM recupero_envios ORDER BY fecha_envio DESC")
+            envios = cur.fetchall()
+        except Exception:
+            envios = []
+    finally:
+        cur.close()
+        db.close()
+    bajas = emails_dados_de_baja()
+    env_por_email = {}
+    for e in envios:
+        env_por_email.setdefault(e['email'], dict(e, fecha_ar=e['fecha_envio'] - timedelta(hours=3)))
+
+    clientes = OrderedDict()
+    for p in pend:
+        try:
+            cli = json.loads(p['cliente_json'] or '{}') or {}
+        except Exception:
+            continue
+        email = (cli.get('email') or '').strip().lower()
+        if not email:
+            continue
+        c = clientes.setdefault(email, {'email': email, 'refs': [], 'cli': cli,
+                                        'fecha': p['fecha_creacion'] - timedelta(hours=3), 'intentos': 0})
+        c['refs'].append(p['ref'])
+        c['intentos'] += 1
+        c['dni'] = c.get('dni') or str(cli.get('dni') or '').strip()
+
+    filas = []
+    for email, c in clientes.items():
+        cli = c['cli']
+        r = None
+        for ref in c['refs']:
+            r = armar_recupero_carrito(ref, None)
+            if r and r['elegible']:
+                break
+        ref = r['ref'] if r else c['refs'][0]
+        compra = next((v for v in ventas if (v['e'] == email or (c['dni'] and v['d'] == c['dni']))
+                       and v['fecha_venta'] >= c['fecha']), None)
+        env = env_por_email.get(email)
+        if env:
+            estado = 'enviado'
+        elif compra:
+            estado = 'compro'
+        elif email in bajas:
+            estado = 'baja'
+        elif not r or not r['elegible']:
+            estado = 'no_elegible'
+        else:
+            estado = 'pendiente'
+        total_cupon = None
+        if r and plantilla_pct:
+            total_cupon = round(r['subtotal'] - subtotal_elegible_cupon(r['carrito']) * plantilla_pct / 100)
+        filas.append({'email': email, 'ref': ref, 'nombre': cli.get('nombre') or '', 'telefono': cli.get('telefono') or '',
+                      'fecha': c['fecha'], 'intentos': c['intentos'], 'r': r, 'estado': estado,
+                      'compra': compra, 'envio': env, 'total_cupon': total_cupon})
+    return filas
+
+
+def resumen_envios_recupero():
+    """Todos los envíos con su resultado: clicks y conversión (venta con el cupón, o
+    cualquier venta del mismo email/DNI después del envío). Solo lectura."""
+    from datetime import timedelta
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute("SELECT * FROM recupero_envios ORDER BY fecha_envio DESC")
+        envios = cur.fetchall()
+        if not envios:
+            return []
+        desde = min(e['fecha_envio'] for e in envios) - timedelta(hours=3)
+        cur.execute("SELECT numero_venta, canal, importe_total, fecha_venta, LOWER(TRIM(email_cliente)) e "
+                    "FROM ventas WHERE fecha_venta >= %s", (desde,))
+        ventas = cur.fetchall()
+        cur.execute("SELECT cu.cupon_id, cu.venta_numero FROM cupones_uso cu JOIN recupero_envios re ON re.cupon_id = cu.cupon_id")
+        usos = {u['cupon_id']: u['venta_numero'] for u in cur.fetchall()}
+    except Exception:
+        return []
+    finally:
+        cur.close()
+        db.close()
+    out = []
+    for e in envios:
+        f_ar = e['fecha_envio'] - timedelta(hours=3)
+        venta_cupon = usos.get(e['cupon_id'])
+        v = None
+        if venta_cupon:
+            v = next((x for x in ventas if x['numero_venta'] == venta_cupon), {'numero_venta': venta_cupon})
+        else:
+            v = next((x for x in ventas if x['e'] == e['email'] and x['fecha_venta'] >= f_ar), None)
+        out.append(dict(e, fecha_ar=f_ar, venta=v, con_cupon=bool(venta_cupon)))
+    return out
 
 
 def _precio_tienda_sku(cur, sku):
@@ -4598,7 +4875,7 @@ def _cupon_para_carrito(cur, codigo, carrito, email):
             'valor': float(cup['valor']), 'label': label}
 
 
-def armar_recupero_carrito(ref, cupon_codigo=None):
+def armar_recupero_carrito(ref, cupon_codigo=None, cupon_dict=None):
     """Arma el carrito de un pedido pendiente con precios y stock de HOY.
 
     Devuelve None si el ref no existe. Si no, un dict con:
@@ -4654,7 +4931,11 @@ def armar_recupero_carrito(ref, cupon_codigo=None):
         # Solo carritos con algún colchón o sommier: las almohadas no llevan este cupón.
         elegible = any(i['tipo'] in ('colchon', 'conjunto') and cupon_aplica_sku(i['sku'])
                        and i['estado'] != 'sin_stock' for i in items)
-        cupon = _cupon_para_carrito(cur, cupon_codigo, carrito, cliente.get('email')) if (elegible and carrito) else None
+        if cupon_dict is not None:
+            # Vista previa: el cupón se muestra tal cual, sin validarlo (la plantilla puede estar pausada).
+            cupon = cupon_dict if (elegible and carrito) else None
+        else:
+            cupon = _cupon_para_carrito(cur, cupon_codigo, carrito, cliente.get('email')) if (elegible and carrito) else None
         subtotal = subtotal_carrito(carrito)
         descuento = round(descuento_cupon(carrito, cupon))
         for i in items:
@@ -4708,6 +4989,14 @@ def recuperar_carrito(token):
     else:
         session.pop('cupon', None)
     session.modified = True
+    if data.get('c'):
+        try:   # seguimiento: click en el mail (si la tabla todavía no existe, no pasa nada)
+            db = get_db(); cur = db.cursor()
+            cur.execute("UPDATE recupero_envios SET clicks = clicks + 1, click_at = COALESCE(click_at, NOW()) "
+                        "WHERE cupon_codigo = %s", (data.get('c'),))
+            db.commit(); cur.close(); db.close()
+        except Exception:
+            pass
     print(f"[RECUPERO] carrito {rec['ref']} rearmado: {len(rec['carrito'])} items, "
           f"cupon={rec['cupon']['codigo'] if rec['cupon'] else '-'}", flush=True)
     return redirect(url_for('tienda.ver_carrito'))

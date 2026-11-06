@@ -151,6 +151,7 @@
     Distribuidores oficiales Cannon · Mercadomuebles · Bahía Blanca 1777, Floresta, CABA<br>
     {% if r.cupon %}Cupón {{ r.cupon.codigo }} válido{% if vence %} hasta el {{ vence }}{% endif %}, solo en colchones y sommiers. No acumulable con otros cupones.<br>{% endif %}
     Precios y stock al momento de este mail; pueden cambiar.
+    {% if link_baja %}<br><a href="{{ link_baja }}" style="color:#aaa;">No quiero recibir más mails como este</a>{% endif %}
   </td></tr>
 
 </table>

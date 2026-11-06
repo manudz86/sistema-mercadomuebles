@@ -15925,6 +15925,75 @@ def tienda_suscriptores_exportar():
         headers={'Content-Disposition': 'attachment; filename=suscriptores.csv'})
 
 
+@app.route('/tienda-admin/recupero-carritos')
+@admin_required
+def recupero_carritos():
+    """Email Marketing → Recupero de carritos: carritos abandonados del período,
+    con productos/precios/stock de hoy, envío manual del mail con cupón único y
+    seguimiento de clicks y conversiones."""
+    import tienda_bp as T
+    from datetime import timedelta
+    hoy = datetime.now() - timedelta(hours=3)   # el servidor corre en UTC
+    try:
+        desde = datetime.strptime(request.args.get('desde') or '', '%Y-%m-%d')
+    except ValueError:
+        desde = (hoy - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+    try:
+        hasta = datetime.strptime(request.args.get('hasta') or '', '%Y-%m-%d')
+    except ValueError:
+        hasta = hoy
+    hasta = hasta.replace(hour=23, minute=59, second=59, microsecond=0)
+    plantillas = query_db("""SELECT codigo, tipo, valor, fecha_vencimiento, activo FROM cupones
+                             WHERE codigo NOT LIKE 'RECU-%%' AND codigo NOT LIKE 'BIENVENIDO%%'
+                               AND (fecha_vencimiento IS NULL OR fecha_vencimiento >= CURDATE())
+                             ORDER BY codigo""")
+    plantilla = (request.args.get('plantilla') or 'RECUCYBER').strip().upper()
+    pl = next((p for p in plantillas if p['codigo'] == plantilla), None)
+    pct = float(pl['valor']) if pl and pl['tipo'] == 'pct' else 0
+    tabla_ok = bool(query_db("SHOW TABLES LIKE 'recupero_envios'"))
+    filas = T.listar_carritos_abandonados(desde, hasta, pct)
+    envios = T.resumen_envios_recupero() if tabla_ok else []
+    stats = {
+        'enviados': len(envios),
+        'clicks': sum(1 for e in envios if e.get('clicks')),
+        'convertidos': sum(1 for e in envios if e.get('venta')),
+        'monto': sum(float((e.get('venta') or {}).get('importe_total') or 0) for e in envios),
+    }
+    return render_template('recupero_carritos.html', filas=filas, envios=envios, stats=stats,
+                           desde=desde, hasta=hasta, plantillas=plantillas, plantilla=plantilla,
+                           pct=pct, tabla_ok=tabla_ok, fp=T.format_price)
+
+
+@app.route('/tienda-admin/recupero-carritos/preview/<ref>')
+@admin_required
+def recupero_carritos_preview(ref):
+    """Vista previa del mail (no crea cupón ni envía)."""
+    import tienda_bp as T
+    prep = T.preparar_mail_recupero(ref, request.args.get('plantilla') or 'RECUCYBER', crear_cupon=False)
+    if not prep:
+        return '<p style="font-family:Arial;padding:20px">Este carrito no aplica (sin colchón/sommier disponible o plantilla inexistente).</p>'
+    nombre = T._primer_nombre((prep['r']['cliente'] or {}).get('nombre'))
+    return T.render_mail_recupero(prep, nombre, None)
+
+
+@app.route('/tienda-admin/recupero-carritos/enviar', methods=['POST'])
+@admin_required
+def recupero_carritos_enviar():
+    """Envía UN mail (el panel llama una vez por cliente seleccionado, en serie)."""
+    import tienda_bp as T
+    data = request.get_json() or {}
+    ref = (data.get('ref') or '').strip()
+    plantilla = (data.get('plantilla') or '').strip().upper()
+    if not ref or not plantilla:
+        return jsonify({'ok': False, 'msg': 'Faltan datos'})
+    if not query_db("SHOW TABLES LIKE 'recupero_envios'"):
+        return jsonify({'ok': False, 'msg': 'Falta crear la tabla recupero_envios (migración 017)'})
+    try:
+        return jsonify(T.enviar_mail_recupero(ref, plantilla))
+    except Exception as e:
+        return jsonify({'ok': False, 'msg': f'Error: {e}'})
+
+
 @app.route('/tienda-admin/email-hot-test', methods=['GET', 'POST'])
 @admin_required
 def email_hot_test():

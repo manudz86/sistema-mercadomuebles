@@ -1,0 +1,172 @@
+{% extends 'base.html' %}
+{% block title %}Recupero de carritos{% endblock %}
+{% block content %}
+<style>
+  .rc-stat { background:#fff; border-radius:10px; padding:12px 16px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+  .rc-stat .n { font-size:1.5rem; font-weight:700; color:#1a2744; }
+  .rc-stat .l { font-size:.8rem; color:#777; }
+  .rc-prod { font-size:.82rem; line-height:1.35; }
+  .rc-prod .badge { font-size:.68rem; }
+  tr.rc-off td { color:#999; }
+  .rc-tabla td { vertical-align:top; }
+</style>
+<div class="container-fluid py-3">
+  <h3 class="mb-1"><i class="bi bi-cart-x"></i> Recupero de carritos</h3>
+  <p class="text-muted small mb-3">
+    Clientes que llegaron a cargar sus datos para pagar y no compraron. Productos, precios y stock son los de <b>hoy</b>.
+    Cada mail lleva un cupón único de 1 uso (copia del cupón plantilla) y un botón que le rearma el carrito.
+    A los carritos de solo almohadas no se les manda.
+  </p>
+
+  {% if not tabla_ok %}
+  <div class="alert alert-warning py-2">⚠️ Falta crear las tablas de seguimiento (migración 017). Se puede mirar el listado y la vista previa, pero todavía no enviar.</div>
+  {% endif %}
+
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-md"><div class="rc-stat"><div class="n">{{ stats.enviados }}</div><div class="l">Mails enviados</div></div></div>
+    <div class="col-6 col-md"><div class="rc-stat"><div class="n">{{ stats.clicks }}</div><div class="l">Abrieron el link</div></div></div>
+    <div class="col-6 col-md"><div class="rc-stat"><div class="n">{{ stats.convertidos }}</div><div class="l">Compraron después</div></div></div>
+    <div class="col-6 col-md"><div class="rc-stat"><div class="n">{{ '%.0f'|format(100 * stats.convertidos / stats.enviados) if stats.enviados else 0 }}%</div><div class="l">Conversión</div></div></div>
+    <div class="col-12 col-md"><div class="rc-stat"><div class="n">{{ fp(stats.monto) }}</div><div class="l">Facturación recuperada</div></div></div>
+  </div>
+
+  <form class="row g-2 align-items-end mb-3" method="get">
+    <div class="col-auto"><label class="form-label small mb-0">Desde</label>
+      <input type="date" name="desde" class="form-control form-control-sm" value="{{ desde.strftime('%Y-%m-%d') }}"></div>
+    <div class="col-auto"><label class="form-label small mb-0">Hasta</label>
+      <input type="date" name="hasta" class="form-control form-control-sm" value="{{ hasta.strftime('%Y-%m-%d') }}"></div>
+    <div class="col-auto"><label class="form-label small mb-0">Cupón plantilla (descuento a ofrecer)</label>
+      <select name="plantilla" class="form-select form-select-sm">
+        {% for p in plantillas %}
+        <option value="{{ p.codigo }}" {{ 'selected' if p.codigo == plantilla }}>
+          {{ p.codigo }} · {{ ('%d%%'|format(p.valor|int)) if p.tipo == 'pct' else fp(p.valor) }}{% if p.fecha_vencimiento %} · vence {{ p.fecha_vencimiento.strftime('%d/%m') }}{% endif %}{% if not p.activo %} · pausado{% endif %}
+        </option>
+        {% endfor %}
+      </select></div>
+    <div class="col-auto"><button class="btn btn-sm btn-primary">Ver</button></div>
+  </form>
+
+  <ul class="nav nav-tabs mb-0" role="tablist">
+    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-carritos" type="button">
+      Carritos abandonados ({{ filas|length }})</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-envios" type="button">
+      Envíos y conversiones ({{ envios|length }})</button></li>
+  </ul>
+  <div class="tab-content bg-white border border-top-0 rounded-bottom p-2">
+    <div class="tab-pane fade show active" id="tab-carritos">
+      {% set pend = filas | selectattr('estado', 'equalto', 'pendiente') | list %}
+      <div class="d-flex flex-wrap gap-2 align-items-center p-2">
+        <label class="small"><input type="checkbox" id="rc-todos" onchange="rcTodos(this)"> Seleccionar todos los pendientes ({{ pend|length }})</label>
+        <button class="btn btn-sm btn-success ms-auto" id="rc-enviar" onclick="rcEnviar()" disabled>
+          <i class="bi bi-send"></i> Enviar mail a seleccionados (<span id="rc-n">0</span>)</button>
+      </div>
+      <div class="table-responsive">
+      <table class="table table-sm table-hover rc-tabla mb-0">
+        <thead class="table-dark"><tr>
+          <th></th><th>Fecha (AR)</th><th>Cliente</th><th>Productos (hoy)</th>
+          <th class="text-end">Precio web</th><th class="text-end">Con {{ plantilla }}</th><th>Estado</th><th></th>
+        </tr></thead>
+        <tbody>
+        {% for f in filas %}
+          {% set r = f.r %}
+          <tr id="rc-{{ f.ref }}" class="{{ '' if f.estado == 'pendiente' else 'rc-off' }}">
+            <td>{% if f.estado == 'pendiente' %}<input type="checkbox" class="rc-sel" value="{{ f.ref }}" onchange="rcContar()">{% endif %}</td>
+            <td class="small text-nowrap">{{ f.fecha.strftime('%d/%m %H:%M') }}{% if f.intentos > 1 %}<br><span class="text-muted">{{ f.intentos }} intentos</span>{% endif %}</td>
+            <td class="small"><b>{{ f.nombre }}</b><br>{{ f.email }}{% if f.telefono %}<br>
+              <a href="https://wa.me/{{ f.telefono|replace(' ','')|replace('-','')|replace('+','') }}" target="_blank" class="text-success"><i class="bi bi-whatsapp"></i> {{ f.telefono }}</a>{% endif %}</td>
+            <td class="rc-prod">
+              {% if r %}{% for i in r['items'] %}
+                {{ i.nombre }}{% if i.cantidad > 1 %} ×{{ i.cantidad }}{% endif %}
+                {% if i.estado == 'demora' %}<span class="badge bg-warning text-dark">demora</span>
+                {% elif i.estado == 'sin_stock' %}<span class="badge bg-danger">sin stock</span>{% endif %}<br>
+              {% endfor %}{% endif %}
+            </td>
+            <td class="text-end small text-nowrap">{{ fp(r.subtotal) if r else '—' }}</td>
+            <td class="text-end small text-nowrap">{% if f.estado in ('pendiente', 'enviado') and f.total_cupon is not none %}<b>{{ fp(f.total_cupon) }}</b>{% else %}—{% endif %}</td>
+            <td class="small rc-estado">
+              {% if f.estado == 'pendiente' %}<span class="badge bg-primary">Pendiente</span>
+              {% elif f.estado == 'enviado' %}<span class="badge bg-info text-dark">Mail enviado</span><br>
+                <span class="text-muted">{{ f.envio.fecha_ar.strftime('%d/%m') }} · {{ f.envio.cupon_codigo }}{% if f.envio.clicks %} · abrió ✓{% endif %}</span>
+              {% elif f.estado == 'compro' %}<span class="badge bg-success">Compró</span><br><span class="text-muted">{{ f.compra.numero_venta }}</span>
+              {% elif f.estado == 'baja' %}<span class="badge bg-secondary">Se dio de baja</span>
+              {% else %}<span class="badge bg-light text-dark border">Solo almohadas / sin stock</span>{% endif %}
+            </td>
+            <td>{% if r and r.elegible %}<a class="btn btn-sm btn-outline-secondary" target="_blank"
+                  href="{{ url_for('recupero_carritos_preview', ref=f.ref, plantilla=plantilla) }}" title="Ver el mail">
+                  <i class="bi bi-eye"></i></a>{% endif %}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="8" class="text-center text-muted py-3">No hay carritos abandonados en el período.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-envios">
+      <div class="table-responsive">
+      <table class="table table-sm mb-0">
+        <thead class="table-dark"><tr><th>Enviado (AR)</th><th>Cliente</th><th>Cupón</th><th class="text-end">Total del mail</th><th>Abrió el link</th><th>Resultado</th></tr></thead>
+        <tbody>
+        {% for e in envios %}
+          <tr>
+            <td class="small text-nowrap">{{ e.fecha_ar.strftime('%d/%m %H:%M') }}</td>
+            <td class="small">{{ e.email }}</td>
+            <td class="small font-monospace">{{ e.cupon_codigo }}</td>
+            <td class="text-end small">{{ fp(e.total_mail) if e.total_mail else '—' }}</td>
+            <td class="small">{% if e.clicks %}✓ {{ (e.click_at - e.fecha_envio + e.fecha_ar).strftime('%d/%m %H:%M') if e.click_at }}{% if e.clicks > 1 %} ({{ e.clicks }}){% endif %}{% else %}<span class="text-muted">no</span>{% endif %}</td>
+            <td class="small">{% if e.venta %}<span class="badge bg-success">Compró</span>
+                {{ e.venta.numero_venta }}{% if e.venta.importe_total %} · {{ fp(e.venta.importe_total) }}{% endif %}
+                <span class="text-muted">{{ '(con el cupón)' if e.con_cupon else '(sin el cupón)' }}</span>
+              {% else %}<span class="text-muted">Sin compra</span>{% endif %}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="6" class="text-center text-muted py-3">Todavía no se envió ningún mail de recupero.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function rcSel() { return Array.from(document.querySelectorAll('.rc-sel:checked')).map(c => c.value); }
+function rcContar() {
+  const n = rcSel().length;
+  document.getElementById('rc-n').textContent = n;
+  document.getElementById('rc-enviar').disabled = n === 0 || {{ 'false' if tabla_ok else 'true' }};
+}
+function rcTodos(el) { document.querySelectorAll('.rc-sel').forEach(c => c.checked = el.checked); rcContar(); }
+async function rcEnviar() {
+  const refs = rcSel();
+  const plantilla = {{ plantilla|tojson }};
+  if (!refs.length) return;
+  if (!confirm(`Se van a enviar ${refs.length} mails a clientes reales, cada uno con un cupón único copiado de ${plantilla}. ¿Confirmás?`)) return;
+  const btn = document.getElementById('rc-enviar');
+  btn.disabled = true;
+  let ok = 0, err = 0;
+  for (const ref of refs) {
+    const fila = document.getElementById('rc-' + ref);
+    const celda = fila.querySelector('.rc-estado');
+    celda.innerHTML = '<span class="text-muted">enviando…</span>';
+    try {
+      const res = await fetch('{{ url_for("recupero_carritos_enviar") }}', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ref, plantilla})
+      });
+      const d = await res.json();
+      celda.innerHTML = d.ok ? `<span class="badge bg-info text-dark">Mail enviado</span><br><span class="text-muted">${d.codigo}</span>`
+                             : `<span class="badge bg-danger">No enviado</span><br><span class="text-muted">${d.msg}</span>`;
+      d.ok ? ok++ : err++;
+      const cb = fila.querySelector('.rc-sel'); if (cb) { cb.checked = false; cb.remove(); }
+      fila.classList.add('rc-off');
+    } catch (e) {
+      celda.innerHTML = '<span class="badge bg-danger">Error de red</span>'; err++;
+    }
+    btn.innerHTML = `<i class="bi bi-send"></i> Enviando… ${ok + err}/${refs.length}`;
+  }
+  btn.innerHTML = `<i class="bi bi-check2"></i> Listo: ${ok} enviados${err ? ', ' + err + ' con error' : ''}`;
+}
+</script>
+{% endblock %}
