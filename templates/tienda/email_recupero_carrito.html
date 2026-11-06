@@ -1,0 +1,160 @@
+{#- Mail de recupero de carrito. Lo arma armar_recupero_carrito() (tienda_bp).
+    Variables: r (dict del recupero), nombre, link, fp (format_price), vence (texto). -#}
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tu carrito te espera</title>
+</head>
+<body style="margin:0;padding:0;background:#eef0f4;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">
+  Te guardamos el carrito{% if r.cupon %} y te subimos el descuento: {{ r.cupon.label|replace('-', '') }} OFF con {{ r.cupon.codigo }}{% endif %}.
+</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef0f4;">
+<tr><td align="center" style="padding:24px 12px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0"
+       style="width:100%;max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;font-family:Arial,Helvetica,sans-serif;color:#1a1a2e;">
+
+  <tr><td align="center" style="background:#1a2744;padding:22px 24px;">
+    <img src="https://www.mercadomuebles.com.ar/static/img/logo_mercadomuebles_white.png"
+         alt="Mercadomuebles" height="44" style="display:block;height:44px;border:0;">
+  </td></tr>
+
+  {% if r.evento_pct %}
+  <tr><td align="center" style="background:#ff5a1f;padding:10px 16px;color:#ffffff;font-size:13px;font-weight:bold;letter-spacing:1px;">
+    ⚡ CYBER SALE · ÚLTIMOS DÍAS{% if vence %} · HASTA EL {{ vence }}{% endif %}
+  </td></tr>
+  {% endif %}
+
+  <tr><td style="padding:30px 32px 6px;">
+    <h1 style="margin:0 0 12px;font-size:24px;line-height:1.25;color:#1a2744;">
+      {{ nombre }}, ¿te ayudamos a terminar tu compra?
+    </h1>
+    <p style="margin:0;font-size:15px;line-height:1.55;color:#444;">
+      Vimos que dejaste productos en el carrito. Te los guardamos{% if r.cupon %} y, para que
+      no te quedes afuera del Cyber, <b>te subimos el descuento</b>{% endif %}.
+    </p>
+  </td></tr>
+
+  {% if r.cupon %}
+  <tr><td style="padding:20px 32px 4px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+           style="border:2px dashed #ff5a1f;border-radius:10px;background:#fff6f1;">
+      <tr><td align="center" style="padding:18px 16px;">
+        <div style="font-size:13px;color:#a8431a;font-weight:bold;letter-spacing:1px;">TU CUPÓN EXCLUSIVO</div>
+        <div style="font-size:30px;font-weight:bold;color:#1a2744;letter-spacing:3px;margin:6px 0;">{{ r.cupon.codigo }}</div>
+        <div style="font-size:16px;color:#1a1a2e;">
+          <b style="color:#ff5a1f;font-size:20px;">{{ r.cupon.label|replace('-', '') }} OFF</b>
+          {% if r.total_evento %}&nbsp;<span style="color:#888;text-decoration:line-through;">{{ r.evento_pct }}% del Cyber</span>{% endif %}
+        </div>
+        <div style="font-size:12px;color:#777;margin-top:6px;">Ya va aplicado cuando entrás con el botón{% if vence %} · Válido hasta el {{ vence }}{% endif %}</div>
+      </td></tr>
+    </table>
+  </td></tr>
+  {% endif %}
+
+  <tr><td style="padding:22px 32px 0;">
+    <div style="font-size:13px;font-weight:bold;color:#888;letter-spacing:1px;margin-bottom:8px;">TU CARRITO</div>
+    {% for i in r['items'] %}
+    {% set demora = i.estado == 'demora' %}
+    {% set agotado = i.estado == 'sin_stock' %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+           style="border:{{ '2px solid #f0a500' if demora else '1px solid #e6e8ee' }};border-radius:10px;margin-bottom:12px;{{ 'opacity:0.6;' if agotado else '' }}">
+      {% if demora %}
+      <tr><td colspan="2" style="background:#f0a500;padding:9px 14px;border-radius:7px 7px 0 0;color:#1a1a2e;font-size:14px;font-weight:bold;">
+        ⚠️ ESTE PRODUCTO AHORA ESTÁ CON DEMORA
+      </td></tr>
+      {% endif %}
+      <tr>
+        <td width="96" valign="top" style="padding:12px;{{ 'background:#fffaf0;' if demora else '' }}">
+          {% if i.foto %}<img src="{{ i.foto }}" width="80" height="80" alt=""
+               style="display:block;width:80px;height:80px;object-fit:cover;border-radius:8px;border:0;">{% endif %}
+        </td>
+        <td valign="top" style="padding:12px 12px 12px 0;{{ 'background:#fffaf0;' if demora else '' }}">
+          <div style="font-size:15px;font-weight:bold;color:#1a1a2e;">{{ i.nombre }}{% if i.cantidad > 1 %} <span style="color:#888;font-weight:normal;">× {{ i.cantidad }}</span>{% endif %}</div>
+          {% if agotado %}
+            <div style="font-size:13px;color:#b42318;margin-top:4px;font-weight:bold;">Ya no está disponible · no lo incluimos en tu carrito</div>
+          {% elif not demora %}
+            <div style="font-size:13px;color:#1e8e3e;margin-top:4px;">✅ En stock · entrega inmediata</div>
+          {% endif %}
+          {% if not agotado %}
+          <div style="font-size:13px;margin-top:8px;color:#666;">
+            {% if i.lista and i.lista > i.precio %}<span style="color:#999;text-decoration:line-through;">{{ fp(i.lista) }}</span>&nbsp;{% endif %}
+            {% if i.con_cupon %}<span style="color:#999;text-decoration:line-through;">{{ fp(i.precio) }}</span>{% else %}<b style="color:#1a2744;font-size:15px;">{{ fp(i.precio) }}</b>{% endif %}
+          </div>
+          {% if i.con_cupon %}
+          <div style="font-size:18px;margin-top:2px;">
+            <b style="color:#1a2744;">{{ fp(i.precio_cupon) }}</b>
+            <span style="font-size:12px;color:#ff5a1f;font-weight:bold;">&nbsp;con {{ r.cupon.codigo }}</span>
+          </div>
+          {% endif %}
+          {% endif %}
+        </td>
+      </tr>
+      {% if demora %}
+      <tr><td colspan="2" style="padding:0 14px 14px;background:#fffaf0;border-radius:0 0 8px 8px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;border:1px solid #f3d27a;">
+          <tr><td style="padding:12px 14px;font-size:14px;line-height:1.5;color:#5a4300;">
+            Hoy <b>no tenemos stock para entrega inmediata</b> de este producto. Lo podés comprar igual con el descuento:
+            <br><span style="font-size:16px;color:#1a1a2e;">📦 <b>Se despacha a partir del {{ r.fecha_demora }}</b></span>
+            <span style="color:#7a6420;"> (unos {{ r.demora_dias }} días)</span>.
+            <br><span style="font-size:12px;color:#7a6420;">Si lo preferís sin espera, respondé este mail o escribinos por WhatsApp y te ofrecemos una alternativa con stock.</span>
+          </td></tr>
+        </table>
+      </td></tr>
+      {% endif %}
+    </table>
+    {% endfor %}
+  </td></tr>
+
+  <tr><td style="padding:6px 32px 0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#444;">
+      <tr><td style="padding:4px 0;">Subtotal (precio web)</td><td align="right" style="padding:4px 0;">{{ fp(r.subtotal) }}</td></tr>
+      {% if r.cupon %}
+      <tr><td style="padding:4px 0;color:#ff5a1f;">Cupón {{ r.cupon.codigo }} ({{ r.cupon.label|replace('-', '') }})</td><td align="right" style="padding:4px 0;color:#ff5a1f;">-{{ fp(r.descuento) }}</td></tr>
+      {% endif %}
+      <tr><td style="padding:10px 0 4px;border-top:1px solid #e6e8ee;font-size:17px;font-weight:bold;color:#1a2744;">Total</td>
+          <td align="right" style="padding:10px 0 4px;border-top:1px solid #e6e8ee;font-size:20px;font-weight:bold;color:#1a2744;">{{ fp(r.total) }}</td></tr>
+      {% if r.total_evento and r.total_evento > r.total %}
+      <tr><td colspan="2" align="right" style="padding:6px 0 0;font-size:13px;color:#1e8e3e;">
+        Con el cupón del Cyber ({{ r.evento_pct }}%) pagabas {{ fp(r.total_evento) }} · <b>ahorrás {{ fp(r.total_evento - r.total) }} más</b>
+      </td></tr>
+      {% endif %}
+    </table>
+  </td></tr>
+
+  <tr><td align="center" style="padding:24px 32px 8px;">
+    <table role="presentation" cellpadding="0" cellspacing="0">
+      <tr><td align="center" bgcolor="#ff5a1f" style="border-radius:10px;">
+        <a href="{{ link }}" target="_blank"
+           style="display:inline-block;padding:17px 34px;font-size:18px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;font-family:Arial,Helvetica,sans-serif;">
+          Volver a mi carrito{% if r.cupon %} con {{ r.cupon.label|replace('-', '') }} OFF{% endif %} &rarr;
+        </a>
+      </td></tr>
+    </table>
+    <div style="font-size:12px;color:#888;margin-top:10px;">Tus productos{% if r.cupon %} y el cupón{% endif %} ya quedan cargados. Solo elegís envío y pagás.</div>
+  </td></tr>
+
+  <tr><td style="padding:22px 32px 6px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f6f9;border-radius:10px;">
+      <tr><td style="padding:16px 18px;font-size:14px;line-height:1.55;color:#444;">
+        <b style="color:#1a2744;">¿Tenés alguna duda?</b> Te ayudamos a elegir medida, envío o forma de pago.<br>
+        💬 <a href="https://wa.me/5491126275185" style="color:#1a7f37;font-weight:bold;">Escribinos por WhatsApp</a>
+        &nbsp;·&nbsp; 🏬 Vení al local: Bahía Blanca 1777, Floresta
+      </td></tr>
+    </table>
+  </td></tr>
+
+  <tr><td align="center" style="padding:20px 32px 28px;font-size:11px;line-height:1.5;color:#aaa;">
+    Distribuidores oficiales Cannon · Mercadomuebles · Bahía Blanca 1777, Floresta, CABA<br>
+    {% if r.cupon %}Cupón {{ r.cupon.codigo }} válido{% if vence %} hasta el {{ vence }}{% endif %}, solo en colchones y sommiers. No acumulable con otros cupones.<br>{% endif %}
+    Precios y stock al momento de este mail; pueden cambiar.
+  </td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>

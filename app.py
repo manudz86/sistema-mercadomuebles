@@ -15844,6 +15844,13 @@ def tienda_cupones():
         LEFT JOIN cupones c ON c.id = s.cupon_id
         ORDER BY s.fecha DESC
     """)
+    # Vencido = pasó la fecha o se agotaron los usos (aunque siga con activo=1).
+    _hoy = datetime.now().date()
+    for c in cupones:
+        fv = c.get('fecha_vencimiento')
+        agotado = bool(c.get('usos_maximos')) and int(c.get('usos_actuales') or 0) >= int(c['usos_maximos'])
+        c['vencido'] = bool(fv and fv < _hoy) or agotado
+        c['agotado'] = agotado
     return render_template('tienda_cupones.html', cupones=cupones, suscriptores=suscriptores)
 
 

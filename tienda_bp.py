@@ -4439,6 +4439,216 @@ def quitar_cupon():
     return jsonify({'ok': True})
 
 
+# ── Recupero de carrito abandonado ────────────────────────────────────────────
+# El mail lleva un link firmado (ref de pedidos_pendientes + código de cupón)
+# que rearma el carrito en la sesión y aplica el cupón. Los precios se
+# recalculan HOY con la misma regla que la ficha de producto (nunca se confía
+# en el precio guardado salvo que el SKU no se pueda recalcular), y el estado de
+# stock/demora también es el de hoy. Nada de esto escribe en la base.
+_RECUPERO_SALT    = 'recupero-carrito'
+_RECUPERO_MAX_AGE = 10 * 24 * 3600
+TIENDA_URL_PUBLICA = 'https://www.mercadomuebles.com.ar'
+
+
+def _recupero_serializer():
+    from itsdangerous import URLSafeTimedSerializer
+    return URLSafeTimedSerializer(current_app.secret_key, salt=_RECUPERO_SALT)
+
+
+def link_recupero_carrito(ref, cupon=None):
+    tok = _recupero_serializer().dumps({'r': ref, 'c': (cupon or '').strip().upper()})
+    return (f"{TIENDA_URL_PUBLICA}/tienda/carrito/recuperar/{tok}"
+            f"?utm_source=email&utm_medium=recupero_carrito&utm_campaign={(cupon or 'sin_cupon').lower()}")
+
+
+def _precio_tienda_sku(cur, sku):
+    """Precio de hoy de un SKU, con la misma regla que la ficha (`detalle`).
+    Devuelve dict(precio, lista, tipo, linea, modelo) o None si no se puede
+    recalcular (SKU desconocido, inactivo, conjunto con bases extra +N)."""
+    s = str(sku or '').strip()
+    # Ojo: almohadas como SUBLIME empiezan con S y no son conjuntos.
+    es_conj = len(s) > 1 and s[0] == 'S' and s[1].isalpha() and s.upper() not in SKUS_ALMOHADA
+    if es_conj and '+' in s:
+        return None
+    sku_col = sku_conjunto_a_colchon(s) if es_conj else s
+    cur.execute("SELECT sku, tipo, linea, modelo, precio_base, descuento_catalogo "
+                "FROM productos_base WHERE activo = 1 AND sku = %s", (sku_col,))
+    p = cur.fetchone()
+    if not p:
+        return None
+    lista = float(p['precio_base'] or 0)
+    if p['tipo'] in ('almohada', 'base'):
+        if es_conj:
+            return None
+        desc = _aplicar_extra_hot(float(p.get('descuento_catalogo') or 0), 0)
+        return {'precio': lista * (1 - desc / 100) if desc else lista, 'lista': lista,
+                'tipo': p['tipo'], 'linea': p.get('linea'), 'modelo': p.get('modelo')}
+    try:
+        cur.execute("SELECT descuento_pct FROM ofertas_home WHERE sku = %s AND activo = 1 LIMIT 1", (s,))
+        of = cur.fetchone()
+        desc_of = float(of['descuento_pct']) if of else 0.0
+    except Exception:
+        desc_of = 0.0
+    desc = _aplicar_extra_hot(float(p.get('descuento_catalogo') or 0), desc_of)
+    if es_conj:
+        cur.execute("SELECT base_sku_default, cantidad_bases FROM conjunto_configuracion "
+                    "WHERE colchon_sku = %s AND activo = 1", (sku_col,))
+        cfg = cur.fetchone()
+        if not cfg:
+            return None
+        cur.execute("SELECT precio_base FROM productos_base WHERE activo = 1 AND sku = %s",
+                    (cfg['base_sku_default'],))
+        b = cur.fetchone()
+        if not b:
+            return None
+        lista += float(b['precio_base'] or 0) * int(cfg['cantidad_bases'] or 1)
+    return {'precio': lista * (1 - desc / 100) if desc else lista, 'lista': lista,
+            'tipo': 'conjunto' if es_conj else p['tipo'],
+            'linea': p.get('linea'), 'modelo': p.get('modelo')}
+
+
+def _cupon_para_carrito(cur, codigo, carrito, email):
+    """Mismas validaciones que /carrito/validar-cupon. Devuelve el dict que va
+    a session['cupon'] o None si el cupón no corre para este carrito."""
+    codigo = (codigo or '').strip().upper()
+    if not codigo:
+        return None
+    from datetime import date
+    cur.execute("SELECT * FROM cupones WHERE codigo=%s AND activo=1", (codigo,))
+    cup = cur.fetchone()
+    if not cup:
+        return None
+    if cup['fecha_vencimiento'] and cup['fecha_vencimiento'] < date.today():
+        return None
+    if cup['usos_maximos'] and cup['usos_actuales'] >= cup['usos_maximos']:
+        return None
+    if cup['minimo_compra'] and subtotal_carrito(carrito) < float(cup['minimo_compra']):
+        return None
+    if cup['solo_un_uso'] and email:
+        cur.execute("SELECT id FROM cupones_uso WHERE cupon_id=%s AND email=%s LIMIT 1",
+                    (cup['id'], email.strip().lower()))
+        if cur.fetchone():
+            return None
+    label = f"-{int(cup['valor'])}%" if cup['tipo'] == 'pct' else f"-{format_price(cup['valor'])}"
+    return {'id': cup['id'], 'codigo': cup['codigo'], 'tipo': cup['tipo'],
+            'valor': float(cup['valor']), 'label': label}
+
+
+def armar_recupero_carrito(ref, cupon_codigo=None):
+    """Arma el carrito de un pedido pendiente con precios y stock de HOY.
+
+    Devuelve None si el ref no existe. Si no, un dict con:
+      cliente, items (con estado 'stock' | 'demora' | 'sin_stock'),
+      carrito (lo que va a la sesión: sin los 'sin_stock'), cupon (o None),
+      subtotal, descuento, total, elegible (tiene colchón o sommier),
+      fecha_demora, y el comparativo con el cupón del evento.
+    """
+    db = get_db()
+    cur = db.cursor()
+    try:
+        cur.execute("SELECT carrito_json, cliente_json FROM pedidos_pendientes WHERE ref = %s", (ref,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        try:
+            guardado = json.loads(row['carrito_json'] or '[]')
+            cliente = json.loads(row['cliente_json'] or '{}') or {}
+        except Exception:
+            return None
+
+        demora_dias = get_demora_sin_stock()
+        fecha_demora = calcular_fecha_demora(demora_dias) if demora_dias else None
+        items, carrito = [], []
+        for it in guardado:
+            sku = str(it.get('sku') or '').strip()
+            cant = int(it.get('cantidad') or 0)
+            if not sku or cant <= 0:
+                continue
+            pr = _precio_tienda_sku(cur, sku)
+            precio = pr['precio'] if pr else float(it.get('precio') or 0)
+            lista = pr['lista'] if pr else None
+            tipo = pr['tipo'] if pr else ('conjunto' if (sku[:1] == 'S' and cupon_aplica_sku(sku)) else '')
+            try:
+                stock = _get_stock_real(cur, sku)
+            except Exception:
+                stock = cant
+            if stock >= cant:
+                estado = 'stock'
+            elif demora_dias and pr and aplica_demora(pr['linea'], pr['tipo'], pr['modelo']):
+                estado = 'demora'
+            else:
+                estado = 'sin_stock'
+            fotos = get_fotos_producto(sku) or (get_fotos_producto(sku_conjunto_a_colchon(sku)) if sku[:1] == 'S' else [])
+            items.append({'sku': sku, 'nombre': it.get('nombre') or sku, 'cantidad': cant,
+                          'precio': round(precio), 'lista': round(lista) if lista else None,
+                          'tipo': tipo, 'estado': estado,
+                          'foto': (TIENDA_URL_PUBLICA + fotos[0]) if fotos else None})
+            if estado != 'sin_stock':
+                carrito.append({'sku': sku, 'nombre': it.get('nombre') or sku,
+                                'precio': round(precio), 'cantidad': cant})
+
+        # Solo carritos con algún colchón o sommier: las almohadas no llevan este cupón.
+        elegible = any(i['tipo'] in ('colchon', 'conjunto') and cupon_aplica_sku(i['sku'])
+                       and i['estado'] != 'sin_stock' for i in items)
+        cupon = _cupon_para_carrito(cur, cupon_codigo, carrito, cliente.get('email')) if (elegible and carrito) else None
+        subtotal = subtotal_carrito(carrito)
+        descuento = round(descuento_cupon(carrito, cupon))
+        for i in items:
+            f = factor_cupon_sku(i['sku'], carrito, cupon) if i['estado'] != 'sin_stock' else 1.0
+            i['precio_cupon'] = round(i['precio'] * f)
+            i['con_cupon'] = f < 1.0
+
+        # Comparativo con el cupón del evento (ej. CYBERSALE 5%), para mostrar
+        # que el del mail es mejor. Solo si el del mail es porcentual y mayor.
+        evento_pct, total_evento = 0, None
+        try:
+            he = get_hot_event()
+            evento_pct = int(he.get('cupon_pct') or 0) if he.get('activo') else 0
+        except Exception:
+            pass
+        if cupon and cupon['tipo'] == 'pct' and evento_pct and evento_pct < cupon['valor']:
+            total_evento = round(subtotal - subtotal_elegible_cupon(carrito) * evento_pct / 100)
+        return {
+            'ref': ref, 'cliente': cliente, 'items': items, 'carrito': carrito,
+            'cupon': cupon, 'elegible': elegible,
+            'subtotal': round(subtotal), 'descuento': descuento, 'total': round(subtotal - descuento),
+            'hay_demora': any(i['estado'] == 'demora' for i in items),
+            'demora_dias': demora_dias, 'fecha_demora': fecha_demora,
+            'evento_pct': evento_pct, 'total_evento': total_evento,
+        }
+    finally:
+        cur.close()
+        db.close()
+
+
+@tienda_bp.route('/carrito/recuperar/<token>')
+def recuperar_carrito(token):
+    """Link del mail de recupero: rearma el carrito y aplica el cupón."""
+    from itsdangerous import BadSignature, SignatureExpired
+    try:
+        data = _recupero_serializer().loads(token, max_age=_RECUPERO_MAX_AGE)
+    except SignatureExpired:
+        return redirect(url_for('tienda.ver_carrito'))
+    except BadSignature:
+        return redirect(url_for('tienda.home'))
+    try:
+        rec = armar_recupero_carrito(str(data.get('r') or ''), data.get('c'))
+    except Exception as e:
+        logger.warning(f"Recupero carrito: error armando {data.get('r')}: {e}")
+        rec = None
+    if not rec or not rec['carrito']:
+        return redirect(url_for('tienda.ver_carrito'))
+    session['carrito'] = rec['carrito']
+    if rec['cupon']:
+        session['cupon'] = rec['cupon']
+    else:
+        session.pop('cupon', None)
+    session.modified = True
+    print(f"[RECUPERO] carrito {rec['ref']} rearmado: {len(rec['carrito'])} items, "
+          f"cupon={rec['cupon']['codigo'] if rec['cupon'] else '-'}", flush=True)
+    return redirect(url_for('tienda.ver_carrito'))
+
+
 @tienda_bp.route('/carrito/eliminar', methods=['POST'])
 def eliminar_carrito():
     data = request.get_json() or {}
