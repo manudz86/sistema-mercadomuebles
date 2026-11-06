@@ -140,10 +140,11 @@ with sync_playwright() as pw:
     check(corregir(ya)['salida'] == ya, 'V) archivo ya corregido: se mantiene sin cambios')
 
     nombres = pag.evaluate('''() => [ZPLCorrector.nombreCorregido('etiquetas_mercadolibre.zpl'),
-        ZPLCorrector.nombreCorregido('Etiq.2026.TXT'), ZPLCorrector.extensionValida('a.ZPL'),
+        ZPLCorrector.nombreCorregido('Etiq.2026.TXT'), ZPLCorrector.nombreCorregido('CORREGIDO_x.zpl'),
+        ZPLCorrector.extensionValida('a.ZPL'),
         ZPLCorrector.extensionValida('a.pdf'), ZPLCorrector.extensionValida('zpl')]''')
-    check(nombres == ['etiquetas_mercadolibre_corregido.zpl', 'Etiq.2026_corregido.TXT', True, False, False],
-          'N) nombre de salida con sufijo _corregido y extensión original; solo .zpl/.txt')
+    check(nombres == ['CORREGIDO_etiquetas_mercadolibre.zpl', 'CORREGIDO_Etiq.2026.TXT', 'CORREGIDO_x.zpl', True, False, False],
+          'N) nombre de salida con prefijo CORREGIDO_ (sin duplicarlo) y extensión original; solo .zpl/.txt')
 
     # 6. Página real + descarga
     import werkzeug  # noqa: E402
@@ -183,7 +184,7 @@ with sync_playwright() as pw:
         pag2.click('#zpl-descargar')
     dl = d.value
     contenido = open(dl.path(), 'rb').read()
-    check(dl.suggested_filename == 'etiquetas_mercadolibre_corregido.zpl', f'6) nombre de descarga: {dl.suggested_filename}')
+    check(dl.suggested_filename == 'CORREGIDO_etiquetas_mercadolibre.zpl', f'6) nombre de descarga: {dl.suggested_filename}')
     check(contenido == referencia(e10) and re.findall(rb'Etiqueta n(\d+)', contenido) == [str(i).encode() for i in range(1, 11)]
           and contenido.count(b'^XA') == 10 and contenido.count(b'^XZ') == 10,
           '6) la descarga trae las 10 etiquetas completas, en orden, idéntica a la referencia')
@@ -202,7 +203,7 @@ with sync_playwright() as pw:
     check('2 de 3' in estado and 'advertencias' in estado, 'P) drag & drop + advertencia de etiquetas incompletas en pantalla')
     with pag2.expect_download() as d:
         pag2.click('#zpl-descargar')
-    check(d.value.suggested_filename == 'faltan_corregido.txt', 'P) extensión .txt conservada en la descarga')
+    check(d.value.suggested_filename == 'CORREGIDO_faltan.txt', 'P) extensión .txt conservada en la descarga')
 
     pag2.set_input_files('#zpl-file', files=[{'name': 'vacio.zpl', 'mimeType': 'text/plain', 'buffer': b''}])
     pag2.wait_for_function("!document.getElementById('zpl-procesar').disabled")

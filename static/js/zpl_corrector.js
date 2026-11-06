@@ -159,10 +159,13 @@
     return res;
   }
 
+  // Marca al PRINCIPIO del nombre, en mayúsculas, para que se vea a simple vista en la
+  // app de Zebra aunque corte los nombres largos. No se duplica si ya la tiene.
+  var PREFIJO = 'CORREGIDO_';
   function nombreCorregido(nombre) {
-    var m = /^(.*)(\.[^.\/\\]+)$/.exec(nombre || '');
-    if (!m || !m[1]) return (nombre || 'etiquetas') + '_corregido';
-    return m[1] + '_corregido' + m[2];
+    nombre = nombre || 'etiquetas.zpl';
+    if (nombre.toUpperCase().indexOf(PREFIJO) === 0) return nombre;
+    return PREFIJO + nombre;
   }
 
   function extensionValida(nombre) {
