@@ -1,0 +1,209 @@
+{% extends 'base.html' %}
+{% block title %}Corrector de etiquetas ZPL{% endblock %}
+{% block content %}
+<style>
+  .zpl-drop { border:2px dashed #b8c2d6; border-radius:12px; background:#f8fafc; padding:32px 16px; text-align:center; cursor:pointer; transition:.15s; }
+  .zpl-drop.over { border-color:#0d6efd; background:#eef4ff; }
+  .zpl-drop i { font-size:2.2rem; color:#1a2744; }
+  .zpl-stat { background:#fff; border-radius:10px; padding:12px 16px; box-shadow:0 1px 4px rgba(0,0,0,.06); height:100%; }
+  .zpl-stat .n { font-size:1.5rem; font-weight:700; color:#1a2744; }
+  .zpl-stat .l { font-size:.8rem; color:#777; }
+  .zpl-pre { width:100%; height:340px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.75rem;
+             white-space:pre; overflow:auto; resize:vertical; background:#fbfbfd; }
+</style>
+<div class="container-fluid py-3" style="max-width:1200px">
+  <h3 class="mb-1"><i class="bi bi-upc-scan"></i> Corrector de etiquetas ZPL</h3>
+  <p class="text-muted small mb-3">
+    Corrige las etiquetas ZPL de Mercado Libre para la Zebra ZD220 (100 × 190 mm):
+    <code>^LH0,90</code> → <code>^LH0,0</code> y <code>^LH0,410</code> → <code>^LH0,320</code>, en todas las etiquetas del archivo.
+    <br><i class="bi bi-shield-lock"></i> El archivo se procesa en tu navegador: <b>no se sube al servidor</b> ni se guarda en ningún lado.
+  </p>
+
+  <!-- A — Cargar archivo -->
+  <div class="card mb-3">
+    <div class="card-header fw-semibold">1. Cargar archivo</div>
+    <div class="card-body">
+      <div id="zpl-drop" class="zpl-drop" tabindex="0" role="button" aria-label="Seleccionar o arrastrar archivo ZPL">
+        <i class="bi bi-cloud-arrow-up"></i>
+        <div class="mt-2">Arrastrá acá el archivo <b>.zpl</b> o <b>.txt</b>, o <u>hacé clic para elegirlo</u></div>
+        <input type="file" id="zpl-file" accept=".zpl,.txt" class="d-none">
+      </div>
+      <div id="zpl-info" class="d-none mt-3 d-flex flex-wrap align-items-center gap-2">
+        <i class="bi bi-file-earmark-text fs-4"></i>
+        <div><b id="zpl-nombre"></b><br><span class="text-muted small" id="zpl-tam"></span></div>
+        <button class="btn btn-primary ms-auto" id="zpl-procesar"><i class="bi bi-magic"></i> Procesar</button>
+      </div>
+      <div id="zpl-error-carga" class="alert alert-danger mt-3 mb-0 d-none"></div>
+    </div>
+  </div>
+
+  <!-- B — Resultado -->
+  <div class="card mb-3 d-none" id="zpl-resultado">
+    <div class="card-header fw-semibold">2. Resultado del procesamiento</div>
+    <div class="card-body">
+      <div id="zpl-estado" class="alert mb-3"></div>
+      <div class="row g-2 mb-2" id="zpl-stats">
+        <div class="col-6 col-md"><div class="zpl-stat"><div class="n" id="st-etiquetas">0</div><div class="l">Etiquetas (^XA)</div></div></div>
+        <div class="col-6 col-md"><div class="zpl-stat"><div class="n" id="st-lh90">0</div><div class="l"><code>^LH0,90</code> → <code>^LH0,0</code></div></div></div>
+        <div class="col-6 col-md"><div class="zpl-stat"><div class="n" id="st-lh410">0</div><div class="l"><code>^LH0,410</code> → <code>^LH0,320</code></div></div></div>
+        <div class="col-6 col-md"><div class="zpl-stat"><div class="n" id="st-total">0</div><div class="l">Total de modificaciones</div></div></div>
+      </div>
+      <div class="small text-muted" id="zpl-detalle"></div>
+      <ul class="small text-warning-emphasis mb-0 mt-2" id="zpl-avisos"></ul>
+    </div>
+  </div>
+
+  <!-- D — Descargar -->
+  <div class="card mb-3 d-none" id="zpl-descarga">
+    <div class="card-header fw-semibold">3. Descargar</div>
+    <div class="card-body d-flex flex-wrap align-items-center gap-3">
+      <button class="btn btn-success btn-lg" id="zpl-descargar"><i class="bi bi-download"></i> Descargar ZPL corregido</button>
+      <span class="small text-muted">Se descarga como <b id="zpl-nombre-salida"></b> con todas las etiquetas, en el mismo orden.</span>
+    </div>
+  </div>
+
+  <!-- C — Vista previa -->
+  <div class="card mb-3 d-none" id="zpl-vista">
+    <div class="card-header d-flex align-items-center">
+      <span class="fw-semibold">Vista previa (opcional)</span>
+      <button class="btn btn-sm btn-outline-secondary ms-auto" id="zpl-ver" type="button">Mostrar</button>
+    </div>
+    <div class="card-body d-none" id="zpl-vista-body">
+      <div class="small text-muted mb-2" id="zpl-vista-nota"></div>
+      <div class="row g-2">
+        <div class="col-md-6"><div class="small fw-semibold mb-1">Original</div>
+          <textarea class="form-control zpl-pre" id="zpl-orig" readonly wrap="off" spellcheck="false"></textarea></div>
+        <div class="col-md-6"><div class="small fw-semibold mb-1">Corregido</div>
+          <textarea class="form-control zpl-pre" id="zpl-corr" readonly wrap="off" spellcheck="false"></textarea></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/zpl_corrector.js', v=zpl_js_version) }}"></script>
+<script>
+(function () {
+  'use strict';
+  var Z = window.ZPLCorrector;
+  var VISTA_MAX = 2000000; // caracteres por panel
+  var $ = function (id) { return document.getElementById(id); };
+  var drop = $('zpl-drop'), input = $('zpl-file');
+  var archivo = null, original = null, resultado = null;
+
+  function mostrar(el, si) { el.classList.toggle('d-none', !si); }
+  function tam(n) { return n < 1024 ? n + ' bytes' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(2) + ' MB'; }
+  function errorCarga(msg) { var e = $('zpl-error-carga'); e.textContent = msg || ''; mostrar(e, !!msg); }
+
+  function reiniciarResultado() {
+    resultado = null;
+    ['zpl-resultado', 'zpl-descarga', 'zpl-vista', 'zpl-vista-body'].forEach(function (id) { mostrar($(id), false); });
+    $('zpl-ver').textContent = 'Mostrar';
+    $('zpl-orig').value = ''; $('zpl-corr').value = '';
+  }
+
+  function cargar(f) {
+    reiniciarResultado(); errorCarga('');
+    archivo = null; original = null;
+    if (!f) return;
+    if (!Z.extensionValida(f.name)) {
+      mostrar($('zpl-info'), false);
+      errorCarga('El archivo "' + f.name + '" no es .zpl ni .txt.');
+      return;
+    }
+    $('zpl-nombre').textContent = f.name;
+    $('zpl-tam').textContent = tam(f.size);
+    mostrar($('zpl-info'), true);
+    $('zpl-procesar').disabled = true;
+    var lector = new FileReader();
+    lector.onload = function () {
+      archivo = f; original = new Uint8Array(lector.result);
+      $('zpl-procesar').disabled = false;
+    };
+    lector.onerror = function () { errorCarga('No se pudo leer el archivo.'); };
+    lector.readAsArrayBuffer(f); // bytes crudos: no se decodifica ni se normaliza nada
+  }
+
+  function procesar() {
+    if (!original) return;
+    var r = Z.corregir(original);
+    resultado = r;
+    mostrar($('zpl-resultado'), true);
+    var estado = $('zpl-estado');
+    var avisos = $('zpl-avisos'); avisos.innerHTML = '';
+    if (!r.ok) {
+      estado.className = 'alert alert-danger mb-3';
+      estado.textContent = '❌ ' + r.error;
+      mostrar($('zpl-stats'), false); $('zpl-detalle').textContent = '';
+      mostrar($('zpl-descarga'), false); mostrar($('zpl-vista'), false);
+      return;
+    }
+    mostrar($('zpl-stats'), true);
+    $('st-etiquetas').textContent = r.etiquetas;
+    $('st-lh90').textContent = r.reemplazos.lh90;
+    $('st-lh410').textContent = r.reemplazos.lh410;
+    $('st-total').textContent = r.total;
+    if (r.total === 0 && r.incompletas.length === 0) {
+      estado.className = 'alert alert-info mb-3';
+      estado.textContent = 'ℹ️ El archivo ya estaba corregido: no hubo que cambiar nada. La descarga es idéntica al original.';
+    } else if (r.incompletas.length) {
+      estado.className = 'alert alert-warning mb-3';
+      var lista = r.incompletas.slice(0, 30).join(', ') + (r.incompletas.length > 30 ? '…' : '');
+      estado.textContent = '⚠️ Procesado con advertencias: ' + r.incompletas.length + ' de ' + r.etiquetas +
+        ' etiqueta(s) no tienen los dos comandos esperados y no recibieron ambas correcciones (etiqueta nº ' + lista +
+        '). No se agregó ni se cambió ningún otro comando.';
+    } else {
+      estado.className = 'alert alert-success mb-3';
+      estado.textContent = '✅ Listo: las ' + r.etiquetas + ' etiqueta(s) quedaron corregidas.';
+    }
+    $('zpl-detalle').textContent = 'Saltos de línea: ' + r.finDeLinea + ' (se conservan).' +
+      (r.yaCorregidas ? ' Etiquetas que ya venían corregidas: ' + r.yaCorregidas + '.' : '') +
+      ' Tamaño: ' + tam(original.length) + ' → ' + tam(r.salida.length) + '.';
+    r.avisos.forEach(function (a) { var li = document.createElement('li'); li.textContent = a; avisos.appendChild(li); });
+    $('zpl-nombre-salida').textContent = Z.nombreCorregido(archivo.name);
+    mostrar($('zpl-descarga'), true);
+    mostrar($('zpl-vista'), true);
+  }
+
+  function verVista() {
+    var body = $('zpl-vista-body');
+    var abrir = body.classList.contains('d-none');
+    if (abrir && resultado && !$('zpl-orig').value) {
+      var o = Z.textoVista(original, VISTA_MAX), c = Z.textoVista(resultado.salida, VISTA_MAX);
+      $('zpl-orig').value = o; $('zpl-corr').value = c; // .value: texto plano, nunca HTML
+      $('zpl-vista-nota').textContent = 'Solo lectura. ' + (original.length > VISTA_MAX ? 'Archivo grande: se muestran los primeros ' + VISTA_MAX.toLocaleString('es-AR') + ' caracteres (la descarga va completa).' : '');
+    }
+    mostrar(body, abrir);
+    $('zpl-ver').textContent = abrir ? 'Ocultar' : 'Mostrar';
+  }
+
+  function descargar() {
+    if (!resultado || !resultado.ok) return;
+    var blob = new Blob([resultado.salida], { type: 'application/octet-stream' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = Z.nombreCorregido(archivo.name);
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  }
+
+  drop.addEventListener('click', function () { input.click(); });
+  drop.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
+  input.addEventListener('change', function () { cargar(input.files[0]); input.value = ''; });
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); });
+  });
+  drop.addEventListener('drop', function (e) { cargar(e.dataTransfer.files[0]); });
+  // Evita que soltar el archivo fuera del área lo abra en el navegador
+  window.addEventListener('dragover', function (e) { e.preventDefault(); });
+  window.addEventListener('drop', function (e) { e.preventDefault(); });
+  $('zpl-procesar').addEventListener('click', procesar);
+  $('zpl-ver').addEventListener('click', verVista);
+  $('zpl-descargar').addEventListener('click', descargar);
+})();
+</script>
+{% endblock %}

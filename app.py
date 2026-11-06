@@ -15925,6 +15925,18 @@ def tienda_suscriptores_exportar():
         headers={'Content-Disposition': 'attachment; filename=suscriptores.csv'})
 
 
+@app.route('/herramientas/corrector-zpl')
+@login_required
+def corrector_zpl():
+    """Corrector de etiquetas ZPL de ML para la Zebra ZD220. Todo el proceso es en el
+    navegador (static/js/zpl_corrector.js): el archivo nunca llega al servidor."""
+    try:
+        version = int(os.path.getmtime(os.path.join(app.static_folder, 'js', 'zpl_corrector.js')))
+    except OSError:
+        version = 0
+    return render_template('corrector_zpl.html', zpl_js_version=version)
+
+
 @app.route('/tienda-admin/recupero-carritos')
 @admin_required
 def recupero_carritos():

@@ -271,6 +271,11 @@
                     </a>
                 </li>
                 <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint == 'corrector_zpl' %}active{% endif %}" href="/herramientas/corrector-zpl">
+                        <i class="bi bi-upc-scan"></i> Corrector etiquetas ZPL
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'ventas_historicas' %}active{% endif %}" href="/ventas/historicas">
                         <i class="bi bi-archive"></i> Ventas Históricas
                     </a>
@@ -528,6 +533,11 @@
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'ventas_proceso' %}active{% endif %}" href="/ventas/proceso">
                                 <i class="bi bi-box-seam"></i> Proceso de Envío
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'corrector_zpl' %}active{% endif %}" href="/herramientas/corrector-zpl">
+                                <i class="bi bi-upc-scan"></i> Corrector etiquetas ZPL
                             </a>
                         </li>
                         <li class="nav-item">
