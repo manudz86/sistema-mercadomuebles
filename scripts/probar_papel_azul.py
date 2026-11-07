@@ -48,7 +48,7 @@ def texto_pdf(venta_id):
 
 
 casos = [
-    ("canal='tienda_web' AND metodo_envio='Delega'", 'DELEGA', True),
+    ("canal='tienda_web' AND metodo_envio='Delega'", 'SIN_TOTAL', True),
     ("metodo_envio='Flex'", 'FLEX', False),
     ("metodo_envio='Flete Propio'", None, True),
 ]
@@ -60,7 +60,10 @@ for cond, abajo, con_tel in casos:
     txt = texto_pdf(v['id'])
     lineas = [x.strip() for x in txt.splitlines() if x.strip()]
     ok = (v['nombre_cliente'] or '-') in txt
-    if abajo:
+    if abajo == 'SIN_TOTAL':
+        # Delega: fecha, nombre, teléfono, productos y dirección; sin total ni leyenda
+        ok = ok and 'Total' not in txt and lineas[-1] not in ('FLEX', 'DELEGA', 'TURBO') and lineas[0].count('-') == 2
+    elif abajo:
         ok = ok and lineas[-1] == abajo
     else:
         ok = ok and lineas[-1] not in ('FLEX', 'DELEGA', 'TURBO')

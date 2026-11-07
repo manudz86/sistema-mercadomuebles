@@ -15642,7 +15642,7 @@ def papel_azul_pdf(venta_id):
 
     es_flex  = (venta.get('metodo_envio') or '').lower() == 'flex'
     es_turbo = (venta.get('metodo_envio') or '').lower() == 'turbo'
-    # Delega (tienda web): la entrega la hace la mensajería, que no cobra → total $0
+    # Delega (tienda web): fecha, nombre, teléfono, productos y dirección; sin total ni leyenda abajo
     es_delega = (venta.get('metodo_envio') or '').lower() == 'delega'
 
     # Calcular saldo
@@ -15762,11 +15762,12 @@ def papel_azul_pdf(venta_id):
             y -= size * 1.4
     y -= 8 * mm
 
-    # ── Total ──
-    saldo_str = f'Total: ${"{:,.0f}".format(saldo).replace(",",".")}.-'
-    c.setFont('Helvetica-Bold', 17)
-    c.drawCentredString(cx, y, saldo_str)
-    y -= 16 * mm
+    # ── Total ── (Delega no lleva importe: lo entrega la mensajería, ya pagado)
+    if not es_delega:
+        saldo_str = f'Total: ${"{:,.0f}".format(saldo).replace(",",".")}.-'
+        c.setFont('Helvetica-Bold', 17)
+        c.drawCentredString(cx, y, saldo_str)
+        y -= 16 * mm
 
     # ── Dirección ── (22pt)
     direccion = venta.get('direccion_entrega') or ''
@@ -15782,9 +15783,6 @@ def papel_azul_pdf(venta_id):
     if es_flex:
         c.setFont('Helvetica-Bold', 49)
         c.drawCentredString(cx, y, 'FLEX')
-    elif es_delega:
-        c.setFont('Helvetica-Bold', 49)
-        c.drawCentredString(cx, y, 'DELEGA')
     elif es_turbo:
         c.setFont('Helvetica-Bold', 49)
         c.drawCentredString(cx, y, 'TURBO')
