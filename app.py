@@ -15642,12 +15642,14 @@ def papel_azul_pdf(venta_id):
 
     es_flex  = (venta.get('metodo_envio') or '').lower() == 'flex'
     es_turbo = (venta.get('metodo_envio') or '').lower() == 'turbo'
+    # Delega (tienda web): la entrega la hace la mensajería, que no cobra → total $0
+    es_delega = (venta.get('metodo_envio') or '').lower() == 'delega'
 
     # Calcular saldo
     importe_total   = float(venta.get('importe_total') or 0)
     importe_abonado = float(venta.get('importe_abonado') or 0)
     costo_flete     = float(venta.get('costo_flete') or 0)
-    saldo = 0 if (es_flex or es_turbo) else max(0, importe_total + costo_flete - importe_abonado)
+    saldo = 0 if (es_flex or es_turbo or es_delega) else max(0, importe_total + costo_flete - importe_abonado)
 
     # Desglosar items
     def desglosar_item(sku, nombre, cantidad):
@@ -15780,6 +15782,9 @@ def papel_azul_pdf(venta_id):
     if es_flex:
         c.setFont('Helvetica-Bold', 49)
         c.drawCentredString(cx, y, 'FLEX')
+    elif es_delega:
+        c.setFont('Helvetica-Bold', 49)
+        c.drawCentredString(cx, y, 'DELEGA')
     elif es_turbo:
         c.setFont('Helvetica-Bold', 49)
         c.drawCentredString(cx, y, 'TURBO')
