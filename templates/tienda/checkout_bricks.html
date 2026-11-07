@@ -275,13 +275,61 @@
       <!-- Fecha de nacimiento del titular -->
       <div style="margin-bottom:14px;">
         <label style="display:block; font-size:0.85rem; font-weight:600; color:#444; margin-bottom:5px;">Fecha de nacimiento del titular</label>
-        <!-- min/max acotan el año: sin ellos Chrome acepta años de 5 y 6
-             dígitos en un input date, y un tipeo como "20001" hacía que
-             ClearSale rechazara la orden entera. -->
-        <input type="date" id="pw-nacimiento" autocomplete="bday"
-          min="1915-01-01" max="{{ hoy_menos_18 }}"
-          style="width:100%; padding:11px 14px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+        <!-- Día / Mes / Año por separado en vez de input type="date": en el
+             celular el calendario arrancaba en el mes actual y había que
+             retroceder mes por mes hasta el año de nacimiento (queja de
+             clientes). Las tres casillas arman AAAA-MM-DD en el hidden
+             #pw-nacimiento, que es lo que se manda al pagar; si la fecha no
+             es válida o el titular tendría <18 o >110 años, va vacío (el
+             backend igual lo revalida en _fecha_nacimiento_valida). -->
+        <div style="display:grid; grid-template-columns:1fr 2fr 1.4fr; gap:8px;">
+          <input type="text" id="pw-nac-dia" inputmode="numeric" maxlength="2" placeholder="Día" autocomplete="bday-day" aria-label="Día de nacimiento"
+            style="width:100%; padding:11px 10px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box; text-align:center;">
+          <select id="pw-nac-mes" autocomplete="bday-month" aria-label="Mes de nacimiento"
+            style="width:100%; padding:11px 10px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box; background:#fff;">
+            <option value="">Mes</option>
+            <option value="01">Enero</option><option value="02">Febrero</option><option value="03">Marzo</option>
+            <option value="04">Abril</option><option value="05">Mayo</option><option value="06">Junio</option>
+            <option value="07">Julio</option><option value="08">Agosto</option><option value="09">Septiembre</option>
+            <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+          </select>
+          <input type="text" id="pw-nac-anio" inputmode="numeric" maxlength="4" placeholder="Año" autocomplete="bday-year" aria-label="Año de nacimiento"
+            style="width:100%; padding:11px 10px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box; text-align:center;">
+        </div>
+        <input type="hidden" id="pw-nacimiento" value="">
+        <div id="pw-nac-error" style="display:none; font-size:0.76rem; color:#c62828; margin-top:4px;"></div>
         <div style="font-size:0.76rem; color:#888; margin-top:4px;">La valida el banco emisor junto con el documento.</div>
+        <script>
+        (function () {
+          var dia = document.getElementById('pw-nac-dia'), mes = document.getElementById('pw-nac-mes'),
+              anio = document.getElementById('pw-nac-anio'), oculto = document.getElementById('pw-nacimiento'),
+              err = document.getElementById('pw-nac-error');
+          function soloDigitos(el) { var v = el.value.replace(/\D/g, ''); if (v !== el.value) el.value = v; }
+          function actualizar(final) {
+            soloDigitos(dia); soloDigitos(anio);
+            var d = parseInt(dia.value, 10), m = parseInt(mes.value, 10), a = parseInt(anio.value, 10), msg = '';
+            oculto.value = '';
+            if (dia.value && mes.value && anio.value.length === 4) {
+              var f = new Date(a, m - 1, d), hoy = new Date();
+              if (!(d >= 1 && f.getFullYear() === a && f.getMonth() === m - 1 && f.getDate() === d)) {
+                msg = 'Esa fecha no existe. Revisá el día.';
+              } else {
+                var edad = hoy.getFullYear() - a - ((hoy.getMonth() < m - 1 || (hoy.getMonth() === m - 1 && hoy.getDate() < d)) ? 1 : 0);
+                if (edad < 18) msg = 'Revisá el año: el titular tiene que ser mayor de 18.';
+                else if (edad > 110) msg = 'Revisá el año.';
+                else oculto.value = anio.value + '-' + mes.value + '-' + ('0' + d).slice(-2);
+              }
+            } else if (final && anio.value && anio.value.length !== 4) {
+              msg = 'Escribí el año con 4 dígitos (ej. 1985).';
+            }
+            err.textContent = msg; err.style.display = msg ? 'block' : 'none';
+          }
+          dia.addEventListener('input', function () { actualizar(false); });
+          anio.addEventListener('input', function () { actualizar(false); });
+          mes.addEventListener('change', function () { actualizar(false); });
+          [dia, anio].forEach(function (el) { el.addEventListener('blur', function () { actualizar(true); }); });
+        })();
+        </script>
       </div>
 
       {% if cliente.tipo_entrega == 'retiro' %}
