@@ -5207,10 +5207,17 @@ def ml_avisar_envio_me1(venta_id, hasta, enviar=True, solo_flete=True, token=Non
                 fecha_evento = fe
         if fecha_evento and a_enviar:
             primera = fecha_evento - timedelta(minutes=len(a_enviar) - 1)
-            for p in pasos:
-                previa = v.get(p[1])
-                if p not in faltan and previa and previa.replace(tzinfo=timezone.utc) > primera:
-                    return _error(f'"{p[4]}" ya se informó el {previa.replace(tzinfo=timezone.utc).astimezone(AR):%d/%m %H:%M}: '
+            previas = [(v.get(p[1]).replace(tzinfo=timezone.utc).astimezone(AR), p[4])
+                       for p in pasos if p not in faltan and v.get(p[1])]
+            ultima = max(previas) if previas else None
+            if ultima and ultima[0] >= primera:
+                # Mismo día (ej. papel azul el viernes 19 hs, entregada "ayer" = viernes 18 hs):
+                # la entrega se informa minutos después del último aviso, ese mismo día.
+                nueva = ultima[0].replace(second=0, microsecond=0) + timedelta(minutes=len(a_enviar) + 1)
+                if nueva.date() == fecha_evento.date() and nueva <= datetime.now(AR):
+                    fecha_evento = nueva
+                else:
+                    return _error(f'"{ultima[1]}" ya se informó el {ultima[0]:%d/%m %H:%M}: '
                                   f'la entrega no puede ser anterior ({fecha_evento:%d/%m})')
         avisos = []
         for paso, col, status, substatus, comentario, _ in faltan:

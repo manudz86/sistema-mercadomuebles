@@ -175,6 +175,22 @@ if base:
                           'ml_despachado_at': fe + timedelta(hours=3) - timedelta(hours=5)}, 'delivered')
     check(ok is True and [p[1]['payload']['date'][:16] for p in posts] == esperado[1:], 'previo anterior: 2 avisos con la fecha elegida')
 
+    # 13b. Caso viernes: papel azul 19:00 y proceso 19:05 ese día, entregada "ese día" (18:00) → entrega 19:07
+    ok, msg, av = correr({**v0, 'estado_entrega': 'entregada', 'fecha_entrega': fe,
+                          'ml_despachado_at': fe + timedelta(hours=4),                       # 19:00 AR en UTC
+                          'ml_en_reparto_at': fe + timedelta(hours=4, minutes=5)}, 'delivered')  # 19:05 AR
+    check(ok is True and [p[1]['payload']['date'][:16] for p in posts] == [(fe + timedelta(hours=1, minutes=7)).strftime('%Y-%m-%dT%H:%M')],
+          f'viernes 19 hs: entrega después del último aviso, mismo día → {[p[1]["payload"]["date"][:16] for p in posts]}')
+    #     ...y si falta "Salió a distribución": 2 avisos después del de las 19:00
+    ok, msg, av = correr({**v0, 'estado_entrega': 'entregada', 'fecha_entrega': fe,
+                          'ml_despachado_at': fe + timedelta(hours=4)}, 'delivered')
+    check(ok is True and [p[1]['payload']['date'][:16] for p in posts] ==
+          [(fe + timedelta(hours=1, minutes=m)).strftime('%Y-%m-%dT%H:%M') for m in (2, 3)], 'viernes 19 hs sin proceso: 19:02 y 19:03')
+    #     ...último aviso a las 23:59 → no entra en el día → no manda y explica
+    ok, msg, av = correr({**v0, 'estado_entrega': 'entregada', 'fecha_entrega': fe,
+                          'ml_despachado_at': fe + timedelta(hours=3, minutes=5, seconds=59) + timedelta(hours=5, minutes=54)}, 'delivered')
+    check(ok is False and not posts, f'último aviso 23:59: no manda ({msg})')
+
     # 14. Entregada recién (fecha_entrega = ahora) → fecha de cada aviso = ahora
     ok, msg, av = correr({**v0, 'estado_entrega': 'entregada', 'fecha_entrega': hoy_ar}, 'delivered')
     check(ok is True and all(p[1]['payload']['date'][:13] == datetime.now(AR).strftime('%Y-%m-%dT%H') for p in posts),
