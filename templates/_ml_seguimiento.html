@@ -1,0 +1,17 @@
+{# Avisos de seguimiento ME1 informados a ML (Flete Propio): 🚚 En camino · 📦 Salió a distribución · ✅ Entregado.
+   Si el último aviso falló: ⚠️ con el motivo y botón para reintentar. #}
+{% macro ml_seguimiento(venta, con_entregado=True) %}
+{% if venta.canal == 'Mercado Libre' and venta.metodo_envio == 'Flete Propio' %}
+<span class="ml-seguimiento text-nowrap" style="font-size:0.8em;">
+    {% if venta.ml_despachado_at %}<span title="ML: En camino — avisado {{ venta.ml_despachado_at|hora_ar }}">🚚</span>{% endif %}
+    {% if venta.ml_en_reparto_at %}<span title="ML: Salió a distribución — avisado {{ venta.ml_en_reparto_at|hora_ar }}">📦</span>{% endif %}
+    {% if con_entregado and venta.ml_entregado_at %}<span title="ML: Entregado — avisado {{ venta.ml_entregado_at|hora_ar }}">✅</span>{% endif %}
+    {% if venta.ml_aviso_error %}
+    <form method="POST" action="{{ url_for('ml_aviso_reintentar', venta_id=venta.id) }}" style="display:inline;">
+        <button type="submit" class="btn btn-sm btn-outline-warning p-0 px-1" style="font-size:0.85em;line-height:1.2;"
+                title="No se pudo avisar a ML: {{ venta.ml_aviso_error }} — clic para reintentar">⚠️ ML</button>
+    </form>
+    {% endif %}
+</span>
+{% endif %}
+{% endmacro %}

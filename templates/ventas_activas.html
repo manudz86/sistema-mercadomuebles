@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ml_seguimiento.html" import ml_seguimiento %}
 {# ── MACRO: bloque observaciones tienda web ── #}
 {% macro obs_me2(venta) %}
 {% if venta.canal == 'tienda_web' and venta.notas %}
@@ -668,7 +669,7 @@
 
                                     <!-- Botón Papel Azul -->
                                     {% if venta.metodo_envio in ['Flete Propio', 'Flex', 'Turbo'] or (venta.metodo_envio == 'Delega' and venta.canal == 'tienda_web') %}
-                                    <a href="{{ url_for('papel_azul_pdf', venta_id=venta.id) }}"
+                                    <a href="{{ url_for('papel_azul_pdf', venta_id=venta.id, aviso_ml=1) }}"
                                        target="_blank"
                                        class="btn btn-sm btn-outline-dark p-0"
                                        style="width: 24px; height: 24px; font-size: 0.7em;"
@@ -676,6 +677,7 @@
                                         🖨️
                                     </a>
                                     {% endif %}
+                                    {{ ml_seguimiento(venta) }}
                                 </div>
                             </div>
                         {% endif %}
@@ -884,9 +886,10 @@
                        target="_blank" class="btn btn-sm btn-outline-primary p-0"
                        style="width:26px;height:26px;font-size:0.7em;" title="Maps">
                         <i class="bi bi-geo-alt-fill"></i></a>
-                    <a href="{{ url_for('papel_azul_pdf', venta_id=venta.id) }}" target="_blank"
+                    <a href="{{ url_for('papel_azul_pdf', venta_id=venta.id, aviso_ml=1) }}" target="_blank"
                        class="btn btn-sm btn-outline-dark p-0"
                        style="width:26px;height:26px;font-size:0.7em;" title="Imprimir papel azul">🖨️</a>
+                    {{ ml_seguimiento(venta) }}
                 </div>
             </div>
             {% endif %}

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ml_seguimiento.html" import ml_seguimiento %}
 {# ── MACRO: bloque observaciones ME2 con tracking ── #}
 {% macro obs_me2(venta) %}
 {% if venta.canal == 'tienda_web' and venta.metodo_envio == 'ME2' and venta.notas %}
@@ -457,6 +458,7 @@
                                        title="Imprimir papel azul">
                                         🖨️
                                     </a>
+                                    {{ ml_seguimiento(venta) }}
                                 </div>
                             </div>
                         {% endif %}
@@ -598,6 +600,7 @@
                 <a href="{{ url_for('papel_azul_pdf', venta_id=venta.id) }}" target="_blank"
                    class="btn btn-sm btn-outline-dark p-0"
                    style="width:26px; height:26px; flex-shrink:0;" title="Papel azul">🖨️</a>
+                {{ ml_seguimiento(venta) }}
             </div>
             {% elif venta.direccion_entrega %}
             <div class="text-muted mb-2" style="font-size:0.78rem; word-break:break-word;">📍 {{ venta.direccion_entrega }}</div>

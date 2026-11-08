@@ -45,6 +45,16 @@ def zero_dash(value):
     """Convierte 0 en '-' para el dashboard visual"""
     return '-' if value == 0 or value is None else value
 
+
+@app.template_filter('hora_ar')
+def hora_ar(value, fmt='%d/%m %H:%M'):
+    """DATETIME guardado con NOW() (UTC, el VPS) → texto en hora Argentina (UTC-3)."""
+    from datetime import timedelta
+    try:
+        return (value - timedelta(hours=3)).strftime(fmt)
+    except Exception:
+        return ''
+
 # ============================================================================
 # FLASK-LOGIN SETUP
 # ============================================================================
@@ -1518,7 +1528,8 @@ metodo_pago, importe_total, importe_abonado,
                 pago_mercadopago, pago_efectivo, pago_transferencia, pago_tarjeta,
                 estado_entrega, estado_pago, notas, cancelada_en_ml,
                 fecha_entrega_estimada,
-                clearsale_estado, clearsale_score
+                clearsale_estado, clearsale_score,
+                ml_despachado_at, ml_en_reparto_at, ml_entregado_at, ml_aviso_error
             FROM ventas
             WHERE estado_entrega = 'pendiente'
         '''
@@ -2576,6 +2587,7 @@ def pasar_a_proceso(venta_id):
         ''', (venta_id,))
         
         conn.commit()
+        ml_avisar_envio_me1_bg([venta_id], 'out_for_delivery')   # ML Flete Propio: "Salió a distribución"
         flash(f'✅ Venta {venta["numero_venta"]} pasada a Proceso de Envío. Stock descontado.', 'success')
         
     except Exception as e:
@@ -2663,6 +2675,7 @@ def marcar_entregada(venta_id):
         log_evento('INFO', 'entrega', 'venta_entregada',
             f"Venta {venta['numero_venta']} marcada como entregada. Canal: {venta.get('canal','')}",
             venta_id=venta_id, usuario=current_user.username if current_user.is_authenticated else 'Sistema')
+        ml_avisar_envio_me1_bg([venta_id], 'delivered')   # ML Flete Propio: "Entregado"
         flash(f'✅ Venta {venta["numero_venta"]} marcada como Entregada.', 'success')
         
     except Exception as e:
@@ -2928,7 +2941,8 @@ def pasar_a_proceso_multiple():
         conn.commit()
         cursor.close()
         conn.close()
-        
+        ml_avisar_envio_me1_bg(venta_ids, 'out_for_delivery')   # ML Flete Propio: "Salió a distribución"
+
         # MENSAJES
         if ventas_procesadas > 0:
             flash(f'✅ {ventas_procesadas} venta(s) pasadas a Proceso de Envío. Stock descontado.', 'success')
@@ -3057,7 +3071,8 @@ def marcar_entregadas_multiple():
         conn.commit()
         cursor.close()
         conn.close()
-        
+        ml_avisar_envio_me1_bg(venta_ids, 'delivered')   # ML Flete Propio: "Entregado"
+
         # MENSAJES
         if ventas_procesadas > 0:
             flash(f'✅ {ventas_procesadas} venta(s) marcadas como Entregadas.', 'success')
@@ -3227,7 +3242,8 @@ def ventas_proceso():
                 zona_envio, direccion_entrega, costo_flete,
 metodo_pago, importe_total, importe_abonado,
                 pago_mercadopago, pago_efectivo, pago_transferencia, pago_tarjeta,
-                estado_entrega, estado_pago, notas
+                estado_entrega, estado_pago, notas,
+                ml_despachado_at, ml_en_reparto_at, ml_entregado_at, ml_aviso_error
             FROM ventas
             WHERE estado_entrega = 'en_proceso'
         '''
@@ -3352,6 +3368,9 @@ def proceso_volver_activas(venta_id):
         
         conn.commit()
         flash(f'✅ Venta {venta["numero_venta"]} devuelta a Ventas Activas. Stock restaurado.', 'success')
+        if venta.get('ml_en_reparto_at'):
+            flash(f'ℹ️ A ML ya se le avisó "Salió a distribución" para {venta["numero_venta"]} '
+                  '(no se puede deshacer). Al volver a pasarla a Proceso no se repite el aviso.', 'info')
         
     except Exception as e:
         conn.rollback()
@@ -3406,8 +3425,9 @@ def proceso_marcar_entregada(venta_id):
         ''', (venta_id,))
         
         conn.commit()
+        ml_avisar_envio_me1_bg([venta_id], 'delivered')   # ML Flete Propio: "Entregado"
         flash(f'✅ Venta {venta["numero_venta"]} marcada como Entregada.', 'success')
-        
+
     except Exception as e:
         conn.rollback()
         flash(f'❌ Error: {str(e)}', 'error')
@@ -3505,15 +3525,16 @@ def proceso_volver_activas_multiple():
     """
     try:
         venta_ids = request.form.getlist('venta_ids')
-        
+
         if not venta_ids:
             flash('❌ No se seleccionaron ventas', 'error')
             return redirect(url_for('ventas_proceso'))
-        
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        
+
         ventas_procesadas = 0
+        avisadas_ml = []    # ya se le avisó a ML "Salió a distribución" (no se deshace)
         
         for venta_id in venta_ids:
             try:
@@ -3539,21 +3560,26 @@ def proceso_volver_activas_multiple():
                         fecha_modificacion = NOW()
                     WHERE id = %s
                 ''', (venta_id,))
-                
+
                 ventas_procesadas += 1
-            
+                if venta.get('ml_en_reparto_at'):
+                    avisadas_ml.append(venta['numero_venta'])
+
             except Exception as e:
                 print(f"⚠️ Error al procesar venta {venta_id}: {str(e)}")
                 continue
-        
+
         conn.commit()
         cursor.close()
         conn.close()
-        
+
         if ventas_procesadas == 0:
             flash('❌ No se pudieron procesar las ventas seleccionadas', 'error')
         else:
             flash(f'✅ {ventas_procesadas} venta(s) devueltas a Ventas Activas. Stock restaurado.', 'success')
+        if avisadas_ml:
+            flash('ℹ️ A ML ya se le avisó "Salió a distribución" para ' + ', '.join(avisadas_ml) +
+                  ' (no se puede deshacer).', 'info')
         
         # Mantener filtros
         filtros = {}
@@ -3637,7 +3663,8 @@ def proceso_marcar_entregadas_multiple():
         conn.commit()
         cursor.close()
         conn.close()
-        
+        ml_avisar_envio_me1_bg(venta_ids, 'delivered')   # ML Flete Propio: "Entregado"
+
         if ventas_bloqueadas:
             msg_cs = ('<div class="alert alert-danger"><strong>🛡️ El antifraude frenó '
                       'estas ventas:</strong><ul class="mt-2">')
@@ -4890,7 +4917,7 @@ def ventas_historicas():
                 pago_transferencia, pago_tarjeta,
                 estado_entrega, estado_pago, notas,
                 factura_generada, factura_fecha_generacion,
-                ml_entregado_at
+                ml_entregado_at, ml_despachado_at, ml_en_reparto_at, ml_aviso_error
             FROM ventas
             {where}
             ORDER BY {order_by_clause}
@@ -5048,6 +5075,152 @@ def historicas_volver_activas(venta_id):
     return redirect(url_for('ventas_historicas'))
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Seguimiento ME1 (Flete Propio) → ML: POST /v2/shipments/{id}/seller_notifications
+#   shipped            "En camino"             al imprimir el papel azul en Ventas Activas
+#   out_for_delivery   "Salió a distribución"  al pasar a Proceso de Envío
+#   delivered          "Entregado"             al marcar Entregada (Activas o Proceso)
+# ML exige el orden: si falta un aviso anterior, se manda primero. Cada aviso una sola vez
+# (columnas ml_despachado_at / ml_en_reparto_at / ml_entregado_at); el último error en ml_aviso_error.
+# ═══════════════════════════════════════════════════════════════════════════
+ML_ME1_SERVICE_ID = 154   # MLA
+_ML_AVISO_PASOS = [
+    # paso, columna, status, substatus, comentario, estados_entrega donde corresponde
+    ('shipped', 'ml_despachado_at', 'shipped', None, 'Despachado por el vendedor',
+     ('pendiente', 'en_proceso', 'entregada')),
+    ('out_for_delivery', 'ml_en_reparto_at', 'shipped', 'out_for_delivery', 'Salió a distribución',
+     ('en_proceso', 'entregada')),
+    ('delivered', 'ml_entregado_at', 'delivered', None, 'Entregado por el vendedor',
+     ('entregada',)),
+]
+
+
+def ml_avisar_envio_me1(venta_id, hasta, enviar=True, solo_flete=True, token=None):
+    """Manda a ML los avisos de seguimiento que falten, en orden, hasta `hasta` inclusive.
+    Devuelve (ok, mensaje, avisos): ok=None si no aplica, True si quedó todo informado,
+    False si ML rechazó o falló. Con enviar=False no hace POST ni escribe en la base
+    (devuelve los cuerpos que mandaría en `avisos`)."""
+    from datetime import timezone, timedelta
+    pasos_nombres = [p[0] for p in _ML_AVISO_PASOS]
+    if hasta not in pasos_nombres:
+        return None, f'paso desconocido {hasta}', []
+    v = query_one("SELECT id, numero_venta, canal, metodo_envio, estado_entrega, ml_despachado_at, "
+                  "ml_en_reparto_at, ml_entregado_at FROM ventas WHERE id=%s", (venta_id,))
+    if not v:
+        return None, 'venta no encontrada', []
+    nv = v.get('numero_venta') or ''
+    if v.get('canal') != 'Mercado Libre' or not nv.startswith('ML-'):
+        return None, 'no es venta de ML', []
+    if solo_flete and v.get('metodo_envio') != 'Flete Propio':
+        return None, 'no es Flete Propio', []
+    pasos = _ML_AVISO_PASOS[:pasos_nombres.index(hasta) + 1]
+    if v.get('estado_entrega') not in pasos[-1][5]:
+        return None, f'estado {v.get("estado_entrega")} no corresponde a {hasta}', []
+    faltan = [p for p in pasos if not v.get(p[1])]
+    if not faltan:
+        return True, 'ya informado', []
+
+    def _error(msg):
+        if enviar:
+            execute_db("UPDATE ventas SET ml_aviso_error=%s WHERE id=%s", (msg[:255], venta_id))
+            log_evento('WARNING', 'ml_envio', 'aviso_seguimiento_error', f'{nv}: {msg}', venta_id=venta_id)
+        return False, msg, []
+
+    token = token or cargar_ml_token()
+    if not token:
+        return _error('sin token de ML')
+    try:
+        o = ml_request('get', f'https://api.mercadolibre.com/orders/{nv[3:]}', token)
+        if o.status_code != 200:
+            return _error(f'no se pudo leer la orden ({o.status_code})')
+        ship_id = (o.json().get('shipping') or {}).get('id')
+        if not ship_id:
+            return None, 'la orden no tiene envío', []
+        s = ml_request('get', f'https://api.mercadolibre.com/shipments/{ship_id}', token)
+        if s.status_code != 200:
+            return _error(f'no se pudo leer el envío ({s.status_code})')
+        sj = s.json()
+        if sj.get('mode') != 'me1':
+            return None, f'envío {sj.get("mode")}, no ME1', []
+        st, sub = sj.get('status'), sj.get('substatus')
+        if st in ('cancelled', 'not_delivered'):
+            return _error(f'el envío está {st} en ML')
+        # Lo que ML ya tiene (p. ej. informado a mano en el panel) se marca sin reenviar
+        ya = set()
+        if st == 'delivered':
+            ya = {'shipped', 'out_for_delivery', 'delivered'}
+        elif st == 'shipped':
+            ya = {'shipped'} | ({'out_for_delivery'} if sub not in (None, '') else set())
+        avisos = []
+        for paso, col, status, substatus, comentario, _ in faltan:
+            if paso in ya:
+                if enviar:
+                    execute_db(f"UPDATE ventas SET {col}=NOW() WHERE id=%s AND {col} IS NULL", (venta_id,))
+                continue
+            fecha = datetime.now(timezone(timedelta(hours=-3))).isoformat(timespec='milliseconds')
+            body = {"payload": {"service_id": ML_ME1_SERVICE_ID, "date": fecha, "comment": comentario},
+                    "status": status, "substatus": substatus}
+            avisos.append(body)
+            if not enviar:
+                continue
+            r = ml_request('post', f'https://api.mercadolibre.com/v2/shipments/{ship_id}/seller_notifications',
+                           token, json_data=body)
+            if not (200 <= r.status_code < 300):
+                return _error(f'{paso}: ML {r.status_code} {r.text[:180]}')
+            execute_db(f"UPDATE ventas SET {col}=NOW(), ml_aviso_error=NULL WHERE id=%s", (venta_id,))
+            log_evento('INFO', 'ml_envio', 'aviso_seguimiento', f'{nv}: {paso} (shipment {ship_id})',
+                       venta_id=venta_id)
+        return True, 'informado' if avisos else 'ya figuraba en ML', avisos
+    except Exception as e:
+        return _error(f'excepción: {e}')
+
+
+def ml_avisar_envio_me1_bg(venta_ids, hasta):
+    """Avisos a ML en segundo plano (no traba la pantalla ni los lotes).
+    Recibe todos los ids tocados: cada uno se filtra por canal/método/estado en ml_avisar_envio_me1."""
+    ids = []
+    for x in venta_ids or []:
+        try:
+            ids.append(int(x))
+        except (TypeError, ValueError):
+            pass
+    if not ids:
+        return
+    import threading
+
+    def _bg():
+        token = None
+        for vid in ids:
+            try:
+                token = token or cargar_ml_token()
+                ok, msg, _ = ml_avisar_envio_me1(vid, hasta, token=token)
+                if ok is False:
+                    print(f'[ML-ENVIO] venta {vid} {hasta}: {msg}')
+            except Exception as e:
+                print(f'[ML-ENVIO] venta {vid} {hasta}: {e}')
+    threading.Thread(target=_bg, daemon=True).start()
+
+
+@app.route('/ventas/<int:venta_id>/ml-aviso-reintentar', methods=['POST'])
+@login_required
+def ml_aviso_reintentar(venta_id):
+    """Reintenta los avisos de seguimiento a ML que correspondan al estado actual de la venta."""
+    v = query_one("SELECT numero_venta, estado_entrega FROM ventas WHERE id=%s", (venta_id,))
+    hasta = {'pendiente': 'shipped', 'en_proceso': 'out_for_delivery',
+             'entregada': 'delivered'}.get((v or {}).get('estado_entrega'))
+    if not hasta:
+        flash('Esta venta no tiene avisos de seguimiento para reintentar', 'warning')
+        return redirect(request.referrer or url_for('ventas_activas'))
+    ok, msg, _ = ml_avisar_envio_me1(venta_id, hasta)
+    if ok:
+        flash(f'✅ Seguimiento informado a ML para {v["numero_venta"]}', 'success')
+    elif ok is None:
+        flash(f'No aplica para {v["numero_venta"]}: {msg}', 'warning')
+    else:
+        flash(f'❌ ML no aceptó el aviso de {v["numero_venta"]}: {msg}', 'danger')
+    return redirect(request.referrer or url_for('ventas_activas'))
+
+
 @app.route('/ventas/historicas/<int:venta_id>/marcar-entregado-ml', methods=['POST'])
 @login_required
 def historicas_marcar_entregado_ml(venta_id):
@@ -5079,13 +5252,14 @@ def historicas_marcar_entregado_ml(venta_id):
             return redirect(request.referrer or url_for('ventas_historicas'))
         ship_id = (o.json().get('shipping') or {}).get('id')
         if ship_id:
-            # Con envío (Flete Propio / ME1): reportar entrega sobre el shipment.
-            now = datetime.now(timezone(timedelta(hours=-3))).isoformat(timespec='milliseconds')
-            body = {"payload": {"comment": "Entregado por el vendedor", "date": now},
-                    "status": "delivered", "substatus": None}
-            r = ml_request('post', f'https://api.mercadolibre.com/shipments/{ship_id}/seller_notifications',
-                           token, json_data=body)
-            ok = (r.status_code == 200)
+            # Con envío (Flete Propio / ME1): API V2 (la V1 se dio de baja el 31/10); manda antes
+            # "En camino" y "Salió a distribución" si faltan, y marca ml_entregado_at.
+            ok, msg, _ = ml_avisar_envio_me1(venta_id, 'delivered', solo_flete=False, token=token)
+            if ok:
+                flash(f'✅ Entrega reportada a ML para {nv} (acelera la acreditación)', 'success')
+            else:
+                flash(f'❌ ML no aceptó el reporte de entrega: {msg}', 'danger')
+            return redirect(request.referrer or url_for('ventas_historicas'))
         else:
             # Retiro / sin envío (no_shipping): marcar el tag 'delivered' en la orden.
             r = ml_request('post', f'https://api.mercadolibre.com/orders/{order_id}/tags/delivered', token)
@@ -15639,6 +15813,10 @@ def papel_azul_pdf(venta_id):
     ''', (venta_id,))
     items = cursor.fetchall()
     cursor.close(); conn.close()
+
+    # Impreso desde Ventas Activas (?aviso_ml=1): ML Flete Propio → "En camino" (una sola vez)
+    if request.args.get('aviso_ml') == '1':
+        ml_avisar_envio_me1_bg([venta_id], 'shipped')
 
     es_flex  = (venta.get('metodo_envio') or '').lower() == 'flex'
     es_turbo = (venta.get('metodo_envio') or '').lower() == 'turbo'

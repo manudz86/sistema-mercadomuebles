@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ml_seguimiento.html" import ml_seguimiento %}
 {# ── MACRO: bloque observaciones ME2 con tracking ── #}
 {% macro obs_me2(venta) %}
 {% if venta.canal == 'tienda_web' and venta.metodo_envio == 'ME2' and venta.notas %}
@@ -649,6 +650,7 @@
                                 </button>
                             </form>
                         {% endif %}
+                        {{ ml_seguimiento(venta, con_entregado=False) }}
                         <br>
                     {% endif %}
 
