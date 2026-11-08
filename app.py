@@ -2627,6 +2627,14 @@ def marcar_entregada(venta_id):
                        usuario=current_user.username if current_user.is_authenticated else 'Sistema')
             return redirect(url_for('ventas_activas'))
 
+        # Fecha de entrega elegida (hoy por defecto; puede ser un día anterior)
+        fecha_ent, _err_fecha = fecha_entrega_desde_form()
+        if not _err_fecha and entrega_antes_de_venta(venta, fecha_ent):
+            _err_fecha = 'La fecha de entrega es anterior a la venta'
+        if _err_fecha:
+            flash(f'❌ {venta["numero_venta"]}: {_err_fecha}', 'error')
+            return redirect(url_for('ventas_activas'))
+
         # Si está pendiente, necesita descontar stock
         if venta['estado_entrega'] == 'pendiente':
             cursor.execute('SELECT * FROM items_venta WHERE venta_id = %s', (venta_id,))
@@ -2664,13 +2672,13 @@ def marcar_entregada(venta_id):
         # Actualizar estado Y FECHA DE ENTREGA
         # NOTA: VPS corre en UTC; restamos 3 horas para guardar fecha/hora Argentina (GMT-3)
         cursor.execute('''
-            UPDATE ventas 
+            UPDATE ventas
             SET estado_entrega = 'entregada',
-                fecha_entrega = DATE_SUB(NOW(), INTERVAL 3 HOUR),
+                fecha_entrega = COALESCE(%s, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
                 fecha_modificacion = NOW()
             WHERE id = %s
-        ''', (venta_id,))
-        
+        ''', (fecha_ent, venta_id))
+
         conn.commit()
         log_evento('INFO', 'entrega', 'venta_entregada',
             f"Venta {venta['numero_venta']} marcada como entregada. Canal: {venta.get('canal','')}",
@@ -3007,6 +3015,14 @@ def marcar_entregadas_multiple():
         ventas_sin_stock = []
         ventas_bloqueadas = []          # frenadas por el antifraude
         modo_cs = clearsale_modo_actual()
+        # Fecha de entrega elegida para todo el lote (hoy por defecto; puede ser un día anterior)
+        fecha_ent, _err_fecha = fecha_entrega_desde_form()
+        if _err_fecha:
+            cursor.close()
+            conn.close()
+            flash(f'❌ {_err_fecha}', 'error')
+            return redirect(url_for('ventas_activas'))
+        fecha_antes_venta = []
 
         for venta_id in venta_ids:
             try:
@@ -3015,6 +3031,9 @@ def marcar_entregadas_multiple():
                 venta = cursor.fetchone()
 
                 if not venta or venta['estado_entrega'] != 'pendiente':
+                    continue
+                if entrega_antes_de_venta(venta, fecha_ent):
+                    fecha_antes_venta.append(venta['numero_venta'])
                     continue
 
                 # ── Antifraude ───────────────────────────────────────────────
@@ -3054,11 +3073,11 @@ def marcar_entregadas_multiple():
                 cursor.execute('''
                     UPDATE ventas
                     SET estado_entrega = 'entregada',
-                        fecha_entrega = DATE_SUB(NOW(), INTERVAL 3 HOUR),
+                        fecha_entrega = COALESCE(%s, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
                         fecha_modificacion = NOW()
                     WHERE id = %s
-                ''', (venta_id,))
-                
+                ''', (fecha_ent, venta_id))
+
                 ventas_procesadas += 1
                 log_evento('INFO', 'entrega', 'venta_entregada',
                     f"Venta {venta['numero_venta']} marcada como entregada (masivo). Canal: {venta.get('canal','')}",
@@ -3075,7 +3094,10 @@ def marcar_entregadas_multiple():
 
         # MENSAJES
         if ventas_procesadas > 0:
-            flash(f'✅ {ventas_procesadas} venta(s) marcadas como Entregadas.', 'success')
+            flash(f'✅ {ventas_procesadas} venta(s) marcadas como Entregadas'
+                  + (f' el {fecha_ent[8:10]}/{fecha_ent[5:7]}' if fecha_ent else '') + '.', 'success')
+        if fecha_antes_venta:
+            flash('⚠️ No se marcaron (la fecha de entrega es anterior a la venta): ' + ', '.join(fecha_antes_venta), 'warning')
         
         if ventas_bloqueadas:
             msg_cs = ('<div class="alert alert-danger"><strong>🛡️ El antifraude frenó '
@@ -3393,12 +3415,20 @@ def proceso_marcar_entregada(venta_id):
     
     try:
         # Obtener venta
-        cursor.execute('SELECT numero_venta, estado_entrega, clearsale_estado '
+        cursor.execute('SELECT numero_venta, estado_entrega, clearsale_estado, fecha_venta '
                        'FROM ventas WHERE id = %s', (venta_id,))
         venta = cursor.fetchone()
 
         if not venta:
             flash('Venta no encontrada', 'error')
+            return redirect(url_for('ventas_proceso'))
+
+        # Fecha de entrega elegida (hoy por defecto; puede ser un día anterior)
+        fecha_ent, _err_fecha = fecha_entrega_desde_form()
+        if not _err_fecha and entrega_antes_de_venta(venta, fecha_ent):
+            _err_fecha = 'La fecha de entrega es anterior a la venta'
+        if _err_fecha:
+            flash(f'❌ {venta["numero_venta"]}: {_err_fecha}', 'error')
             return redirect(url_for('ventas_proceso'))
 
         if venta['estado_entrega'] != 'en_proceso':
@@ -3417,16 +3447,17 @@ def proceso_marcar_entregada(venta_id):
         # Actualizar estado Y FECHA DE ENTREGA (NO descuenta stock, ya se descontó)
         # NOTA: VPS corre en UTC; restamos 3 horas para guardar fecha/hora Argentina (GMT-3)
         cursor.execute('''
-            UPDATE ventas 
+            UPDATE ventas
             SET estado_entrega = 'entregada',
-                fecha_entrega = DATE_SUB(NOW(), INTERVAL 3 HOUR),
+                fecha_entrega = COALESCE(%s, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
                 fecha_modificacion = NOW()
             WHERE id = %s
-        ''', (venta_id,))
-        
+        ''', (fecha_ent, venta_id))
+
         conn.commit()
         ml_avisar_envio_me1_bg([venta_id], 'delivered')   # ML Flete Propio: "Entregado"
-        flash(f'✅ Venta {venta["numero_venta"]} marcada como Entregada.', 'success')
+        flash(f'✅ Venta {venta["numero_venta"]} marcada como Entregada'
+              + (f' el {fecha_ent[8:10]}/{fecha_ent[5:7]}' if fecha_ent else '') + '.', 'success')
 
     except Exception as e:
         conn.rollback()
@@ -3622,15 +3653,26 @@ def proceso_marcar_entregadas_multiple():
         ventas_procesadas = 0
         ventas_bloqueadas = []          # frenadas por el antifraude
         modo_cs = clearsale_modo_actual()
+        # Fecha de entrega elegida para todo el lote (hoy por defecto; puede ser un día anterior)
+        fecha_ent, _err_fecha = fecha_entrega_desde_form()
+        if _err_fecha:
+            cursor.close()
+            conn.close()
+            flash(f'❌ {_err_fecha}', 'error')
+            return redirect(url_for('ventas_proceso'))
+        fecha_antes_venta = []
 
         for venta_id in venta_ids:
             try:
                 # Verificar que esté en proceso
-                cursor.execute('SELECT numero_venta, estado_entrega, clearsale_estado '
+                cursor.execute('SELECT numero_venta, estado_entrega, clearsale_estado, fecha_venta '
                                'FROM ventas WHERE id = %s', (venta_id,))
                 venta = cursor.fetchone()
 
                 if not venta or venta['estado_entrega'] != 'en_proceso':
+                    continue
+                if entrega_antes_de_venta(venta, fecha_ent):
+                    fecha_antes_venta.append(venta['numero_venta'])
                     continue
 
                 # ── Antifraude ───────────────────────────────────────────────
@@ -3647,12 +3689,12 @@ def proceso_marcar_entregadas_multiple():
                 # Actualizar estado Y FECHA DE ENTREGA (NO descuenta stock)
                 # NOTA: VPS corre en UTC; restamos 3 horas para guardar fecha/hora Argentina (GMT-3)
                 cursor.execute('''
-                    UPDATE ventas 
+                    UPDATE ventas
                     SET estado_entrega = 'entregada',
-                        fecha_entrega = DATE_SUB(NOW(), INTERVAL 3 HOUR),
+                        fecha_entrega = COALESCE(%s, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
                         fecha_modificacion = NOW()
                     WHERE id = %s
-                ''', (venta_id,))
+                ''', (fecha_ent, venta_id))
                 
                 ventas_procesadas += 1
             
@@ -3673,10 +3715,13 @@ def proceso_marcar_entregadas_multiple():
             msg_cs += '</ul></div>'
             flash(msg_cs, 'error_stock')
 
-        if ventas_procesadas == 0 and not ventas_bloqueadas:
+        if fecha_antes_venta:
+            flash('⚠️ No se marcaron (la fecha de entrega es anterior a la venta): ' + ', '.join(fecha_antes_venta), 'warning')
+        if ventas_procesadas == 0 and not ventas_bloqueadas and not fecha_antes_venta:
             flash('❌ No se pudieron procesar las ventas seleccionadas', 'error')
         elif ventas_procesadas:
-            flash(f'✅ {ventas_procesadas} venta(s) marcadas como Entregadas.', 'success')
+            flash(f'✅ {ventas_procesadas} venta(s) marcadas como Entregadas'
+                  + (f' el {fecha_ent[8:10]}/{fecha_ent[5:7]}' if fecha_ent else '') + '.', 'success')
 
         # Mantener filtros
         filtros = {}
@@ -5104,7 +5149,7 @@ def ml_avisar_envio_me1(venta_id, hasta, enviar=True, solo_flete=True, token=Non
     pasos_nombres = [p[0] for p in _ML_AVISO_PASOS]
     if hasta not in pasos_nombres:
         return None, f'paso desconocido {hasta}', []
-    v = query_one("SELECT id, numero_venta, canal, metodo_envio, estado_entrega, ml_despachado_at, "
+    v = query_one("SELECT id, numero_venta, canal, metodo_envio, estado_entrega, fecha_entrega, ml_despachado_at, "
                   "ml_en_reparto_at, ml_entregado_at FROM ventas WHERE id=%s", (venta_id,))
     if not v:
         return None, 'venta no encontrada', []
@@ -5151,13 +5196,34 @@ def ml_avisar_envio_me1(venta_id, hasta, enviar=True, solo_flete=True, token=Non
             ya = {'shipped', 'out_for_delivery', 'delivered'}
         elif st == 'shipped':
             ya = {'shipped'} | ({'out_for_delivery'} if sub not in (None, '') else set())
+        AR = timezone(timedelta(hours=-3))
+        a_enviar = [p for p in faltan if p[0] not in ya]
+        # Entrega con fecha anterior (marcada días después): ML recibe la fecha real de entrega
+        # (ventas.fecha_entrega, hora AR) y los avisos previos que falten salen minutos antes.
+        fecha_evento = None
+        if hasta == 'delivered' and v.get('fecha_entrega'):
+            fe = v['fecha_entrega'].replace(tzinfo=AR)
+            if fe < datetime.now(AR) - timedelta(minutes=10):
+                fecha_evento = fe
+        if fecha_evento and a_enviar:
+            primera = fecha_evento - timedelta(minutes=len(a_enviar) - 1)
+            for p in pasos:
+                previa = v.get(p[1])
+                if p not in faltan and previa and previa.replace(tzinfo=timezone.utc) > primera:
+                    return _error(f'"{p[4]}" ya se informó el {previa.replace(tzinfo=timezone.utc).astimezone(AR):%d/%m %H:%M}: '
+                                  f'la entrega no puede ser anterior ({fecha_evento:%d/%m})')
         avisos = []
         for paso, col, status, substatus, comentario, _ in faltan:
             if paso in ya:
                 if enviar:
                     execute_db(f"UPDATE ventas SET {col}=NOW() WHERE id=%s AND {col} IS NULL", (venta_id,))
                 continue
-            fecha = datetime.now(timezone(timedelta(hours=-3))).isoformat(timespec='milliseconds')
+            if fecha_evento:
+                pos = [p[0] for p in a_enviar].index(paso)
+                cuando = fecha_evento - timedelta(minutes=len(a_enviar) - 1 - pos)
+            else:
+                cuando = datetime.now(AR)
+            fecha = cuando.isoformat(timespec='milliseconds')
             body = {"payload": {"service_id": ML_ME1_SERVICE_ID, "date": fecha, "comment": comentario},
                     "status": status, "substatus": substatus}
             avisos.append(body)
@@ -5167,12 +5233,42 @@ def ml_avisar_envio_me1(venta_id, hasta, enviar=True, solo_flete=True, token=Non
                            token, json_data=body)
             if not (200 <= r.status_code < 300):
                 return _error(f'{paso}: ML {r.status_code} {r.text[:180]}')
-            execute_db(f"UPDATE ventas SET {col}=NOW(), ml_aviso_error=NULL WHERE id=%s", (venta_id,))
+            # La columna guarda la fecha del evento (UTC, como NOW()), no la del envío del aviso
+            execute_db(f"UPDATE ventas SET {col}=%s, ml_aviso_error=NULL WHERE id=%s",
+                       (cuando.astimezone(timezone.utc).replace(tzinfo=None), venta_id))
             log_evento('INFO', 'ml_envio', 'aviso_seguimiento', f'{nv}: {paso} (shipment {ship_id})',
                        venta_id=venta_id)
         return True, 'informado' if avisos else 'ya figuraba en ML', avisos
     except Exception as e:
         return _error(f'excepción: {e}')
+
+
+def fecha_entrega_desde_form():
+    """Lee 'fecha_entrega' (AAAA-MM-DD) del formulario de 'Entregada'.
+    Devuelve (valor_sql, error): valor_sql None = ahora (hoy, como siempre);
+    'AAAA-MM-DD 18:00:00' (hora AR) para una entrega de un día anterior."""
+    from datetime import timedelta
+    txt = (request.form.get('fecha_entrega') or '').strip()
+    if not txt:
+        return None, None
+    hoy = (datetime.utcnow() - timedelta(hours=3)).date()
+    try:
+        d = datetime.strptime(txt, '%Y-%m-%d').date()
+    except ValueError:
+        return None, 'Fecha de entrega inválida'
+    if d > hoy:
+        return None, 'La fecha de entrega no puede ser futura'
+    if d < hoy - timedelta(days=60):
+        return None, 'La fecha de entrega es de hace más de 60 días'
+    if d == hoy:
+        return None, None
+    return f'{d:%Y-%m-%d} 18:00:00', None
+
+
+def entrega_antes_de_venta(venta, fecha_sql):
+    """True si la fecha de entrega elegida es de un día anterior al de la venta."""
+    fv = (venta or {}).get('fecha_venta')
+    return bool(fecha_sql and fv and str(fv)[:10] > fecha_sql[:10])
 
 
 def ml_avisar_envio_me1_bg(venta_ids, hasta):

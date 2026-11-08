@@ -1,0 +1,96 @@
+{# Selector de fecha de entrega para "Entregada" (individual y en lote), pensado para el celular:
+   botones grandes Hoy / Ayer / Anteayer / Otra fecha. "Hoy" viene elegido (= como antes).
+   La fecha va en el campo 'fecha_entrega' (AAAA-MM-DD) y el sistema se la informa a ML como fecha real de entrega.
+   Usa el modal #modalConfirmacion y las variables ventaIdActual / accionActual de la página. #}
+<style>
+  .fe-opciones { display:grid; grid-template-columns:repeat(2, 1fr); gap:.5rem; }
+  .fe-opciones .btn { padding:.65rem .4rem; font-size:1rem; line-height:1.15; }
+  .fe-opciones .btn small { display:block; font-size:.78rem; opacity:.85; }
+</style>
+<script>
+(function () {
+  const DIAS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+  function iso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function corto(d) { return DIAS[d.getDay()] + ' ' + String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0'); }
+  function haceDias(n) { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - n); return d; }
+
+  window.htmlFechaEntrega = function () {
+    const hoy = haceDias(0), ayer = haceDias(1), ante = haceDias(2), min = haceDias(60);
+    const b = (d, txt, activo) => `<button type="button" class="btn ${activo ? 'btn-success' : 'btn-outline-success'}"
+        data-fecha="${iso(d)}" onclick="elegirFechaEntrega(this)">${txt}<small>${corto(d)}</small></button>`;
+    return `
+      <div class="mt-3" id="fe-bloque">
+        <div class="fw-semibold mb-2">¿Cuándo se entregó?</div>
+        <div class="fe-opciones">
+          ${b(hoy, 'Hoy', true)}${b(ayer, 'Ayer', false)}${b(ante, 'Anteayer', false)}
+          <button type="button" class="btn btn-outline-secondary" data-fecha="" onclick="elegirFechaEntrega(this, true)">Otra fecha<small>elegir…</small></button>
+        </div>
+        <input type="date" id="fe-otra" class="form-control form-control-lg mt-2" style="display:none"
+               min="${iso(min)}" max="${iso(hoy)}" onchange="document.getElementById('fe-fecha').value = this.value">
+        <input type="hidden" id="fe-fecha" value="${iso(hoy)}">
+        <div class="form-text">Si es de un día anterior, a Mercado Libre se le informa esa fecha como entrega.</div>
+      </div>`;
+  };
+
+  window.elegirFechaEntrega = function (btn, otra) {
+    document.querySelectorAll('#fe-bloque .fe-opciones .btn').forEach(x => {
+      const sec = x.dataset.fecha === '';
+      x.className = 'btn ' + (x === btn ? (sec ? 'btn-secondary' : 'btn-success') : (sec ? 'btn-outline-secondary' : 'btn-outline-success'));
+    });
+    const inp = document.getElementById('fe-otra');
+    if (otra) {
+      inp.style.display = '';
+      document.getElementById('fe-fecha').value = inp.value || '';
+      try { inp.showPicker && inp.showPicker(); } catch (e) { inp.focus(); }
+    } else {
+      inp.style.display = 'none';
+      document.getElementById('fe-fecha').value = btn.dataset.fecha;
+    }
+  };
+
+  // Agrega la fecha elegida al form. Devuelve false si eligió "Otra fecha" y no la completó.
+  window.agregarFechaEntregaAlForm = function (form) {
+    const el = document.getElementById('fe-fecha');
+    if (!el) return true;
+    if (!el.value) { alert('Elegí la fecha de entrega'); return false; }
+    const i = document.createElement('input');
+    i.type = 'hidden'; i.name = 'fecha_entrega'; i.value = el.value;
+    form.appendChild(i);
+    return true;
+  };
+
+  // "Marcar entregadas" en lote: mismo cartel con el selector de fecha (en vez del confirm del navegador)
+  window.abrirEntregaMultiple = function (ids, url, aviso) {
+    ventaIdActual = 'lote';
+    accionActual = 'entregadas_multiple';
+    window._feLote = { ids: ids, url: url };
+    document.getElementById('modalTitulo').textContent = `Marcar ${ids.length} venta(s) como Entregadas`;
+    document.getElementById('modalMensaje').innerHTML =
+      `<p>¿Confirmar que las <strong>${ids.length}</strong> venta(s) seleccionadas fueron entregadas?</p>` +
+      (aviso ? `<div class="alert alert-warning py-2">${aviso}</div>` : '') + htmlFechaEntrega();
+    const cm = document.getElementById('campoMotivo');
+    if (cm) cm.style.display = 'none';
+    const btn = document.getElementById('btnConfirmar');
+    btn.className = 'btn btn-success';
+    btn.innerHTML = '<i class="bi bi-check-circle"></i> Marcar Entregadas';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalConfirmacion')).show();
+  };
+
+  // Envío del lote (lo llama el click de #btnConfirmar de la página)
+  window.enviarEntregaMultiple = function () {
+    const lote = window._feLote || { ids: [] };
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = lote.url;
+    lote.ids.forEach(id => {
+      const input = document.createElement('input');
+      input.type = 'hidden'; input.name = 'venta_ids'; input.value = id;
+      form.appendChild(input);
+    });
+    if (!agregarFechaEntregaAlForm(form)) return;
+    if (typeof agregarFiltrosAlForm === 'function') agregarFiltrosAlForm(form);
+    document.body.appendChild(form);
+    form.submit();
+  };
+})();
+</script>

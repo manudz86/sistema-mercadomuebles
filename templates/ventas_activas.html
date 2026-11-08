@@ -1062,7 +1062,7 @@ function confirmarAccion(ventaId, accion, numeroVenta) {
                 <i class="bi bi-exclamation-triangle"></i> 
                 <strong>Esto descontará el stock</strong> si aún no se descontó.
             </div>
-        `;
+        ` + htmlFechaEntrega();
         btnConfirmar.className = 'btn btn-success';
         btnConfirmar.innerHTML = '<i class="bi bi-check-circle"></i> Marcar Entregada';
         
@@ -1084,10 +1084,12 @@ function confirmarAccion(ventaId, accion, numeroVenta) {
 
 document.getElementById('btnConfirmar').addEventListener('click', function() {
     if (!ventaIdActual || !accionActual) return;
-    
+    if (accionActual === 'entregadas_multiple') { enviarEntregaMultiple(); return; }
+
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = `/ventas/activas/${ventaIdActual}/${accionActual}`;
+    if (accionActual === 'entregada' && !agregarFechaEntregaAlForm(form)) return;
     // Preservar los filtros actuales (ej. ?solo_canceladas=1) al volver
     const qsInput = document.createElement('input');
     qsInput.type = 'hidden';
@@ -1254,25 +1256,9 @@ function marcarEntregadasMultiple() {
         return;
     }
     
-    if (!confirm(`¿Marcar ${ids.length} venta(s) como Entregadas?\n\n⚠️ Se descontará el stock si aún no se descontó.`)) {
-        return;
-    }
-    
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/ventas/activas/marcar-entregadas-multiple';
-    
-    ids.forEach(id => {
-        const input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = 'venta_ids';
-        input.value = id;
-        form.appendChild(input);
-    });
-    
-    agregarFiltrosAlForm(form);
-    document.body.appendChild(form);
-    form.submit();
+    // Cartel con selector de fecha de entrega (Hoy / Ayer / Anteayer / Otra) — ver _fecha_entrega.html
+    abrirEntregaMultiple(ids, '/ventas/activas/marcar-entregadas-multiple',
+                         '⚠️ Se descontará el stock si aún no se descontó.');
 }
 
 function cancelarMultiple() {
@@ -1784,5 +1770,6 @@ function guardarTrid(ventaId) {
     </div>
   </div>
 </div>
+{% include "_fecha_entrega.html" %}
 
 {% endblock %}

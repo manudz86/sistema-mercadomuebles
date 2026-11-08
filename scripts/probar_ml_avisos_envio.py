@@ -115,7 +115,7 @@ if base:
     b = posts[0][1] if posts else {}
     check(posts and '/v2/shipments/' in posts[0][0] and b['payload'].get('service_id') == 154
           and b['payload'].get('date', '').endswith('-03:00'), 'cuerpo V2: url /v2, service_id 154, fecha -03:00')
-    check(any('ml_despachado_at=NOW()' in q for q, _ in escrituras), 'marca ml_despachado_at')
+    check(any('ml_despachado_at=%s' in q for q, _ in escrituras), 'marca ml_despachado_at')
 
     # 2. Pasar a Proceso sin haber impreso → En camino + Salió a distribución, en orden
     ok, msg, av = correr({**v0, 'estado_entrega': 'en_proceso'}, 'out_for_delivery')
@@ -150,6 +150,89 @@ if base:
     # 8. Simulacro sin enviar (enviar=False): arma cuerpos, no POST ni escrituras
     ok, msg, av = correr({**v0, 'estado_entrega': 'en_proceso'}, 'out_for_delivery', enviar=False)
     check(ok is True and len(av) == 2 and not posts and not escrituras, 'enviar=False: solo arma los 2 cuerpos')
+
+if base:
+    from datetime import timedelta, timezone
+    AR = timezone(timedelta(hours=-3))
+    hoy_ar = datetime.now(AR).replace(tzinfo=None)
+
+    # 11. Entrega con fecha anterior (hace 2 días 18:00 AR) sin avisos previos → 3 avisos con esa fecha, en orden
+    fe = (hoy_ar - timedelta(days=2)).replace(hour=18, minute=0, second=0, microsecond=0)
+    ok, msg, av = correr({**v0, 'estado_entrega': 'entregada', 'fecha_entrega': fe}, 'delivered')
+    fechas = [p[1]['payload']['date'][:16] for p in posts]
+    esperado = [(fe - timedelta(minutes=m)).strftime('%Y-%m-%dT%H:%M') for m in (2, 1, 0)]
+    check(ok is True and fechas == esperado, f'entrega con fecha anterior: {fechas}')
+    check(any(p == (fe + timedelta(hours=3), v0['id']) for q, p in escrituras if 'ml_entregado_at=%s' in q),
+          'ml_entregado_at guarda la fecha del evento (UTC)')
+
+    # 12. "En camino" ya informado DESPUÉS de esa fecha → no manda nada y explica
+    ok, msg, av = correr({**v0, 'estado_entrega': 'entregada', 'fecha_entrega': fe,
+                          'ml_despachado_at': datetime.utcnow().replace(microsecond=0)}, 'delivered')
+    check(ok is False and not posts and 'no puede ser anterior' in msg, f'orden respetado: {msg}')
+
+    # 13. "En camino" informado ANTES de esa fecha → manda los 2 que faltan con la fecha elegida
+    ok, msg, av = correr({**v0, 'estado_entrega': 'entregada', 'fecha_entrega': fe,
+                          'ml_despachado_at': fe + timedelta(hours=3) - timedelta(hours=5)}, 'delivered')
+    check(ok is True and [p[1]['payload']['date'][:16] for p in posts] == esperado[1:], 'previo anterior: 2 avisos con la fecha elegida')
+
+    # 14. Entregada recién (fecha_entrega = ahora) → fecha de cada aviso = ahora
+    ok, msg, av = correr({**v0, 'estado_entrega': 'entregada', 'fecha_entrega': hoy_ar}, 'delivered')
+    check(ok is True and all(p[1]['payload']['date'][:13] == datetime.now(AR).strftime('%Y-%m-%dT%H') for p in posts),
+          'entregada hoy: avisos con la hora actual')
+
+# 15. Fecha del formulario
+hoy = (datetime.utcnow() - __import__('datetime').timedelta(hours=3)).date()
+td = __import__('datetime').timedelta
+for valor, esp, nombre in (('', (None, None), 'vacío = hoy'),
+                           (hoy.isoformat(), (None, None), 'hoy = ahora'),
+                           ((hoy - td(days=2)).isoformat(), (f'{hoy - td(days=2)} 18:00:00', None), 'anteayer = 18:00'),
+                           ((hoy + td(days=1)).isoformat(), (None, 'La fecha de entrega no puede ser futura'), 'futura'),
+                           ((hoy - td(days=61)).isoformat(), (None, 'La fecha de entrega es de hace más de 60 días'), '> 60 días'),
+                           ('08/11/2026', (None, 'Fecha de entrega inválida'), 'formato inválido')):
+    with A.app.test_request_context('/', method='POST', data={'fecha_entrega': valor}):
+        r = A.fecha_entrega_desde_form()
+    check(r == esp, f'formulario {nombre}: {r}')
+check(A.entrega_antes_de_venta({'fecha_venta': datetime(2026, 11, 5, 10)}, '2026-11-04 18:00:00')
+      and not A.entrega_antes_de_venta({'fecha_venta': datetime(2026, 11, 5, 10)}, '2026-11-05 18:00:00')
+      and not A.entrega_antes_de_venta({'fecha_venta': datetime(2026, 11, 5, 10)}, None), 'entrega anterior a la venta')
+
+# 16. Selector de fecha en el navegador (Chromium): Hoy por defecto, Ayer, Otra fecha, lote
+from playwright.sync_api import sync_playwright  # noqa: E402
+inc = A.app.jinja_env.get_template('_fecha_entrega.html').render()
+pagina = ('<html><body><div id="modalConfirmacion"><h5 id="modalTitulo"></h5><div id="modalMensaje"></div>'
+          '<button id="btnConfirmar"></button></div><script>let ventaIdActual=null, accionActual=null;'
+          'window.bootstrap={Modal:{getOrCreateInstance:()=>({show(){}})}};'
+          'window._enviado=null; HTMLFormElement.prototype.submit=function(){window._enviado='
+          '{action:this.getAttribute("action"), campos:[...new FormData(this).entries()]}};</script>' + inc + '</body></html>')
+with sync_playwright() as pw:
+    nav = pw.chromium.launch(args=['--no-sandbox'])
+    pag = nav.new_page(viewport={'width': 390, 'height': 844})
+    pag.set_content(pagina)
+    pag.evaluate("abrirEntregaMultiple(['11','12'], '/ventas/proceso/marcar-entregadas-multiple')")
+    hoy_js = pag.eval_on_selector('#fe-fecha', 'e => e.value')
+    check(hoy_js == hoy.isoformat() or hoy_js == (hoy + td(days=1)).isoformat() or hoy_js == (hoy - td(days=1)).isoformat(),
+          f'por defecto Hoy ({hoy_js})')
+    check(pag.locator('#modalTitulo').inner_text() == 'Marcar 2 venta(s) como Entregadas', 'título del lote')
+    pag.click('text=Ayer')
+    ayer_js = pag.eval_on_selector('#fe-fecha', 'e => e.value')
+    pag.evaluate('enviarEntregaMultiple()')
+    env = pag.evaluate('window._enviado')
+    check(env and env['action'].endswith('/ventas/proceso/marcar-entregadas-multiple')
+          and env['campos'] == [['venta_ids', '11'], ['venta_ids', '12'], ['fecha_entrega', ayer_js]],
+          f'lote con Ayer → {env and env["campos"]}')
+    pag.evaluate('window._enviado=null')
+    pag.click('text=Otra fecha')
+    check(pag.is_visible('#fe-otra'), 'Otra fecha muestra el calendario')
+    pag.on('dialog', lambda d: d.accept())
+    pag.evaluate('enviarEntregaMultiple()')
+    check(pag.evaluate('window._enviado') is None, 'Otra fecha sin completar: no envía')
+    pag.fill('#fe-otra', (hoy - td(days=4)).isoformat())
+    pag.evaluate('enviarEntregaMultiple()')
+    env = pag.evaluate('window._enviado')
+    check(env and ['fecha_entrega', (hoy - td(days=4)).isoformat()] in env['campos'], 'Otra fecha elegida va en el form')
+    anchos = pag.evaluate("[...document.querySelectorAll('.fe-opciones .btn')].map(b => Math.round(b.getBoundingClientRect().height))")
+    check(min(anchos) >= 44, f'botones cómodos para el dedo (alto {anchos} px)')
+    nav.close()
 
 # 9. No aplica a otros métodos/canales (consulta real a la base)
 for cond, nombre in (("canal='Mercado Libre' AND metodo_envio='Flex'", 'ML Flex'),
