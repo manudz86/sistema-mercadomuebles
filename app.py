@@ -16209,6 +16209,81 @@ def tienda_suscriptores_exportar():
         headers={'Content-Disposition': 'attachment; filename=suscriptores.csv'})
 
 
+@app.route('/ventas/calendario-entregas')
+@login_required
+def calendario_entregas():
+    """Calendario de promesas de entrega (ventas en Activas y Proceso, por fecha_entrega_estimada).
+    Cada envío se muestra por zona; al tocarlo se ve dirección completa, productos y datos.
+    Solo lectura. ?mes=AAAA-MM (por defecto el mes actual, hora AR)."""
+    import calendar as _cal
+    from datetime import date, timedelta
+    hoy = (datetime.utcnow() - timedelta(hours=3)).date()
+    try:
+        y, m = [int(x) for x in (request.args.get('mes') or '').split('-')]
+        primero = date(y, m, 1)
+    except (ValueError, TypeError):
+        primero = hoy.replace(day=1)
+    ultimo = primero.replace(day=_cal.monthrange(primero.year, primero.month)[1])
+    desde = primero - timedelta(days=primero.weekday())            # lunes de la 1ª semana
+    hasta = ultimo + timedelta(days=6 - ultimo.weekday())          # domingo de la última
+
+    ventas = query_db('''
+        SELECT id, numero_venta, canal, metodo_envio, tipo_entrega, zona_envio, direccion_entrega,
+               nombre_cliente, telefono_cliente, estado_entrega, fecha_entrega_estimada, fecha_venta
+        FROM ventas
+        WHERE estado_entrega IN ('pendiente', 'en_proceso')
+          AND (fecha_entrega_estimada BETWEEN %s AND %s OR fecha_entrega_estimada IS NULL)
+        ORDER BY fecha_entrega_estimada, zona_envio, id
+    ''', (desde, hasta)) or []
+    vencidas_otro_mes = query_one('''
+        SELECT COUNT(*) n, MIN(fecha_entrega_estimada) desde FROM ventas
+        WHERE estado_entrega IN ('pendiente', 'en_proceso') AND fecha_entrega_estimada < %s
+    ''', (min(desde, hoy),)) or {}
+
+    ids = [v['id'] for v in ventas]
+    items = {}
+    if ids:
+        marcas = ','.join(['%s'] * len(ids))
+        for it in query_db(f'''
+                SELECT iv.venta_id, iv.sku, iv.cantidad, COALESCE(pb.nombre, pc.nombre, iv.sku) AS nombre
+                FROM items_venta iv
+                LEFT JOIN productos_base pb ON pb.sku = iv.sku
+                LEFT JOIN productos_compuestos pc ON pc.sku = iv.sku
+                WHERE iv.venta_id IN ({marcas})''', tuple(ids)) or []:
+            items.setdefault(it['venta_id'], []).append(
+                {'sku': it['sku'], 'cantidad': int(it['cantidad'] or 0), 'nombre': it['nombre']})
+
+    def _metodo(v):
+        if (v.get('tipo_entrega') or '').lower() == 'retiro':
+            return 'Retiro'
+        return v.get('metodo_envio') or 'Sin método'
+
+    envios = []
+    for v in ventas:
+        f = v.get('fecha_entrega_estimada')
+        envios.append({
+            'id': v['id'], 'numero': v['numero_venta'], 'canal': v.get('canal') or '',
+            'metodo': _metodo(v), 'zona': (v.get('zona_envio') or '').strip() or 'Sin zona',
+            'direccion': v.get('direccion_entrega') or '', 'cliente': v.get('nombre_cliente') or '',
+            'telefono': v.get('telefono_cliente') or '',
+            'estado': 'Proceso de Envío' if v.get('estado_entrega') == 'en_proceso' else 'Activa',
+            'fecha': f.isoformat() if f else None,
+            'fecha_venta': v['fecha_venta'].strftime('%d/%m/%Y') if v.get('fecha_venta') else '',
+            'items': items.get(v['id'], []),
+        })
+    metodos = sorted({e['metodo'] for e in envios}, key=lambda x: (x != 'Flete Propio', x != 'Retiro', x))
+    semanas = []
+    d = desde
+    while d <= hasta:
+        semanas.append([d + timedelta(days=i) for i in range(7)])
+        d += timedelta(days=7)
+    mes_ant = (primero - timedelta(days=1)).replace(day=1)
+    mes_sig = ultimo + timedelta(days=1)
+    return render_template('calendario_entregas.html', envios=envios, semanas=semanas, primero=primero,
+                           hoy=hoy, metodos=metodos, mes_ant=mes_ant, mes_sig=mes_sig,
+                           vencidas_otro_mes=vencidas_otro_mes)
+
+
 @app.route('/herramientas/corrector-zpl')
 @login_required
 def corrector_zpl():

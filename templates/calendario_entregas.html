@@ -1,0 +1,198 @@
+{% extends 'base.html' %}
+{% block title %}Calendario de entregas{% endblock %}
+{% block content %}
+{% set MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'] %}
+<style>
+  .cal-wrap { max-width: 1400px; }
+  .cal-grid { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:4px; }
+  .cal-head { font-size:.75rem; font-weight:600; color:#6c757d; text-align:center; text-transform:uppercase; padding:4px 0; }
+  .cal-dia { background:#fff; border:1px solid #e3e7ee; border-radius:8px; min-height:110px; padding:4px 5px 6px; }
+  .cal-dia.otro-mes { background:#f6f7f9; }
+  .cal-dia.otro-mes .cal-num { color:#adb5bd; }
+  .cal-dia.hoy { border:2px solid #0d6efd; }
+  .cal-dia.pasado { background:#fbfbfc; }
+  .cal-num { font-size:.8rem; font-weight:700; color:#1a2744; display:flex; justify-content:space-between; }
+  .cal-num .cnt { font-weight:500; color:#6c757d; }
+  .cal-envios { display:flex; flex-direction:column; gap:3px; margin-top:3px; }
+  .chip { display:block; width:100%; text-align:left; border:0; border-left:4px solid var(--z); background:var(--zb);
+          border-radius:5px; padding:3px 6px; font-size:.78rem; line-height:1.2; cursor:pointer; color:#1a2744; }
+  .chip:hover, .chip.sel { filter:brightness(.93); outline:2px solid var(--z); }
+  .chip b { font-weight:700; }
+  .chip small { display:block; color:#555; font-size:.7rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .chip.vencida { box-shadow:inset 0 0 0 1px #dc3545; }
+  .chip .proc { float:right; font-size:.68rem; }
+  .z-Capital { --z:#0d6efd; --zb:#e7f0ff; }
+  .z-Sur { --z:#fd7e14; --zb:#fff1e6; }
+  .z-Oeste { --z:#198754; --zb:#e6f4ec; }
+  .z-Norte-Noroeste { --z:#6f42c1; --zb:#f0eafa; }
+  .z-otra { --z:#6c757d; --zb:#f1f3f5; }
+  .filtro .btn { font-size:.8rem; padding:.2rem .6rem; }
+  .leyenda span { display:inline-block; width:10px; height:10px; border-radius:2px; margin:0 3px 0 10px; background:var(--z); }
+  .sin-fecha .chip { width:auto; min-width:180px; }
+  #panel .dl dt { font-size:.75rem; color:#6c757d; font-weight:500; margin-top:.6rem; }
+  #panel .dl dd { margin:0; }
+  @media (max-width: 767.98px) {
+    .cal-grid { display:block; }
+    .cal-head { display:none; }
+    .cal-dia { min-height:0; margin-bottom:6px; }
+    .cal-dia.vacio, .cal-dia.otro-mes.vacio { display:none; }
+    .cal-num .dow { display:inline; }
+    .chip { padding:8px 10px; font-size:.9rem; }
+  }
+  @media (min-width: 768px) { .cal-num .dow { display:none; } }
+</style>
+
+<div class="container-fluid py-3 cal-wrap">
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+    <h3 class="mb-0 me-2"><i class="bi bi-calendar3"></i> Calendario de entregas</h3>
+    <div class="btn-group">
+      <a class="btn btn-outline-secondary btn-sm" href="?mes={{ mes_ant.strftime('%Y-%m') }}" title="Mes anterior"><i class="bi bi-chevron-left"></i></a>
+      <span class="btn btn-light btn-sm fw-semibold" style="min-width:140px">{{ MESES[primero.month - 1]|capitalize }} {{ primero.year }}</span>
+      <a class="btn btn-outline-secondary btn-sm" href="?mes={{ mes_sig.strftime('%Y-%m') }}" title="Mes siguiente"><i class="bi bi-chevron-right"></i></a>
+    </div>
+    <a class="btn btn-outline-primary btn-sm" href="?">Hoy</a>
+  </div>
+  <p class="text-muted small mb-2">Ventas en <b>Activas</b> y <b>Proceso de Envío</b> según su promesa de entrega. Tocá un envío para ver la dirección y los productos.</p>
+
+  {% if vencidas_otro_mes and vencidas_otro_mes.n %}
+  <div class="alert alert-danger py-2 small">
+    ⚠️ Hay <b>{{ vencidas_otro_mes.n }}</b> venta(s) con promesa vencida antes de lo que se ve acá
+    (desde el {{ vencidas_otro_mes.desde.strftime('%d/%m') }}).
+    <a href="?mes={{ vencidas_otro_mes.desde.strftime('%Y-%m') }}">Ver ese mes</a>
+  </div>
+  {% endif %}
+
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+    <div class="filtro d-flex flex-wrap gap-1" id="filtro"></div>
+    <div class="leyenda small text-muted">
+      <span class="z-Capital"></span>Capital<span class="z-Sur"></span>Sur<span class="z-Oeste"></span>Oeste<span class="z-Norte-Noroeste"></span>Norte-Noroeste<span class="z-otra"></span>Otra
+    </div>
+  </div>
+
+  <div class="cal-grid mb-3">
+    {% for d in ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'] %}<div class="cal-head">{{ d }}</div>{% endfor %}
+    {% for semana in semanas %}{% for dia in semana %}
+    <div class="cal-dia{% if dia.month != primero.month %} otro-mes{% endif %}{% if dia == hoy %} hoy{% elif dia < hoy %} pasado{% endif %}"
+         data-fecha="{{ dia.isoformat() }}">
+      <div class="cal-num">
+        <span><span class="dow">{{ ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'][dia.weekday()] }} </span>{{ dia.day }}{% if dia.day == 1 or loop.first %}/{{ dia.month }}{% endif %}{% if dia == hoy %} · hoy{% endif %}</span>
+        <span class="cnt"></span>
+      </div>
+      <div class="cal-envios"></div>
+    </div>
+    {% endfor %}{% endfor %}
+  </div>
+
+  <div class="sin-fecha card">
+    <div class="card-header py-2 small fw-semibold">Sin promesa de entrega cargada (<span id="n-sin-fecha">0</span>)</div>
+    <div class="card-body py-2 d-flex flex-wrap gap-1" id="sin-fecha"></div>
+  </div>
+</div>
+
+<div class="offcanvas offcanvas-end" tabindex="-1" id="panel" style="width:min(420px, 100vw)">
+  <div class="offcanvas-header pb-0">
+    <h5 class="offcanvas-title" id="p-titulo"></h5>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
+  </div>
+  <div class="offcanvas-body pt-2" id="p-cuerpo"></div>
+</div>
+
+<script>
+(function () {
+  const ENVIOS = {{ envios|tojson }};
+  const METODOS = {{ metodos|tojson }};
+  const HOY = '{{ hoy.isoformat() }}';
+  const ZONAS = ['Capital', 'Sur', 'Oeste', 'Norte-Noroeste'];
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const zClase = z => 'z-' + (ZONAS.includes(z) ? z : 'otra');
+
+  // Localidad corta a partir de la dirección ("Doblas 716, Castelar" → "Castelar")
+  function localidad(dir) {
+    const partes = String(dir || '').split(',').map(p => p.replace(/\bCP\s*\w+/i, '').trim()).filter(Boolean);
+    for (let i = partes.length - 1; i > 0; i--) {
+      if (!/^(capital federal|caba|ciudad aut[oó]noma|buenos aires|provincia de buenos aires|argentina)$/i.test(partes[i])) return partes[i];
+    }
+    return partes.length > 1 ? partes[partes.length - 1] : '';
+  }
+
+  // Filtro por método (se recuerda en este navegador). Por defecto: Flete Propio y Retiro.
+  let activos;
+  try { activos = JSON.parse(localStorage.getItem('cal_entregas_metodos') || 'null'); } catch (e) { activos = null; }
+  if (!Array.isArray(activos) || !activos.some(m => METODOS.includes(m))) {
+    activos = METODOS.filter(m => m === 'Flete Propio' || m === 'Retiro');
+    if (!activos.length) activos = METODOS.slice();
+  }
+  function guardar() { try { localStorage.setItem('cal_entregas_metodos', JSON.stringify(activos)); } catch (e) {} }
+
+  function pintarFiltro() {
+    const cont = document.getElementById('filtro');
+    const n = m => ENVIOS.filter(e => e.metodo === m).length;
+    cont.innerHTML = METODOS.map(m => `<button type="button" class="btn ${activos.includes(m) ? 'btn-dark' : 'btn-outline-secondary'}"
+        data-m="${esc(m)}">${esc(m)} <span class="opacity-75">${n(m)}</span></button>`).join('') +
+      `<button type="button" class="btn btn-link btn-sm" data-m="*">Todos</button>`;
+    cont.querySelectorAll('button').forEach(b => b.onclick = () => {
+      const m = b.dataset.m;
+      if (m === '*') activos = activos.length === METODOS.length ? ['Flete Propio'] : METODOS.slice();
+      else activos = activos.includes(m) ? activos.filter(x => x !== m) : activos.concat([m]);
+      guardar(); pintarFiltro(); pintar();
+    });
+  }
+
+  function chip(e) {
+    const venc = e.fecha && e.fecha < HOY;
+    const extra = activos.length > 1 && e.metodo !== 'Flete Propio' ? ' · ' + e.metodo : '';
+    return `<button type="button" class="chip ${zClase(e.zona)}${venc ? ' vencida' : ''}" data-id="${e.id}"
+        title="${esc(e.numero)} — ${esc(e.cliente)}">${e.estado !== 'Activa' ? '<span class="proc" title="En Proceso de Envío">🚚</span>' : ''}
+        <b>${esc(e.zona)}</b>${esc(extra)}<small>${esc(localidad(e.direccion) || e.cliente)}</small></button>`;
+  }
+
+  function pintar() {
+    const vis = ENVIOS.filter(e => activos.includes(e.metodo));
+    document.querySelectorAll('.cal-dia').forEach(celda => {
+      const del = vis.filter(e => e.fecha === celda.dataset.fecha);
+      celda.querySelector('.cal-envios').innerHTML = del.map(chip).join('');
+      celda.querySelector('.cnt').textContent = del.length ? del.length + (del.length === 1 ? ' envío' : ' envíos') : '';
+      celda.classList.toggle('vacio', !del.length);
+    });
+    const sin = vis.filter(e => !e.fecha);
+    document.getElementById('n-sin-fecha').textContent = sin.length;
+    document.getElementById('sin-fecha').innerHTML = sin.map(chip).join('') || '<span class="text-muted small">—</span>';
+    document.querySelectorAll('.chip').forEach(c => c.onclick = () => abrir(+c.dataset.id, c));
+  }
+
+  function abrir(id, el) {
+    const e = ENVIOS.find(x => x.id === id);
+    if (!e) return;
+    document.querySelectorAll('.chip.sel').forEach(c => c.classList.remove('sel'));
+    if (el) el.classList.add('sel');
+    const fecha = e.fecha ? e.fecha.split('-').reverse().join('/') : 'sin fecha';
+    const venc = e.fecha && e.fecha < HOY;
+    const maps = e.direccion ? 'https://www.google.com/maps/search/?api=1&query=' +
+      encodeURIComponent(e.direccion + (e.zona === 'Capital' ? ', ciudad autonoma de buenos aires' : '')) : '';
+    document.getElementById('p-titulo').innerHTML = `<span class="badge ${zClase(e.zona)}" style="background:var(--z)">${esc(e.zona)}</span> ${esc(e.numero)}`;
+    document.getElementById('p-cuerpo').innerHTML = `
+      <dl class="dl mb-0">
+        <dt>Dirección</dt>
+        <dd class="fs-6 fw-semibold">${esc(e.direccion) || '<span class="text-muted">sin dirección</span>'}
+          ${maps ? `<a class="btn btn-sm btn-outline-primary ms-1 py-0" target="_blank" href="${maps}"><i class="bi bi-geo-alt-fill"></i> Maps</a>` : ''}</dd>
+        <dt>Productos</dt>
+        <dd>${e.items.length ? e.items.map(i => `<div><b>${i.cantidad}×</b> ${esc(i.nombre)} <span class="text-muted small">${esc(i.sku)}</span></div>`).join('') : '—'}</dd>
+        <dt>Cliente</dt>
+        <dd>${esc(e.cliente)}${e.telefono ? ` · <a href="tel:${esc(e.telefono)}">${esc(e.telefono)}</a>` : ''}</dd>
+        <dt>Promesa de entrega</dt>
+        <dd class="${venc ? 'text-danger fw-semibold' : ''}">${fecha}${venc ? ' — vencida' : ''}</dd>
+        <dt>Envío</dt>
+        <dd>${esc(e.metodo)} · ${esc(e.canal)} · ${esc(e.estado)} · vendida el ${esc(e.fecha_venta)}</dd>
+      </dl>
+      <div class="mt-3 d-flex gap-2">
+        <a class="btn btn-sm btn-outline-dark" href="${e.estado === 'Activa' ? '/ventas/activas' : '/ventas/proceso'}?buscar=${encodeURIComponent(e.numero)}">Ver en ${esc(e.estado)}</a>
+        ${['Flete Propio', 'Flex', 'Turbo'].includes(e.metodo) || e.metodo === 'Delega' ? `<a class="btn btn-sm btn-outline-secondary" target="_blank" href="/ventas/${e.id}/papel-azul">🖨️ Papel azul</a>` : ''}
+      </div>`;
+    if (window.bootstrap && bootstrap.Offcanvas) bootstrap.Offcanvas.getOrCreateInstance(document.getElementById('panel')).show();
+  }
+
+  pintarFiltro();
+  pintar();
+})();
+</script>
+{% endblock %}
