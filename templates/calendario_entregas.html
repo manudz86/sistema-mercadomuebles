@@ -180,7 +180,14 @@
         <dt>Cliente</dt>
         <dd>${esc(e.cliente)}${e.telefono ? ` · <a href="tel:${esc(e.telefono)}">${esc(e.telefono)}</a>` : ''}</dd>
         <dt>Promesa de entrega</dt>
-        <dd class="${venc ? 'text-danger fw-semibold' : ''}">${fecha}${venc ? ' — vencida' : ''}</dd>
+        <dd class="${venc ? 'text-danger fw-semibold' : ''}">${fecha}${venc ? ' — vencida' : ''}
+          ${e.canal !== 'Mercado Libre' ? `
+          <form method="post" action="/ventas/${e.id}/promesa-entrega" class="d-flex gap-1 mt-1" id="f-promesa">
+            <input type="hidden" name="volver" value="${esc(location.pathname + location.search)}">
+            <input type="date" name="fecha_entrega_estimada" class="form-control form-control-sm" style="max-width:11rem" value="${e.fecha || ''}">
+            <button class="btn btn-sm btn-primary">Cambiar</button>
+            ${e.fecha ? `<button type="submit" class="btn btn-sm btn-outline-secondary" onclick="this.form.fecha_entrega_estimada.value=''">Quitar</button>` : ''}
+          </form>` : '<div class="small text-muted">La fija Mercado Libre</div>'}</dd>
         <dt>Envío</dt>
         <dd>${esc(e.metodo)} · ${esc(e.canal)} · ${esc(e.estado)} · vendida el ${esc(e.fecha_venta)}</dd>
       </dl>

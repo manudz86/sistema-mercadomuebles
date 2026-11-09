@@ -2710,6 +2710,33 @@ def calcular_fecha_demora(dias):
     return fecha.strftime('%d/%m/%Y')
 
 
+def promesa_entrega_web(cli, fecha_venta):
+    """Fecha de entrega que se le mostró al cliente antes de pagar (para ventas.fecha_entrega_estimada).
+    - Con demora (sin stock): lo mismo que muestra el carrito: venta + demora + días del cotizador (corridos).
+    - Envío sin demora: venta + días hábiles del cotizador (sáb/dom no cuentan), como dice "N días hábiles".
+    - Retiro: con demora, la fecha de disponibilidad; sin demora, sin promesa.
+    Devuelve date o None. Nunca levanta excepción."""
+    try:
+        base = fecha_venta.date() if hasattr(fecha_venta, 'date') else fecha_venta
+        demora = int(cli.get('demora_dias') or 0)
+        if cli.get('tipo_entrega') == 'retiro':
+            return base + timedelta(days=demora) if demora else None
+        dias = str((cli.get('zipnova_quote') or {}).get('dias') or '')
+        if not dias.isdigit():
+            return base + timedelta(days=demora) if demora else None
+        dias = int(dias)
+        if demora:
+            return base + timedelta(days=demora + dias)
+        f = base
+        while dias > 0:
+            f += timedelta(days=1)
+            if f.weekday() < 5:
+                dias -= 1
+        return f
+    except Exception:
+        return None
+
+
 def get_stock_disponible_sku(cursor, sku):
     """
     Stock disponible = (stock_actual + stock_full) - vendido en ventas pendientes.
@@ -7308,14 +7335,16 @@ def pago_payway():
             metodo_pago, tipo_entrega, metodo_envio,
             direccion_entrega, estado_pago, estado_entrega,
             estado, costo_flete, pago_mercadopago,
-            stock_descontado, notas, origen_first, origen_last, fecha_venta, fecha_registro
+            stock_descontado, notas, origen_first, origen_last, fecha_venta, fecha_registro,
+            fecha_entrega_estimada
         ) VALUES (
             %s, 'tienda_web', %s, %s,
             %s, %s, %s, %s,
             'Payway', %s, %s,
             %s, 'pagado', 'pendiente',
             'ACTIVA', %s, 0,
-            0, %s, %s, %s, %s, %s
+            0, %s, %s, %s, %s, %s,
+            %s
         )
     """, (
         numero_venta,
@@ -7326,6 +7355,7 @@ def pago_payway():
         direccion,
         costo_flete_adj,  # flete tambien con coef embebido
         notas_extra, _origen_first, _origen_last, fecha_now, fecha_now,
+        promesa_entrega_web(cli, fecha_now),
     ))
     venta_id = cur2.lastrowid
 
@@ -9233,7 +9263,7 @@ def webhook_mp():
             tipo_entrega_val, metodo_envio_val,
             direccion,
             costo_flete, importe_abonado_real,
-            fecha_entrega, notas_extra,
+            fecha_entrega or promesa_entrega_web(cli, fecha_now), notas_extra,
             cli.get('_origen_first'), cli.get('_origen_last'),
             fecha_now, fecha_now,
         ))
@@ -9598,14 +9628,16 @@ def webhook_getnet():
                 metodo_pago, tipo_entrega, metodo_envio,
                 direccion_entrega, estado_pago, estado_entrega,
                 estado, costo_flete, pago_mercadopago,
-                stock_descontado, notas, origen_first, origen_last, fecha_venta, fecha_registro
+                stock_descontado, notas, origen_first, origen_last, fecha_venta, fecha_registro,
+                fecha_entrega_estimada
             ) VALUES (
                 %s, 'tienda_web', %s, %s,
                 %s, %s, %s, %s,
                 'GetNet', %s, %s,
                 %s, 'pagado', 'pendiente',
                 'ACTIVA', %s, 0,
-                0, %s, %s, %s, %s, %s
+                0, %s, %s, %s, %s, %s,
+                %s
             )
         """, (
             numero_venta,
@@ -9616,6 +9648,7 @@ def webhook_getnet():
             direccion,
             costo_flete_adj,
             notas_extra, cli.get('_origen_first'), cli.get('_origen_last'), fecha_now, fecha_now,
+            promesa_entrega_web(cli, fecha_now),
         ))
         venta_id = cursor.lastrowid
 

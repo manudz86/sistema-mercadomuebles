@@ -4063,7 +4063,16 @@ def editar_venta(venta_id):
             estado_pago, notas,
             venta_id
         ))
-        
+
+        # Promesa de entrega: solo si el form la trae (las ventas de ML no la muestran: la fija ML)
+        if 'fecha_entrega_estimada' in request.form and canal != 'Mercado Libre':
+            promesa_entrega, _err_promesa = promesa_entrega_desde_form()
+            if _err_promesa:
+                flash(f'⚠️ {_err_promesa}: no se cambió la promesa', 'warning')
+            else:
+                cursor.execute('UPDATE ventas SET fecha_entrega_estimada = %s WHERE id = %s',
+                               (promesa_entrega, venta_id))
+
         # ========================================
         # 5. DETECTAR ALERTAS (Solo si cambiaron items)
         # ========================================
@@ -5270,6 +5279,23 @@ def fecha_entrega_desde_form():
     if d == hoy:
         return None, None
     return f'{d:%Y-%m-%d} 18:00:00', None
+
+
+def promesa_entrega_desde_form():
+    """Lee 'fecha_entrega_estimada' (AAAA-MM-DD, opcional) del formulario de venta.
+    Devuelve (date|None, error|None). Vacío = sin promesa. Rango razonable: ±1 año."""
+    from datetime import timedelta
+    txt = (request.form.get('fecha_entrega_estimada') or '').strip()
+    if not txt:
+        return None, None
+    try:
+        d = datetime.strptime(txt, '%Y-%m-%d').date()
+    except ValueError:
+        return None, 'Fecha de promesa de entrega inválida'
+    hoy = (datetime.utcnow() - timedelta(hours=3)).date()
+    if abs((d - hoy).days) > 366:
+        return None, 'La promesa de entrega está a más de un año'
+    return d, None
 
 
 def entrega_antes_de_venta(venta, fecha_sql):
@@ -7226,6 +7252,10 @@ def guardar_venta():
         notas = request.form.get('notas', '')
         estado_entrega = 'pendiente'
         estado_pago = 'pago_pendiente' if importe_abonado < importe_total else 'pagado'
+        # Promesa de entrega (opcional; vacía = sin promesa). Fecha inválida → se ignora y avisa.
+        promesa_entrega, _err_promesa = promesa_entrega_desde_form()
+        if _err_promesa:
+            flash(f'⚠️ {_err_promesa}: la venta se guardó sin promesa', 'warning')
         
         # ========================================
         # 7. INSERTAR VENTA
@@ -7241,10 +7271,10 @@ def guardar_venta():
                 estado_entrega, estado_pago, notas,
                 factura_business_name, factura_doc_type, factura_doc_number,
                 factura_taxpayer_type, factura_city, factura_street,
-                factura_state, factura_zip_code
+                factura_state, factura_zip_code, fecha_entrega_estimada
             ) VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
         ''', (
             numero_venta, fecha_venta, canal, mla_code,
@@ -7261,9 +7291,10 @@ def guardar_venta():
             billing_info['city'],
             billing_info['street'],
             billing_info['state'],
-            billing_info['zip_code']
+            billing_info['zip_code'],
+            promesa_entrega
         ))
-        
+
         venta_id = cursor.lastrowid
         
         # ========================================
@@ -16282,6 +16313,31 @@ def calendario_entregas():
     return render_template('calendario_entregas.html', envios=envios, semanas=semanas, primero=primero,
                            hoy=hoy, metodos=metodos, mes_ant=mes_ant, mes_sig=mes_sig,
                            vencidas_otro_mes=vencidas_otro_mes)
+
+
+@app.route('/ventas/<int:venta_id>/promesa-entrega', methods=['POST'])
+@login_required
+def cambiar_promesa_entrega(venta_id):
+    """Cambia (o borra) la promesa de entrega de una venta no-ML en Activas o Proceso.
+    Las de ML no se tocan: su promesa la fija ML."""
+    volver = request.form.get('volver') or url_for('calendario_entregas')
+    if not volver.startswith('/'):
+        volver = url_for('calendario_entregas')
+    filas = query_db("SELECT id, numero_venta, canal, estado_entrega FROM ventas WHERE id=%s", (venta_id,))
+    v = filas[0] if filas else None
+    if not v or v['estado_entrega'] not in ('pendiente', 'en_proceso'):
+        flash('⚠️ La venta no está en Activas ni en Proceso de Envío', 'warning')
+        return redirect(volver)
+    if v['canal'] == 'Mercado Libre':
+        flash('⚠️ La promesa de las ventas de Mercado Libre la fija ML', 'warning')
+        return redirect(volver)
+    fecha, error = promesa_entrega_desde_form()
+    if error:
+        flash(f'⚠️ {error}', 'warning')
+        return redirect(volver)
+    execute_db("UPDATE ventas SET fecha_entrega_estimada=%s WHERE id=%s", (fecha, venta_id))
+    flash(f"✅ {v['numero_venta']}: promesa de entrega " + (f'{fecha:%d/%m/%Y}' if fecha else 'quitada'), 'success')
+    return redirect(volver)
 
 
 @app.route('/herramientas/corrector-zpl')

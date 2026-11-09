@@ -181,6 +181,21 @@
                            value="{{ venta.responsable_entrega or '' }}" 
                            placeholder="Nombre de quien entrega">
                 </div>
+                <div class="col-md-6">
+                    <label class="form-label">Promesa de entrega</label>
+                    {% if venta.canal == 'Mercado Libre' %}
+                    <input type="text" class="form-control" disabled
+                           value="{{ venta.fecha_entrega_estimada.strftime('%d/%m/%Y') if venta.fecha_entrega_estimada else 'Sin promesa' }} (la fija Mercado Libre)">
+                    {% else %}
+                    <div class="input-group">
+                        <input type="date" class="form-control" name="fecha_entrega_estimada" id="promesaEntrega"
+                               value="{{ venta.fecha_entrega_estimada.isoformat() if venta.fecha_entrega_estimada else '' }}">
+                        <button type="button" class="btn btn-outline-secondary" title="Quitar promesa"
+                                onclick="document.getElementById('promesaEntrega').value=''">Sin promesa</button>
+                    </div>
+                    <small class="text-muted">Vacío = sin promesa de entrega</small>
+                    {% endif %}
+                </div>
             </div>
         </div>
     </div>
