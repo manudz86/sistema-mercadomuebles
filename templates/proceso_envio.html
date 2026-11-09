@@ -316,7 +316,7 @@
                     <input type="checkbox" 
                            class="form-check-input venta-checkbox" autocomplete="off" 
                            value="{{ venta.id }}"
-                           onchange="actualizarContador()">
+                           onchange="sincronizarGemela(this)">
                 </td>
                 
                 <!-- FECHA -->
@@ -518,7 +518,7 @@
              style="background: #e8f4f8;">
             <div class="d-flex align-items-center gap-2">
                 <input type="checkbox" class="form-check-input venta-checkbox" autocomplete="off"
-                       value="{{ venta.id }}" onchange="actualizarContador()">
+                       value="{{ venta.id }}" onchange="sincronizarGemela(this)">
                 <div>
                     <strong style="font-size:0.85rem;">{{ venta.numero_venta }}</strong>
                     <span class="ms-1" style="font-size:0.65rem;">
@@ -784,15 +784,29 @@ function toggleSelectAll(checkbox) {
     actualizarContador();
 }
 
+// Cada venta tiene DOS checkboxes (tabla de PC + card de celular, una de las dos oculta).
+// Al tildar/destildar una, se copia a su gemela: si no, destildar en la tabla dejaba tildada
+// la oculta del celular y la venta se mandaba igual (bug lote "Entregadas" 09/11).
+function sincronizarGemela(el) {
+    document.querySelectorAll('.venta-checkbox[value="' + el.value + '"]').forEach(cb => { cb.checked = el.checked; });
+    actualizarContador();
+}
+
+// IDs tildados, sin repetir
+function idsSeleccionados() {
+    return [...new Set(Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value))];
+}
+
 function actualizarContador() {
-    const checkboxes = document.querySelectorAll('.venta-checkbox:checked');
-    const count = checkboxes.length;
-    
+    const count = idsSeleccionados().length;
+
     document.getElementById('contadorSeleccionadas').textContent = count;
     document.getElementById('accionesMultiples').style.display = count > 0 ? 'block' : 'none';
-    
-    const allCheckboxes = document.querySelectorAll('.venta-checkbox');
-    document.getElementById('selectAll').checked = count === allCheckboxes.length && count > 0;
+
+    const total = new Set(Array.from(document.querySelectorAll('.venta-checkbox')).map(cb => cb.value)).size;
+    document.getElementById('selectAll').checked = count === total && count > 0;
+    const selM = document.getElementById('selectAllMobile');
+    if (selM) selM.checked = count === total && count > 0;
 }
 
 function limpiarSeleccion() {
@@ -802,7 +816,7 @@ function limpiarSeleccion() {
 }
 
 function volverActivasMultiple() {
-    const ids = Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value);
+    const ids = idsSeleccionados();
     
     if (ids.length === 0) {
         alert('Seleccioná al menos una venta');
@@ -831,7 +845,7 @@ function volverActivasMultiple() {
 }
 
 function marcarEntregadasMultiple() {
-    const ids = Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value);
+    const ids = idsSeleccionados();
     
     if (ids.length === 0) {
         alert('Seleccioná al menos una venta');
@@ -843,7 +857,7 @@ function marcarEntregadasMultiple() {
 }
 
 function cancelarMultiple() {
-    const ids = Array.from(document.querySelectorAll('.venta-checkbox:checked')).map(cb => cb.value);
+    const ids = idsSeleccionados();
     
     if (ids.length === 0) {
         alert('Seleccioná al menos una venta');
