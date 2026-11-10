@@ -31,8 +31,10 @@ def check(cond, msg):
 casos = [
     ({'canal': 'Mercado Libre', 'metodo_envio': 'Full'}, True),
     ({'canal': 'Mercado Libre', 'metodo_envio': 'Colecta'}, True),
-    ({'canal': 'Mercado Libre', 'metodo_envio': 'Flex'}, False),
-    ({'canal': 'Mercado Libre', 'metodo_envio': 'Delega'}, False),
+    ({'canal': 'Mercado Libre', 'metodo_envio': 'Flex'}, True),
+    ({'canal': 'Mercado Libre', 'metodo_envio': 'Delega'}, True),
+    ({'canal': 'Mercado Libre', 'metodo_envio': 'Zippin'}, False),
+    ({'canal': 'tienda_web', 'metodo_envio': 'Delega'}, False),
     ({'canal': 'Mercado Libre', 'metodo_envio': 'Flete Propio'}, False),
     ({'canal': 'Mercado Libre', 'metodo_envio': 'Turbo'}, False),
     ({'canal': 'Mercado Libre', 'metodo_envio': None}, False),
@@ -45,15 +47,17 @@ for v, esperado in casos:
 ventas = [
     {'id': 1, 'canal': 'Mercado Libre', 'metodo_envio': 'Full'},
     {'id': 2, 'canal': 'Mercado Libre', 'metodo_envio': 'Colecta'},
-    {'id': 3, 'canal': 'Mercado Libre', 'metodo_envio': 'Flex'},
-    {'id': 4, 'canal': 'tienda_web', 'metodo_envio': 'Flete Propio'},
+    {'id': 3, 'canal': 'Mercado Libre', 'metodo_envio': 'Flete Propio'},
+    {'id': 4, 'canal': 'tienda_web', 'metodo_envio': 'Delega'},
+    {'id': 5, 'canal': 'Mercado Libre', 'metodo_envio': 'Delega'},
+    {'id': 6, 'canal': 'Mercado Libre', 'metodo_envio': 'Flex'},
 ]
 with A.app.app_context():
     tpl = A.app.jinja_env.get_template('_fecha_entrega.html')
     html = tpl.render(ventas=ventas)
     linea = next(l for l in html.splitlines() if 'VENTAS_SIN_FECHA = new Set' in l)
-    check("'1'," in linea and "'2'," in linea, 'Set incluye Full y Colecta')
-    check("'3'," not in linea and "'4'," not in linea, 'Set excluye Flex y tienda web')
+    check(all(f"'{i}'," in linea for i in (1, 2, 5, 6)), 'Set incluye Full, Colecta, Delega y Flex de ML')
+    check("'3'," not in linea and "'4'," not in linea, 'Set excluye Flete Propio y tienda web (aunque sea Delega)')
     html_vacio = tpl.render()
     check('new Set([])' in html_vacio, 'sin ventas en el contexto: Set vacío, no rompe')
 
