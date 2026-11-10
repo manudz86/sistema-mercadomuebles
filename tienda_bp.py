@@ -7853,6 +7853,57 @@ def getnet_webhook():
     return jsonify(ok=True), 200
 
 
+CUPON_PRUEBA_PREFIJO = 'DESCMMD'   # cupones internos de prueba (DESCMMD80 / DESCMMD90)
+
+
+def _es_prueba_interna(numero_venta):
+    """True si la compra es una prueba interna: cupón DESCMMD* en la sesión del comprador
+    o registrado para esa venta en cupones_uso. Nunca se decide por importe.
+    Se usa para NO mandar la compra a GA4 desde la página de éxito."""
+    try:
+        cup = session.get('cupon') or {}
+        if str(cup.get('codigo') or '').upper().startswith(CUPON_PRUEBA_PREFIJO):
+            return True
+    except Exception:
+        pass
+    if not numero_venta:
+        return False
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("SELECT c.codigo FROM cupones_uso cu JOIN cupones c ON c.id = cu.cupon_id "
+                    "WHERE cu.venta_numero = %s", (numero_venta,))
+        filas = cur.fetchall()
+        cur.close(); db.close()
+        return any(str(f['codigo'] or '').upper().startswith(CUPON_PRUEBA_PREFIJO) for f in filas)
+    except Exception as e:
+        logger.warning(f'[pago_exito] no pude ver el cupón de {numero_venta}: {e}')
+        return False
+
+
+def _ga_items_venta(numero_venta):
+    """Items de la venta para el purchase de GA4 (mismo formato que /pago/exito)."""
+    if not numero_venta:
+        return []
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("""
+            SELECT iv.sku, iv.cantidad, iv.precio_unitario, COALESCE(pb.nombre, pc.nombre, iv.sku) AS nombre
+            FROM ventas v
+            JOIN items_venta iv ON iv.venta_id = v.id
+            LEFT JOIN productos_base pb ON pb.sku = iv.sku
+            LEFT JOIN productos_compuestos pc ON pc.sku = iv.sku
+            WHERE v.numero_venta = %s
+        """, (numero_venta,))
+        filas = cur.fetchall()
+        cur.close(); db.close()
+        return [{'item_id': r['sku'], 'item_name': r['nombre'],
+                 'price': float(r['precio_unitario'] or 0), 'quantity': int(r['cantidad'] or 1)}
+                for r in filas]
+    except Exception as e:
+        logger.warning(f'[pago_exito_getnet] no pude leer items de {numero_venta}: {e}')
+        return []
+
+
 @tienda_bp.route('/pago/exito-getnet/<pedido_ref>', methods=['GET'])
 def pago_exito_getnet(pedido_ref):
     """Página de éxito específica para GetNet con pedido_ref en el path.
@@ -7884,6 +7935,8 @@ def pago_exito_getnet(pedido_ref):
         payment_id=pedido_ref,
         numero_pedido=numero_pedido,
         ga_value=ga_value,
+        ga_items=_ga_items_venta(numero_pedido) if importe_abonado > 0 else [],
+        es_prueba=_es_prueba_interna(numero_pedido),
         importe_abonado=importe_abonado,
     )
 
@@ -7956,6 +8009,8 @@ def pago_exito():
             payment_id=payment_id or '',
             numero_pedido=numero_pedido,
             ga_value=ga_value,
+            ga_items=_ga_items_venta(numero_pedido) if importe_abonado_gn > 0 else [],
+            es_prueba=_es_prueba_interna(numero_pedido),
             importe_abonado=importe_abonado_gn,
         )
 
@@ -8046,6 +8101,7 @@ def pago_exito():
         importe_abonado = importe_abonado,
         numero_venta  = numero_venta,
         pago_en_proceso = pago_en_proceso,
+        es_prueba     = _es_prueba_interna(numero_venta),
     )
 
 

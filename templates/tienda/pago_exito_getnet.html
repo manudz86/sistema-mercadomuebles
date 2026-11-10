@@ -5,14 +5,49 @@
 <script>
 // Si estamos dentro de un iframe (caso GetNet desktop), escapar al window
 // principal para mostrar la página de confirmación a pantalla completa.
+// Si el escape funciona, la medición se hace en la ventana principal (no acá,
+// donde se perdería). Si el navegador lo bloquea, se mide igual dentro del iframe.
+window.__getnetEscapando = false;
 if (window.self !== window.top) {
-  window.top.location.href = window.location.href;
+  try {
+    window.top.location.href = window.location.href;
+    window.__getnetEscapando = true;
+  } catch(e) {}
 }
 </script>
 
 {% if numero_pedido %}
 <script>
-(function(){
+function __medirCompraGetnet(){
+
+  // GA4 (antes faltaba en GetNet): misma lógica que pago_exito.html — la marca se graba
+  // cuando GA4 confirma el envío; pruebas internas (cupón DESCMMD*) no van a GA4.
+  {% if not es_prueba and ga_value and ga_value > 0 %}
+  try {
+    var kGa = 'ga4_purchase_' + {{ numero_pedido | tojson }};
+    var gaHecho = false;
+    try { gaHecho = !!localStorage.getItem(kGa); } catch(e) {}
+    if (!gaHecho) {
+      gtag('event', 'purchase', {
+        transaction_id: {{ numero_pedido | tojson }},
+        currency: 'ARS',
+        value: {{ ga_value | int }},
+        items: [
+          {% for item in ga_items or [] %}
+          {
+            item_id:   {{ item.item_id | tojson }},
+            item_name: {{ item.item_name | tojson }},
+            price:     {{ item.price | int }},
+            quantity:  {{ item.quantity | int }}
+          }{% if not loop.last %},{% endif %}
+          {% endfor %}
+        ],
+        event_callback: function() { try { localStorage.setItem(kGa, '1'); } catch(e) {} }
+      });
+    }
+  } catch(e) {}
+  {% endif %}
+
   try {
     var k = 'fb_purchase_' + '{{ numero_pedido }}';
     if (localStorage.getItem(k)) return;   // ya disparó para esta venta
@@ -35,7 +70,12 @@ if (window.self !== window.top) {
       currency: 'ARS'
     }, { eventID: '{{ numero_pedido }}' });
   } catch(e) {}
-})();
+}
+// Dentro del iframe con escape en curso: esperar. Si la ventana principal navegó,
+// este iframe ya no existe y el timer no corre (se mide allá). Si el navegador
+// bloqueó el escape sin avisar, a los 2,5 s se mide acá para no perder la compra.
+if (window.__getnetEscapando) { setTimeout(__medirCompraGetnet, 2500); }
+else { __medirCompraGetnet(); }
 </script>
 {% endif %}
 

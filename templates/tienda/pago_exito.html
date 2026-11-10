@@ -5,28 +5,40 @@
 {% if payment_id %}
 <script>
 (function(){
+  // GA4: marca propia que se graba recién cuando GA4 confirma el envío (event_callback).
+  // Si el envío falla o gtag está bloqueado, la marca no queda y una recarga lo reintenta
+  // (GA4 deduplica por transaction_id). Las pruebas internas (cupón DESCMMD*) no van a GA4.
+  {% if not es_prueba %}
+  try {
+    var kGa = 'ga4_purchase_' + '{{ numero_venta }}';
+    var gaHecho = false;
+    try { gaHecho = !!localStorage.getItem(kGa); } catch(e) {}
+    if (!gaHecho) {
+      gtag('event', 'purchase', {
+        transaction_id: '{{ numero_venta }}',
+        currency: 'ARS',
+        value: {{ ga_value | int }},
+        items: [
+          {% for item in ga_items %}
+          {
+            item_id:   '{{ item.item_id }}',
+            item_name: '{{ item.item_name }}',
+            price:     {{ item.price | int }},
+            quantity:  {{ item.quantity }},
+          }{% if not loop.last %},{% endif %}
+          {% endfor %}
+        ],
+        event_callback: function() { try { localStorage.setItem(kGa, '1'); } catch(e) {} }
+      });
+    }
+  } catch(e) {}
+  {% endif %}
+
+  // Meta (Pixel + dataLayer para GTM): igual que antes, una vez por venta.
   try {
     var k = 'fb_purchase_' + '{{ numero_venta }}';
     if (localStorage.getItem(k)) return;   // ya disparó para esta venta
     localStorage.setItem(k, '1');
-  } catch(e) {}
-
-  try {
-    gtag('event', 'purchase', {
-      transaction_id: '{{ numero_venta }}',
-      currency: 'ARS',
-      value: {{ ga_value | int }},
-      items: [
-        {% for item in ga_items %}
-        {
-          item_id:   '{{ item.item_id }}',
-          item_name: '{{ item.item_name }}',
-          price:     {{ item.price | int }},
-          quantity:  {{ item.quantity }},
-        }{% if not loop.last %},{% endif %}
-        {% endfor %}
-      ]
-    });
   } catch(e) {}
 
   try {
