@@ -8,6 +8,9 @@
   .fe-opciones .btn small { display:block; font-size:.78rem; opacity:.85; }
 </style>
 <script>
+// Ventas ML Full / Colecta (ME2): la entrega la sigue ML → sin selector de fecha.
+// Misma regla que entrega_sin_fecha() en app.py (que es la que manda: ignora la fecha si llega).
+window.VENTAS_SIN_FECHA = new Set([{% for v in (ventas or []) %}{% if v.canal == 'Mercado Libre' and v.metodo_envio in ('Full', 'Colecta') %}'{{ v.id }}',{% endif %}{% endfor %}]);
 (function () {
   const DIAS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
   function iso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
@@ -30,6 +33,15 @@
         <input type="hidden" id="fe-fecha" value="${iso(hoy)}">
         <div class="form-text">Si es de un día anterior, a Mercado Libre se le informa esa fecha como entrega.</div>
       </div>`;
+  };
+
+  const NOTA_SIN_FECHA = `<div class="alert alert-secondary py-2 mt-3 mb-0">
+      <i class="bi bi-truck"></i> Full / Colecta: la entrega la sigue Mercado Libre, no hace falta elegir fecha.</div>`;
+  window.ventaSinFecha = function (id) { return window.VENTAS_SIN_FECHA.has(String(id)); };
+
+  // Cartel individual: selector de fecha, salvo Full / Colecta
+  window.htmlFechaEntregaVenta = function (id) {
+    return ventaSinFecha(id) ? NOTA_SIN_FECHA : htmlFechaEntrega();
   };
 
   window.elegirFechaEntrega = function (btn, otra) {
@@ -65,9 +77,17 @@
     accionActual = 'entregadas_multiple';
     window._feLote = { ids: ids, url: url };
     document.getElementById('modalTitulo').textContent = `Marcar ${ids.length} venta(s) como Entregadas`;
+    const nSin = ids.filter(ventaSinFecha).length;
+    let bloqueFecha;
+    if (nSin === ids.length) {
+      bloqueFecha = NOTA_SIN_FECHA;                       // todas Full / Colecta: sin selector
+    } else {
+      bloqueFecha = htmlFechaEntrega() + (nSin ? `<div class="form-text text-secondary">La fecha elegida no se aplica a
+          ${nSin} venta(s) Full / Colecta: quedan con la fecha de hoy.</div>` : '');
+    }
     document.getElementById('modalMensaje').innerHTML =
       `<p>¿Confirmar que las <strong>${ids.length}</strong> venta(s) seleccionadas fueron entregadas?</p>` +
-      (aviso ? `<div class="alert alert-warning py-2">${aviso}</div>` : '') + htmlFechaEntrega();
+      (aviso ? `<div class="alert alert-warning py-2">${aviso}</div>` : '') + bloqueFecha;
     const cm = document.getElementById('campoMotivo');
     if (cm) cm.style.display = 'none';
     const btn = document.getElementById('btnConfirmar');

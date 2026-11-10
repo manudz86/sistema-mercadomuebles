@@ -2629,6 +2629,8 @@ def marcar_entregada(venta_id):
 
         # Fecha de entrega elegida (hoy por defecto; puede ser un día anterior)
         fecha_ent, _err_fecha = fecha_entrega_desde_form()
+        if entrega_sin_fecha(venta):        # Full / Colecta: sin fecha elegida
+            fecha_ent, _err_fecha = None, None
         if not _err_fecha and entrega_antes_de_venta(venta, fecha_ent):
             _err_fecha = 'La fecha de entrega es anterior a la venta'
         if _err_fecha:
@@ -3023,6 +3025,7 @@ def marcar_entregadas_multiple():
             flash(f'❌ {_err_fecha}', 'error')
             return redirect(url_for('ventas_activas'))
         fecha_antes_venta = []
+        sin_fecha_n = 0                 # Full / Colecta: van con la fecha del momento, no la elegida
 
         for venta_id in venta_ids:
             try:
@@ -3032,7 +3035,8 @@ def marcar_entregadas_multiple():
 
                 if not venta or venta['estado_entrega'] != 'pendiente':
                     continue
-                if entrega_antes_de_venta(venta, fecha_ent):
+                fe_v = None if entrega_sin_fecha(venta) else fecha_ent
+                if entrega_antes_de_venta(venta, fe_v):
                     fecha_antes_venta.append(venta['numero_venta'])
                     continue
 
@@ -3076,7 +3080,9 @@ def marcar_entregadas_multiple():
                         fecha_entrega = COALESCE(%s, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
                         fecha_modificacion = NOW()
                     WHERE id = %s
-                ''', (fecha_ent, venta_id))
+                ''', (fe_v, venta_id))
+                if fecha_ent and fe_v is None:
+                    sin_fecha_n += 1
 
                 ventas_procesadas += 1
                 log_evento('INFO', 'entrega', 'venta_entregada',
@@ -3095,7 +3101,9 @@ def marcar_entregadas_multiple():
         # MENSAJES
         if ventas_procesadas > 0:
             flash(f'✅ {ventas_procesadas} venta(s) marcadas como Entregadas'
-                  + (f' el {fecha_ent[8:10]}/{fecha_ent[5:7]}' if fecha_ent else '') + '.', 'success')
+                  + (f' el {fecha_ent[8:10]}/{fecha_ent[5:7]}' if fecha_ent else '')
+                  + (f' ({sin_fecha_n} Full/Colecta sin fecha elegida: quedan con la de hoy)' if sin_fecha_n else '')
+                  + '.', 'success')
         if fecha_antes_venta:
             flash('⚠️ No se marcaron (la fecha de entrega es anterior a la venta): ' + ', '.join(fecha_antes_venta), 'warning')
         
@@ -3415,7 +3423,7 @@ def proceso_marcar_entregada(venta_id):
     
     try:
         # Obtener venta
-        cursor.execute('SELECT numero_venta, estado_entrega, clearsale_estado, fecha_venta '
+        cursor.execute('SELECT numero_venta, estado_entrega, clearsale_estado, fecha_venta, canal, metodo_envio '
                        'FROM ventas WHERE id = %s', (venta_id,))
         venta = cursor.fetchone()
 
@@ -3425,6 +3433,8 @@ def proceso_marcar_entregada(venta_id):
 
         # Fecha de entrega elegida (hoy por defecto; puede ser un día anterior)
         fecha_ent, _err_fecha = fecha_entrega_desde_form()
+        if entrega_sin_fecha(venta):        # Full / Colecta: sin fecha elegida
+            fecha_ent, _err_fecha = None, None
         if not _err_fecha and entrega_antes_de_venta(venta, fecha_ent):
             _err_fecha = 'La fecha de entrega es anterior a la venta'
         if _err_fecha:
@@ -3661,17 +3671,19 @@ def proceso_marcar_entregadas_multiple():
             flash(f'❌ {_err_fecha}', 'error')
             return redirect(url_for('ventas_proceso'))
         fecha_antes_venta = []
+        sin_fecha_n = 0                 # Full / Colecta: van con la fecha del momento, no la elegida
 
         for venta_id in venta_ids:
             try:
                 # Verificar que esté en proceso
-                cursor.execute('SELECT numero_venta, estado_entrega, clearsale_estado, fecha_venta '
+                cursor.execute('SELECT numero_venta, estado_entrega, clearsale_estado, fecha_venta, canal, metodo_envio '
                                'FROM ventas WHERE id = %s', (venta_id,))
                 venta = cursor.fetchone()
 
                 if not venta or venta['estado_entrega'] != 'en_proceso':
                     continue
-                if entrega_antes_de_venta(venta, fecha_ent):
+                fe_v = None if entrega_sin_fecha(venta) else fecha_ent
+                if entrega_antes_de_venta(venta, fe_v):
                     fecha_antes_venta.append(venta['numero_venta'])
                     continue
 
@@ -3694,7 +3706,9 @@ def proceso_marcar_entregadas_multiple():
                         fecha_entrega = COALESCE(%s, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
                         fecha_modificacion = NOW()
                     WHERE id = %s
-                ''', (fecha_ent, venta_id))
+                ''', (fe_v, venta_id))
+                if fecha_ent and fe_v is None:
+                    sin_fecha_n += 1
                 
                 ventas_procesadas += 1
             
@@ -3721,7 +3735,9 @@ def proceso_marcar_entregadas_multiple():
             flash('❌ No se pudieron procesar las ventas seleccionadas', 'error')
         elif ventas_procesadas:
             flash(f'✅ {ventas_procesadas} venta(s) marcadas como Entregadas'
-                  + (f' el {fecha_ent[8:10]}/{fecha_ent[5:7]}' if fecha_ent else '') + '.', 'success')
+                  + (f' el {fecha_ent[8:10]}/{fecha_ent[5:7]}' if fecha_ent else '')
+                  + (f' ({sin_fecha_n} Full/Colecta sin fecha elegida: quedan con la de hoy)' if sin_fecha_n else '')
+                  + '.', 'success')
 
         # Mantener filtros
         filtros = {}
@@ -5257,6 +5273,16 @@ def ml_avisar_envio_me1(venta_id, hasta, enviar=True, solo_flete=True, token=Non
         return True, 'informado' if avisos else 'ya figuraba en ML', avisos
     except Exception as e:
         return _error(f'excepción: {e}')
+
+
+METODOS_ENTREGA_SIN_FECHA = ('Full', 'Colecta')
+
+
+def entrega_sin_fecha(venta):
+    """Ventas ML Full (sale del depósito de ML) y Colecta/ME2 (despachada en Places): la entrega
+    la sigue ML, así que al marcarlas Entregadas no se elige fecha: queda la del momento (como antes)."""
+    return (venta.get('canal') == 'Mercado Libre'
+            and (venta.get('metodo_envio') or '') in METODOS_ENTREGA_SIN_FECHA)
 
 
 def fecha_entrega_desde_form():

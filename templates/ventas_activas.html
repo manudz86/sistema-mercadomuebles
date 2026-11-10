@@ -1062,7 +1062,7 @@ function confirmarAccion(ventaId, accion, numeroVenta) {
                 <i class="bi bi-exclamation-triangle"></i> 
                 <strong>Esto descontará el stock</strong> si aún no se descontó.
             </div>
-        ` + htmlFechaEntrega();
+        ` + htmlFechaEntregaVenta(ventaId);
         btnConfirmar.className = 'btn btn-success';
         btnConfirmar.innerHTML = '<i class="bi bi-check-circle"></i> Marcar Entregada';
         

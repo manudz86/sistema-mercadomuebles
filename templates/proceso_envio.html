@@ -727,7 +727,7 @@ function confirmarAccion(ventaId, accion, numeroVenta) {
                 <i class="bi bi-check-circle"></i> 
                 El stock ya fue descontado cuando pasaste la venta a Proceso.
             </div>
-        ` + htmlFechaEntrega();
+        ` + htmlFechaEntregaVenta(ventaId);
         btnConfirmar.className = 'btn btn-success';
         btnConfirmar.innerHTML = '<i class="bi bi-check-circle"></i> Marcar Entregada';
         
