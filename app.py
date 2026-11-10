@@ -3102,7 +3102,7 @@ def marcar_entregadas_multiple():
         if ventas_procesadas > 0:
             flash(f'✅ {ventas_procesadas} venta(s) marcadas como Entregadas'
                   + (f' el {fecha_ent[8:10]}/{fecha_ent[5:7]}' if fecha_ent else '')
-                  + (f' ({sin_fecha_n} Full/ME2 sin fecha elegida: quedan con la de hoy)' if sin_fecha_n else '')
+                  + (f' ({sin_fecha_n} Full/ME2/Zippin sin fecha elegida: quedan con la de hoy)' if sin_fecha_n else '')
                   + '.', 'success')
         if fecha_antes_venta:
             flash('⚠️ No se marcaron (la fecha de entrega es anterior a la venta): ' + ', '.join(fecha_antes_venta), 'warning')
@@ -3736,7 +3736,7 @@ def proceso_marcar_entregadas_multiple():
         elif ventas_procesadas:
             flash(f'✅ {ventas_procesadas} venta(s) marcadas como Entregadas'
                   + (f' el {fecha_ent[8:10]}/{fecha_ent[5:7]}' if fecha_ent else '')
-                  + (f' ({sin_fecha_n} Full/ME2 sin fecha elegida: quedan con la de hoy)' if sin_fecha_n else '')
+                  + (f' ({sin_fecha_n} Full/ME2/Zippin sin fecha elegida: quedan con la de hoy)' if sin_fecha_n else '')
                   + '.', 'success')
 
         # Mantener filtros
@@ -5275,12 +5275,14 @@ def ml_avisar_envio_me1(venta_id, hasta, enviar=True, solo_flete=True, token=Non
         return _error(f'excepción: {e}')
 
 
-METODOS_ENTREGA_SIN_FECHA = ('Full', 'Colecta', 'Delega', 'Flex')
+METODOS_ENTREGA_SIN_FECHA = ('Full', 'Colecta', 'Delega', 'Flex', 'Turbo', 'Zippin')
 
 
 def entrega_sin_fecha(venta):
-    """Ventas ML Full (sale del depósito de ML) y ME2 (Colecta / Delega / Flex: la entrega se informa
-    sola al escanear el QR en la app de ML): al marcarlas Entregadas no se elige fecha: queda la del momento."""
+    """Ventas ML cuya entrega le informa otro a ML: Full (depósito de ML), ME2 (Colecta / Delega / Flex /
+    Turbo: se informa sola al escanear el QR en la app de ML) y Zippin (lo informa Zipnova).
+    Al marcarlas Entregadas no se elige fecha: queda la del momento. La que sí lleva fecha (y se le
+    avisa a ML) es Flete Propio = ME1."""
     return (venta.get('canal') == 'Mercado Libre'
             and (venta.get('metodo_envio') or '') in METODOS_ENTREGA_SIN_FECHA)
 
