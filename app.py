@@ -17019,6 +17019,7 @@ def _importar_orden_automatica(orden, access_token):
 
         # Verificar que todos los items tienen SKU mapeado en BD
         items_bd = []
+        _combos_desglosados = set()     # SKUs ML de combos que ya entraron con su almohada
         for item in orden_data['items']:
             sku_ml = item.get('sku', '')
             sku_norm, cant_override = normalizar_sku_ml(sku_ml) if sku_ml else ('', 0)
@@ -17062,6 +17063,7 @@ def _importar_orden_automatica(orden, access_token):
                         # 0, igual que el auto-agregado por título.
                         'precio': precio_final if _i == 0 else 0,
                     })
+                _combos_desglosados.add(sku_ml.upper())   # el loop de almohadas compara el SKU crudo de ML
                 print(f"[AUTO-ML] {sku_norm} desglosado en "
                       f"{', '.join(f'{c}x {s}' for s, c in _desglose)}")
                 continue
@@ -17075,6 +17077,10 @@ def _importar_orden_automatica(orden, access_token):
             sku_ml = item.get('sku', '').upper()
             titulo = item.get('titulo', '').lower()
             es_almohada_sku = any(a in sku_ml for a in SKUS_ALMOHADA_PURAS)
+            # Combo desglosado (CPR8020+): su almohada ya entró en el desglose de arriba.
+            # Sin esto, si el título SÍ trae "Almohada" se agregaba otra PLATINO (orden 2000019457931560).
+            if sku_ml in _combos_desglosados:
+                continue
             # Detecta "almohada" y también la forma abreviada "Almo" que ML usa
             # cuando el título no entra completo (límite de 60 caracteres).
             import re as _re2
