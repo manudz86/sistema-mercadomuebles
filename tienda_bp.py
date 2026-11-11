@@ -5993,6 +5993,8 @@ def checkout():
         cliente['_fbc'] = request.cookies.get('_fbc')
         cliente['_capi_ip'] = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
         cliente['_capi_ua'] = request.headers.get('User-Agent')
+        # GA4: client_id / session_id del comprador (para el purchase desde el servidor)
+        cliente['_ga_cid'], cliente['_ga_sid'] = _ga4_ids_desde_cookies(request.cookies)
         # Origen de tráfico: cookie del landing (JS) o, si falta, la sesión (captura server-side)
         _of = request.cookies.get('mm_origen_first'); _ol = request.cookies.get('mm_origen_last')
         cliente['_origen_first'] = urllib.parse.unquote(_of) if _of else session.get('mm_origen_first')
@@ -6782,6 +6784,156 @@ def enviar_capi_purchase(*, numero_venta, email='', telefono='', nombre='',
     threading.Thread(target=_post, daemon=True).start()
 
 
+# ── GA4 Measurement Protocol (purchase / refund desde el servidor) ───────────
+# Respaldo del purchase del navegador: entra aunque el comprador bloquee Google o
+# cierre antes de la página de éxito. Se manda con el client_id de la cookie _ga
+# del comprador, así GA4 lo deduplica con el del navegador (mismo transaction_id)
+# y lo atribuye a su sesión. Apagado salvo configuracion.ga4_mp_enabled = '1'.
+GA4_PREFIJOS_TIENDA = ('MP-', 'PW-', 'GN-')
+
+
+def _ga4_ids_desde_cookies(cookies):
+    """(client_id, session_id) de GA4 a partir de las cookies _ga y _ga_<ID>. None si faltan."""
+    cid = sid = None
+    try:
+        p = (cookies.get('_ga') or '').split('.')
+        if len(p) >= 4 and p[-2].isdigit() and p[-1].isdigit():
+            cid = f'{p[-2]}.{p[-1]}'
+        mid = os.getenv('GA4_MEASUREMENT_ID', '').strip()
+        gs = cookies.get('_ga_' + mid[2:]) if mid.startswith('G-') else ''
+        gs = gs or ''
+        if gs.startswith('GS2.'):            # GS2.1.s1747323152$o1$g1$t...
+            for tok in gs.split('.', 2)[-1].split('$'):
+                if tok.startswith('s') and tok[1:].isdigit():
+                    sid = tok[1:]
+                    break
+        elif gs.startswith('GS1.'):          # GS1.1.1747323152.1.1.1747323153.0.0.0
+            q = gs.split('.')
+            if len(q) >= 3 and q[2].isdigit():
+                sid = q[2]
+    except Exception:
+        pass
+    return cid, sid
+
+
+def _ga4_client_id_respaldo(numero_venta):
+    """client_id cuando el comprador no tenía cookie _ga (gtag bloqueado): estable por venta."""
+    h = int(hashlib.sha256(f'mm-ga4-{numero_venta}'.encode('utf-8')).hexdigest()[:12], 16)
+    return f'{h % 10**10}.{int(time.time())}'
+
+
+def _ga4_post(evento, client_id, validar=False):
+    """POST al Measurement Protocol. validar=True usa el endpoint de validación
+    (/debug/mp/collect), que NO registra nada en GA4. Devuelve (ok, detalle)."""
+    mid = os.getenv('GA4_MEASUREMENT_ID', '').strip()
+    secret = os.getenv('GA4_API_SECRET', '').strip()
+    if not mid or not secret:
+        return False, 'faltan GA4_MEASUREMENT_ID / GA4_API_SECRET'
+    url = 'https://www.google-analytics.com/' + ('debug/mp/collect' if validar else 'mp/collect')
+    r = http_requests.post(url, params={'measurement_id': mid, 'api_secret': secret},
+                           json={'client_id': client_id, 'events': [evento]}, timeout=6)
+    if validar:
+        msgs = (r.json() or {}).get('validationMessages') if r.content else []
+        return (r.status_code == 200 and not msgs), (msgs or r.status_code)
+    return r.status_code in (200, 204), r.status_code
+
+
+def ga4_evento_purchase(numero_venta, total, items, session_id=None):
+    ev_items = []
+    for it in items or []:
+        sku = it.get('item_id') or it.get('sku')
+        if not sku:
+            continue
+        d = {'item_id': sku, 'price': float(it.get('price') or it.get('precio') or 0),
+             'quantity': int(it.get('quantity') or it.get('cantidad') or 1)}
+        if it.get('item_name'):
+            d['item_name'] = it['item_name']
+        ev_items.append(d)
+    params = {'transaction_id': numero_venta, 'currency': 'ARS',
+              'value': float(total or 0), 'items': ev_items, 'origen_envio': 'servidor'}
+    if session_id:
+        params['session_id'] = session_id
+        params['engagement_time_msec'] = 1
+    return {'name': 'purchase', 'params': params}
+
+
+def enviar_ga4_purchase(*, numero_venta, total, cli):
+    """Purchase a GA4 desde el servidor (webhook confirmado). No bloquea ni lanza.
+    No manda pruebas internas (cupón DESCMMD*) ni ventas sin importe."""
+    try:
+        if not numero_venta or not str(numero_venta).startswith(GA4_PREFIJOS_TIENDA):
+            return
+        if not float(total or 0) > 0:
+            return
+        cup = (cli or {}).get('cupon') or {}
+        if str(cup.get('codigo') or '').upper().startswith(CUPON_PRUEBA_PREFIJO):
+            return
+        if not _flag_activo('ga4_mp_enabled'):
+            return
+        cid, sid = (cli or {}).get('_ga_cid'), (cli or {}).get('_ga_sid')
+    except Exception as e:
+        print(f"[GA4-MP] {numero_venta} purchase: {e}")
+        return
+
+    def _post():
+        try:
+            time.sleep(3)   # que el commit de la venta ya esté para leer los items
+            evento = ga4_evento_purchase(numero_venta, total, _ga_items_venta(numero_venta), sid)
+            ok, det = _ga4_post(evento, cid or _ga4_client_id_respaldo(numero_venta))
+            print(f"[GA4-MP] {numero_venta} purchase {'OK' if ok else 'FALLA'} {det}"
+                  + ('' if cid else ' (sin cookie _ga)'))
+        except Exception as e:
+            print(f"[GA4-MP] {numero_venta} purchase ERROR {e}")
+
+    threading.Thread(target=_post, daemon=True).start()
+
+
+def ga4_refund_ventas(venta_ids):
+    """Refund total a GA4 de las ventas de la tienda canceladas. No bloquea ni lanza.
+    Solo canal tienda_web con número MP-/PW-/GN-, no pruebas internas, una vez por venta."""
+    ids = [int(i) for i in (venta_ids or []) if str(i).strip().isdigit()]
+    if not ids or not _flag_activo('ga4_mp_enabled'):
+        return
+
+    def _post():
+        db = cur = None
+        try:
+            db = get_db(); cur = db.cursor()
+            fmt = ','.join(['%s'] * len(ids))
+            cur.execute(f"""SELECT id, numero_venta, importe_abonado, importe_total FROM ventas
+                            WHERE id IN ({fmt}) AND canal = 'tienda_web'
+                              AND estado_entrega = 'cancelada'""", ids)
+            ventas = cur.fetchall()
+            for v in ventas:
+                nv = v['numero_venta'] or ''
+                if not nv.startswith(GA4_PREFIJOS_TIENDA) or _es_prueba_interna(nv):
+                    continue
+                cur.execute("SELECT 1 FROM sistema_logs WHERE modulo='ga4' AND accion='refund' "
+                            "AND venta_id=%s LIMIT 1", (v['id'],))
+                if cur.fetchone():
+                    continue
+                valor = float(v['importe_abonado'] or 0) or float(v['importe_total'] or 0)
+                evento = {'name': 'refund', 'params': {'transaction_id': nv, 'currency': 'ARS',
+                                                       'value': valor, 'origen_envio': 'servidor'}}
+                ok, det = _ga4_post(evento, _ga4_client_id_respaldo(nv))
+                print(f"[GA4-MP] {nv} refund {'OK' if ok else 'FALLA'} {det}")
+                if ok:
+                    log_evento('INFO', 'ga4', 'refund',
+                               f'{nv}: refund enviado a GA4 por ${valor:,.0f}', venta_id=v['id'])
+        except Exception as e:
+            print(f"[GA4-MP] refund ERROR {e}")
+        finally:
+            try:
+                if cur:
+                    cur.close()
+                if db:
+                    db.close()
+            except Exception:
+                pass
+
+    threading.Thread(target=_post, daemon=True).start()
+
+
 _FRAUDE_VELOCIDAD_ACTIVA = True  # kill-switch de las reglas de velocidad (blocklist siempre activa)
 
 
@@ -7488,6 +7640,10 @@ def pago_payway():
             source_url=request.url)
     except Exception as _e:
         print(f"[CAPI] payway: {_e}")
+    try:
+        enviar_ga4_purchase(numero_venta=numero_venta, total=total_con_coef, cli=cli)
+    except Exception as _e:
+        print(f"[GA4-MP] payway: {_e}")
 
     # ── Cupón ─────────────────────────────────────────────────────────────────
     cupon_session = cli.get('cupon')
@@ -9376,6 +9532,10 @@ def webhook_mp():
         except Exception as _e:
             print(f"[CAPI] webhook_mp: {_e}")
         try:
+            enviar_ga4_purchase(numero_venta=numero_venta, total=importe_abonado_real, cli=cli)
+        except Exception as _e:
+            print(f"[GA4-MP] webhook_mp: {_e}")
+        try:
             from app import enviar_whatsapp
             tel = (telefono_cliente or '').strip().replace('+','').replace(' ','').replace('-','')
             if tel:
@@ -9760,6 +9920,10 @@ def webhook_getnet():
                 source_url=(os.getenv('APP_BASE_URL','') + '/pago/exito'))
         except Exception as _e:
             print(f"[CAPI] webhook_getnet: {_e}")
+        try:
+            enviar_ga4_purchase(numero_venta=numero_venta, total=importe_abonado_real, cli=cli)
+        except Exception as _e:
+            print(f"[GA4-MP] webhook_getnet: {_e}")
         try:
             from app import enviar_whatsapp
             tel = (telefono_cliente or '').strip().replace('+','').replace(' ','').replace('-','')

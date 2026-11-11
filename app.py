@@ -2723,8 +2723,13 @@ def cancelar_venta(venta_id):
                 fecha_modificacion = NOW()
             WHERE id = %s
         ''', (venta_id,))
-        
+
         conn.commit()
+        try:
+            from tienda_bp import ga4_refund_ventas   # refund a GA4 si es venta de la tienda
+            ga4_refund_ventas([venta_id])
+        except Exception as _e:
+            print(f"[GA4-MP] cancelar_venta: {_e}")
 
         # Actualizar publis ML — la cancelación libera disponible
         try:
@@ -3193,6 +3198,11 @@ def cancelar_ventas_multiple():
         conn.commit()
         cursor.close()
         conn.close()
+        try:
+            from tienda_bp import ga4_refund_ventas   # refund a GA4 si son ventas de la tienda
+            ga4_refund_ventas(ventas_ok_ids)
+        except Exception as _e:
+            print(f"[GA4-MP] cancelar_ventas_multiple: {_e}")
 
         # Re-sincronizar ML — cancelar ventas activas libera disponible (incluye almohadas)
         try:
@@ -3538,9 +3548,14 @@ def proceso_cancelar_devolver(venta_id):
         mensaje = f'✅ Venta {venta["numero_venta"]} cancelada. Stock devuelto correctamente.'
         if motivo_cancelacion:
             mensaje += f' Motivo: {motivo_cancelacion}'
-        
+
         flash(mensaje, 'success')
-        
+        try:
+            from tienda_bp import ga4_refund_ventas   # refund a GA4 si es venta de la tienda
+            ga4_refund_ventas([venta_id])
+        except Exception as _e:
+            print(f"[GA4-MP] proceso_cancelar_devolver: {_e}")
+
     except Exception as e:
         conn.rollback()
         flash(f'❌ Error al cancelar y devolver stock: {str(e)}', 'error')
@@ -3825,7 +3840,13 @@ def proceso_cancelar_multiple():
         conn.commit()
         cursor.close()
         conn.close()
-        
+        if ventas_procesadas:
+            try:
+                from tienda_bp import ga4_refund_ventas   # refund a GA4 si son ventas de la tienda
+                ga4_refund_ventas(venta_ids)
+            except Exception as _e:
+                print(f"[GA4-MP] proceso_cancelar_multiple: {_e}")
+
         if ventas_procesadas == 0:
             flash('❌ No se pudieron procesar las ventas seleccionadas', 'error')
         else:
