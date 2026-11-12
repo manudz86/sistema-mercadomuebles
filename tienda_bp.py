@@ -4556,7 +4556,7 @@ def vaciar_carrito():
 def ver_carrito():
     carrito  = session.get('carrito', [])
     subtotal = subtotal_carrito(carrito)
-    cupon    = session.get('cupon')
+    cupon    = _cupon_sesion_vigente(carrito)
     # El cupón corre solo sobre lo elegible: las almohadas tienen 2x1, no cupón.
     descuento_monto = round(descuento_cupon(carrito, cupon))
     total = subtotal - descuento_monto
@@ -5110,6 +5110,54 @@ def _precio_tienda_sku(cur, sku):
     return {'precio': lista * (1 - desc / 100) if desc else lista, 'lista': lista,
             'tipo': 'conjunto' if es_conj else p['tipo'],
             'linea': p.get('linea'), 'modelo': p.get('modelo')}
+
+
+def _cupon_sesion_vigente(carrito=None):
+    """Revalida el cupón guardado en la sesión con las mismas reglas que al aplicarlo
+    (activo, vencimiento, usos, mínimo). Si ya no corre, lo saca de la sesión y devuelve None:
+    un cupón vencido o desactivado no puede seguir aplicándose a quien lo cargó antes."""
+    cup = session.get('cupon')
+    if not cup:
+        return None
+    try:
+        db = get_db(); cur = db.cursor()
+        vigente = _cupon_para_carrito(cur, cup.get('codigo'),
+                                      carrito if carrito is not None else session.get('carrito', []), None)
+        cur.close(); db.close()
+    except Exception as e:
+        logger.warning(f'[cupon] no pude revalidar {cup.get("codigo")}: {e}')
+        return cup           # ante un error de base no se toca lo que ya tenía
+    if not vigente:
+        logger.info(f'[cupon] {cup.get("codigo")} ya no está vigente: se quita de la sesión')
+        session.pop('cupon', None)
+        session.modified = True
+        return None
+    return cup
+
+
+def _cupon_pendiente_vencido(cli):
+    """True si un pedido pendiente (checkout ya armado) lleva un cupón que dejó de regir
+    (desactivado, vencido o sin usos). Protege el cobro de páginas de pago viejas."""
+    cup = (cli or {}).get('cupon') or {}
+    if not (cup.get('id') or cup.get('codigo')):
+        return False
+    try:
+        from datetime import date
+        db = get_db(); cur = db.cursor()
+        cur.execute("SELECT activo, fecha_vencimiento, usos_maximos, usos_actuales FROM cupones "
+                    "WHERE id = %s OR codigo = %s ORDER BY (id = %s) DESC LIMIT 1",
+                    (cup.get('id') or 0, cup.get('codigo') or '', cup.get('id') or 0))
+        c = cur.fetchone()
+        cur.close(); db.close()
+    except Exception:
+        return False
+    if not c or not c['activo']:
+        return True
+    if c['fecha_vencimiento'] and c['fecha_vencimiento'] < date.today():
+        return True
+    if c['usos_maximos'] and c['usos_actuales'] >= c['usos_maximos']:
+        return True
+    return False
 
 
 def _cupon_para_carrito(cur, codigo, carrito, email):
@@ -6060,9 +6108,9 @@ def datos_envio():
     shipping_tipo, _ = get_shipping_info(carrito)
     zipnova_quote  = session.get('zipnova_quote')
 
-    # Cupón aplicado en carrito: mantenerlo visible en datos-envio.
+    # Cupón aplicado en carrito: mantenerlo visible en datos-envio (si sigue vigente).
     # Mismo criterio que el carrito y que el cobro: sin almohadas.
-    cupon = session.get('cupon')
+    cupon = _cupon_sesion_vigente(carrito)
     descuento_monto = round(descuento_cupon(carrito, cupon))
 
     # Para zipnova: precargar localidades desde georef server-side
@@ -6202,8 +6250,8 @@ def checkout():
 
     session['cliente_checkout'] = cliente
 
-    # Guardar cupón en cliente para que el webhook lo pueda registrar
-    cupon = session.get('cupon')
+    # Guardar cupón en cliente para que el webhook lo pueda registrar (solo si sigue vigente)
+    cupon = _cupon_sesion_vigente(carrito)
     if cupon:
         cliente['cupon'] = cupon
 
@@ -6680,6 +6728,11 @@ def pago_ejecutar():
         _db_chk.close()
         if _row_chk:
             _cli_chk = json.loads(_row_chk['cliente_json'])
+            if _cupon_pendiente_vencido(_cli_chk):
+                session.pop('cupon', None)
+                return jsonify({'ok': False,
+                                'error': 'El cupón de descuento ya no está vigente. Volvé al carrito para ver el precio actualizado.',
+                                'redirect': '/tienda/carrito'}), 400
             if _cli_chk.get('tipo_entrega', 'envio') == 'envio' and not _cli_chk.get('zipnova_quote'):
                 return jsonify({
                     'ok': False,
@@ -6776,6 +6829,11 @@ def pago_ejecutar_12():
         _db_chk.close()
         if _row_chk:
             _cli_chk = json.loads(_row_chk['cliente_json'])
+            if _cupon_pendiente_vencido(_cli_chk):
+                session.pop('cupon', None)
+                return jsonify({'ok': False,
+                                'error': 'El cupón de descuento ya no está vigente. Volvé al carrito para ver el precio actualizado.',
+                                'redirect': '/tienda/carrito'}), 400
             if _cli_chk.get('tipo_entrega', 'envio') == 'envio' and not _cli_chk.get('zipnova_quote'):
                 return jsonify({'ok': False,
                     'error': 'No se encontró la cotización de envío. Volvé al paso de datos y cotizá el envío antes de pagar.',
@@ -6857,6 +6915,11 @@ def pago_ejecutar_3_mp():
         _db_chk.close()
         if _row_chk:
             _cli_chk = json.loads(_row_chk['cliente_json'])
+            if _cupon_pendiente_vencido(_cli_chk):
+                session.pop('cupon', None)
+                return jsonify({'ok': False,
+                                'error': 'El cupón de descuento ya no está vigente. Volvé al carrito para ver el precio actualizado.',
+                                'redirect': '/tienda/carrito'}), 400
             if _cli_chk.get('tipo_entrega', 'envio') == 'envio' and not _cli_chk.get('zipnova_quote'):
                 return jsonify({'ok': False,
                     'error': 'No se encontró la cotización de envío. Volvé al paso de datos y cotizá el envío antes de pagar.',
@@ -7540,6 +7603,14 @@ def pago_payway():
     cart_items = json.loads(row['carrito_json'])
     cli        = json.loads(row['cliente_json'])
 
+    # Página de pago vieja con un cupón que ya no rige: no cobrar con ese descuento.
+    if _cupon_pendiente_vencido(cli):
+        db.close()
+        session.pop('cupon', None)
+        _msg_cup = 'El cupón de descuento ya no está vigente. Volvé al carrito para ver el precio actualizado.'
+        return jsonify({'status': 'error', 'msg': _msg_cup, 'error': _msg_cup,
+                        'redirect': '/tienda/carrito'}), 400
+
     # ── Defensa: no permitir cobrar si falta la cotización de envío ──────────
     # Sin zipnova_quote la venta entraría con metodo_envio=None (panel la
     # mostraría como "Retiro") y costo_flete=0 (cliente no paga el envío).
@@ -8186,6 +8257,12 @@ def pago_getnet_crear():
 
     cart_items = json.loads(row['carrito_json'])
     cli        = json.loads(row['cliente_json'])
+
+    # Página de pago vieja con un cupón que ya no rige: no cobrar con ese descuento.
+    if _cupon_pendiente_vencido(cli):
+        session.pop('cupon', None)
+        return jsonify(error='El cupón de descuento ya no está vigente. Volvé al carrito para ver el precio actualizado.',
+                       redirect='/tienda/carrito'), 400
 
     # ── Defensa: no permitir cobrar si falta la cotización de envío ──────────
     # Sin zipnova_quote la venta entraría con metodo_envio=None (panel la
