@@ -6937,6 +6937,41 @@ def _capi_sha256(v):
         return None
     return hashlib.sha256(str(v).strip().lower().encode('utf-8')).hexdigest()
 
+def _fb_user_data(numero_venta):
+    """Datos del comprador para la coincidencia avanzada manual del Pixel en la página de éxito.
+    Se mandan YA cifrados (SHA-256, mismos valores que la CAPI), así no queda ningún dato
+    personal en texto plano en el HTML y navegador y servidor coinciden. None si falla."""
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("""SELECT email_cliente, telefono_cliente, nombre_cliente, dni_cliente, provincia_cliente
+                       FROM ventas WHERE numero_venta=%s LIMIT 1""", (numero_venta,))
+        v = cur.fetchone()
+        cur.close(); db.close()
+        if not v:
+            return None
+        ud = {}
+        if v['email_cliente']:
+            ud['em'] = _capi_sha256(v['email_cliente'])
+        ph = _capi_phone(v['telefono_cliente'])
+        if ph:
+            ud['ph'] = ph
+        partes = str(v['nombre_cliente'] or '').strip().split()
+        if partes:
+            ud['fn'] = _capi_sha256(partes[0])
+            if len(partes) > 1:
+                ud['ln'] = _capi_sha256(' '.join(partes[1:]))
+        if v['provincia_cliente']:
+            ud['st'] = _capi_sha256(v['provincia_cliente'])
+        ud['country'] = _capi_sha256('ar')
+        ext = v['email_cliente'] or v['dni_cliente']
+        if ext:
+            ud['external_id'] = _capi_sha256(ext)
+        return ud or None
+    except Exception as e:
+        logger.debug(f'[pixel] user_data: {e}')
+        return None
+
+
 def _capi_phone(tel):
     if not tel:
         return None
@@ -8417,6 +8452,7 @@ def pago_exito_getnet(pedido_ref):
         ga_items=_ga_items_venta(numero_pedido) if importe_abonado > 0 else [],
         es_prueba=_es_prueba_interna(numero_pedido),
         importe_abonado=importe_abonado,
+        fb_user_data=_fb_user_data(numero_pedido) if importe_abonado > 0 else None,
     )
 
 
@@ -8491,6 +8527,7 @@ def pago_exito():
             ga_items=_ga_items_venta(numero_pedido) if importe_abonado_gn > 0 else [],
             es_prueba=_es_prueba_interna(numero_pedido),
             importe_abonado=importe_abonado_gn,
+            fb_user_data=_fb_user_data(numero_pedido) if importe_abonado_gn > 0 else None,
         )
 
     # Numero de venta segun canal
@@ -8584,6 +8621,7 @@ def pago_exito():
         pago_en_proceso = pago_en_proceso,
         es_prueba     = _es_prueba_interna(numero_venta),
         venta_confirmada = venta_confirmada,
+        fb_user_data  = _fb_user_data(numero_venta) if venta_confirmada else None,
     )
 
 

@@ -103,6 +103,18 @@ with A.app.test_request_context('/tienda/pago/exito'):
     h3 = render_template('tienda/pago_exito.html', **base, es_prueba=True, venta_confirmada=True)
     check("fbq('track', 'Purchase'" in h1 and "order_id: 'PW-1'" in h1 and "eventID: 'PW-1'" in h1, 'Pixel Purchase con order_id y event_id')
     check(h1.index("fbq('track', 'Purchase'") < h1.index("localStorage.setItem(k, '1')"), 'marca local DESPUÉS de enviar')
+    venta_real = A.query_one("SELECT numero_venta FROM ventas WHERE canal='tienda_web' AND email_cliente LIKE '%%@%%' "
+                             "AND importe_abonado > 0 ORDER BY id DESC LIMIT 1")
+    ud = T._fb_user_data(venta_real['numero_venta'])
+    import re as _re
+    check(ud and all(_re.fullmatch(r'[0-9a-f]{64}', str(v)) for v in ud.values()) and 'em' in ud and 'ph' in ud,
+          f'coincidencia avanzada: solo hashes SHA-256 ({sorted(ud or {})})')
+    h4 = render_template('tienda/pago_exito.html', **base, es_prueba=False, venta_confirmada=True, fb_user_data=ud)
+    check(f"fbq('init', '5994867780529728', {{\"" in h4 and ud['em'] in h4 and '@' not in h4.split("fbq('init'")[1][:400],
+          'Pixel init con datos cifrados, sin email en texto plano')
+    check("fbq('init', '5994867780529728');" in h1, 'sin datos del comprador el init queda igual que antes')
+    check(ud['em'] == T._capi_sha256(A.query_one("SELECT email_cliente FROM ventas WHERE numero_venta=%s",
+                                                 (venta_real['numero_venta'],))['email_cliente']), 'mismo hash que la CAPI')
     check("fbq('track', 'Purchase'" not in h2, 'sin venta confirmada no hay Pixel Purchase')
     check("fbq('track', 'Purchase'" not in h3, 'prueba interna no dispara Pixel Purchase')
     g1 = render_template('tienda/pago_exito_getnet.html', payment_id='r', numero_pedido='GN-r', ga_value=500, ga_items=[], es_prueba=False, importe_abonado=500)

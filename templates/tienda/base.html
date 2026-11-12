@@ -64,7 +64,8 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
   t.src=v;s=b.getElementsByTagName(e)[0];
   s.parentNode.insertBefore(t,s)}(window, document,'script',
   'https://connect.facebook.net/en_US/fbevents.js');
-  fbq('init', '5994867780529728');
+  {# Coincidencia avanzada manual: solo en la página de éxito, con datos ya cifrados (SHA-256) #}
+  fbq('init', '5994867780529728'{% if fb_user_data %}, {{ fb_user_data | tojson }}{% endif %});
   fbq('set', 'autoConfig', false, '5994867780529728');
   fbq('track', 'PageView');
   </script>
