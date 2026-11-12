@@ -22190,6 +22190,19 @@ def productos_lista():
             }
         return jsonify(productos=[p_json(p) for p in productos], total=len(productos))
 
+    # La configuración de la tienda (demora, cupón, evento, cuotas, medios de pago…) se movió a
+    # /configuracion (configuracion_tienda); acá queda solo el catálogo.
+    return render_template('productos_lista.html',
+        productos = productos,
+        busq      = busq,
+        linea_sel = linea_sel,
+        lineas    = lineas,
+        filtro    = filtro,
+    )
+
+
+def _config_tienda_ctx():
+    """Valores de la página Configuraciones (antes estaban arriba del Catálogo)."""
     demora_row = query_one("SELECT valor FROM configuracion WHERE clave='demora_sin_stock'")
     demora_dias = int(demora_row['valor']) if demora_row and demora_row['valor'] else 0
 
@@ -22244,12 +22257,7 @@ def productos_lista():
     flete_almohadas      = float(fa_row['valor'])  if fa_row  and fa_row['valor']  else 6000
     flete_almohadas_6plus = float(fa6_row['valor']) if fa6_row and fa6_row['valor'] else 12000
 
-    return render_template('productos_lista.html',
-        productos     = productos,
-        busq          = busq,
-        linea_sel     = linea_sel,
-        lineas        = lineas,
-        filtro        = filtro,
+    return dict(
         demora_dias   = demora_dias,
         nl_monto      = nl_monto,
         nl_minimo     = nl_minimo,
@@ -22269,6 +22277,57 @@ def productos_lista():
         flete_almohadas       = flete_almohadas,
         flete_almohadas_6plus = flete_almohadas_6plus,
     )
+
+
+_DIAS_CORTOS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+
+
+def _promo_3sin_ctx():
+    from tienda_bp import promo_3sin_activa, promo_3sin_dias, promo_3sin_dias_texto
+    row = query_one("SELECT valor FROM configuracion WHERE clave='promo_3sin_activo'")
+    modo = ((row or {}).get('valor') or 'auto').strip().lower()
+    dias = promo_3sin_dias()
+    return {'modo': modo if modo in ('auto', '1', '0') else 'auto', 'dias': dias,
+            'dias_txt': promo_3sin_dias_texto(dias), 'hoy': promo_3sin_activa(), 'nombres': _DIAS_CORTOS}
+
+
+@app.route('/configuracion')
+@admin_required
+def configuracion_tienda():
+    """Configuración de la tienda web: demora, cupón newsletter, evento promocional, recargos y
+    medios de pago en cuotas, flete de almohadas y promo de 3 cuotas sin interés por Payway."""
+    return render_template('configuracion.html', promo3=_promo_3sin_ctx(), **_config_tienda_ctx())
+
+
+@app.route('/configuracion/promo-3sin', methods=['POST'])
+@admin_required
+def configuracion_promo_3sin():
+    """Guarda la promo de 3 cuotas sin interés: modo (auto por días / encendida / apagada) y días.
+    Los días se evalúan en hora Argentina. Rige al instante (sin reiniciar): get_coef_3_payway()
+    usa coeficiente 1.0, se habilita Payway 3 cuotas y se muestran los carteles y el banner."""
+    modo = (request.form.get('modo') or 'auto').strip().lower()
+    if modo not in ('auto', '1', '0'):
+        return jsonify(ok=False, msg='Modo inválido')
+    try:
+        dias = sorted({int(d) for d in request.form.getlist('dias') if d.strip().isdigit() and 0 <= int(d) <= 6})
+    except ValueError:
+        return jsonify(ok=False, msg='Días inválidos')
+    if modo == 'auto' and not dias:
+        return jsonify(ok=False, msg='Elegí al menos un día (o apagá la promo)')
+    dias_txt = ','.join(str(d) for d in dias)
+    execute_db("INSERT INTO configuracion (clave, valor) VALUES ('promo_3sin_activo', %s) "
+               "ON DUPLICATE KEY UPDATE valor=%s", (modo, modo))
+    execute_db("INSERT INTO configuracion (clave, valor) VALUES ('promo_3sin_dias', %s) "
+               "ON DUPLICATE KEY UPDATE valor=%s", (dias_txt, dias_txt))
+    try:
+        log_evento('INFO', 'configuracion', 'promo_3sin',
+                   f'modo={modo} dias={dias_txt}', usuario=getattr(current_user, 'username', None))
+    except Exception:
+        pass
+    p = _promo_3sin_ctx()
+    estado = ('encendida todos los días' if modo == '1' else 'apagada' if modo == '0'
+              else f"automática: {p['dias_txt'].lower()}")
+    return jsonify(ok=True, hoy=p['hoy'], msg=f"Guardado — promo {estado}. Hoy: {'CORRE' if p['hoy'] else 'no corre'}")
 
 
 @app.route('/productos/demora', methods=['POST'])

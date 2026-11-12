@@ -688,18 +688,20 @@ def get_promos_context():
 
     partes = []
     try:
+        # Los días salen de la configuración (los mismos que activan la promo en la tienda).
+        _dias = (_t.promo_3sin_dias_texto() or 'los días de promo').lower()
         if _t.promo_3sin_activa():
             partes.append(
                 "PROMO DE HOY — 3 CUOTAS SIN INTERÉS:\n"
                 "- Hoy corre la promo bancaria de 3 cuotas SIN INTERÉS con tarjetas de "
                 "crédito Visa y Mastercard BANCARIZADAS (no billeteras ni tarjetas de débito).\n"
                 "- Sin interés de verdad: el total en 3 cuotas es igual al precio de contado.\n"
-                "- Corre los miércoles y los sábados. Si el cliente escribe otro día, podés "
+                f"- Corre los {_dias}. Si el cliente escribe otro día, podés "
                 "mencionarle que esos días tiene esa financiación.")
         else:
             partes.append(
                 "PROMO DE 3 CUOTAS SIN INTERÉS (hoy NO corre):\n"
-                "- Los miércoles y sábados hay 3 cuotas SIN INTERÉS con Visa y Mastercard "
+                f"- Los {_dias} hay 3 cuotas SIN INTERÉS con Visa y Mastercard "
                 "bancarizadas. Hoy no es uno de esos días, así que NO la ofrezcas como "
                 "vigente, pero sí podés mencionarla si al cliente le sirve esperar.")
     except Exception:

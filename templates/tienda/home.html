@@ -235,7 +235,7 @@
   </a>
 </section>
 {% elif promo_3sin %}
-{# Miércoles y sábado: banner fijo de la promo, sin rotación ni dots.
+{# Días de la promo 3 cuotas sin interés (Configuraciones): banner fijo, sin rotación ni dots.
    El autoplay del slider arranca solo con slides.length > 1, así que con un
    único slide queda quieto sin tocar el JS de base.html. #}
 <section class="slider">
@@ -245,9 +245,9 @@
          panoramica (2,98:1) y la de celular cuadrada (1:1). El navegador baja
          solo la que corresponde, no las dos. #}
       <picture>
-        <source media="(max-width: 700px)" srcset="/static/img/banners/Banners-03_mobile.jpg">
-        <img src="/static/img/banners/Banners-03.jpg"
-             alt="Miércoles y sábados: 3 cuotas sin interés con tarjetas de crédito Visa y Mastercard">
+        <source media="(max-width: 700px)" srcset="/static/img/banners/Banners-05_mobile.jpg">
+        <img src="/static/img/banners/Banners-05.jpg"
+             alt="{{ promo_3sin_dias_txt or 'Miércoles, viernes y sábados' }}: 3 cuotas sin interés con tarjetas de crédito Visa y Mastercard">
       </picture>
     </div>
   </div>
@@ -274,13 +274,13 @@
       </picture>
     </div>
     {# El de 3 cuotas va también en la rotación: la pieza anuncia los días,
-       así que sirve de aviso el resto de la semana. Los miércoles y sábados
-       pasa a ser el único, arriba. #}
+       así que sirve de aviso el resto de la semana. Los días de promo
+       (Configuraciones) pasa a ser el único, arriba. #}
     <div class="slide">
       <picture>
-        <source media="(max-width: 700px)" srcset="/static/img/banners/Banners-03_mobile.jpg">
-        <img src="/static/img/banners/Banners-03.jpg"
-             alt="Miércoles y sábados: 3 cuotas sin interés con tarjetas de crédito Visa y Mastercard">
+        <source media="(max-width: 700px)" srcset="/static/img/banners/Banners-05_mobile.jpg">
+        <img src="/static/img/banners/Banners-05.jpg"
+             alt="{{ promo_3sin_dias_txt or 'Miércoles, viernes y sábados' }}: 3 cuotas sin interés con tarjetas de crédito Visa y Mastercard">
       </picture>
     </div>
     <div class="slide">

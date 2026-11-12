@@ -426,11 +426,38 @@ def inject_hot_event():
 
 @tienda_bp.context_processor
 def inject_promo_3sin():
-    """Promo bancaria de 3 cuotas sin interés (miércoles y sábado) para los templates."""
+    """Promo bancaria de 3 cuotas sin interés para los templates: si corre hoy y el texto
+    de los días configurados (p. ej. 'Miércoles, viernes y sábados')."""
     try:
-        return {'promo_3sin': promo_3sin_activa()}
+        return {'promo_3sin': promo_3sin_activa(), 'promo_3sin_dias_txt': promo_3sin_dias_texto()}
     except Exception:
-        return {'promo_3sin': False}
+        return {'promo_3sin': False, 'promo_3sin_dias_txt': ''}
+
+
+_DIAS_SEMANA = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados', 'domingos']
+
+
+def promo_3sin_dias():
+    """Días configurados de la promo 3 cuotas sin interés (weekday de Python). Default mié y sáb."""
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("SELECT valor FROM configuracion WHERE clave='promo_3sin_dias'")
+        r = cur.fetchone()
+        cur.close(); db.close()
+        txt = (r or {}).get('valor') or '2,5'
+        return sorted({int(d) for d in str(txt).split(',') if d.strip().isdigit() and 0 <= int(d) <= 6})
+    except Exception:
+        return [2, 5]
+
+
+def promo_3sin_dias_texto(dias=None):
+    """'Miércoles, viernes y sábados' a partir de los días configurados."""
+    dias = promo_3sin_dias() if dias is None else dias
+    nombres = [_DIAS_SEMANA[d] for d in dias]
+    if not nombres:
+        return ''
+    txt = nombres[0] if len(nombres) == 1 else ', '.join(nombres[:-1]) + ' y ' + nombres[-1]
+    return txt[0].upper() + txt[1:]
 
 
 def slugify(text):
