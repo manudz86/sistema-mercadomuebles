@@ -11438,7 +11438,7 @@ def _publis_de_catalogo(catalog_id, access_token):
         try:
             r = ml_request('get', f'https://api.mercadolibre.com/products/{catalog_id}/items',
                            access_token, params={'limit': 50})
-            if r.status_code == 200:
+            if r.status_code in (200, 206):   # 206 = respuesta parcial de ML, igual trae resultados
                 mlas = [it.get('item_id') for it in (r.json().get('results') or [])
                         if str(it.get('seller_id')) == str(ML_SELLER_ID) and it.get('item_id')]
         except Exception as e:

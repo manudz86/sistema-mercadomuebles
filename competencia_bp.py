@@ -198,7 +198,7 @@ def _ml(url, params=None):
             time.sleep(3)
             r = requests.get(url, headers={'Authorization': f'Bearer {token}'},
                             params=params, timeout=12)
-        return r.json() if r.status_code == 200 else None
+        return r.json() if r.status_code in (200, 206) else None
     except Exception:
         return None
 
@@ -216,7 +216,9 @@ def _ml_catalog_all(catalog_id, zip_code):
             )
             if r.status_code == 429:
                 time.sleep(3); continue
-            if r.status_code != 200: break
+            # 206 = respuesta parcial: ML devuelve los vendedores que puede y omite alguno.
+            # Antes se cortaba ahí y el catálogo quedaba con 0 filas aunque "procesara OK".
+            if r.status_code not in (200, 206): break
             data = r.json()
             results = data.get('results', [])
             all_results.extend(results)
