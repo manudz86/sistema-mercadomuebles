@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% block title %}Atribución de ventas web{% endblock %}
+
+{% block content %}
+{% set colores = {'Meta Ads':'#1877F2','Meta orgánico':'#7FA8F0','Google Ads':'#EA4335','Google orgánico':'#F2A39B','WhatsApp':'#25D366','WhatsApp (anuncio)':'#128C7E','Email':'#8E44AD','IA (ChatGPT, etc.)':'#10A37F','Otros buscadores':'#5B9BD5','Otros referidos':'#6c757d','Directo':'#adb5bd'} %}
+<div class="container-fluid py-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <h4 class="mb-0"><i class="bi bi-diagram-3"></i> Atribución de ventas de la tienda</h4>
+    <form class="d-flex flex-wrap gap-2 align-items-center" method="get">
+      <input type="date" class="form-control form-control-sm" name="desde" value="{{ desde }}">
+      <input type="date" class="form-control form-control-sm" name="hasta" value="{{ hasta }}">
+      <button class="btn btn-sm btn-primary">Ver</button>
+      <a class="btn btn-sm btn-outline-secondary" href="?desde={{ desde }}&hasta={{ hasta }}&formato=csv"><i class="bi bi-download"></i> CSV</a>
+    </form>
+  </div>
+
+  {% if not tablas_ok %}
+  <div class="alert alert-warning py-2">Las tablas de atribución todavía no existen (falta correr la migración 019). Se muestra solo el origen guardado en la venta.</div>
+  {% endif %}
+
+  <div class="alert alert-light border small">
+    <b>Cómo leer:</b> el recorrido incluye <b>todos</b> los contactos de la persona en los {{ ventana }} días previos a la compra,
+    en todos los navegadores que usó para comprar (unidos por el email/teléfono del checkout) y el chat de WhatsApp.
+    <b>Meta Ads / Google Ads</b> = clic en anuncio (UTM de pago o gclid); <b>orgánico</b> = llegó desde FB/IG o Google sin anuncio.
+    "Clic Meta 1d/7d" usa el <b>último clic en un anuncio de Meta</b>: es comparable con las columnas "clic 1 día" y "clic 7 días" de Meta.
+    Las conversiones <b>por visualización</b> de Meta no se pueden ver desde la tienda. Los contactos se registran desde la puesta en marcha (12/11/2026).
+  </div>
+
+  <h6 class="mt-3">Cruce diario por anuncio de Meta (comparar con Meta Ads: anuncio × día, columnas clic 1 día / clic 7 días)</h6>
+  <div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle">
+    <thead class="table-dark"><tr><th>Día</th><th>Anuncio</th><th>Conjunto</th><th>Campaña</th>
+      <th class="text-end">Ventas clic 1d</th><th class="text-end">$ clic 1d</th><th class="text-end">Ventas clic 7d</th>
+      <th class="text-end">$ clic 7d</th><th class="text-end">Canceladas</th><th>Pedidos</th></tr></thead>
+    <tbody>
+    {% for a in por_ad %}
+      <tr><td>{{ a.dia }}</td><td><code>{{ a.ad }}</code></td><td><code>{{ a.adset }}</code></td><td><code>{{ a.campana }}</code></td>
+        <td class="text-end">{{ a.n_1d }}</td><td class="text-end">${{ "{:,.0f}".format(a.v_1d).replace(",",".") }}</td>
+        <td class="text-end">{{ a.n_7d }}</td><td class="text-end">${{ "{:,.0f}".format(a.v_7d).replace(",",".") }}</td>
+        <td class="text-end">{{ a.canceladas }}</td><td class="small">{{ a.ventas | join(' · ') }}</td></tr>
+    {% else %}
+      <tr><td colspan="10" class="text-center text-muted">Sin ventas con clic en anuncio de Meta en el período</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <h6 class="mt-4">Ventas y su recorrido</h6>
+  <div class="table-responsive">
+  <table class="table table-sm table-hover align-middle">
+    <thead class="table-dark"><tr><th>Fecha</th><th>Pedido</th><th class="text-end">Cobrado</th><th>Último contacto</th>
+      <th>Último anuncio pago</th><th>Clic Meta</th><th>Recorrido ({{ ventana }} días)</th><th>Envío a Meta</th></tr></thead>
+    <tbody>
+    {% for f in filas %}
+      <tr {% if f.cancelada %}class="text-decoration-line-through text-muted"{% endif %}>
+        <td class="small">{{ f.fecha }}</td>
+        <td class="small">{{ f.numero_venta }}{% if f.cancelada %} <span class="badge bg-secondary">cancelada</span>{% endif %}</td>
+        <td class="text-end">${{ "{:,.0f}".format(f.importe).replace(",",".") }}</td>
+        <td><span class="badge" style="background:{{ colores.get(f.canal_ultimo,'#6c757d') }}">{{ f.canal_ultimo }}</span></td>
+        <td class="small">{% if f.ultimo_pago %}<span class="badge" style="background:{{ colores.get(f.ultimo_pago,'#6c757d') }}">{{ f.ultimo_pago }}</span> {{ f.ultimo_pago_h }} h antes{% else %}—{% endif %}</td>
+        <td class="small">{% if f.meta_ad %}<code>{{ f.meta_ad }}</code> {{ f.meta_h }} h
+            {% if f.meta_clic_1d %}<span class="badge bg-primary">1d</span>{% elif f.meta_clic_7d %}<span class="badge bg-info text-dark">7d</span>{% else %}<span class="badge bg-light text-dark">&gt;7d</span>{% endif %}
+          {% else %}—{% endif %}
+          {% if f.wa_anuncio %}<div>WhatsApp desde anuncio <code>{{ f.wa_anuncio }}</code></div>{% endif %}</td>
+        <td class="small">
+          {% for r in f.recorrido %}<span class="badge mb-1" style="background:{{ colores.get(r.canal,'#6c757d') }}" title="{{ r.ts_ar }} · {{ r.h }} h antes · {{ r.disp }}">{{ r.ts_ar }} {{ r.canal }}{% if r.det %} · {{ r.det }}{% endif %}</span>{% if not loop.last %} › {% endif %}{% else %}
+            <span class="text-muted">{% if f.con_registro %}sin contactos con origen (directo){% else %}primero: {{ f.canal_primero }}{% endif %}</span>{% endfor %}
+        </td>
+        <td class="small">{{ f.capi }}{% if f.capi_fbc %}<div class="text-muted">fbc: {{ f.capi_fbc }}</div>{% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="text-center text-muted">Sin ventas en el período</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

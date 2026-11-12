@@ -12,9 +12,13 @@
       gclid: qs.get('gclid'), referrer: document.referrer || null,
       ts: new Date().toISOString()
     };
+    // IDs de anuncio/conjunto (Meta: utm_content/utm_term), Google Ads iOS (gbraid/wbraid)
+    // y marca del chat de WhatsApp: solo se agregan si vienen, para no agrandar la cookie.
+    ['utm_content','utm_term','utm_id','gbraid','wbraid','wa'].forEach(function(p){ var v = qs.get(p); if (v) sig[p] = v; });
     var host = location.hostname;
-    var refExterno = sig.referrer && sig.referrer.indexOf('://') > -1 && sig.referrer.indexOf(host) === -1;
-    if (!(sig.utm_source || sig.fbclid || sig.gclid || refExterno)) return; // visita directa: no pisa
+    var refExterno = sig.referrer && sig.referrer.indexOf('://') > -1 && sig.referrer.indexOf(host) === -1
+                     && sig.referrer.indexOf('mercadomuebles.com.ar') === -1;
+    if (!(sig.utm_source || sig.fbclid || sig.gclid || sig.gbraid || sig.wbraid || sig.wa || refExterno)) return; // visita directa: no pisa
     function getCookie(n){ var m=document.cookie.match('(^|;)\\s*'+n+'\\s*=\\s*([^;]+)'); return m?m.pop():null; }
     function setCookie(n,v){ var d=new Date(); d.setTime(d.getTime()+90*864e5); document.cookie=n+'='+v+';expires='+d.toUTCString()+';path=/;SameSite=Lax'; }
     var val = encodeURIComponent(JSON.stringify(sig));
@@ -361,6 +365,13 @@ async function agregarCarrito(sku, nombre, precio, cantidad) {
   if (data.ok) {
     document.getElementById('cart-count').textContent = data.total_items;
     showToast(`✓ "${nombre}" agregado al carrito`);
+    // Meta AddToCart desde el código (reemplaza la regla sin código que leía mal el precio)
+    try {
+      if (typeof fbq === 'function') {
+        fbq('track', 'AddToCart', { content_ids: [sku], content_type: 'product',
+          value: Math.round((Number(precio) || 0) * (Number(cantidad) || 1) * 100) / 100, currency: 'ARS' });
+      }
+    } catch(e) {}
     const id = sku.replace(/_/g, '-');
     const btn = document.getElementById('btn-' + id);
     if (btn) {

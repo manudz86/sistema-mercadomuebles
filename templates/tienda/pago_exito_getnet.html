@@ -48,28 +48,34 @@ function __medirCompraGetnet(){
   } catch(e) {}
   {% endif %}
 
+  // Meta Pixel: SOLO con la venta ya registrada y cobrada (importe_abonado sale de la base)
+  // y si no es prueba interna. Mismo event_id que la CAPI; la marca se graba después de enviar.
+  {% if (importe_abonado | default(0)) > 0 and not es_prueba %}
   try {
     var k = 'fb_purchase_' + '{{ numero_pedido }}';
-    if (localStorage.getItem(k)) return;   // ya disparó para esta venta
-    localStorage.setItem(k, '1');
+    var fbHecho = false;
+    try { fbHecho = !!localStorage.getItem(k); } catch(e) {}
+    if (!fbHecho) {
+      try {
+        window.dataLayer = window.dataLayer || [];
+        window.dataLayer.push({
+          event: 'purchase',
+          value: {{ ga_value | default(0) | int }},
+          currency: 'ARS',
+          transaction_id: '{{ numero_pedido }}'
+        });
+      } catch(e) {}
+      if (typeof fbq === 'function') {
+        fbq('track', 'Purchase', {
+          value: {{ importe_abonado | default(0) | round(2) }},
+          currency: 'ARS',
+          order_id: '{{ numero_pedido }}'
+        }, { eventID: '{{ numero_pedido }}' });
+        try { localStorage.setItem(k, '1'); } catch(e) {}
+      }
+    }
   } catch(e) {}
-
-  try {
-    window.dataLayer = window.dataLayer || [];
-    window.dataLayer.push({
-      event: 'purchase',
-      value: {{ ga_value | default(0) | int }},
-      currency: 'ARS',
-      transaction_id: '{{ numero_pedido }}'
-    });
-  } catch(e) {}
-
-  try {
-    fbq('track', 'Purchase', {
-      value: {{ importe_abonado | default(0) | round(2) }},
-      currency: 'ARS'
-    }, { eventID: '{{ numero_pedido }}' });
-  } catch(e) {}
+  {% endif %}
 }
 // Dentro del iframe con escape en curso: esperar. Si la ventana principal navegó,
 // este iframe ya no existe y el timer no corre (se mide allá). Si el navegador

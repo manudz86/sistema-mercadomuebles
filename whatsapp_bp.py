@@ -1296,6 +1296,36 @@ def webhook_verify():
         return challenge, 200
     return 'Forbidden', 403
 
+def _marcar_links_wa(texto, phone):
+    """Agrega wa=<marca del chat> a los links de la tienda que manda el bot, para unir la
+    conversación con la visita y la compra. La marca es un HMAC del teléfono (no lo expone)."""
+    try:
+        from tienda_bp import wa_ref_de_tel
+        ref = wa_ref_de_tel(phone)
+        if not ref or not texto:
+            return texto
+        return re.sub(r'(utm_source=whatsapp&utm_medium=bot)(?!&wa=)', r'\1&wa=' + ref, texto)
+    except Exception:
+        return texto
+
+
+def _guardar_referral_wa(phone, ref):
+    """Guarda el anuncio de origen de un chat (Click-to-WhatsApp) en wa_referrals."""
+    try:
+        from tienda_bp import tel_hash, wa_ref_de_tel
+        th = tel_hash(phone)
+        if not th or not isinstance(ref, dict):
+            return
+        def _c(v, n):
+            return str(v)[:n] if v else None
+        _exec("""INSERT INTO wa_referrals (wa_ref, tel_h, ts, source_type, source_id, source_url, headline, ctwa_clid)
+                 VALUES (%s,%s,UTC_TIMESTAMP(),%s,%s,%s,%s,%s)""",
+              (wa_ref_de_tel(phone), th, _c(ref.get('source_type'), 30), _c(ref.get('source_id'), 100),
+               _c(ref.get('source_url'), 500), _c(ref.get('headline'), 300), _c(ref.get('ctwa_clid'), 300)))
+    except Exception as e:
+        print(f"[WA] referral no guardado: {e}")
+
+
 @whatsapp_bp.route('/webhook/whatsapp', methods=['POST'])
 def webhook_message():
     """Recibe mensajes entrantes."""
@@ -1313,6 +1343,11 @@ def webhook_message():
             phone  = msg.get('from', '')
             msg_id = msg.get('id', '')
             tipo   = msg.get('type', '')
+
+            # Chat iniciado desde un anuncio Click-to-WhatsApp: Meta manda "referral" con el
+            # anuncio de origen. Se guarda para atribuir la compra (no bloquea ni corta el flujo).
+            if msg.get('referral'):
+                _guardar_referral_wa(phone, msg.get('referral'))
 
             # Solo texto por ahora
             if tipo != 'text':
@@ -1344,6 +1379,7 @@ def webhook_message():
             def responder(ph=phone, tx=texto, mid=msg_id):
                 try:
                     respuesta, fotos = procesar_mensaje(ph, tx)
+                    respuesta = _marcar_links_wa(respuesta, ph)
                     wa_send(ph, respuesta)
                     # Enviar fotos después del texto
                     for sku_foto in fotos:

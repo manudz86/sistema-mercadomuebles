@@ -526,6 +526,13 @@ var cardIds = ['opt-mp-wallet', 'opt-mp', 'opt-pw3', 'opt-pw6', 'opt-getnet', 'o
 
 // ── Selector de método ────────────────────────────────────────────────────────
 function seleccionarMetodo(metodo) {
+  // Meta AddPaymentInfo desde el código, una vez por página (reemplaza la regla sin código)
+  try {
+    if (!window.__mmAddPaymentInfo && typeof fbq === 'function') {
+      window.__mmAddPaymentInfo = true;
+      fbq('track', 'AddPaymentInfo', { currency: 'ARS', value: {{ (total or 0) | round(2) }} });
+    }
+  } catch(e) {}
   // En mobile, MP redirige directo a Checkout Pro (no se renderiza el Brick)
   if (metodo === 'mp' && isMobile) {
     window.location.href = "{{ mp_init_point }}";

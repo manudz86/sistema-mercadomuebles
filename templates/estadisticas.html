@@ -297,7 +297,7 @@
             {% set pct_cant  = (p.cantidad / resumen.total_ventas * 100) if resumen.total_ventas else 0 %}
             {% set pct_monto = ((p.total or 0) / total_abonado * 100) if total_abonado else 0 %}
             <div class="dist-row">
-              <span class="dist-color" style="background: {{ ['#1877F2','#34A853','#A5A5A5','#5B9BD5','#ED7D31'][loop.index0 % 5] }};"></span>
+              <span class="dist-color" style="background: {{ {'Meta Ads':'#1877F2','Meta orgánico':'#7FA8F0','Google Ads':'#EA4335','Google orgánico':'#F2A39B','WhatsApp':'#25D366','Email':'#8E44AD','IA (ChatGPT, etc.)':'#10A37F','Otros buscadores':'#5B9BD5','Otros referidos':'#6c757d','Directo':'#adb5bd'}.get(p.origen_label, '#A5A5A5') }};"></span>
               <span class="dist-label" title="{{ p.origen_label }}">{{ p.origen_label }}</span>
               <span class="dist-nums">
                 <span class="dist-cant">{{ p.cantidad }}</span> <span class="dist-pct">({{ "%.0f"|format(pct_cant) }}%)</span>
@@ -307,7 +307,8 @@
             {% endfor %}
           </div>
           <div style="font-size:11px;color:#888;margin-top:6px;">
-            Monto = cobrado (comparable con Meta Ads). "Meta" = clics de anuncio (fbclid) + UTM de FB/IG.
+            Monto = cobrado. Según el último contacto antes de la compra. "Meta Ads" / "Google Ads" = clic en anuncio
+            (UTM de pago o gclid); "orgánico" = llegó desde FB/IG o Google sin anuncio. Recorrido completo: Atribución.
           </div>
         </div>
       </div>
@@ -488,7 +489,10 @@ const origenLabels   = {{ por_origen | map(attribute='origen_label') | list | to
 const origenCantidad = {{ por_origen | map(attribute='cantidad')     | list | tojson }};
 const origenTotal    = {{ por_origen | map(attribute='total')        | list | tojson }};
 const totalAbonadoGral = {{ total_abonado or 0 }};
-const paletaOrigen = ['#1877F2','#34A853','#A5A5A5','#5B9BD5','#ED7D31'];
+const coloresOrigen = {'Meta Ads':'#1877F2','Meta orgánico':'#7FA8F0','Google Ads':'#EA4335','Google orgánico':'#F2A39B',
+  'WhatsApp':'#25D366','Email':'#8E44AD','IA (ChatGPT, etc.)':'#10A37F','Otros buscadores':'#5B9BD5',
+  'Otros referidos':'#6c757d','Directo':'#adb5bd'};
+const paletaOrigen = origenLabels.map(function(l){ return coloresOrigen[l] || '#A5A5A5'; });
 
 if (document.getElementById('chartOrigen')) {
   new Chart(document.getElementById('chartOrigen'), {

@@ -13956,23 +13956,9 @@ def estadisticas():
     # Clasifica cada venta parseando origen_last (último clic no-directo).
     # Monto = importe_abonado (lo cobrado), comparable con lo que reporta Meta.
     def _clasificar_origen(origen_last):
-        if not origen_last:
-            return 'Directo'
-        try:
-            d = _json.loads(origen_last)
-        except Exception:
-            return 'Directo'
-        src = (d.get('utm_source') or '').lower()
-        ref = (d.get('referrer') or '').lower()
-        if d.get('fbclid') or src in ('facebook', 'instagram', 'fb', 'ig', 'meta'):
-            return 'Meta'
-        if d.get('gclid') or src in ('google', 'adwords', 'google_ads', 'googleads'):
-            return 'Google'
-        if src in ('whatsapp', 'wa', 'whatsapp_bot', 'whatsapp_humano') or 'whatsapp' in ref or 'wa.me' in ref:
-            return 'WhatsApp'
-        if ref:
-            return 'Orgánico/Referido'
-        return 'Directo'
+        # Mismo criterio que la tienda: separa Meta Ads / Meta orgánico y Google Ads / Google orgánico.
+        from tienda_bp import clasificar_origen_json
+        return clasificar_origen_json(origen_last)
 
     # El origen de tráfico solo aplica a la tienda web (ML/presencial no tienen
     # captura de origen). Se fuerza tienda_web para no inflar "Directo".
@@ -13994,8 +13980,9 @@ def estadisticas():
         _agg_origen[lbl]['cantidad'] += 1
         _agg_origen[lbl]['total'] += ab
 
-    _orden_origen = {'Meta': 0, 'Google': 1, 'WhatsApp': 2, 'Orgánico/Referido': 3, 'Directo': 4}
-    por_origen = sorted(_agg_origen.values(), key=lambda x: _orden_origen.get(x['origen_label'], 9))
+    from tienda_bp import CANALES_ORDEN as _CANALES_ORDEN
+    _orden_origen = {c: i for i, c in enumerate(_CANALES_ORDEN)}
+    por_origen = sorted(_agg_origen.values(), key=lambda x: _orden_origen.get(x['origen_label'], 99))
 
     # ========================================
     # 4. DESGLOSE POR MÉTODO DE ENVÍO (para torta)
@@ -18365,24 +18352,8 @@ def _ga4_query(property_id, date_ranges, dimensions, metrics):
 def _origen_label(origen_last):
     """Clasifica el origen de tráfico de una venta de tienda web a partir de
     origen_last (mismo criterio que el desglose de estadísticas)."""
-    if not origen_last:
-        return 'Directo'
-    try:
-        import json as _json
-        d = _json.loads(origen_last)
-    except Exception:
-        return 'Directo'
-    src = (d.get('utm_source') or '').lower()
-    ref = (d.get('referrer') or '').lower()
-    if d.get('fbclid') or src in ('facebook', 'instagram', 'fb', 'ig', 'meta'):
-        return 'Meta'
-    if d.get('gclid') or src in ('google', 'adwords', 'google_ads', 'googleads'):
-        return 'Google'
-    if src in ('whatsapp', 'wa', 'whatsapp_bot', 'whatsapp_humano') or 'whatsapp' in ref or 'wa.me' in ref:
-        return 'WhatsApp'
-    if ref:
-        return 'Orgánico/Referido'
-    return 'Directo'
+    from tienda_bp import clasificar_origen_json
+    return clasificar_origen_json(origen_last)
 
 
 @app.route('/agencia')
@@ -18459,7 +18430,8 @@ def agencia_dashboard():
           AND DATE(v.fecha_venta) BETWEEN %s AND %s
         ORDER BY v.fecha_venta DESC
     """, (fecha_desde, fecha_hasta))
-    _orden_or = {'Meta': 0, 'Google': 1, 'WhatsApp': 2, 'Orgánico/Referido': 3, 'Directo': 4}
+    from tienda_bp import CANALES_ORDEN as _CANALES_ORDEN
+    _orden_or = {c: i for i, c in enumerate(_CANALES_ORDEN)}
     _agg_or = {}
     ventas_detalle = []
     for _v in (_ventas_origen or []):
@@ -18475,7 +18447,7 @@ def agencia_dashboard():
             'origen': _lbl,
             'importe': _ab,
         })
-    por_origen = sorted(_agg_or.values(), key=lambda x: _orden_or.get(x['origen'], 9))
+    por_origen = sorted(_agg_or.values(), key=lambda x: _orden_or.get(x['origen'], 99))
     total_origen = sum(a['total'] for a in por_origen)
     total_origen_ventas = sum(a['cantidad'] for a in por_origen)
 

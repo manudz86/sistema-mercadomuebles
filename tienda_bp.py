@@ -16,7 +16,7 @@ Rutas:
     GET  /tienda/seguimiento         → Seguimiento de pedido para el cliente
 """
 
-from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for, current_app
+from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for, current_app, Response
 import pymysql
 import os
 import mercadopago
@@ -43,35 +43,272 @@ logger = logging.getLogger(__name__)
 tienda_bp = Blueprint('tienda', __name__, url_prefix='/tienda')
 
 # ── Origen de tráfico: parámetros de tracking que se conservan en los redirects ──
-_TRACK_KEYS = ('fbclid', 'gclid', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content')
+_TRACK_KEYS = ('fbclid', 'gclid', 'gbraid', 'wbraid', 'utm_source', 'utm_medium', 'utm_campaign',
+               'utm_term', 'utm_content', 'utm_id', 'wa')
 def _track_args():
     """Query params de tracking presentes en la request (para no perderlos en 301)."""
     return {k: v for k, v in request.args.items() if k in _TRACK_KEYS}
+
+
+# ── Atribución multi-contacto ─────────────────────────────────────────────────
+# Cada llegada con señal de origen queda en tienda_touchpoints, asociada a la cookie
+# propia mm_vid (un id por navegador). En el checkout se une el navegador con la persona
+# (email/teléfono, como HMAC), y los links del bot de WhatsApp llevan wa=<marca del chat>.
+# Así una venta conserva TODOS sus contactos previos (p. ej. anuncio de Meta → días después
+# búsqueda en Google → compra), no solo el primero y el último. Nada de esto puede romper
+# la navegación: todo va en try/except y las escrituras corren en threads.
+_BOT_UA = re.compile(r'bot|crawler|spider|preview|facebookexternalhit|meta-external|facebookcatalog|'
+                     r'slurp|headless|lighthouse|pingdom|uptime', re.I)
+_META_SRC = {'fb', 'ig', 'an', 'msg', 'th', 'facebook', 'instagram', 'meta', 'threads', 'messenger',
+             'audience_network'}
+_PAID_MED = {'paid', 'cpc', 'ppc', 'paid_social', 'paidsocial', 'ads', 'paidsearch', 'paid_search'}
+_GOOGLE_SRC = {'google', 'adwords', 'google_ads', 'googleads'}
+_META_HOSTS = re.compile(r'(^|\.)(facebook\.com|instagram\.com|fb\.me|fb\.com|messenger\.com|threads\.net)$')
+_BUSCADORES = re.compile(r'(^|\.)(bing\.com|yahoo\.com|duckduckgo\.com|ecosia\.org|yandex\.\w+|search\.brave\.com)$')
+_IA_HOSTS = re.compile(r'(^|\.)(chatgpt\.com|openai\.com|perplexity\.ai|gemini\.google\.com|copilot\.microsoft\.com|claude\.ai)$')
+CANALES_ORDEN = ['Meta Ads', 'Meta orgánico', 'Google Ads', 'Google orgánico', 'WhatsApp', 'Email',
+                 'IA (ChatGPT, etc.)', 'Otros buscadores', 'Otros referidos', 'Directo']
+CANALES_PAGOS = ('Meta Ads', 'Google Ads')
+
+
+def clasificar_canal(d):
+    """Canal de un contacto (dict con utm_*, fbclid, gclid, gbraid, wbraid, referrer).
+    Meta Ads exige UTM de pago de Meta (o ID de campaña Meta): un fbclid solo NO alcanza,
+    porque Meta lo agrega también a los links orgánicos. Google Ads exige gclid/gbraid/wbraid
+    o utm de pago de Google; una visita desde google.* sin eso es Google orgánico."""
+    if not d:
+        return 'Directo'
+    src = str(d.get('utm_source') or '').strip().lower()
+    med = str(d.get('utm_medium') or '').strip().lower()
+    camp = str(d.get('utm_campaign') or '').strip()
+    ref = str(d.get('referrer') or '')
+    rhost = ''
+    try:
+        rhost = (urllib.parse.urlparse(ref).hostname or '').lower() if '://' in ref else ''
+    except Exception:
+        pass
+    if src in _META_SRC and (med in _PAID_MED or re.fullmatch(r'120\d{12,}', camp)):
+        return 'Meta Ads'
+    if d.get('gclid') or d.get('gbraid') or d.get('wbraid') or (src in _GOOGLE_SRC and med in _PAID_MED) or \
+            (rhost and re.search(r'(^|\.)(doubleclick\.net|googlesyndication\.com|googleadservices\.com)$', rhost)):
+        return 'Google Ads'
+    if src in ('whatsapp', 'wa', 'whatsapp_bot', 'whatsapp_humano') or d.get('wa') or \
+            'whatsapp' in rhost or rhost.startswith('wa.me'):
+        return 'WhatsApp'
+    if d.get('fbclid') or src in _META_SRC or (rhost and _META_HOSTS.search(rhost)):
+        return 'Meta orgánico'
+    if src == 'email' or med == 'email':
+        return 'Email'
+    if (rhost and _IA_HOSTS.search(rhost)) or 'chatgpt' in src or 'perplexity' in src:
+        return 'IA (ChatGPT, etc.)'
+    if rhost and re.search(r'(^|\.)google\.[a-z.]+$', rhost) or src == 'google':
+        return 'Google orgánico'
+    if rhost and _BUSCADORES.search(rhost):
+        return 'Otros buscadores'
+    if src or rhost:
+        return 'Otros referidos'
+    return 'Directo'
+
+
+def clasificar_origen_json(txt):
+    """Canal a partir del JSON guardado en ventas.origen_first / origen_last."""
+    if not txt:
+        return 'Directo'
+    try:
+        t = urllib.parse.unquote(txt) if str(txt).startswith('%7B') else txt
+        return clasificar_canal(json.loads(t))
+    except Exception:
+        return 'Directo'
+
+
+def _atrib_hmac(valor):
+    import hmac as _hmac
+    key = (os.getenv('SECRET_KEY') or 'mercadomuebles').encode()
+    return _hmac.new(key, valor.encode('utf-8'), hashlib.sha256).hexdigest()
+
+
+def tel_hash(tel):
+    """HMAC del teléfono normalizado a sus últimos 10 dígitos (igual para '54911…' de
+    WhatsApp y '11…' del checkout)."""
+    d = re.sub(r'\D', '', str(tel or ''))
+    return _atrib_hmac('tel:' + d[-10:]) if len(d) >= 8 else None
+
+
+def email_hash(email):
+    e = str(email or '').strip().lower()
+    return _atrib_hmac('em:' + e) if '@' in e else None
+
+
+def wa_ref_de_tel(tel):
+    th = tel_hash(tel)
+    return th[:16] if th else None
+
+
+def _dispositivo(ua):
+    u = ua or ''
+    if 'iPhone' in u or 'iPad' in u:
+        return 'iphone'
+    if 'Android' in u:
+        return 'android'
+    return 'desktop' if u else ''
+
+
+def _vid_actual():
+    """Id propio del navegador (cookie mm_vid). Si no existe, se genera y after_request la graba."""
+    from flask import g
+    try:
+        v = request.cookies.get('mm_vid') or ''
+        if re.fullmatch(r'[0-9a-f]{24}', v):
+            return v
+        if not getattr(g, 'mm_vid_nuevo', None):
+            import secrets as _secrets
+            g.mm_vid_nuevo = _secrets.token_hex(12)
+        return g.mm_vid_nuevo
+    except Exception:
+        return None
+
+
+@tienda_bp.after_request
+def _grabar_vid(resp):
+    try:
+        from flask import g
+        nv = getattr(g, 'mm_vid_nuevo', None)
+        if nv:
+            resp.set_cookie('mm_vid', nv, max_age=400 * 86400, samesite='Lax', secure=True, httponly=True)
+    except Exception:
+        pass
+    return resp
+
+
+_TOUCH_RECIENTES = {}
+_TOUCH_LOCK = threading.Lock()
+
+
+def _registrar_touch(vid, sig, path, ua):
+    """Inserta el contacto en tienda_touchpoints (thread). Deduplica el mismo contacto del mismo
+    navegador durante 30 min (p. ej. navegar varias páginas con el mismo fbclid en la URL)."""
+    if not vid:
+        return
+    canal = clasificar_canal(sig)
+    clave = (vid, canal, sig.get('utm_campaign'), sig.get('utm_content'), sig.get('fbclid'),
+             sig.get('gclid'), sig.get('gbraid'), sig.get('wbraid'), sig.get('wa'),
+             sig.get('referrer_host') if canal not in CANALES_PAGOS else None)
+    ahora = time.time()
+    with _TOUCH_LOCK:
+        if ahora - _TOUCH_RECIENTES.get(clave, 0) < 1800:
+            return
+        _TOUCH_RECIENTES[clave] = ahora
+        if len(_TOUCH_RECIENTES) > 20000:
+            for k in [k for k, t in _TOUCH_RECIENTES.items() if ahora - t > 1800]:
+                _TOUCH_RECIENTES.pop(k, None)
+
+    def _c(v, n):
+        return str(v)[:n] if v else None
+    fila = (vid, datetime.utcnow().replace(microsecond=0), canal,
+            _c(sig.get('utm_source'), 100), _c(sig.get('utm_medium'), 100), _c(sig.get('utm_campaign'), 150),
+            _c(sig.get('utm_content'), 150), _c(sig.get('utm_term'), 150), _c(sig.get('utm_id'), 200),
+            _c(sig.get('fbclid'), 500), _c(sig.get('gclid'), 300), _c(sig.get('gbraid'), 300),
+            _c(sig.get('wbraid'), 300), _c(sig.get('wa'), 16), _c(sig.get('referrer_host'), 200),
+            _c(path, 300), _dispositivo(ua))
+
+    def _ins():
+        try:
+            db = get_db(); cur = db.cursor()
+            cur.execute("""INSERT INTO tienda_touchpoints (vid, ts, canal, utm_source, utm_medium, utm_campaign,
+                               utm_content, utm_term, utm_id, fbclid, gclid, gbraid, wbraid, wa_ref,
+                               referrer_host, landing_path, dispositivo)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", fila)
+            db.commit(); cur.close(); db.close()
+        except Exception as e:
+            logger.debug(f'[atribucion] touch no registrado: {e}')
+    threading.Thread(target=_ins, daemon=True).start()
+
+
+def registrar_identidad(vid, email=None, tel=None, origen='checkout'):
+    """Une el navegador con la persona (HMAC de email/teléfono). Thread, no bloquea."""
+    eh, th = email_hash(email), tel_hash(tel)
+    if not vid or not (eh or th):
+        return
+
+    def _ins():
+        try:
+            db = get_db(); cur = db.cursor()
+            cur.execute("SELECT 1 FROM tienda_identidades WHERE vid=%s AND email_h<=>%s AND tel_h<=>%s LIMIT 1",
+                        (vid, eh, th))
+            if not cur.fetchone():
+                cur.execute("INSERT INTO tienda_identidades (vid, email_h, tel_h, origen, ts) VALUES (%s,%s,%s,%s,%s)",
+                            (vid, eh, th, origen, datetime.utcnow().replace(microsecond=0)))
+                db.commit()
+            cur.close(); db.close()
+        except Exception as e:
+            logger.debug(f'[atribucion] identidad no registrada: {e}')
+    threading.Thread(target=_ins, daemon=True).start()
+
+
+def vids_de_persona(cur, vid=None, email_h=None, tel_h=None):
+    """Todos los navegadores (vid) vinculados a una persona por email/teléfono, más el propio."""
+    vids = {vid} if vid else set()
+    conds, params = [], []
+    if email_h:
+        conds.append('email_h=%s'); params.append(email_h)
+    if tel_h:
+        conds.append('tel_h=%s'); params.append(tel_h)
+    if vid:
+        conds.append('vid=%s'); params.append(vid)
+    if not conds:
+        return vids
+    cur.execute(f"SELECT DISTINCT vid, email_h, tel_h FROM tienda_identidades WHERE {' OR '.join(conds)}", params)
+    filas = cur.fetchall()
+    vids |= {r['vid'] for r in filas}
+    # segundo salto: el mismo navegador usado con otro email/teléfono de la persona
+    ehs = {r['email_h'] for r in filas if r['email_h']} - {email_h}
+    ths = {r['tel_h'] for r in filas if r['tel_h']} - {tel_h}
+    if ehs or ths:
+        c2 = ([f"email_h IN ({','.join(['%s'] * len(ehs))})"] if ehs else []) + \
+             ([f"tel_h IN ({','.join(['%s'] * len(ths))})"] if ths else [])
+        cur.execute(f"SELECT DISTINCT vid FROM tienda_identidades WHERE {' OR '.join(c2)}", list(ehs) + list(ths))
+        vids |= {r['vid'] for r in cur.fetchall()}
+    return vids
+
 
 @tienda_bp.before_request
 def _capturar_origen_server():
     """Captura server-side del origen (fbclid/gclid/utm/referrer externo) apenas
     entra la visita, ANTES de cualquier redirect y sin depender del JS ni de las
     cookies del navegador (robusto para el navegador embebido de Instagram/FB).
-    Se guarda en la sesión y el checkout lo usa como respaldo de la cookie."""
+    Se guarda en la sesión y el checkout lo usa como respaldo de la cookie.
+    Además registra el contacto en tienda_touchpoints (historial completo)."""
     try:
+        ua = request.headers.get('User-Agent', '')
+        if request.method != 'GET' or _BOT_UA.search(ua):
+            return
+        vid = _vid_actual()
         qs = request.args
         fbclid = qs.get('fbclid'); gclid = qs.get('gclid'); utm_source = qs.get('utm_source')
+        gbraid = qs.get('gbraid'); wbraid = qs.get('wbraid'); wa = qs.get('wa')
         ref = request.referrer or ''
         host = request.host or ''
-        ref_ext = ('://' in ref) and (host not in ref)
-        if not (fbclid or gclid or utm_source or ref_ext):
+        ref_ext = ('://' in ref) and (host not in ref) and ('mercadomuebles.com.ar' not in ref)
+        if not (fbclid or gclid or gbraid or wbraid or utm_source or wa or ref_ext):
             return  # visita directa: no pisa
         sig = {
             'utm_source': utm_source, 'utm_medium': qs.get('utm_medium'),
-            'utm_campaign': qs.get('utm_campaign'), 'fbclid': fbclid, 'gclid': gclid,
+            'utm_campaign': qs.get('utm_campaign'), 'utm_content': qs.get('utm_content'),
+            'utm_term': qs.get('utm_term'), 'utm_id': qs.get('utm_id'),
+            'fbclid': fbclid, 'gclid': gclid, 'gbraid': gbraid, 'wbraid': wbraid, 'wa': wa,
             'referrer': (ref or None),
             'ts': datetime.now(timezone.utc).isoformat(),
         }
-        val = json.dumps(sig, ensure_ascii=False)
+        val = json.dumps({k: v for k, v in sig.items() if v is not None or k in ('utm_source', 'utm_medium', 'utm_campaign', 'fbclid', 'gclid', 'referrer')},
+                         ensure_ascii=False)
         session['mm_origen_last'] = val
         if not session.get('mm_origen_first'):
             session['mm_origen_first'] = val
+        try:
+            rh = (urllib.parse.urlparse(ref).hostname or '') if ref_ext else ''
+            _registrar_touch(vid, {**sig, 'referrer_host': rh}, request.path, ua)
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -5999,6 +6236,9 @@ def checkout():
         _of = request.cookies.get('mm_origen_first'); _ol = request.cookies.get('mm_origen_last')
         cliente['_origen_first'] = urllib.parse.unquote(_of) if _of else session.get('mm_origen_first')
         cliente['_origen_last']  = urllib.parse.unquote(_ol) if _ol else session.get('mm_origen_last')
+        # Atribución multi-contacto: navegador del checkout y su vínculo con la persona
+        cliente['_vid'] = _vid_actual()
+        registrar_identidad(cliente['_vid'], cliente.get('email'), cliente.get('telefono'), 'checkout')
     except Exception:
         pass
 
@@ -6707,14 +6947,65 @@ def _capi_phone(tel):
         d = '54' + d
     return hashlib.sha256(d.encode('utf-8')).hexdigest()
 
+def _fbc_desde_touch(vid, email_h, tel_h):
+    """Si el navegador no tiene cookie _fbc, arma el fbc con el último fbclid de Meta Ads
+    registrado para esa persona en los últimos 90 días (formato documentado por Meta:
+    fb.1.<ms del clic>.<fbclid>). Usa la hora REAL registrada del clic, no la de ahora."""
+    try:
+        db = get_db(); cur = db.cursor()
+        vids = vids_de_persona(cur, vid, email_h, tel_h)
+        if not vids:
+            cur.close(); db.close(); return None
+        cur.execute(f"""SELECT fbclid, ts FROM tienda_touchpoints
+                        WHERE vid IN ({','.join(['%s'] * len(vids))}) AND fbclid IS NOT NULL AND fbclid <> ''
+                          AND canal IN ('Meta Ads','Meta orgánico') AND ts >= UTC_TIMESTAMP() - INTERVAL 90 DAY
+                        ORDER BY (canal='Meta Ads') DESC, ts DESC LIMIT 1""", list(vids))
+        r = cur.fetchone()
+        cur.close(); db.close()
+        if r:
+            ms = int(r['ts'].replace(tzinfo=timezone.utc).timestamp() * 1000)
+            return f"fb.1.{ms}.{r['fbclid']}"
+    except Exception as e:
+        logger.debug(f'[CAPI] fbc desde touch: {e}')
+    return None
+
+
+def _guardar_venta_atribucion(numero_venta, vid, email_h, tel_h, fbc, fbc_origen, fbp, ga_cid):
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("""INSERT INTO venta_atribucion (numero_venta, vid, email_h, tel_h, fbc, fbc_origen, fbp, ga_cid, creado)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       ON DUPLICATE KEY UPDATE vid=COALESCE(vid, VALUES(vid))""",
+                    (numero_venta, vid, email_h, tel_h, (fbc or '')[:600] or None, fbc_origen,
+                     (fbp or '')[:100] or None, (ga_cid or '')[:60] or None, datetime.utcnow().replace(microsecond=0)))
+        db.commit(); cur.close(); db.close()
+    except Exception as e:
+        logger.debug(f'[atribucion] venta_atribucion: {e}')
+
+
+def _log_capi(numero_venta, valor, http_status, events_received, fbtrace_id, fbc, fbc_origen, fbp,
+              es_prueba=0, error=None):
+    try:
+        db = get_db(); cur = db.cursor()
+        cur.execute("""INSERT INTO meta_capi_envios (numero_venta, event_id, valor, enviado, http_status,
+                           events_received, fbtrace_id, tiene_fbc, fbc_origen, tiene_fbp, es_prueba, error)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (numero_venta, numero_venta, valor, datetime.utcnow().replace(microsecond=0), http_status,
+                     events_received, (fbtrace_id or '')[:100] or None, 1 if fbc else 0, fbc_origen,
+                     1 if fbp else 0, es_prueba, (error or '')[:300] or None))
+        db.commit(); cur.close(); db.close()
+    except Exception as e:
+        logger.debug(f'[CAPI] log no registrado: {e}')
+
+
 def enviar_capi_purchase(*, numero_venta, email='', telefono='', nombre='',
                          dni='', ciudad='', provincia='', cp='', total=0,
                          items=None, client_ip=None, user_agent=None,
-                         fbp=None, fbc=None, source_url=None):
-    """Envía Purchase a la Meta CAPI. No bloquea ni lanza: corre en thread daemon."""
+                         fbp=None, fbc=None, source_url=None, vid=None, ga_cid=None):
+    """Envía Purchase a la Meta CAPI. No bloquea ni lanza: corre en thread daemon.
+    También guarda venta_atribucion (navegador/persona de la compra) y deja cada envío con la
+    respuesta de Meta en meta_capi_envios. Las pruebas internas (cupón DESCMMD*) NO se envían."""
     token = os.getenv('CAPI', '')
-    if not token:
-        return
     test_code = os.getenv('CAPI_TEST_CODE', '')
     items = items or []
     fn = ln = None
@@ -6740,6 +7031,7 @@ def enviar_capi_purchase(*, numero_venta, email='', telefono='', nombre='',
     if user_agent: user_data['client_user_agent'] = user_agent
     if fbp:        user_data['fbp'] = fbp
     if fbc:        user_data['fbc'] = fbc
+    _em_h, _tel_h = email_hash(email), tel_hash(telefono)
 
     contents, content_ids, num_items = [], [], 0
     for it in items:
@@ -6772,14 +7064,43 @@ def enviar_capi_purchase(*, numero_venta, email='', telefono='', nombre='',
            f'{META_DATASET_ID}/events?access_token={token}')
 
     def _post():
+        fbc_final, fbc_origen = fbc, ('cookie' if fbc else None)
+        if not fbc_final:
+            fbc_final = _fbc_desde_touch(vid, _em_h, _tel_h)
+            if fbc_final:
+                fbc_origen = 'fbclid_registrado'
+                user_data['fbc'] = fbc_final
+        _guardar_venta_atribucion(numero_venta, vid, _em_h, _tel_h, fbc_final, fbc_origen, fbp, ga_cid)
+        # Prueba interna: el cupón se registra después de crear la venta → esperar un momento
+        time.sleep(3)
+        try:
+            prueba = _es_prueba_interna(numero_venta)
+        except Exception:
+            prueba = False
+        if prueba:
+            print(f"[CAPI] {numero_venta} prueba interna (DESCMMD): no se envía")
+            _log_capi(numero_venta, total, None, None, None, fbc_final, fbc_origen, fbp, es_prueba=1,
+                      error='prueba interna: no enviado')
+            return
+        if not token:
+            return
         try:
             r = http_requests.post(url, json=payload, timeout=6)
+            try:
+                rj = r.json()
+            except Exception:
+                rj = {}
             if r.status_code != 200:
                 print(f"[CAPI] {numero_venta} status={r.status_code} {r.text[:300]}")
+                _log_capi(numero_venta, total, r.status_code, None, (rj.get('error') or {}).get('fbtrace_id'),
+                          fbc_final, fbc_origen, fbp, error=r.text[:300])
             else:
-                print(f"[CAPI] {numero_venta} OK")
+                print(f"[CAPI] {numero_venta} OK events_received={rj.get('events_received')} fbtrace={rj.get('fbtrace_id')}")
+                _log_capi(numero_venta, total, 200, rj.get('events_received'), rj.get('fbtrace_id'),
+                          fbc_final, fbc_origen, fbp)
         except Exception as e:
             print(f"[CAPI] {numero_venta} ERROR {e}")
+            _log_capi(numero_venta, total, None, None, None, fbc_final, fbc_origen, fbp, error=str(e))
 
     threading.Thread(target=_post, daemon=True).start()
 
@@ -7637,7 +7958,9 @@ def pago_payway():
             total=total_con_coef, items=cart_items_adj,
             client_ip=_ip, user_agent=request.headers.get('User-Agent'),
             fbp=request.cookies.get('_fbp'), fbc=request.cookies.get('_fbc'),
-            source_url=request.url)
+            source_url=request.url,
+            vid=cli.get('_vid') or _vid_actual(),
+            ga_cid=_ga4_ids_desde_cookies(request.cookies)[0])
     except Exception as _e:
         print(f"[CAPI] payway: {_e}")
     try:
@@ -8183,6 +8506,7 @@ def pago_exito():
     ga_items  = []
     ga_value  = 0
     importe_abonado = 0
+    venta_confirmada = False   # el Pixel Purchase solo sale si la venta existe y está cobrada
     for _intento in range(3):
         try:
             db = get_db()
@@ -8199,6 +8523,7 @@ def pago_exito():
             rows = cur.fetchall()
             if rows:
                 importe_abonado = float(rows[0]['importe_abonado'] or 0)
+                venta_confirmada = importe_abonado > 0
                 ga_value = importe_abonado   # alineado al monto pagado (GA4 = Pixel = CAPI)
                 ga_items = []
                 for r in rows:
@@ -8258,6 +8583,7 @@ def pago_exito():
         numero_venta  = numero_venta,
         pago_en_proceso = pago_en_proceso,
         es_prueba     = _es_prueba_interna(numero_venta),
+        venta_confirmada = venta_confirmada,
     )
 
 
@@ -9528,7 +9854,8 @@ def webhook_mp():
                 total=importe_abonado_real, items=cart_items,
                 client_ip=cli.get('_capi_ip'), user_agent=cli.get('_capi_ua'),
                 fbp=cli.get('_fbp'), fbc=cli.get('_fbc'),
-                source_url=(os.getenv('APP_BASE_URL','') + '/pago/exito'))
+                source_url=(os.getenv('APP_BASE_URL','') + '/pago/exito'),
+                vid=cli.get('_vid'), ga_cid=cli.get('_ga_cid'))
         except Exception as _e:
             print(f"[CAPI] webhook_mp: {_e}")
         try:
@@ -9917,7 +10244,8 @@ def webhook_getnet():
                 total=importe_abonado_real, items=cart_items_adj,
                 client_ip=cli.get('_capi_ip'), user_agent=cli.get('_capi_ua'),
                 fbp=cli.get('_fbp'), fbc=cli.get('_fbc'),
-                source_url=(os.getenv('APP_BASE_URL','') + '/pago/exito'))
+                source_url=(os.getenv('APP_BASE_URL','') + '/pago/exito'),
+                vid=cli.get('_vid'), ga_cid=cli.get('_ga_cid'))
         except Exception as _e:
             print(f"[CAPI] webhook_getnet: {_e}")
         try:
@@ -11461,3 +11789,155 @@ def webhook_clearsale():
             pass
 
     return jsonify({'ok': True}), 200
+
+
+# ── Panel: atribución multi-contacto por venta y cruce diario por anuncio ────────
+ATRIB_VENTANA_DIAS = 28
+
+
+def _atribucion_datos(desde, hasta):
+    """Arma, para las ventas de la tienda entre desde y hasta (fechas AR, inclusive), el recorrido
+    de contactos (todos los navegadores de la persona, 28 días previos), el último anuncio de Meta
+    con su ventana de clic (1 y 7 días) y el estado del envío a Meta CAPI. Solo lectura."""
+    db = get_db(); cur = db.cursor()
+    cur.execute("""SELECT id, numero_venta, fecha_venta, importe_abonado, estado_entrega, email_cliente,
+                          telefono_cliente, origen_first, origen_last
+                   FROM ventas WHERE canal='tienda_web' AND fecha_venta >= %s AND fecha_venta < %s + INTERVAL 1 DAY
+                   ORDER BY fecha_venta""", (desde, hasta))
+    ventas = cur.fetchall()
+    filas = []
+    tablas_ok = True
+    for v in ventas:
+        nv = v['numero_venta']
+        f_ar = v['fecha_venta']
+        f_utc = f_ar + timedelta(hours=3)
+        va = None; capi = None; touches = []; refs_wa = []
+        try:
+            cur.execute("SELECT * FROM venta_atribucion WHERE numero_venta=%s", (nv,))
+            va = cur.fetchone()
+            eh = (va or {}).get('email_h') or email_hash(v['email_cliente'])
+            th = (va or {}).get('tel_h') or tel_hash(v['telefono_cliente'])
+            vids = vids_de_persona(cur, (va or {}).get('vid'), eh, th)
+            conds, params = [], []
+            if vids:
+                conds.append(f"vid IN ({','.join(['%s'] * len(vids))})"); params += list(vids)
+            if th:
+                conds.append('wa_ref=%s'); params.append(th[:16])
+            if conds:
+                cur.execute(f"""SELECT ts, canal, utm_source, utm_medium, utm_campaign, utm_content, utm_term,
+                                       fbclid IS NOT NULL AND fbclid<>'' AS con_fbclid, gclid IS NOT NULL AS con_gclid,
+                                       referrer_host, dispositivo, vid
+                                FROM tienda_touchpoints
+                                WHERE ({' OR '.join(conds)}) AND ts <= %s AND ts >= %s - INTERVAL {ATRIB_VENTANA_DIAS} DAY
+                                ORDER BY ts""", params + [f_utc, f_utc])
+                touches = cur.fetchall()
+            if th:
+                cur.execute(f"""SELECT ts, source_type, source_id, headline FROM wa_referrals
+                                WHERE tel_h=%s AND ts <= %s AND ts >= %s - INTERVAL {ATRIB_VENTANA_DIAS} DAY ORDER BY ts""",
+                            (th, f_utc, f_utc))
+                refs_wa = cur.fetchall()
+            cur.execute("""SELECT enviado, http_status, events_received, fbtrace_id, fbc_origen, tiene_fbp, es_prueba, error
+                           FROM meta_capi_envios WHERE numero_venta=%s ORDER BY id DESC LIMIT 1""", (nv,))
+            capi = cur.fetchone()
+        except Exception as e:
+            tablas_ok = False
+            logger.warning(f'[atribucion] {nv}: {e}')
+
+        def h_antes(ts):
+            return round((f_utc - ts).total_seconds() / 3600, 1)
+        recorrido = []
+        for t in touches:
+            det = ''
+            if t['canal'] == 'Meta Ads':
+                det = f"anuncio {t['utm_content'] or '?'}"
+            elif t['canal'] == 'Google Ads':
+                det = t['utm_campaign'] or 'gclid'
+            elif t['referrer_host']:
+                det = t['referrer_host']
+            item = {'ts_ar': (t['ts'] - timedelta(hours=3)).strftime('%d/%m %H:%M'), 'canal': t['canal'], 'det': det,
+                    'h': h_antes(t['ts']), 'disp': t['dispositivo'] or ''}
+            if not recorrido or (recorrido[-1]['canal'], recorrido[-1]['det']) != (item['canal'], item['det']):
+                recorrido.append(item)
+        for r in refs_wa:
+            recorrido.append({'ts_ar': (r['ts'] - timedelta(hours=3)).strftime('%d/%m %H:%M'), 'canal': 'WhatsApp (anuncio)',
+                              'det': f"anuncio {r['source_id'] or '?'}", 'h': h_antes(r['ts']), 'disp': ''})
+        recorrido.sort(key=lambda x: -x['h'])
+        meta = [t for t in touches if t['canal'] == 'Meta Ads']
+        gads = [t for t in touches if t['canal'] == 'Google Ads']
+        ult_meta = meta[-1] if meta else None
+        pagos = [t for t in touches if t['canal'] in CANALES_PAGOS]
+        filas.append({
+            'numero_venta': nv, 'fecha': f_ar.strftime('%Y-%m-%d %H:%M'), 'dia': f_ar.strftime('%Y-%m-%d'),
+            'importe': float(v['importe_abonado'] or 0), 'estado': v['estado_entrega'],
+            'cancelada': v['estado_entrega'] == 'cancelada',
+            'canal_primero': clasificar_origen_json(v['origen_first']),
+            'canal_ultimo': clasificar_origen_json(v['origen_last']),
+            'ultimo_pago': pagos[-1]['canal'] if pagos else '',
+            'ultimo_pago_h': h_antes(pagos[-1]['ts']) if pagos else None,
+            'meta_ad': (ult_meta or {}).get('utm_content') or '',
+            'meta_adset': (ult_meta or {}).get('utm_term') or '',
+            'meta_campana': (ult_meta or {}).get('utm_campaign') or '',
+            'meta_h': h_antes(ult_meta['ts']) if ult_meta else None,
+            'meta_clic_1d': bool(ult_meta and h_antes(ult_meta['ts']) <= 24),
+            'meta_clic_7d': bool(ult_meta and h_antes(ult_meta['ts']) <= 168),
+            'google_ads_7d': any(h_antes(t['ts']) <= 168 for t in gads),
+            'wa_anuncio': ', '.join(sorted({r['source_id'] for r in refs_wa if r['source_id']})),
+            'recorrido': recorrido,
+            'con_registro': bool(va),
+            'capi': ('prueba (no enviada)' if capi and capi['es_prueba'] else
+                     f"OK ({capi['events_received']})" if capi and capi['http_status'] == 200 else
+                     f"ERROR {capi['http_status'] or ''} {(capi['error'] or '')[:60]}" if capi else '—'),
+            'capi_fbtrace': (capi or {}).get('fbtrace_id') or '',
+            'capi_fbc': (capi or {}).get('fbc_origen') or '',
+        })
+    cur.close(); db.close()
+    # Cruce diario por anuncio de Meta (último clic en anuncio Meta antes de la compra)
+    por_ad = {}
+    for f in filas:
+        if not f['meta_ad'] or not f['meta_clic_7d']:
+            continue
+        a = por_ad.setdefault((f['dia'], f['meta_ad']), {'dia': f['dia'], 'ad': f['meta_ad'], 'adset': f['meta_adset'],
+                                                      'campana': f['meta_campana'], 'n_1d': 0, 'v_1d': 0.0,
+                                                      'n_7d': 0, 'v_7d': 0.0, 'canceladas': 0, 'ventas': []})
+        if f['meta_clic_1d']:
+            a['n_1d'] += 1; a['v_1d'] += f['importe']
+        a['n_7d'] += 1; a['v_7d'] += f['importe']
+        a['canceladas'] += 1 if f['cancelada'] else 0
+        a['ventas'].append(f"{f['numero_venta']} ${f['importe']:,.0f}".replace(',', '.'))
+    return filas, sorted(por_ad.values(), key=lambda x: (x['dia'], x['ad'])), tablas_ok
+
+
+@tienda_bp.route('/admin/atribucion')
+@login_required
+def atribucion():
+    from flask_login import current_user
+    if getattr(current_user, 'rol', '') not in ('admin', 'agencia'):
+        return redirect('/')
+    hoy = (datetime.utcnow() - timedelta(hours=3)).date()
+    try:
+        desde = datetime.strptime(request.args.get('desde', ''), '%Y-%m-%d').date()
+    except ValueError:
+        desde = hoy - timedelta(days=6)
+    try:
+        hasta = datetime.strptime(request.args.get('hasta', ''), '%Y-%m-%d').date()
+    except ValueError:
+        hasta = hoy
+    filas, por_ad, tablas_ok = _atribucion_datos(desde, hasta)
+    if request.args.get('formato') == 'csv':
+        import csv as _csv, io as _io
+        buf = _io.StringIO()
+        w = _csv.writer(buf)
+        w.writerow(['numero_venta', 'fecha_ar', 'importe', 'estado', 'canal_primero', 'canal_ultimo', 'ultimo_pago',
+                    'horas_ultimo_pago', 'meta_ad_id', 'meta_adset_id', 'meta_campana_id', 'horas_clic_meta',
+                    'meta_clic_1d', 'meta_clic_7d', 'google_ads_7d', 'whatsapp_anuncio', 'capi', 'capi_fbtrace_id',
+                    'capi_fbc', 'recorrido'])
+        for f in filas:
+            w.writerow([f['numero_venta'], f['fecha'], f"{f['importe']:.2f}", f['estado'], f['canal_primero'],
+                        f['canal_ultimo'], f['ultimo_pago'], f['ultimo_pago_h'], f['meta_ad'], f['meta_adset'],
+                        f['meta_campana'], f['meta_h'], int(f['meta_clic_1d']), int(f['meta_clic_7d']),
+                        int(f['google_ads_7d']), f['wa_anuncio'], f['capi'], f['capi_fbtrace'], f['capi_fbc'],
+                        ' > '.join(f"{r['ts_ar']} {r['canal']} {r['det']}".strip() for r in f['recorrido'])])
+        return Response(buf.getvalue().encode('utf-8-sig'), mimetype='text/csv',
+                        headers={'Content-Disposition': f'attachment; filename=atribucion_{desde}_{hasta}.csv'})
+    return render_template('atribucion.html', filas=filas, por_ad=por_ad, desde=desde, hasta=hasta,
+                           tablas_ok=tablas_ok, ventana=ATRIB_VENTANA_DIAS)
