@@ -13987,18 +13987,27 @@ def estadisticas():
     # El origen de tráfico solo aplica a la tienda web (ML/presencial no tienen
     # captura de origen). Se fuerza tienda_web para no inflar "Directo".
     origen_rows = query_db(f"""
-        SELECT v.origen_last, v.importe_abonado
+        SELECT v.numero_venta, v.fecha_venta, v.email_cliente, v.telefono_cliente, v.origen_last, v.importe_abonado
         FROM ventas v
         {base_where}
         AND v.canal = 'tienda_web'
     """, tuple(base_params))
+
+    # Último contacto no directo de la persona en cualquiera de sus dispositivos (si compró
+    # desde un navegador "directo" después de entrar por un anuncio en otro, cuenta el anuncio).
+    try:
+        from tienda_bp import canales_atribuidos as _canales_atr
+        _canal_por_venta = _canales_atr(origen_rows or [])
+    except Exception as _e_atr:
+        print(f'[estadisticas] atribución por persona no disponible: {_e_atr}')
+        _canal_por_venta = {}
 
     _agg_origen = {}
     total_abonado = 0.0
     for r in (origen_rows or []):
         ab = float(r.get('importe_abonado') or 0)
         total_abonado += ab
-        lbl = _clasificar_origen(r.get('origen_last'))
+        lbl = _canal_por_venta.get(r.get('numero_venta')) or _clasificar_origen(r.get('origen_last'))
         if lbl not in _agg_origen:
             _agg_origen[lbl] = {'origen_label': lbl, 'cantidad': 0, 'total': 0.0}
         _agg_origen[lbl]['cantidad'] += 1
@@ -18450,7 +18459,8 @@ def agencia_dashboard():
 
     # ── Origen de las ventas (tienda web) — Meta/Google/WhatsApp/Orgánico/Directo ──
     _ventas_origen = query_db("""
-        SELECT v.id, v.fecha_venta, v.importe_abonado, v.origen_last
+        SELECT v.id, v.numero_venta, v.fecha_venta, v.email_cliente, v.telefono_cliente,
+               v.importe_abonado, v.origen_last
         FROM ventas v
         WHERE v.canal = 'tienda_web'
           AND v.estado_entrega != 'cancelada'
@@ -18459,10 +18469,17 @@ def agencia_dashboard():
     """, (fecha_desde, fecha_hasta))
     from tienda_bp import CANALES_ORDEN as _CANALES_ORDEN
     _orden_or = {c: i for i, c in enumerate(_CANALES_ORDEN)}
+    # Último contacto no directo de la persona (todos sus dispositivos); igual que Estadísticas.
+    try:
+        from tienda_bp import canales_atribuidos as _canales_atr
+        _canal_por_venta = _canales_atr(_ventas_origen or [])
+    except Exception as _e_atr:
+        print(f'[agencia] atribución por persona no disponible: {_e_atr}')
+        _canal_por_venta = {}
     _agg_or = {}
     ventas_detalle = []
     for _v in (_ventas_origen or []):
-        _lbl = _origen_label(_v.get('origen_last'))
+        _lbl = _canal_por_venta.get(_v.get('numero_venta')) or _origen_label(_v.get('origen_last'))
         _ab = float(_v.get('importe_abonado') or 0)
         _a = _agg_or.setdefault(_lbl, {'origen': _lbl, 'cantidad': 0, 'total': 0.0})
         _a['cantidad'] += 1

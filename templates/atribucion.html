@@ -48,7 +48,7 @@
   <h6 class="mt-4">Ventas y su recorrido</h6>
   <div class="table-responsive">
   <table class="table table-sm table-hover align-middle">
-    <thead class="table-dark"><tr><th>Fecha</th><th>Pedido</th><th class="text-end">Cobrado</th><th>Último contacto</th>
+    <thead class="table-dark"><tr><th>Fecha</th><th>Pedido</th><th class="text-end">Cobrado</th><th title="Último contacto no directo de la persona, en cualquiera de sus dispositivos. Es el que usan Estadísticas y el Dashboard Agencia.">Origen atribuido</th>
       <th>Último anuncio pago</th><th>Clic Meta</th><th>Recorrido ({{ ventana }} días)</th><th>Envío a Meta</th></tr></thead>
     <tbody>
     {% for f in filas %}
@@ -56,7 +56,8 @@
         <td class="small">{{ f.fecha }}</td>
         <td class="small">{{ f.numero_venta }}{% if f.cancelada %} <span class="badge bg-secondary">cancelada</span>{% endif %}</td>
         <td class="text-end">${{ "{:,.0f}".format(f.importe).replace(",",".") }}</td>
-        <td><span class="badge" style="background:{{ colores.get(f.canal_ultimo,'#6c757d') }}">{{ f.canal_ultimo }}</span></td>
+        <td><span class="badge" style="background:{{ colores.get(f.canal_ultimo,'#6c757d') }}">{{ f.canal_ultimo }}</span>
+          {% if f.canal_navegador and f.canal_navegador != f.canal_ultimo %}<div class="small text-muted" title="Origen del navegador con el que pagó">pagó entrando: {{ f.canal_navegador }}</div>{% endif %}</td>
         <td class="small">{% if f.ultimo_pago %}<span class="badge" style="background:{{ colores.get(f.ultimo_pago,'#6c757d') }}">{{ f.ultimo_pago }}</span> {{ f.ultimo_pago_h }} h antes{% else %}—{% endif %}</td>
         <td class="small">{% if f.meta_ad %}<code>{{ f.meta_ad }}</code> {{ f.meta_h }} h
             {% if f.meta_clic_1d %}<span class="badge bg-primary">1d</span>{% elif f.meta_clic_7d %}<span class="badge bg-info text-dark">7d</span>{% else %}<span class="badge bg-light text-dark">&gt;7d</span>{% endif %}

@@ -11937,6 +11937,71 @@ def webhook_clearsale():
 ATRIB_VENTANA_DIAS = 28
 
 
+# Desde cuándo hay registro de contactos (tienda_touchpoints), en UTC. Antes solo existe
+# origen_last del navegador que compró.
+ATRIB_TOUCH_INICIO = datetime(2026, 11, 12, 15, 0)
+
+
+def _touches_de_venta(cur, numero_venta, f_utc, email, telefono):
+    """Contactos de la persona (todos sus navegadores, unidos por email/teléfono) en los
+    ATRIB_VENTANA_DIAS previos a la compra. Devuelve (venta_atribucion, touches, tel_h)."""
+    cur.execute("SELECT * FROM venta_atribucion WHERE numero_venta=%s", (numero_venta,))
+    va = cur.fetchone()
+    eh = (va or {}).get('email_h') or email_hash(email)
+    th = (va or {}).get('tel_h') or tel_hash(telefono)
+    vids = vids_de_persona(cur, (va or {}).get('vid'), eh, th)
+    conds, params = [], []
+    if vids:
+        conds.append(f"vid IN ({','.join(['%s'] * len(vids))})"); params += list(vids)
+    if th:
+        conds.append('wa_ref=%s'); params.append(th[:16])
+    touches = []
+    if conds:
+        cur.execute(f"""SELECT ts, canal, utm_source, utm_medium, utm_campaign, utm_content, utm_term,
+                               fbclid IS NOT NULL AND fbclid<>'' AS con_fbclid, gclid IS NOT NULL AS con_gclid,
+                               referrer_host, dispositivo, vid
+                        FROM tienda_touchpoints
+                        WHERE ({' OR '.join(conds)}) AND ts <= %s AND ts >= %s - INTERVAL {ATRIB_VENTANA_DIAS} DAY
+                        ORDER BY ts""", params + [f_utc, f_utc])
+        touches = cur.fetchall()
+    return va, touches, th
+
+
+def _canal_no_directo(touches, origen_last):
+    """Último contacto NO directo de la persona (cualquier dispositivo). Si no hay ninguno,
+    lo que diga origen_last del navegador que compró (que puede ser Directo)."""
+    nd = [t for t in touches if t['canal'] and t['canal'] != 'Directo']
+    return nd[-1]['canal'] if nd else clasificar_origen_json(origen_last)
+
+
+def canales_atribuidos(ventas):
+    """{numero_venta: canal} con el criterio "último contacto no directo de la persona".
+    ventas: dicts con numero_venta, fecha_venta (AR), email_cliente, telefono_cliente, origen_last.
+    Las ventas anteriores al registro de contactos usan origen_last."""
+    out = {}
+    nuevas = []
+    for v in ventas:
+        f = v.get('fecha_venta')
+        if f and f + timedelta(hours=3) >= ATRIB_TOUCH_INICIO:
+            nuevas.append(v)
+        else:
+            out[v['numero_venta']] = clasificar_origen_json(v.get('origen_last'))
+    if nuevas:
+        db = get_db(); cur = db.cursor()
+        try:
+            for v in nuevas:
+                try:
+                    _, touches, _ = _touches_de_venta(cur, v['numero_venta'], v['fecha_venta'] + timedelta(hours=3),
+                                                      v.get('email_cliente'), v.get('telefono_cliente'))
+                except Exception as e:
+                    logger.warning(f"[atribucion] {v['numero_venta']}: {e}")
+                    touches = []
+                out[v['numero_venta']] = _canal_no_directo(touches, v.get('origen_last'))
+        finally:
+            cur.close(); db.close()
+    return out
+
+
 def _atribucion_datos(desde, hasta):
     """Arma, para las ventas de la tienda entre desde y hasta (fechas AR, inclusive), el recorrido
     de contactos (todos los navegadores de la persona, 28 días previos), el último anuncio de Meta
@@ -11955,24 +12020,7 @@ def _atribucion_datos(desde, hasta):
         f_utc = f_ar + timedelta(hours=3)
         va = None; capi = None; touches = []; refs_wa = []
         try:
-            cur.execute("SELECT * FROM venta_atribucion WHERE numero_venta=%s", (nv,))
-            va = cur.fetchone()
-            eh = (va or {}).get('email_h') or email_hash(v['email_cliente'])
-            th = (va or {}).get('tel_h') or tel_hash(v['telefono_cliente'])
-            vids = vids_de_persona(cur, (va or {}).get('vid'), eh, th)
-            conds, params = [], []
-            if vids:
-                conds.append(f"vid IN ({','.join(['%s'] * len(vids))})"); params += list(vids)
-            if th:
-                conds.append('wa_ref=%s'); params.append(th[:16])
-            if conds:
-                cur.execute(f"""SELECT ts, canal, utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-                                       fbclid IS NOT NULL AND fbclid<>'' AS con_fbclid, gclid IS NOT NULL AS con_gclid,
-                                       referrer_host, dispositivo, vid
-                                FROM tienda_touchpoints
-                                WHERE ({' OR '.join(conds)}) AND ts <= %s AND ts >= %s - INTERVAL {ATRIB_VENTANA_DIAS} DAY
-                                ORDER BY ts""", params + [f_utc, f_utc])
-                touches = cur.fetchall()
+            va, touches, th = _touches_de_venta(cur, nv, f_utc, v['email_cliente'], v['telefono_cliente'])
             if th:
                 cur.execute(f"""SELECT ts, source_type, source_id, headline FROM wa_referrals
                                 WHERE tel_h=%s AND ts <= %s AND ts >= %s - INTERVAL {ATRIB_VENTANA_DIAS} DAY ORDER BY ts""",
@@ -12013,7 +12061,8 @@ def _atribucion_datos(desde, hasta):
             'importe': float(v['importe_abonado'] or 0), 'estado': v['estado_entrega'],
             'cancelada': v['estado_entrega'] == 'cancelada',
             'canal_primero': clasificar_origen_json(v['origen_first']),
-            'canal_ultimo': clasificar_origen_json(v['origen_last']),
+            'canal_ultimo': _canal_no_directo(touches, v['origen_last']),
+            'canal_navegador': clasificar_origen_json(v['origen_last']),
             'ultimo_pago': pagos[-1]['canal'] if pagos else '',
             'ultimo_pago_h': h_antes(pagos[-1]['ts']) if pagos else None,
             'meta_ad': (ult_meta or {}).get('utm_content') or '',
