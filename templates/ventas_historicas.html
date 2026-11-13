@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_ml_seguimiento.html" import ml_seguimiento %}
-{% from "_venta_links.html" import venta_links with context %}
+{% from "_venta_links.html" import venta_links, banner_mensajes with context %}
 {# ── MACRO: bloque observaciones ME2 con tracking ── #}
 {% macro obs_me2(venta) %}
 {% if venta.canal == 'tienda_web' and venta.metodo_envio == 'ME2' and venta.notas %}
@@ -58,6 +58,8 @@
         </span>
     </div>
 </div>
+
+{{ banner_mensajes(n_con_mensajes, filtro_solo_mensajes, '/ventas/historicas') }}
 
 <!-- FILTROS DESKTOP -->
 <div class="card mb-3 d-none d-md-block">

@@ -455,6 +455,27 @@ def job_ml_no_leidos():
     _job('ml_no_leidos', 150, sync_ml_no_leidos)
 
 
+# ─────────────────────────── filtro "con mensajes sin leer" (ventas) ───────────────────────────
+
+# Fragmento para sumar al WHERE de ventas. COLLATE explícito: ventas y la tabla nueva usan
+# intercalaciones distintas.
+SQL_CON_MENSAJES = (" AND numero_venta COLLATE utf8mb4_unicode_ci IN "
+                    "(SELECT CONCAT('ML-', order_id) COLLATE utf8mb4_unicode_ci FROM ml_mensajes_no_leidos)")
+
+
+def filtro_mensajes_activo(args):
+    return (args.get('solo_mensajes') or '').strip() in ('1', 'true', 'on')
+
+
+def contar_con_mensajes(cond_estado):
+    """Cantidad de ventas (con la condición de estado de la pantalla) con mensajes sin leer."""
+    try:
+        r = _db()[1]("SELECT COUNT(*) AS c FROM ventas WHERE " + cond_estado + SQL_CON_MENSAJES)
+        return int(r['c']) if r else 0
+    except Exception:
+        return 0
+
+
 # ─────────────────────────── helpers para templates ───────────────────────────
 
 def _mapa_zipnova():

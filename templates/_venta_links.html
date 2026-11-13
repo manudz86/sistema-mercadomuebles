@@ -4,6 +4,29 @@
      tiene mensajes sin leer.
    Los datos salen de zipnova_bp (zn_envio / ml_orden / ml_no_leidos); si las tablas no existen,
    no se muestra nada. #}
+{# Cartel arriba de cada listado de ventas: cuántas tienen mensajes del comprador sin leer y
+   botón para filtrar solo esas (?solo_mensajes=1). #}
+{% macro banner_mensajes(n, activo, url) %}
+{% if n or activo %}
+<div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2 py-2 mb-3">
+    <span>
+        💬
+        {% if activo %}
+            Mostrando <strong>{{ n }}</strong> venta{{ 's' if n != 1 }} con <strong>mensajes del comprador sin leer</strong> en ML.
+            El aviso se va solo cuando los leés en Mercado Libre.
+        {% else %}
+            Hay <strong>{{ n }}</strong> venta{{ 's' if n != 1 }} con <strong>mensajes del comprador sin leer</strong> en ML.
+        {% endif %}
+    </span>
+    {% if activo %}
+        <a href="{{ url }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle"></i> Ver todas</a>
+    {% else %}
+        <a href="{{ url }}?solo_mensajes=1" class="btn btn-sm btn-danger"><i class="bi bi-funnel"></i> Ver solo esas</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endmacro %}
+
 {% macro venta_links(venta) %}
 {%- set _zn = zn_envio(venta.numero_venta) if zn_envio is defined else None -%}
 {%- set _oid = ml_orden(venta.numero_venta) if ml_orden is defined else None -%}

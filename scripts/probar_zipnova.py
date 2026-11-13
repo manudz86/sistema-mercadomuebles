@@ -73,6 +73,23 @@ for path, fn, cond in casos:
     check(f'/ventas/{oid}/detalle' in html, f'{path}: 💬 a la venta en ML')
     check('3 mensaje(s) nuevo(s)' in html, f'{path}: puntito rojo con 3 mensajes')
 
+# 2b) Filtro "solo con mensajes sin leer" con los datos reales de ml_mensajes_no_leidos
+try:
+    import re as _re
+    nl = [f"ML-{r['order_id']}" for r in A.query_db("SELECT order_id FROM ml_mensajes_no_leidos")]
+    for path, fn, cond in casos:
+        esperadas = q1("SELECT COUNT(*) AS c FROM ventas WHERE " + cond.replace("estado_entrega='entregada'",
+                       "estado_entrega IN ('entregada','cancelada')") + Z.SQL_CON_MENSAJES)['c']
+        st, html = vista(path, fn)
+        hay_banner = 'mensajes del comprador sin leer' in html
+        check(st == 200 and hay_banner == bool(esperadas), f'{path}: cartel de mensajes ({esperadas} ventas)')
+        st, html = vista(path + '?solo_mensajes=1', fn)
+        mostradas = [n for n in nl if n in html]
+        check(st == 200 and 'Ver todas' in html and len(set(mostradas)) == esperadas,
+              f'{path}?solo_mensajes=1 muestra solo esas ({len(set(mostradas))}/{esperadas})')
+except Exception as e:
+    check(False, f'filtro de mensajes: {e}')
+
 # 3) Con tablas: la página muestra recolecciones
 try:
     n = q1("SELECT COUNT(*) AS c FROM zipnova_recolecciones")['c']

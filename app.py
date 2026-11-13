@@ -1539,6 +1539,12 @@ metodo_pago, importe_total, importe_abonado,
         if filtro_solo_canceladas:
             query += ' AND cancelada_en_ml = 1'
 
+        # Filtro: solo ventas ML con mensajes del comprador sin leer
+        import zipnova_bp as _zn
+        filtro_solo_mensajes = _zn.filtro_mensajes_activo(request.args)
+        if filtro_solo_mensajes:
+            query += _zn.SQL_CON_MENSAJES
+
         # Filtro: solo ventas que ClearSale rechazó y siguen activas. La lista de
         # estados sale de clearsale.CS_RECHAZAN, así una reclasificación futura
         # arrastra el filtro sin tocar esta query.
@@ -1645,6 +1651,8 @@ metodo_pago, importe_total, importe_abonado,
                              filtro_solo_canceladas=filtro_solo_canceladas,
                              n_cs_rechazadas=n_cs_rechazadas,
                              filtro_solo_clearsale=filtro_solo_clearsale,
+                             filtro_solo_mensajes=filtro_solo_mensajes,
+                             n_con_mensajes=_zn.contar_con_mensajes("estado_entrega='pendiente'"),
                              filtro_buscar=filtro_buscar,
                              filtro_tipo_entrega=filtro_tipo_entrega,
                              filtro_metodo_envio=filtro_metodo_envio,
@@ -3288,7 +3296,13 @@ metodo_pago, importe_total, importe_abonado,
             WHERE estado_entrega = 'en_proceso'
         '''
         params = []
-        
+
+        # Filtro: solo ventas ML con mensajes del comprador sin leer
+        import zipnova_bp as _zn
+        filtro_solo_mensajes = _zn.filtro_mensajes_activo(request.args)
+        if filtro_solo_mensajes:
+            query += _zn.SQL_CON_MENSAJES
+
         # Filtro: Búsqueda de texto
         if filtro_buscar:
             query += '''
@@ -3354,8 +3368,10 @@ metodo_pago, importe_total, importe_abonado,
             else:
                 venta['hora_venta_str'] = ''
         
-        return render_template('proceso_envio.html', 
+        return render_template('proceso_envio.html',
                              ventas=ventas,
+                             filtro_solo_mensajes=filtro_solo_mensajes,
+                             n_con_mensajes=_zn.contar_con_mensajes("estado_entrega='en_proceso'"),
                              filtro_buscar=filtro_buscar,
                              filtro_tipo_entrega=filtro_tipo_entrega,
                              filtro_metodo_envio=filtro_metodo_envio,
@@ -4926,6 +4942,12 @@ def ventas_historicas():
         where = "WHERE estado_entrega IN ('entregada', 'cancelada')"
         params = []
 
+        # Filtro: solo ventas ML con mensajes del comprador sin leer
+        import zipnova_bp as _zn
+        filtro_solo_mensajes = _zn.filtro_mensajes_activo(request.args)
+        if filtro_solo_mensajes:
+            where += _zn.SQL_CON_MENSAJES
+
         # Estado (multi)
         frag, p = construir_in_clause(filtro_estado, 'estado_entrega')
         where += frag
@@ -5071,6 +5093,8 @@ def ventas_historicas():
                              ventas=ventas,
                              entregadas=entregadas,
                              canceladas=canceladas,
+                             filtro_solo_mensajes=filtro_solo_mensajes,
+                             n_con_mensajes=_zn.contar_con_mensajes("estado_entrega IN ('entregada', 'cancelada')"),
                              filtro_buscar=filtro_buscar,
                              filtro_estado=filtro_estado,
                              filtro_periodo=filtro_periodo,
