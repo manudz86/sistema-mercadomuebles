@@ -14591,6 +14591,9 @@ app.register_blueprint(whatsapp_bp)
 from cocinar_bp import cocinar_bp
 app.register_blueprint(cocinar_bp)
 
+from zipnova_bp import zipnova_bp
+app.register_blueprint(zipnova_bp)
+
 
 # ============================================================================
 # FLETES
@@ -20089,6 +20092,24 @@ def iniciar_scheduler():
             print("[COMPETENCIA-V2] Job Real Trends agendado: 16:30 UTC (13:30 AR), reintento c/1h si no hay datos")
         except Exception as e:
             print(f"[COMPETENCIA-V2] Error registrando job RT: {e}")
+
+        # Zipnova (mails de recolección + estado de envíos) y mensajes ML sin leer.
+        # Corren en los 5 workers; zipnova_bp._con_lock deja trabajar a uno solo por intervalo.
+        try:
+            import zipnova_bp as _zn
+            from datetime import datetime as _dt_zn, timedelta as _td_zn
+            scheduler.add_job(_zn.job_zipnova_mails, 'interval', minutes=10, id='zipnova_mails',
+                              replace_existing=True, max_instances=1,
+                              next_run_time=_dt_zn.now() + _td_zn(minutes=2))
+            scheduler.add_job(_zn.job_zipnova_envios, 'interval', minutes=30, id='zipnova_envios',
+                              replace_existing=True, max_instances=1,
+                              next_run_time=_dt_zn.now() + _td_zn(minutes=3))
+            scheduler.add_job(_zn.job_ml_no_leidos, 'interval', minutes=3, id='ml_mensajes_no_leidos',
+                              replace_existing=True, max_instances=1,
+                              next_run_time=_dt_zn.now() + _td_zn(seconds=90))
+            print("[ZIPNOVA] Jobs agendados: mails c/10 min, envíos c/30 min, mensajes ML c/3 min")
+        except Exception as e:
+            print(f"[ZIPNOVA] Error registrando jobs: {e}")
 
         # Índice MLA→catálogo de ML, que alimenta la búsqueda por MLA de catálogo
         # en Modificar Publis ML. Una vez por día (candado en configuracion).

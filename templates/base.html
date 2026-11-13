@@ -379,6 +379,13 @@
                         <i class="bi bi-map"></i> Viajes
                     </a>
                 </li>
+                {% if current_user.rol in ('admin', 'vendedor') %}
+                <li class="nav-item">
+                    <a class="nav-link {% if request.endpoint and request.endpoint.startswith('zipnova.') %}active{% endif %}" href="/zipnova">
+                        <i class="bi bi-boxes"></i> Zipnova
+                    </a>
+                </li>
+                {% endif %}
                 <li class="nav-item">
                     <a class="nav-link {% if request.endpoint == 'cotizador_envio' %}active{% endif %}" href="/cotizador-envio">
                         <i class="bi bi-box-seam"></i> Cotizador Envío
@@ -660,6 +667,13 @@
                                 <i class="bi bi-map"></i> Viajes
                             </a>
                         </li>
+                        {% if current_user.rol in ('admin', 'vendedor') %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint and request.endpoint.startswith('zipnova.') %}active{% endif %}" href="/zipnova">
+                                <i class="bi bi-boxes"></i> Zipnova
+                            </a>
+                        </li>
+                        {% endif %}
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'cotizador_envio' %}active{% endif %}" href="/cotizador-envio">
                                 <i class="bi bi-box-seam"></i> Cotizador Envío

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_ml_seguimiento.html" import ml_seguimiento %}
+{% from "_venta_links.html" import venta_links with context %}
 {# ── MACRO: bloque observaciones ME2 con tracking ── #}
 {% macro obs_me2(venta) %}
 {% if venta.canal == 'tienda_web' and venta.metodo_envio == 'ME2' and venta.notas %}
@@ -425,6 +426,7 @@
                     {% else %}
                         <span class="badge bg-secondary ms-1" style="font-size:0.65rem;">EXT</span>
                     {% endif %}
+                    {{ venta_links(venta) }}
                     {% if venta.fecha_entrega %}
                         <br>
                         <span class="badge bg-success" style="font-size: 0.85em;">
@@ -720,6 +722,7 @@
                         {%- elif venta.canal == 'tienda_web' %}<span class="badge bg-primary">WEB</span>
                         {%- else %}<span class="badge bg-secondary">EXT</span>{%- endif %}
                     </span>
+                    {{ venta_links(venta) }}
                     <div class="text-muted" style="font-size:0.75rem;">{{ venta.fecha_venta.strftime('%d/%m/%Y') }}
                         {% if venta.fecha_entrega %} → <span class="text-success">{{ venta.fecha_entrega.strftime('%d/%m/%Y') }}</span>{% endif %}
                     </div>

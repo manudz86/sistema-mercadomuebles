@@ -1,0 +1,33 @@
+{# Íconos de acceso rápido de una venta (Activas, Proceso de envío e Históricas):
+   · Zipnova: 📍 seguimiento público del envío + botón "Z" al envío en el panel de Zipnova
+   · ML: 💬 abre la venta en ML (con la mensajería); puntito rojo con la cantidad si el comprador
+     tiene mensajes sin leer.
+   Los datos salen de zipnova_bp (zn_envio / ml_orden / ml_no_leidos); si las tablas no existen,
+   no se muestra nada. #}
+{% macro venta_links(venta) %}
+{%- set _zn = zn_envio(venta.numero_venta) if zn_envio is defined else None -%}
+{%- set _oid = ml_orden(venta.numero_venta) if ml_orden is defined else None -%}
+{%- if _zn or _oid -%}
+<span class="venta-links text-nowrap ms-1" style="font-size:0.8rem;">
+    {%- if _zn %}
+    {%- set _tr = _zn.tracking_url or _zn.tracking_ext_url %}
+    {%- if _tr %}
+    <a href="{{ _tr }}" target="_blank" rel="noopener" class="text-decoration-none"
+       title="Seguimiento Zipnova: {{ _zn.status_name or _zn.status or '' }}{% if _zn.carrier %} · {{ _zn.carrier }}{% endif %}{% if _zn.guia %} · Guía {{ _zn.guia }}{% endif %}">📍</a>
+    {%- endif %}
+    <a href="{{ zn_panel_url.format(id=_zn.zipnova_id) }}" target="_blank" rel="noopener"
+       class="badge text-decoration-none" style="background:#5b2be0;color:#fff;font-size:0.65rem;"
+       title="Abrir el envío en Zipnova ({{ _zn.status_name or _zn.status or '' }})">Z</a>
+    {%- endif %}
+    {%- if _oid %}
+    {%- set _nl = ml_no_leidos(venta.numero_venta) %}
+    <a href="https://www.mercadolibre.com.ar/ventas/{{ _oid }}/detalle" target="_blank" rel="noopener"
+       class="text-decoration-none position-relative d-inline-block"
+       title="{% if _nl %}{{ _nl }} mensaje(s) nuevo(s) del comprador — {% endif %}Abrir la venta en Mercado Libre (mensajes)">💬
+        {%- if _nl %}<span class="position-absolute rounded-pill bg-danger text-white"
+              style="top:-6px;right:-9px;font-size:0.55rem;line-height:1;padding:2px 4px;">{{ _nl }}</span>{% endif -%}
+    </a>
+    {%- endif %}
+</span>
+{%- endif -%}
+{% endmacro %}

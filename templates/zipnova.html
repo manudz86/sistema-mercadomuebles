@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Zipnova{% endblock %}
+{% block content %}
+<div class="container-fluid px-4 py-3">
+
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+      <h4 class="mb-0 fw-bold">📦 Zipnova — Recolecciones</h4>
+      <small class="text-muted">
+        Se leen solas del mail de Zipnova (programada ~17–18 h · resumen de recolectados a la madrugada) y se cruzan con el estado de cada envío.
+      </small>
+    </div>
+    <div class="d-flex gap-2 align-items-center">
+      <div class="btn-group btn-group-sm">
+        {% for d in (15, 45, 120) %}
+        <a href="?dias={{ d }}" class="btn {% if dias == d %}btn-secondary{% else %}btn-outline-secondary{% endif %}">{{ d }} días</a>
+        {% endfor %}
+      </div>
+      <form method="POST" action="{{ url_for('zipnova.zipnova_sincronizar') }}">
+        <button class="btn btn-sm btn-primary" type="submit"><i class="bi bi-arrow-repeat"></i> Sincronizar ahora</button>
+      </form>
+    </div>
+  </div>
+
+  {% if sin_tablas %}
+  <div class="alert alert-warning">Falta crear las tablas de Zipnova en la base (migración 020).</div>
+  {% endif %}
+
+  <div class="small text-muted mb-3">
+    {% for k, nombre in (('mails','Mails'),('envios','Estado de envíos'),('ml_no_leidos','Mensajes ML')) %}
+      {% set j = jobs.get(k) %}
+      <span class="me-3">{{ nombre }}: {% if j and j.ultimo %}{{ j.ultimo|hora_ar }}{% if j.resultado and j.resultado.startswith('ERROR') %} <span class="text-danger">⚠️ {{ j.resultado }}</span>{% endif %}{% else %}sin correr aún{% endif %}</span>
+    {% endfor %}
+  </div>
+
+  {% if not recolecciones and not sin_tablas %}
+  <div class="alert alert-info">Todavía no hay recolecciones registradas en este período.</div>
+  {% endif %}
+
+  {% for r in recolecciones %}
+  <div class="card mb-3 shadow-sm">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2"
+         style="background:{% if r.resumen and r.faltan %}#fdecea{% elif r.resumen %}#e8f6ee{% else %}#f8f9fa{% endif %};">
+      <div>
+        <strong>Retiro del {{ r.fecha_retiro.strftime('%d/%m/%Y') }}</strong>
+        <span class="text-muted ms-2">#{{ r.pickup_id }} · {{ r.origen or '' }}</span>
+        <div class="small text-muted">
+          {{ r.total_envios or r.envios|length }} envíos · {{ r.total_bultos or '-' }} bultos · {{ r.total_kg|round(0)|int if r.total_kg else '-' }} kg · {{ r.total_m3 or '-' }} m³
+          {% if r.generado_at %} · programado el {{ r.generado_at.strftime('%d/%m %H:%M') }}{% endif %}
+        </div>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        {% if r.resumen %}
+          {% if r.faltan %}
+            <span class="badge bg-danger">⚠️ {{ r.faltan }} sin recolectar</span>
+          {% else %}
+            <span class="badge bg-success">✅ Todos recolectados</span>
+          {% endif %}
+        {% elif r.es_futura %}
+          <span class="badge bg-info text-dark">Programado</span>
+        {% else %}
+          <span class="badge bg-secondary">Esperando resumen de Zipnova</span>
+        {% endif %}
+        {% if r.pdf_archivo %}
+        <a class="btn btn-sm btn-outline-dark" target="_blank"
+           href="{{ url_for('zipnova.zipnova_recoleccion_pdf', pickup_id=r.pickup_id) }}"><i class="bi bi-printer"></i> PDF</a>
+        {% endif %}
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>#</th><th>Venta</th><th>Cliente</th><th>Envío ML / Guía</th><th>Bultos</th>
+            <th>Estado Zipnova</th><th>Recolectado</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in r.envios %}
+          <tr {% if r.resumen and not e.recolectado %}class="table-danger"{% endif %}>
+            <td>{{ e.orden }}</td>
+            <td class="text-nowrap">
+              {% if e.numero_venta %}{{ e.numero_venta }}
+                {% if e.venta_estado %}<span class="badge bg-light text-dark border">{{ {'pendiente':'Activa','en_proceso':'En proceso','entregada':'Entregada','cancelada':'Cancelada'}.get(e.venta_estado, e.venta_estado) }}</span>{% endif %}
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td>{{ e.nombre_cliente or '' }}</td>
+            <td class="text-nowrap small">{{ e.external_id }}<br><span class="text-muted">{{ e.guia }}</span></td>
+            <td class="small">{{ e.bultos or '' }}{% if e.kg %} · {{ e.kg|round(0)|int }} kg{% endif %}<br><span class="text-muted">{{ e.detalle }}</span></td>
+            <td class="small">
+              {% if e.status_name %}{{ e.status_name }}{% else %}<span class="text-muted">—</span>{% endif %}
+              {% if e.carrier %}<br><span class="text-muted">{{ e.carrier }}</span>{% endif %}
+            </td>
+            <td>
+              {% if e.recolectado is none %}
+                {% if e.despachado_api %}<span class="text-success" title="Según el estado del envío en Zipnova">✔︎ (API)</span>{% else %}<span class="text-muted">—</span>{% endif %}
+              {% elif e.recolectado %}<span class="text-success fw-bold">✅ Sí</span>
+              {% else %}<span class="text-danger fw-bold">❌ No</span>{% endif %}
+            </td>
+            <td class="text-nowrap">
+              {% if e.tracking_url or e.tracking_ext_url %}
+              <a href="{{ e.tracking_url or e.tracking_ext_url }}" target="_blank" rel="noopener" title="Seguimiento">📍</a>
+              {% endif %}
+              {% if e.zipnova_id %}
+              <a href="{{ zn_panel_url.format(id=e.zipnova_id) }}" target="_blank" rel="noopener"
+                 class="badge text-decoration-none" style="background:#5b2be0;color:#fff;" title="Abrir en Zipnova">Z</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% for x in r.extras %}
+          <tr class="table-warning">
+            <td>+</td><td colspan="2" class="small">Recolectado pero no figuraba en el PDF de este retiro</td>
+            <td class="small">{{ x.external_id }}<br><span class="text-muted">{{ x.guia }}</span></td>
+            <td colspan="4"></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

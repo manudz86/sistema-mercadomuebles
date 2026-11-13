@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_ml_seguimiento.html" import ml_seguimiento %}
+{% from "_venta_links.html" import venta_links with context %}
 {# ── MACRO: bloque observaciones tienda web ── #}
 {% macro obs_me2(venta) %}
 {% if venta.canal == 'tienda_web' and venta.notas %}
@@ -470,6 +471,7 @@
                     {% else %}
                         <span class="badge bg-secondary ms-1" style="font-size:0.65rem;">EXT</span>
                     {% endif %}
+                    {{ venta_links(venta) }}
                 </td>
                 
                 <!-- CLIENTE -->
@@ -762,6 +764,7 @@
                         {%- if venta.metodo_envio == 'Turbo' %}<span class="badge bg-danger ms-1">🚀 TURBO</span>{%- endif %}
                         {%- if venta.cancelada_en_ml %}<span class="badge bg-danger ms-1">⚠️ CANCELADA EN ML</span>{%- endif %}
                     </span>
+                    {{ venta_links(venta) }}
                     {% if venta.hora_venta_str %}<div class="text-muted" style="font-size:0.7rem;">{{ venta.hora_venta_str }} hs</div>{% endif %}
                     <div class="text-muted" style="font-size:0.75rem;">{{ venta.fecha_venta.strftime('%d/%m/%Y') }}</div>
                 </div>
