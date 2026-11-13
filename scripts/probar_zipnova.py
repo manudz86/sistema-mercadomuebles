@@ -77,7 +77,19 @@ for path, fn, cond in casos:
 try:
     n = q1("SELECT COUNT(*) AS c FROM zipnova_recolecciones")['c']
     st, html = vista('/zipnova', Z.zipnova_recolecciones)
-    check(st == 200 and ('Retiro del' in html or n == 0), f'/zipnova con tablas ({n} recolecciones)')
+    ok = st == 200 and ('Retiro del' in html or n == 0)
+    check(ok, f'/zipnova con tablas ({n} recolecciones)')
+    if not ok:
+        print('   status', st, '| falta migración' if 'Falta crear' in html else '')
+        _, _, _, gc = Z._db()
+        with A.app.test_request_context('/zipnova'):
+            try:
+                A.query_db("SELECT re.*, ze.zipnova_id FROM zipnova_recoleccion_envios re LEFT JOIN zipnova_envios ze "
+                           "ON ze.zipnova_id = (SELECT MAX(z2.zipnova_id) FROM zipnova_envios z2 "
+                           "WHERE z2.external_id = re.external_id OR z2.guia = re.guia) LIMIT 1")
+                print('   consulta de envíos OK')
+            except Exception as e:
+                print('   consulta de envíos:', e)
 except Exception as e:
     print('INFO tablas nuevas todavía no creadas:', str(e)[:80])
 

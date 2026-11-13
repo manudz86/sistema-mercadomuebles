@@ -527,7 +527,8 @@ def zipnova_recolecciones():
                              LEFT JOIN zipnova_envios ze ON ze.zipnova_id = (
                                   SELECT MAX(z2.zipnova_id) FROM zipnova_envios z2
                                   WHERE z2.external_id = re.external_id OR z2.guia = re.guia)
-                             LEFT JOIN ventas v ON v.numero_venta = ze.numero_venta AND ze.numero_venta != ''
+                             LEFT JOIN ventas v ON v.numero_venta = ze.numero_venta COLLATE utf8mb4_unicode_ci
+                                                 AND ze.numero_venta != ''
                              WHERE re.pickup_id IN (SELECT pickup_id FROM zipnova_recolecciones
                                                     WHERE fecha_retiro >= CURDATE() - INTERVAL %s DAY)
                              ORDER BY re.pickup_id, re.orden""", (dias,))
@@ -535,7 +536,10 @@ def zipnova_recolecciones():
             "SELECT * FROM zipnova_resumenes WHERE fecha >= CURDATE() - INTERVAL %s DAY", (dias,))}
         jobs = {r['job']: r for r in query_db("SELECT * FROM zipnova_jobs")}
         sin_tablas = False
-    except Exception:
+    except Exception as e:
+        print(f'[ZIPNOVA] página: {e}', flush=True)
+        if "doesn't exist" not in str(e):
+            raise
         recos, envios, resumenes, jobs, sin_tablas = [], [], {}, {}, True
 
     por_pickup = {}
