@@ -7,7 +7,7 @@ import os
 import json
 import requests  # pip install requests
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, Response
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, Response, g
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
@@ -31,6 +31,18 @@ load_dotenv('config/.env')
 # Configurar Flask
 app = Flask(__name__, template_folder='templates')
 app.secret_key = os.getenv('SECRET_KEY', '')
+# Cookies de sesión: solo por HTTPS (los dos sitios redirigen http→https en nginx),
+# no legibles por JS y sin enviarse en POST desde otros sitios. "Recordarme" dura 60 días.
+from datetime import timedelta as _td_cookies
+app.config.update(
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    REMEMBER_COOKIE_SECURE=True,
+    REMEMBER_COOKIE_HTTPONLY=True,
+    REMEMBER_COOKIE_SAMESITE='Lax',
+    REMEMBER_COOKIE_DURATION=_td_cookies(days=60),
+)
 
 limiter = Limiter(
     get_remote_address,
@@ -152,6 +164,10 @@ def load_user(user_id):
 def admin_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        # Si el control central (permisos.py) ya autorizó la ruta según la página de
+        # Permisos, se respeta esa decisión; si no, rige la regla original (solo admin).
+        if g.get('permiso_ok'):
+            return f(*args, **kwargs)
         if not current_user.is_authenticated or current_user.rol != 'admin':
             flash('❌ No tenés permisos para acceder a esta sección', 'danger')
             return redirect(url_for('index'))
@@ -162,6 +178,8 @@ def vendedor_required(f):
     """Admin y vendedor pueden acceder. Solo viewer no puede."""
     @wraps(f)
     def decorated(*args, **kwargs):
+        if g.get('permiso_ok'):   # ya autorizado por permisos.py (ver admin_required)
+            return f(*args, **kwargs)
         if not current_user.is_authenticated or current_user.rol not in ('admin', 'vendedor'):
             flash('❌ No tenés permisos para acceder a esta sección', 'danger')
             return redirect(url_for('index'))
@@ -181,37 +199,15 @@ def agencia_only(f):
 
 
 # ── Control de acceso central por ruta ─────────────────────────────────────
-# Cubre los blueprints que no traen decorador (bot de precios, competencia,
-# competencia v2, WhatsApp, push) y las rutas de debug/test. Se evalúa antes
-# que cualquier vista, así que una ruta nueva bajo estos prefijos nace protegida.
-_ACCESO_SOLO_ADMIN = ('/admin/', '/debug', '/test/', '/configuracion/resetear',
-                      '/tienda/test-payway', '/push/test', '/push/stats')
-# Endpoints del scraper de Windows: se autentican con X-Scraper-Token.
-_ACCESO_EXENTO = ('/admin/competencia-scraper/sondas/', '/admin/competencia-scraper/upload',
-                  '/admin/competencia-scraper/alert')
-_ACCESO_CON_LOGIN = ('/push/subscribe', '/push/unsubscribe')
+# Cada ruta del panel pertenece a un módulo y cada rol tiene un nivel por módulo
+# (configurable en /configuracion/permisos). Ver permisos.py. Se evalúa antes que
+# cualquier vista; una ruta del panel sin regla queda solo para admin.
+import permisos as _permisos
 
 
 @app.before_request
 def _control_acceso_rutas():
-    p = request.path
-    if p.startswith(_ACCESO_EXENTO):
-        return None
-    solo_admin = p.startswith(_ACCESO_SOLO_ADMIN)
-    if not solo_admin and not p.startswith(_ACCESO_CON_LOGIN):
-        return None
-    quiere_json = (request.method != 'GET' or request.is_json
-                   or 'application/json' in (request.headers.get('Accept') or ''))
-    if not current_user.is_authenticated:
-        if quiere_json:
-            return jsonify({'ok': False, 'error': 'Sesión vencida: volvé a iniciar sesión'}), 401
-        return redirect(url_for('login', next=p))
-    if solo_admin and current_user.rol != 'admin':
-        if quiere_json:
-            return jsonify({'ok': False, 'error': 'No tenés permisos para esta acción'}), 403
-        flash('❌ No tenés permisos para acceder a esta sección', 'danger')
-        return redirect(url_for('index'))
-    return None
+    return _permisos.controlar(request)
 
 # Configuración de base de datos
 DB_CONFIG = {
@@ -817,7 +813,7 @@ def enviar_hot_event_a_fallidos():
 @limiter.limit("10 per minute; 30 per hour")
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('index'))
+        return redirect(_permisos.inicio_de(current_user.rol) or url_for('index'))
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
@@ -825,10 +821,13 @@ def login():
         if user_row and check_password_hash(user_row['password_hash'], password):
             user = User(user_row['id'], user_row['username'], user_row['rol'], user_row['activo'])
             login_user(user, remember=True)
-            if user_row['rol'] == 'agencia':
-                return redirect(url_for('agencia_dashboard'))
-            next_page = request.args.get('next')
-            return redirect(next_page or url_for('index'))
+            # `next` solo si es una ruta interna (evita redirigir a otro sitio) y el rol
+            # tiene permiso; si no, a la primera pantalla habilitada para su rol.
+            next_page = request.args.get('next') or ''
+            if (next_page.startswith('/') and not next_page.startswith('//') and '\\' not in next_page
+                    and _permisos.ruta_permitida(user.rol, next_page.split('?')[0])):
+                return redirect(next_page)
+            return redirect(_permisos.inicio_de(user.rol) or url_for('index'))
         flash('❌ Usuario o contraseña incorrectos', 'danger')
     return render_template('login.html')
 
@@ -13580,7 +13579,12 @@ def calcular_stock_por_sku():
 # PÁGINA PRINCIPAL DE AUDITORÍA (sin barrido, solo estructura)
 # ============================================================================
 
-@app.route('/auditoria-ml', methods=['GET'])
+# ── AUDITORÍA ML: APAGADA el 15/11/2026 ─────────────────────────────────────
+# Sin uso desde que stock/demora de las publis se automatizaron. Las 7 rutas tienen
+# el @app.route comentado (las funciones quedan definidas pero no se publican).
+# Para volver a activarla: descomentar los 7 @app.route y el ítem del menú
+# (templates/_menu_items.html). Si nadie la pide, borrar todo en 01/2027.
+# @app.route('/auditoria-ml', methods=['GET'])
 @login_required
 def auditoria_ml():
     """Renderiza la página de auditoría. Los datos se cargan vía AJAX por sección."""
@@ -13593,7 +13597,7 @@ def auditoria_ml():
 # tipo: 'pausadas_sin_stock' | 'pausadas_con_stock' | 'demoras'
 # ============================================================================
 
-@app.route('/auditoria-ml/run/<tipo>', methods=['GET'])
+# @app.route('/auditoria-ml/run/<tipo>', methods=['GET'])  # APAGADA 15/11/2026
 @login_required
 def auditoria_ml_run(tipo):
     """
@@ -13720,7 +13724,7 @@ def auditoria_ml_run(tipo):
 # ACCIONES - Devuelven JSON para que el frontend refresque solo la sección
 # ============================================================================
 
-@app.route('/auditoria-ml/activar', methods=['POST'])
+# @app.route('/auditoria-ml/activar', methods=['POST'])  # APAGADA 15/11/2026
 @login_required
 def auditoria_activar_publicaciones():
     """Activar (despausar) publicaciones seleccionadas. Devuelve JSON."""
@@ -13756,7 +13760,7 @@ def auditoria_activar_publicaciones():
     return jsonify({'exitos': exitos, 'errores': errores, 'total': len(mlas_seleccionadas)})
 
 
-@app.route('/auditoria-ml/cargar-stock', methods=['POST'])
+# @app.route('/auditoria-ml/cargar-stock', methods=['POST'])  # APAGADA 15/11/2026
 @login_required
 def auditoria_cargar_stock():
     """Cargar stock en publicaciones seleccionadas. Devuelve JSON."""
@@ -13794,7 +13798,7 @@ def auditoria_cargar_stock():
     return jsonify({'exitos': exitos, 'errores': errores, 'total': len(mlas_data)})
 
 
-@app.route('/auditoria-ml/reducir-demora', methods=['POST'])
+# @app.route('/auditoria-ml/reducir-demora', methods=['POST'])  # APAGADA 15/11/2026
 @login_required
 def auditoria_reducir_demora():
     """Quitar demora completamente en publicaciones seleccionadas. Devuelve JSON."""
@@ -13824,7 +13828,7 @@ def auditoria_reducir_demora():
     
     return jsonify({'exitos': exitos, 'errores': errores, 'total': len(mlas_seleccionadas)})
 
-@app.route('/auditoria-ml/bajar-cero', methods=['POST'])
+# @app.route('/auditoria-ml/bajar-cero', methods=['POST'])  # APAGADA 15/11/2026
 @login_required
 def auditoria_bajar_cero():
     """Bajar stock a 0 en publicaciones seleccionadas. Para sección stock_en_ml."""
@@ -13854,7 +13858,7 @@ def auditoria_bajar_cero():
     return jsonify({'exitos': exitos, 'errores': errores, 'total': len(mlas_data)})
 
 
-@app.route('/auditoria-ml/poner-demora', methods=['POST'])
+# @app.route('/auditoria-ml/poner-demora', methods=['POST'])  # APAGADA 15/11/2026
 @login_required
 def auditoria_poner_demora():
     """Poner X días de demora en publicaciones Z seleccionadas. Para sección stock_en_ml."""
@@ -14653,6 +14657,8 @@ app.register_blueprint(cocinar_bp)
 
 from zipnova_bp import zipnova_bp
 app.register_blueprint(zipnova_bp)
+
+app.register_blueprint(_permisos.permisos_bp)
 
 
 # ============================================================================

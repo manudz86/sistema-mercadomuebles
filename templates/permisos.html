@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}Permisos por rol{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3" style="max-width:1100px">
+  <h4 class="mb-1"><i class="bi bi-shield-lock"></i> Permisos por rol</h4>
+  <p class="text-muted small mb-3">
+    <b>Ver</b> = puede abrir las pantallas. <b>Editar</b> = además puede guardar, cambiar y borrar.
+    <b>admin</b> siempre tiene todo. Los cambios se aplican en menos de 20 segundos, sin reiniciar.
+    Logs, reseteo del sistema, auditoría y esta página son siempre solo de admin.
+  </p>
+  {% if not tabla_ok %}
+  <div class="alert alert-warning py-2">Falta crear la tabla <code>permisos_rol</code> (migración 021). Se muestran los permisos por defecto y todavía no se pueden guardar cambios.</div>
+  {% endif %}
+
+  <form method="post">
+    <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead class="table-dark">
+        <tr><th>Módulo</th>{% for r in roles %}<th class="text-center" style="min-width:150px">{{ r }}</th>{% endfor %}</tr>
+      </thead>
+      <tbody>
+      {% for clave, nombre, detalle, url, defectos in modulos %}
+        <tr>
+          <td><b>{{ nombre }}</b><div class="small text-muted">{{ detalle }}</div></td>
+          {% for r in roles %}
+          {% set actual = tabla[r][clave] %}
+          <td class="text-center">
+            <select name="{{ r }}__{{ clave }}" class="form-select form-select-sm permiso-sel" {% if not tabla_ok %}disabled{% endif %}>
+              {% for n in niveles %}
+              <option value="{{ n }}" {% if n == actual %}selected{% endif %}>{{ {'ninguno':'Sin acceso','ver':'Ver','editar':'Editar'}[n] }}</option>
+              {% endfor %}
+            </select>
+            {% if actual != defectos[r] %}<div class="small text-muted">defecto: {{ defectos[r] }}</div>{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <button class="btn btn-primary" {% if not tabla_ok %}disabled{% endif %}><i class="bi bi-check-lg"></i> Guardar permisos</button>
+  </form>
+</div>
+<style>
+  .permiso-sel option[value="ninguno"] { color:#6c757d }
+</style>
+<script>
+  document.querySelectorAll('.permiso-sel').forEach(function (s) {
+    function pintar() {
+      s.classList.remove('border-success', 'border-primary');
+      if (s.value === 'editar') s.classList.add('border-success');
+      else if (s.value === 'ver') s.classList.add('border-primary');
+    }
+    s.addEventListener('change', pintar); pintar();
+  });
+</script>
+{% endblock %}

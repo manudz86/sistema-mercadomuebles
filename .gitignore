@@ -1,5 +1,8 @@
 # Secrets / config
 config/.env
+config/.env.*
+!config/.env.example
+*.bak_[0-9]*
 config/ga4_service_account.json
 config/ml_token.json
 

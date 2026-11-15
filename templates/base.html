@@ -236,265 +236,7 @@
         </div>
         <div class="offcanvas-body p-0">
             <ul class="nav flex-column py-2">
-            {% if current_user.is_authenticated and current_user.rol == 'agencia' %}
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'agencia_dashboard' %}active{% endif %}" href="/agencia">
-                        <i class="bi bi-graph-up-arrow"></i> Dashboard Agencia
-                    </a>
-                </li>
-            {% else %}
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="/">
-                        <i class="bi bi-house-door"></i> Dashboard
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'preguntas' %}active{% endif %}" href="/preguntas">
-                        <i class="bi bi-chat-left-dots"></i> Preguntas ML
-                        {% if preguntas_pendientes_count and preguntas_pendientes_count > 0 %}<span class="badge bg-danger ms-1">{{ preguntas_pendientes_count }}</span>{% endif %}
-                    </a>
-                </li>
-                <div class="section-title">VENTAS</div>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'nueva_venta' %}active{% endif %}" href="/nueva-venta">
-                        <i class="bi bi-plus-circle"></i> Nueva Venta
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'ventas_activas' %}active{% endif %}" href="/ventas/activas">
-                        <i class="bi bi-clock-history"></i> Ventas Activas
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'ventas_proceso' %}active{% endif %}" href="/ventas/proceso">
-                        <i class="bi bi-box-seam"></i> Proceso de Envío
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'calendario_entregas' %}active{% endif %}" href="/ventas/calendario-entregas">
-                        <i class="bi bi-calendar3"></i> Calendario de entregas
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'corrector_zpl' %}active{% endif %}" href="/herramientas/corrector-zpl">
-                        <i class="bi bi-upc-scan"></i> Corrector etiquetas ZPL
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'ventas_historicas' %}active{% endif %}" href="/ventas/historicas">
-                        <i class="bi bi-archive"></i> Ventas Históricas
-                    </a>
-                </li>
-                <div class="section-title">STOCK</div>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'dashboard_visual' %}active{% endif %}" href="/dashboard-visual">
-                        <i class="bi bi-grid-3x3"></i> Dashboard Visual
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'ver_stock' %}active{% endif %}" href="/stock">
-                        <i class="bi bi-box"></i> Ver Stock
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'cargar_stock' %}active{% endif %}" href="/cargar-stock">
-                        <i class="bi bi-arrow-up-circle"></i> Cargar Stock
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'bajar_stock' %}active{% endif %}" href="/bajar-stock">
-                        <i class="bi bi-arrow-down-circle"></i> Bajar Stock
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'transferir_stock' %}active{% endif %}" href="/transferir-stock">
-                        <i class="bi bi-arrow-left-right"></i> Transferir Stock
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'historial_stock' %}active{% endif %}" href="/historial-stock">
-                        <i class="bi bi-clock-history"></i> Historial
-                    </a>
-                </li>
-                <div class="section-title">ALERTAS ML</div>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'alertas_ml' %}active{% endif %}" href="/alertas">
-                        <i class="bi bi-exclamation-triangle"></i> Alertas Pendientes
-                        {% if alertas_pendientes_count > 0 %}<span class="badge bg-danger ms-1">{{ alertas_pendientes_count }}</span>{% endif %}
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'cargar_stock_ml' %}active{% endif %}" href="/cargar-stock-ml">
-                        <i class="bi bi-box-seam"></i> Modificar Publis ML
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'promociones_ml' %}active{% endif %}" href="/promociones-ml">
-                        <i class="bi bi-percent"></i> Promociones ML
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'auditoria_ml' %}active{% endif %}" href="/auditoria-ml">
-                        <i class="bi bi-search"></i> Auditoría ML
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint in ['reclamos', 'reclamo_detalle'] %}active{% endif %}" href="/reclamos">
-                        <i class="bi bi-exclamation-octagon"></i> Reclamos ML
-                        {% if reclamos_pendientes_count and reclamos_pendientes_count > 0 %}<span class="badge bg-danger ms-1">{{ reclamos_pendientes_count }}</span>{% endif %}
-                    </a>
-                </li>
-                <div class="section-title">ANÁLISIS</div>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'estadisticas' %}active{% endif %}" href="/estadisticas">
-                        <i class="bi bi-bar-chart-line-fill"></i> Estadísticas
-                    </a>
-                </li>
-                {% if current_user.rol in ('admin', 'agencia') %}
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'tienda.atribucion' %}active{% endif %}" href="/tienda/admin/atribucion">
-                        <i class="bi bi-diagram-3"></i> Atribución web
-                    </a>
-                </li>
-                {% endif %}
-                {% if current_user.rol == 'admin' %}
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'pagos_cannon' %}active{% endif %}" href="/pagos-cannon">
-                        <i class="bi bi-receipt"></i> Pagos Cannon
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'intentos_pago' %}active{% endif %}" href="/intentos-pago">
-                        <i class="bi bi-credit-card-2-front"></i> Intentos pago
-                    </a>
-                </li>
-                {% endif %}
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'fletes' %}active{% endif %}" href="/fletes">
-                        <i class="bi bi-truck"></i> Fletes
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint in ('viajes_lista','viaje_nuevo','viaje_detalle') %}active{% endif %}" href="/viajes">
-                        <i class="bi bi-map"></i> Viajes
-                    </a>
-                </li>
-                {% if current_user.rol in ('admin', 'vendedor') %}
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint and request.endpoint.startswith('zipnova.') %}active{% endif %}" href="/zipnova">
-                        <i class="bi bi-boxes"></i> Zipnova
-                    </a>
-                </li>
-                {% endif %}
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'cotizador_envio' %}active{% endif %}" href="/cotizador-envio">
-                        <i class="bi bi-box-seam"></i> Cotizador Envío
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'agencia_dashboard' %}active{% endif %}" href="/agencia">
-                        <i class="bi bi-graph-up-arrow"></i> Dashboard Agencia
-                    </a>
-                </li>
-                <div class="section-title">TIENDA WEB</div>
-                {% if current_user.rol == 'admin' %}
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint in ('productos_lista','productos_nuevo','productos_editar','productos_fotos','productos_fotos_subir','productos_fotos_eliminar','productos_fotos_reordenar') %}active{% endif %}" href="/productos">
-                        <i class="bi bi-grid"></i> Catálogo
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'configuracion_tienda' %}active{% endif %}" href="/configuracion">
-                        <i class="bi bi-gear"></i> Configuraciones
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint in ('costos_index','costos_calcular','costos_descuentos','costos_importar','costos_productos','costos_envio') %}active{% endif %}" href="/costos">
-                        <i class="bi bi-calculator"></i> Costos
-                    </a>
-                </li>
-                {% if current_user.rol == 'admin' %}
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'rentabilidad' %}active{% endif %}" href="/rentabilidad">
-                        <i class="bi bi-graph-up-arrow"></i> Rentabilidad
-                    </a>
-                </li>
-                {% endif %}
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint in ('tienda_precios','tienda_precios_guardar') %}active{% endif %}" href="/tienda-admin/precios">
-                        <i class="bi bi-tag"></i> Precios
-                    </a>
-                </li>
-                {% endif %}
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint in ('tienda_ofertas','tienda_ofertas_guardar') %}active{% endif %}" href="/tienda-admin/ofertas">
-                        <i class="bi bi-percent"></i> Ofertas
-                    </a>
-                </li>
-                <li class="nav-item">
-                  <a class="nav-link {% if request.endpoint == 'tienda_cupones' %}active{% endif %}" href="/tienda-admin/cupones">
-                    <i class="bi bi-ticket-perforated"></i> Cupones
-                  </a>
-                </li>
-                <div class="section-title">EMAIL MARKETING</div>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'recupero_carritos' %}active{% endif %}" href="/tienda-admin/recupero-carritos">
-                        <i class="bi bi-cart-x"></i> Recupero de carritos
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'email_hot_test' %}active{% endif %}" href="/tienda-admin/email-hot-test">
-                        <i class="bi bi-envelope"></i> Test Email HOT
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'email_hot_masivo' %}active{% endif %}" href="/tienda-admin/email-hot-masivo">
-                        <i class="bi bi-send"></i> Envío Masivo HOT
-                    </a>
-                </li>
-                <div class="section-title">BOTS</div>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'bot_precios.bot_precios_page' %}active{% endif %}" href="/admin/bot-precios">
-                        <i class="bi bi-robot"></i> Bot de Precios ML
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'competencia.competencia_page' %}active{% endif %}" href="/admin/competencia">
-                        <i class="bi bi-graph-up-arrow"></i> Monitor Competencia
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'whatsapp.wa_admin' %}active{% endif %}" href="/admin/whatsapp">
-                        <i class="bi bi-whatsapp"></i> Bot WhatsApp
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'competencia_scraper.competencia_scraper_page' %}active{% endif %}" href="/admin/competencia-scraper">
-                        <i class="bi bi-shop"></i> Competencia (Scraper)
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'competencia_v2.competencia_v2_page' %}active{% endif %}" href="/admin/competencia-v2">
-                        <i class="bi bi-bar-chart-line"></i> Competencia V2
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'competencia_v2.ventas_competidores_page' %}active{% endif %}" href="/admin/ventas-competidores">
-                        <i class="bi bi-search"></i> Ventas Competidores
-                    </a>
-                </li>
-                <div class="section-title">CONFIGURACIÓN</div>
-                <li class="nav-item">
-                    <a class="nav-link {% if request.endpoint == 'admin_logs' %}active{% endif %}" href="/admin/logs">
-                        <i class="bi bi-journal-text"></i> Log del Sistema
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="/configuracion/resetear">
-                        <i class="bi bi-arrow-clockwise"></i> Resetear Sistema
-                    </a>
-                </li>
-                {% endif %}
+            {% include '_menu_items.html' %}
                 <div style="padding: 1rem 1.5rem; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 0.5rem;">
                     <div style="color: rgba(255,255,255,0.6); font-size: 0.8rem; margin-bottom: 0.5rem;">
                         <i class="bi bi-person-circle"></i>
@@ -525,265 +267,8 @@
                 </div>
                 <div class="position-sticky">
                     <ul class="nav flex-column">
-                    {% if current_user.is_authenticated and current_user.rol == 'agencia' %}
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'agencia_dashboard' %}active{% endif %}" href="/agencia">
-                                <i class="bi bi-graph-up-arrow"></i> Dashboard Agencia
-                            </a>
-                        </li>
-                    {% else %}
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="/">
-                                <i class="bi bi-house-door"></i> Dashboard
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'preguntas' %}active{% endif %}" href="/preguntas">
-                                <i class="bi bi-chat-left-dots"></i> Preguntas ML
-                                {% if preguntas_pendientes_count and preguntas_pendientes_count > 0 %}<span class="badge bg-danger ms-1">{{ preguntas_pendientes_count }}</span>{% endif %}
-                            </a>
-                        </li>
-                        <div class="section-title">VENTAS</div>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'nueva_venta' %}active{% endif %}" href="/nueva-venta">
-                                <i class="bi bi-plus-circle"></i> Nueva Venta
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'ventas_activas' %}active{% endif %}" href="/ventas/activas">
-                                <i class="bi bi-clock-history"></i> Ventas Activas
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'ventas_proceso' %}active{% endif %}" href="/ventas/proceso">
-                                <i class="bi bi-box-seam"></i> Proceso de Envío
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'calendario_entregas' %}active{% endif %}" href="/ventas/calendario-entregas">
-                                <i class="bi bi-calendar3"></i> Calendario de entregas
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'corrector_zpl' %}active{% endif %}" href="/herramientas/corrector-zpl">
-                                <i class="bi bi-upc-scan"></i> Corrector etiquetas ZPL
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'ventas_historicas' %}active{% endif %}" href="/ventas/historicas">
-                                <i class="bi bi-archive"></i> Ventas Históricas
-                            </a>
-                        </li>
-                        <div class="section-title">STOCK</div>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'dashboard_visual' %}active{% endif %}" href="/dashboard-visual">
-                                <i class="bi bi-grid-3x3"></i> Dashboard Visual
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'ver_stock' %}active{% endif %}" href="/stock">
-                                <i class="bi bi-box"></i> Ver Stock
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'cargar_stock' %}active{% endif %}" href="/cargar-stock">
-                                <i class="bi bi-arrow-up-circle"></i> Cargar Stock
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'bajar_stock' %}active{% endif %}" href="/bajar-stock">
-                                <i class="bi bi-arrow-down-circle"></i> Bajar Stock
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'transferir_stock' %}active{% endif %}" href="/transferir-stock">
-                                <i class="bi bi-arrow-left-right"></i> Transferir Stock
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'historial_stock' %}active{% endif %}" href="/historial-stock">
-                                <i class="bi bi-clock-history"></i> Historial
-                            </a>
-                        </li>
-                        <div class="section-title">ALERTAS ML</div>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'alertas_ml' %}active{% endif %}" href="/alertas">
-                                <i class="bi bi-exclamation-triangle"></i> Alertas Pendientes
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'cargar_stock_ml' %}active{% endif %}" href="/cargar-stock-ml">
-                                <i class="bi bi-box-seam"></i> Modificar Publis ML
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'promociones_ml' %}active{% endif %}" href="/promociones-ml">
-                                <i class="bi bi-percent"></i> Promociones ML
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'auditoria_ml' %}active{% endif %}" href="/auditoria-ml">
-                                <i class="bi bi-search"></i> Auditoría ML
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint in ['reclamos', 'reclamo_detalle'] %}active{% endif %}" href="/reclamos">
-                                <i class="bi bi-exclamation-octagon"></i> Reclamos ML
-                                {% if reclamos_pendientes_count and reclamos_pendientes_count > 0 %}<span class="badge bg-danger ms-1">{{ reclamos_pendientes_count }}</span>{% endif %}
-                            </a>
-                        </li>
-                        <div class="section-title">ANÁLISIS</div>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'estadisticas' %}active{% endif %}" href="/estadisticas">
-                                <i class="bi bi-bar-chart-line-fill"></i> Estadísticas
-                            </a>
-                        </li>
-                        {% if current_user.rol in ('admin', 'agencia') %}
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'tienda.atribucion' %}active{% endif %}" href="/tienda/admin/atribucion">
-                                <i class="bi bi-diagram-3"></i> Atribución web
-                            </a>
-                        </li>
-                        {% endif %}
-                        {% if current_user.rol == 'admin' %}
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'pagos_cannon' %}active{% endif %}" href="/pagos-cannon">
-                                <i class="bi bi-receipt"></i> Pagos Cannon
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'intentos_pago' %}active{% endif %}" href="/intentos-pago">
-                                <i class="bi bi-credit-card-2-front"></i> Intentos pago
-                            </a>
-                        </li>
-                        {% endif %}
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'fletes' %}active{% endif %}" href="/fletes">
-                                <i class="bi bi-truck"></i> Fletes
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint in ('viajes_lista','viaje_nuevo','viaje_detalle') %}active{% endif %}" href="/viajes">
-                                <i class="bi bi-map"></i> Viajes
-                            </a>
-                        </li>
-                        {% if current_user.rol in ('admin', 'vendedor') %}
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint and request.endpoint.startswith('zipnova.') %}active{% endif %}" href="/zipnova">
-                                <i class="bi bi-boxes"></i> Zipnova
-                            </a>
-                        </li>
-                        {% endif %}
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'cotizador_envio' %}active{% endif %}" href="/cotizador-envio">
-                                <i class="bi bi-box-seam"></i> Cotizador Envío
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'agencia_dashboard' %}active{% endif %}" href="/agencia">
-                                <i class="bi bi-graph-up-arrow"></i> Dashboard Agencia
-                            </a>
-                        </li>
-                        <div class="section-title">TIENDA WEB</div>
-                        {% if current_user.rol == 'admin' %}
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint in ('productos_lista','productos_nuevo','productos_editar','productos_fotos','productos_fotos_subir','productos_fotos_eliminar','productos_fotos_reordenar') %}active{% endif %}" href="/productos">
-                                <i class="bi bi-grid"></i> Catálogo
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'configuracion_tienda' %}active{% endif %}" href="/configuracion">
-                                <i class="bi bi-gear"></i> Configuraciones
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint in ('costos_index','costos_calcular','costos_descuentos','costos_importar','costos_productos','costos_envio') %}active{% endif %}" href="/costos">
-                                <i class="bi bi-calculator"></i> Costos
-                            </a>
-                        </li>
-                        {% if current_user.rol == 'admin' %}
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'rentabilidad' %}active{% endif %}" href="/rentabilidad">
-                                <i class="bi bi-graph-up-arrow"></i> Rentabilidad
-                            </a>
-                        </li>
-                        {% endif %}
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint in ('tienda_precios','tienda_precios_guardar') %}active{% endif %}" href="/tienda-admin/precios">
-                                <i class="bi bi-tag"></i> Precios
-                            </a>
-                        </li>
-                        {% endif %}
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint in ('tienda_ofertas','tienda_ofertas_guardar') %}active{% endif %}" href="/tienda-admin/ofertas">
-                                <i class="bi bi-percent"></i> Ofertas
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'tienda_cupones' %}active{% endif %}" href="/tienda-admin/cupones">
-                                <i class="bi bi-ticket-perforated"></i> Cupones
-                            </a>
-                        </li>
-                        <div class="section-title">EMAIL MARKETING</div>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'recupero_carritos' %}active{% endif %}" href="/tienda-admin/recupero-carritos">
-                                <i class="bi bi-cart-x"></i> Recupero de carritos
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'email_hot_test' %}active{% endif %}" href="/tienda-admin/email-hot-test">
-                                <i class="bi bi-envelope"></i> Test Email HOT
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'email_hot_masivo' %}active{% endif %}" href="/tienda-admin/email-hot-masivo">
-                                <i class="bi bi-send"></i> Envío Masivo HOT
-                            </a>
-                        </li>
-                        <div class="section-title">BOTS</div>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'bot_precios.bot_precios_page' %}active{% endif %}" href="/admin/bot-precios">
-                                <i class="bi bi-robot"></i> Bot de Precios ML
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'competencia.competencia_page' %}active{% endif %}" href="/admin/competencia">
-                                <i class="bi bi-graph-up-arrow"></i> Monitor Competencia
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'whatsapp.wa_admin' %}active{% endif %}" href="/admin/whatsapp">
-                                <i class="bi bi-whatsapp"></i> Bot WhatsApp
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'competencia_scraper.competencia_scraper_page' %}active{% endif %}" href="/admin/competencia-scraper">
-                                <i class="bi bi-shop"></i> Competencia (Scraper)
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'competencia_v2.competencia_v2_page' %}active{% endif %}" href="/admin/competencia-v2">
-                                <i class="bi bi-bar-chart-line"></i> Competencia V2
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'competencia_v2.ventas_competidores_page' %}active{% endif %}" href="/admin/ventas-competidores">
-                                <i class="bi bi-search"></i> Ventas Competidores
-                            </a>
-                        </li>
-                        <div class="section-title">CONFIGURACIÓN</div>
-                        <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'admin_logs' %}active{% endif %}" href="/admin/logs">
-                                <i class="bi bi-journal-text"></i> Log del Sistema
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/configuracion/resetear">
-                                <i class="bi bi-arrow-clockwise"></i> Resetear Sistema
-                            </a>
-                        </li>
+                    {% include '_menu_items.html' %}
                     </ul>
-                    {% endif %}
                     <div style="padding: 1rem 1.2rem; border-top: 1px solid rgba(255,255,255,0.1); margin-top: 1rem;">
                         <div style="color: rgba(255,255,255,0.6); font-size: 0.8rem; margin-bottom: 0.5rem;">
                             <i class="bi bi-person-circle"></i>
@@ -824,11 +309,15 @@
 
     <!-- BOTTOM NAV MOBILE -->
     <nav class="bottom-nav">
+        {% if current_user.is_authenticated %}
+        {% if puede('stock') %}
         <a href="/dashboard-visual"
            class="{% if request.endpoint == 'dashboard_visual' %}active{% endif %}">
             <i class="bi bi-grid-3x3"></i>
             <span>Stock</span>
         </a>
+        {% endif %}
+        {% if puede('preguntas') %}
         <a href="/preguntas"
            class="{% if request.endpoint == 'preguntas' %}active{% endif %}" style="position:relative">
             <i class="bi bi-chat-left-dots"></i>
@@ -837,21 +326,36 @@
             <span class="nav-badge">{{ preguntas_pendientes_count if preguntas_pendientes_count < 100 else '99+' }}</span>
             {% endif %}
         </a>
+        {% endif %}
+        {% if puede('ventas') %}
         <a href="/ventas/activas"
            class="{% if request.endpoint == 'ventas_activas' %}active{% endif %}">
             <i class="bi bi-clock-history" style="font-size:1.6rem; color:#3498db"></i>
             <span>Activas</span>
         </a>
+        {% endif %}
+        {% if puede('stock', 'editar') %}
         <a href="/cargar-stock"
            class="{% if request.endpoint == 'cargar_stock' %}active{% endif %}">
             <i class="bi bi-plus-circle"></i>
             <span>Cargar</span>
         </a>
+        {% endif %}
+        {% if puede('publis_ml') %}
         <a href="/cargar-stock-ml"
            class="{% if request.endpoint == 'cargar_stock_ml' %}active{% endif %}">
             <i class="bi bi-pencil-square"></i>
             <span>Publis ML</span>
         </a>
+        {% endif %}
+        {% if puede('agencia') and not puede('ventas') %}
+        <a href="/agencia"
+           class="{% if request.endpoint == 'agencia_dashboard' %}active{% endif %}">
+            <i class="bi bi-graph-up-arrow"></i>
+            <span>Agencia</span>
+        </a>
+        {% endif %}
+        {% endif %}
     </nav>
 
     <!-- Bootstrap JS -->

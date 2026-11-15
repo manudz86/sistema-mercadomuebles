@@ -12102,7 +12102,9 @@ def _atribucion_datos(desde, hasta):
 @login_required
 def atribucion():
     from flask_login import current_user
-    if getattr(current_user, 'rol', '') not in ('admin', 'agencia'):
+    from flask import g
+    # El acceso lo decide permisos.py (módulo "atribucion"); esto queda de respaldo.
+    if not g.get('permiso_ok') and getattr(current_user, 'rol', '') not in ('admin', 'agencia'):
         return redirect('/')
     hoy = (datetime.utcnow() - timedelta(hours=3)).date()
     try:

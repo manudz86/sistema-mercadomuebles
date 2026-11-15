@@ -526,6 +526,9 @@ def _inject_links_venta():
 # ─────────────────────────── página ───────────────────────────
 
 def _puede():
+    from flask import g
+    if g.get('permiso_ok'):   # autorizado por permisos.py (página de Permisos)
+        return True
     return current_user.is_authenticated and current_user.rol in ('admin', 'vendedor')
 
 

@@ -1,0 +1,320 @@
+{# Ítems del menú lateral (se incluye en el menú del celular y en el de escritorio).
+   Cada ítem se muestra solo si el usuario tiene permiso de "ver" ese módulo (permisos.py). #}
+{% if current_user.is_authenticated %}
+    {% if puede('dashboard') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="/">
+            <i class="bi bi-house-door"></i> Dashboard
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('preguntas') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'preguntas' %}active{% endif %}" href="/preguntas">
+            <i class="bi bi-chat-left-dots"></i> Preguntas ML
+            {% if preguntas_pendientes_count and preguntas_pendientes_count > 0 %}<span class="badge bg-danger ms-1">{{ preguntas_pendientes_count }}</span>{% endif %}
+        </a>
+    </li>
+    {% endif %}
+
+    {% if puede('ventas') or puede('envios') %}
+    <div class="section-title">VENTAS</div>
+    {% endif %}
+    {% if puede('ventas', 'editar') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'nueva_venta' %}active{% endif %}" href="/nueva-venta">
+            <i class="bi bi-plus-circle"></i> Nueva Venta
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('ventas') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'ventas_activas' %}active{% endif %}" href="/ventas/activas">
+            <i class="bi bi-clock-history"></i> Ventas Activas
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'ventas_proceso' %}active{% endif %}" href="/ventas/proceso">
+            <i class="bi bi-box-seam"></i> Proceso de Envío
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'calendario_entregas' %}active{% endif %}" href="/ventas/calendario-entregas">
+            <i class="bi bi-calendar3"></i> Calendario de entregas
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('envios') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'corrector_zpl' %}active{% endif %}" href="/herramientas/corrector-zpl">
+            <i class="bi bi-upc-scan"></i> Corrector etiquetas ZPL
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('ventas') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'ventas_historicas' %}active{% endif %}" href="/ventas/historicas">
+            <i class="bi bi-archive"></i> Ventas Históricas
+        </a>
+    </li>
+    {% endif %}
+
+    {% if puede('stock') %}
+    <div class="section-title">STOCK</div>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'dashboard_visual' %}active{% endif %}" href="/dashboard-visual">
+            <i class="bi bi-grid-3x3"></i> Dashboard Visual
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'ver_stock' %}active{% endif %}" href="/stock">
+            <i class="bi bi-box"></i> Ver Stock
+        </a>
+    </li>
+    {% if puede('stock', 'editar') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'cargar_stock' %}active{% endif %}" href="/cargar-stock">
+            <i class="bi bi-arrow-up-circle"></i> Cargar Stock
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'bajar_stock' %}active{% endif %}" href="/bajar-stock">
+            <i class="bi bi-arrow-down-circle"></i> Bajar Stock
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'transferir_stock' %}active{% endif %}" href="/transferir-stock">
+            <i class="bi bi-arrow-left-right"></i> Transferir Stock
+        </a>
+    </li>
+    {% endif %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'historial_stock' %}active{% endif %}" href="/historial-stock">
+            <i class="bi bi-clock-history"></i> Historial
+        </a>
+    </li>
+    {% endif %}
+
+    {% if puede('alertas') or puede('publis_ml') or puede('promos_ml') or puede('preguntas') %}
+    <div class="section-title">ALERTAS ML</div>
+    {% endif %}
+    {% if puede('alertas') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'alertas_ml' %}active{% endif %}" href="/alertas">
+            <i class="bi bi-exclamation-triangle"></i> Alertas Pendientes
+            {% if alertas_pendientes_count > 0 %}<span class="badge bg-danger ms-1">{{ alertas_pendientes_count }}</span>{% endif %}
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('publis_ml') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'cargar_stock_ml' %}active{% endif %}" href="/cargar-stock-ml">
+            <i class="bi bi-box-seam"></i> Modificar Publis ML
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('promos_ml') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'promociones_ml' %}active{% endif %}" href="/promociones-ml">
+            <i class="bi bi-percent"></i> Promociones ML
+        </a>
+    </li>
+    {% endif %}
+    {# Auditoría ML: apagada el 15/11/2026 (sin uso desde que las publis se automatizaron).
+       Si nadie la pide, borrar las rutas y el template en 01/2027. #}
+    {% if puede('preguntas') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint in ['reclamos', 'reclamo_detalle'] %}active{% endif %}" href="/reclamos">
+            <i class="bi bi-exclamation-octagon"></i> Reclamos ML
+            {% if reclamos_pendientes_count and reclamos_pendientes_count > 0 %}<span class="badge bg-danger ms-1">{{ reclamos_pendientes_count }}</span>{% endif %}
+        </a>
+    </li>
+    {% endif %}
+
+    {% if puede('estadisticas') or puede('atribucion') or puede('costos') or puede('intentos_pago') or puede('envios') or puede('agencia') %}
+    <div class="section-title">ANÁLISIS</div>
+    {% endif %}
+    {% if puede('estadisticas') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'estadisticas' %}active{% endif %}" href="/estadisticas">
+            <i class="bi bi-bar-chart-line-fill"></i> Estadísticas
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('atribucion') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'tienda.atribucion' %}active{% endif %}" href="/tienda/admin/atribucion">
+            <i class="bi bi-diagram-3"></i> Atribución web
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('costos') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'pagos_cannon' %}active{% endif %}" href="/pagos-cannon">
+            <i class="bi bi-receipt"></i> Pagos Cannon
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('intentos_pago') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'intentos_pago' %}active{% endif %}" href="/intentos-pago">
+            <i class="bi bi-credit-card-2-front"></i> Intentos pago
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('envios') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'fletes' %}active{% endif %}" href="/fletes">
+            <i class="bi bi-truck"></i> Fletes
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint in ('viajes_lista','viaje_nuevo','viaje_detalle') %}active{% endif %}" href="/viajes">
+            <i class="bi bi-map"></i> Viajes
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint and request.endpoint.startswith('zipnova.') %}active{% endif %}" href="/zipnova">
+            <i class="bi bi-boxes"></i> Zipnova
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'cotizador_envio' %}active{% endif %}" href="/cotizador-envio">
+            <i class="bi bi-box-seam"></i> Cotizador Envío
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('agencia') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'agencia_dashboard' %}active{% endif %}" href="/agencia">
+            <i class="bi bi-graph-up-arrow"></i> Dashboard Agencia
+        </a>
+    </li>
+    {% endif %}
+
+    {% if puede('tienda_catalogo') or puede('configuracion') or puede('costos') or puede('tienda_precios') or puede('tienda_marketing') %}
+    <div class="section-title">TIENDA WEB</div>
+    {% endif %}
+    {% if puede('tienda_catalogo') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint in ('productos_lista','productos_nuevo','productos_editar','productos_fotos','productos_fotos_subir','productos_fotos_eliminar','productos_fotos_reordenar') %}active{% endif %}" href="/productos">
+            <i class="bi bi-grid"></i> Catálogo
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('configuracion') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'configuracion_tienda' %}active{% endif %}" href="/configuracion">
+            <i class="bi bi-gear"></i> Configuraciones
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('costos') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint in ('costos_index','costos_calcular','costos_descuentos','costos_importar','costos_productos','costos_envio') %}active{% endif %}" href="/costos">
+            <i class="bi bi-calculator"></i> Costos
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'rentabilidad' %}active{% endif %}" href="/rentabilidad">
+            <i class="bi bi-graph-up-arrow"></i> Rentabilidad
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('tienda_precios') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint in ('tienda_precios','tienda_precios_guardar') %}active{% endif %}" href="/tienda-admin/precios">
+            <i class="bi bi-tag"></i> Precios
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('tienda_marketing') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint in ('tienda_ofertas','tienda_ofertas_guardar') %}active{% endif %}" href="/tienda-admin/ofertas">
+            <i class="bi bi-percent"></i> Ofertas
+        </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if request.endpoint == 'tienda_cupones' %}active{% endif %}" href="/tienda-admin/cupones">
+        <i class="bi bi-ticket-perforated"></i> Cupones
+      </a>
+    </li>
+    <div class="section-title">EMAIL MARKETING</div>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'recupero_carritos' %}active{% endif %}" href="/tienda-admin/recupero-carritos">
+            <i class="bi bi-cart-x"></i> Recupero de carritos
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'email_hot_test' %}active{% endif %}" href="/tienda-admin/email-hot-test">
+            <i class="bi bi-envelope"></i> Test Email HOT
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'email_hot_masivo' %}active{% endif %}" href="/tienda-admin/email-hot-masivo">
+            <i class="bi bi-send"></i> Envío Masivo HOT
+        </a>
+    </li>
+    {% endif %}
+
+    {% if puede('bot_precios') or puede('competencia') or puede('whatsapp') %}
+    <div class="section-title">BOTS</div>
+    {% endif %}
+    {% if puede('bot_precios') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'bot_precios.bot_precios_page' %}active{% endif %}" href="/admin/bot-precios">
+            <i class="bi bi-robot"></i> Bot de Precios ML
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('competencia') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'competencia.competencia_page' %}active{% endif %}" href="/admin/competencia">
+            <i class="bi bi-graph-up-arrow"></i> Monitor Competencia
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('whatsapp') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'whatsapp.wa_admin' %}active{% endif %}" href="/admin/whatsapp">
+            <i class="bi bi-whatsapp"></i> Bot WhatsApp
+        </a>
+    </li>
+    {% endif %}
+    {% if puede('competencia') %}
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'competencia_scraper.competencia_scraper_page' %}active{% endif %}" href="/admin/competencia-scraper">
+            <i class="bi bi-shop"></i> Competencia (Scraper)
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'competencia_v2.competencia_v2_page' %}active{% endif %}" href="/admin/competencia-v2">
+            <i class="bi bi-bar-chart-line"></i> Competencia V2
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'competencia_v2.ventas_competidores_page' %}active{% endif %}" href="/admin/ventas-competidores">
+            <i class="bi bi-search"></i> Ventas Competidores
+        </a>
+    </li>
+    {% endif %}
+
+    {% if current_user.rol == 'admin' %}
+    <div class="section-title">CONFIGURACIÓN</div>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'permisos.permisos_pagina' %}active{% endif %}" href="/configuracion/permisos">
+            <i class="bi bi-shield-lock"></i> Permisos
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'admin_logs' %}active{% endif %}" href="/admin/logs">
+            <i class="bi bi-journal-text"></i> Log del Sistema
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" href="/configuracion/resetear">
+            <i class="bi bi-arrow-clockwise"></i> Resetear Sistema
+        </a>
+    </li>
+    {% endif %}
+{% endif %}
