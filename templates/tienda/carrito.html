@@ -142,7 +142,7 @@
          minimo de compra, el vencimiento y el tope de usos como cualquier
          otro cupon: no es un atajo que saltee los controles. #}
       {% if hot_event.activo and hot_event.cupon and cupon_sirve %}
-      <div id="cupon-evento" style="background:linear-gradient(135deg,#1e8e4e,#14663a); border-radius:9px; padding:12px 14px; margin-bottom:10px; color:#fff;">
+      <div id="cupon-evento" class="ev-cupon-box" style="background:linear-gradient(135deg,#1e8e4e,#14663a); border-radius:9px; padding:12px 14px; margin-bottom:10px; color:#fff;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
           <div style="min-width:0;">
             <div style="font-weight:800; font-size:0.95rem; line-height:1.2;">
@@ -152,7 +152,7 @@
               Cupón {{ hot_event.cupon }} · {{ hot_event.titulo }}
             </div>
           </div>
-          <button onclick="aplicarCuponEvento(this)"
+          <button onclick="aplicarCuponEvento(this)" class="ev-cupon-btn"
             style="padding:9px 16px; background:#ffdd33; color:#14663a; border:none; border-radius:7px; cursor:pointer; font-size:0.86rem; font-weight:800; white-space:nowrap; touch-action:manipulation;">
             Aplicar
           </button>

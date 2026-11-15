@@ -178,6 +178,7 @@ REGLAS = [
     ('/productos/cuotas-coeficientes', 'configuracion', None),
     ('/productos/medio-toggle', 'configuracion', None),
     ('/productos/evento-guardar', 'configuracion', None),
+    ('/productos/evento-preview', 'configuracion', None),
     ('/productos/flete-almohadas', 'configuracion', None),
     ('/productos/newsletter-cupon', 'tienda_marketing', None),
     ('/productos*', 'tienda_catalogo', None),

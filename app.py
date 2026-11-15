@@ -22333,7 +22333,8 @@ def _config_tienda_ctx():
     _ev_claves = ('hot_event_activo', 'hot_event_fecha_inicio', 'hot_event_fecha_fin',
                   'evento_fecha_corte', 'evento_titulo', 'evento_fechas',
                   'evento_descuento_max', 'evento_cupon', 'evento_cupon_pct',
-                  'promo_2x1_almohadas', 'evento_envio_gratis_caba')
+                  'promo_2x1_almohadas', 'evento_envio_gratis_caba',
+                  'evento_tema', 'evento_fechas_ext', 'evento_banners')
     _ev_rows = query_db("SELECT clave, valor FROM configuracion WHERE clave IN "
                         "(" + ",".join(["%s"] * len(_ev_claves)) + ")", _ev_claves) or []
     evento = {r['clave']: (r['valor'] or '') for r in _ev_rows}
@@ -22591,6 +22592,31 @@ def productos_evento_guardar():
         promo_2x1  = _modo_promo('promo_2x1')
         envio_caba = _modo_promo('envio_caba')
 
+        tema = (request.form.get('tema', '') or 'hot').strip().lower()
+        if tema not in ('hot', 'black'):
+            return jsonify(ok=False, msg='Tema inválido')
+        # Banners por día: "fechas | escritorio | celular" por línea. Se valida acá
+        # para que un error de tipeo no deje la tienda sin banner sin que nadie se entere.
+        lineas_ok = []
+        for i, linea in enumerate((request.form.get('banners', '') or '').splitlines(), 1):
+            if not linea.strip():
+                continue
+            partes = [p.strip() for p in linea.split('|')]
+            if len(partes) != 3 or not all(partes):
+                return jsonify(ok=False, msg=f'Banners, línea {i}: tiene que ser "fechas | escritorio | celular"')
+            for ruta in partes[1:]:
+                if not ruta.startswith('/static/img/banners/') or '..' in ruta \
+                        or not os.path.isfile(os.path.join(app.root_path, ruta.lstrip('/'))):
+                    return jsonify(ok=False, msg=f'Banners, línea {i}: no existe {ruta}')
+            fechas_txt = partes[0]
+            try:
+                for tramo in fechas_txt.split(','):
+                    for x in tramo.split('..'):
+                        datetime.strptime(x.strip(), '%Y-%m-%d')
+            except ValueError:
+                return jsonify(ok=False, msg=f'Banners, línea {i}: fechas inválidas ({fechas_txt})')
+            lineas_ok.append(' | '.join(partes))
+
         vals = {
             'hot_event_activo':         modo,
             'hot_event_fecha_inicio':   _fecha('inicio'),
@@ -22603,6 +22629,9 @@ def productos_evento_guardar():
             'evento_cupon_pct':         str(max(0, int(request.form.get('cupon_pct') or 0))),
             'promo_2x1_almohadas':      promo_2x1,
             'evento_envio_gratis_caba': envio_caba,
+            'evento_tema':              tema,
+            'evento_fechas_ext':        (request.form.get('fechas_ext', '') or '').strip()[:80],
+            'evento_banners':           '\n'.join(lineas_ok),
         }
         for clave, valor in vals.items():
             execute_db("INSERT INTO configuracion (clave, valor) VALUES (%s, %s) "
@@ -22618,6 +22647,20 @@ def productos_evento_guardar():
         return jsonify(ok=False, msg=str(e))
     except Exception as e:
         return jsonify(ok=False, msg=str(e))
+
+
+@app.route('/productos/evento-preview')
+@admin_required
+def productos_evento_preview():
+    """Link firmado para ver la tienda con el evento como si fuera `fecha` (solo visual,
+    solo en el navegador que lo abre). Ver tienda_bp.evento_preview."""
+    import tienda_bp as _T
+    try:
+        fecha = datetime.strptime(request.args.get('fecha', ''), '%Y-%m-%d').strftime('%Y-%m-%d')
+    except ValueError:
+        flash('Elegí una fecha para la vista previa', 'error')
+        return redirect(url_for('configuracion_tienda'))
+    return redirect('https://www.mercadomuebles.com.ar/tienda/evento-preview?t=' + _T.evento_preview_token(fecha))
 
 
 @app.route('/productos/medio-toggle', methods=['POST'])

@@ -149,8 +149,9 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     .hot-promo-bar .hpb-countdown { font-variant-numeric: tabular-nums; }
     .hot-promo-bar #hot-cd { display: inline-block; min-width: 110px; text-align: left; }
   </style>
+  {% set ev_icono = '🔥' if hot_event.tema == 'hot' else '' %}
   <div class="hpb-inner">
-    <span class="hpb-fire">🔥</span>
+    {% if ev_icono %}<span class="hpb-fire">{{ ev_icono }}</span>{% else %}<span class="hpb-tag">%</span>{% endif %}
     <span>{{ hot_event.titulo }}</span>
     <span class="hpb-sep">·</span>
     <span>Hasta {{ hot_event.descuento_max }}% OFF</span>
@@ -158,13 +159,15 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     <span class="hpb-sep">+</span>
     <span>{{ hot_event.cupon_pct }}% extra con <strong>{{ hot_event.cupon }}</strong></span>
     {% endif %}
+    {% if hot_event.cuotas_3sin %}
     <span class="hpb-sep">·</span>
-    <span>3 y 6 cuotas</span>
+    <span>3 cuotas sin interés</span>
+    {% endif %}
     {% if hot_event.fecha_fin_iso %}
     <span class="hpb-sep">·</span>
     <span class="hpb-countdown">Termina en <span id="hot-cd" data-end="{{ hot_event.fecha_fin_iso }}">--d --h --m --s</span></span>
     {% endif %}
-    <span class="hpb-fire">🔥</span>
+    {% if ev_icono %}<span class="hpb-fire">{{ ev_icono }}</span>{% endif %}
   </div>
   <script>
   (function() {
@@ -193,6 +196,57 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   })();
   </script>
 </div>
+{% if hot_event.tema == 'black' %}
+{# Tema "Black" (Black Friday): negro, rojo neón y blanco, como los banners.
+   Pisa los colores del tema "hot" (rojo/naranja con fueguito) que están en
+   esta plantilla, en home.html y en carrito.html. #}
+<style>
+  .hot-promo-bar {
+    background: linear-gradient(90deg, #070708 0%, #16070a 30%, #c8102e 50%, #16070a 70%, #070708 100%) !important;
+    background-size: 200% 100% !important;
+    box-shadow: 0 0 14px rgba(232,18,46,0.55), inset 0 -1px 0 rgba(255,45,70,0.7) !important;
+  }
+  .hot-promo-bar strong { color: #fff; background: #e8122e; padding: 1px 6px; border-radius: 4px; }
+  .hot-promo-bar .hpb-tag {
+    display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+    background: #e8122e; border-radius: 4px; font-size: 0.8rem; box-shadow: 0 0 8px rgba(232,18,46,0.8);
+  }
+  #hot-event-popup .hev-head {
+    background: radial-gradient(120% 90% at 50% 0%, #3a0a12 0%, #0b0b0d 70%) !important;
+    border-bottom: 2px solid #e8122e;
+  }
+  #hot-event-popup .hev-head h2 { text-shadow: 0 0 18px rgba(232,18,46,0.7); }
+  #hot-event-popup .hev-fechas { background: #e8122e; display: inline-block; padding: 3px 12px; border-radius: 6px; }
+  #hot-event-popup .hev-cta { background: #e8122e !important; box-shadow: 0 6px 18px rgba(232,18,46,0.45); }
+  #hot-event-popup .hev-strong { color: #e8122e !important; }
+  .ofertas-wrap.ofertas-wrap--hot {
+    background: linear-gradient(180deg, #070708 0%, #1a070b 60%, #fff 100%) !important;
+  }
+  .ofertas-wrap.ofertas-wrap--hot::before {
+    background: #e8122e !important; box-shadow: 0 0 12px 1px rgba(232,18,46,0.9);
+  }
+  .ofertas-wrap.ofertas-wrap--hot .home-section-link { color: #ff4d63 !important; }
+  .offer-badge.offer-badge--hot {
+    background: #070708 !important;
+    box-shadow: 0 0 0 1px rgba(232,18,46,0.75), 0 4px 14px rgba(232,18,46,0.45) !important;
+  }
+  .offer-badge.offer-badge--hot::before { content: "%" !important; color: #ff4d63; filter: none !important; font-weight: 900; }
+  .offer-badge.offer-badge--hot .ob-extra { background: #e8122e !important; color: #fff !important; }
+  .ofertas-wrap--hot .price-ahorro {
+    color: #fff !important; background: rgba(232,18,46,0.22) !important; border-color: rgba(232,18,46,0.6) !important;
+  }
+  .ev-cupon-box { background: #0b0b0d !important; border: 1px solid #e8122e !important; color: #fff !important;
+                  box-shadow: 0 0 12px rgba(232,18,46,0.35); }
+  .ev-cupon-box * { color: #fff !important; }
+  .ev-cupon-box .ev-cupon-btn { background: #e8122e !important; border-color: #e8122e !important; }
+</style>
+{% endif %}
+{% if hot_event.simulado %}
+<div style="position:fixed;bottom:12px;left:12px;z-index:10000;background:#ffc107;color:#000;font:600 12px 'DM Sans',sans-serif;
+            padding:6px 10px;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.3);">
+  Vista previa del evento · <a href="/tienda/evento-preview?salir=1" style="color:#000;">salir</a>
+</div>
+{% endif %}
 {% endif %}
 
 <!-- HEADER -->
@@ -472,12 +526,12 @@ document.querySelectorAll('a[href="#catalogo"]').forEach(a => {
 <div id="hot-event-popup" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
      z-index:9999;width:min(460px,92vw);background:#fff;border-radius:16px;overflow:hidden;
      box-shadow:0 20px 60px rgba(0,0,0,0.4);">
-  <div style="background:linear-gradient(135deg,#c1272d 0%,#e74c3c 55%,#ff6b35 100%);
+  <div class="hev-head" style="background:linear-gradient(135deg,#c1272d 0%,#e74c3c 55%,#ff6b35 100%);
               padding:36px 28px 28px;text-align:center;position:relative;color:#fff;">
     <button onclick="cerrarHotEvent()" style="position:absolute;top:12px;right:14px;background:none;
             border:none;color:rgba(255,255,255,0.85);font-size:24px;cursor:pointer;line-height:1;">✕</button>
-    <div style="font-size:2.6rem;margin-bottom:6px;line-height:1;">🔥</div>
-    <div style="font-size:0.78rem;font-weight:700;letter-spacing:3px;opacity:0.95;margin-bottom:4px;">
+    {% if hot_event.tema == 'hot' %}<div style="font-size:2.6rem;margin-bottom:6px;line-height:1;">🔥</div>{% endif %}
+    <div class="hev-fechas" style="font-size:0.78rem;font-weight:700;letter-spacing:3px;opacity:0.95;margin-bottom:4px;">
       {{ hot_event.fechas }}
     </div>
     <h2 style="color:#fff;margin:0 0 10px;font-size:1.7rem;font-weight:900;letter-spacing:-0.5px;">
@@ -486,16 +540,18 @@ document.querySelectorAll('a[href="#catalogo"]').forEach(a => {
     <p style="color:rgba(255,255,255,0.95);margin:0;font-size:1rem;font-weight:600;">
       Hasta {{ hot_event.descuento_max }}% OFF{% if hot_event.cupon %} + {{ hot_event.cupon_pct }}% extra con {{ hot_event.cupon }}{% endif %}
     </p>
+    {% if hot_event.promos %}
     <p style="color:rgba(255,255,255,0.9);margin:6px 0 0;font-size:0.86rem;font-weight:600;">
-      3 y 6 cuotas · Envío sin cargo en CABA · 2x1 en almohadas
+      {{ hot_event.promos | join(' · ') }}
     </p>
+    {% endif %}
   </div>
   <div style="padding:26px 28px 28px;text-align:center;">
     <p style="color:#444;font-size:0.95rem;margin:0 0 18px;line-height:1.5;">
       Aprovechá precios especiales en colchones, sommiers y almohadas Cannon.
-      <br><strong style="color:#c1272d;">No te pierdas las ofertas.</strong>
+      <br><strong class="hev-strong" style="color:#c1272d;">No te pierdas las ofertas.</strong>
     </p>
-    <a href="/tienda/#catalogo" onclick="cerrarHotEvent()"
+    <a href="/tienda/#catalogo" onclick="cerrarHotEvent()" class="hev-cta"
        style="display:inline-block;width:100%;padding:14px;background:#1a1a2e;color:#fff;
               border:none;border-radius:8px;font-size:1rem;font-weight:700;text-decoration:none;
               box-sizing:border-box;">

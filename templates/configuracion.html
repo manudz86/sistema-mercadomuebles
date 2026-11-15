@@ -176,6 +176,41 @@
         </div>
       </div>
 
+      <div class="row g-2 align-items-end mt-1">
+        <div class="col-auto">
+          <label class="form-label small mb-1">Colores</label>
+          {% set _t = evento.evento_tema | default('hot') %}
+          <select id="ev-tema" class="form-select form-select-sm" style="width:215px">
+            <option value="hot"   {% if _t != 'black' %}selected{% endif %}>🔥 Hot (rojo y naranja)</option>
+            <option value="black" {% if _t == 'black' %}selected{% endif %}>⚫ Black (negro y rojo neón)</option>
+          </select>
+        </div>
+        <div class="col-auto">
+          <label class="form-label small mb-1">Fechas (texto) desde el corte</label>
+          <input type="text" id="ev-fechas-ext" class="form-control form-control-sm"
+                 style="width:240px" value="{{ evento.evento_fechas_ext }}" placeholder="HASTA EL 30 DE NOVIEMBRE">
+        </div>
+        <div class="col-auto">
+          <label class="form-label small mb-1">Vista previa (solo vos) como el día</label>
+          <div class="d-flex gap-1">
+            <input type="date" id="ev-prev-fecha" class="form-control form-control-sm" style="width:150px"
+                   value="{{ (evento.hot_event_fecha_inicio or '')[:10] }}">
+            <button type="button" class="btn btn-sm btn-outline-dark"
+                    onclick="window.open('/productos/evento-preview?fecha=' + document.getElementById('ev-prev-fecha').value, '_blank')">
+              👁 Ver tienda</button>
+          </div>
+        </div>
+      </div>
+      <div class="row g-2 mt-1">
+        <div class="col-12">
+          <label class="form-label small mb-1">Banners por día <span class="text-muted">(una línea por banner:
+            <code>fechas | banner escritorio | banner celular</code>; fechas separadas por coma o rango con <code>..</code>.
+            Vacío = banner único / "extendido")</span></label>
+          <textarea id="ev-banners" class="form-control form-control-sm font-monospace" rows="4"
+                    placeholder="2026-11-25,2026-11-27 | /static/img/banners/black2026_desktop_25-27.jpg | /static/img/banners/black2026_mobile_25-27.jpg">{{ evento.evento_banners }}</textarea>
+        </div>
+      </div>
+
       <div class="row g-2 align-items-center mt-1">
         <div class="col-auto d-flex align-items-center gap-3 flex-wrap">
           {# Tres estados, igual que el Modo del evento: en "Sigue al evento"
@@ -450,6 +485,9 @@ document.getElementById('btn-ev-guardar').addEventListener('click', function() {
   fd.append('desc_max',   v('ev-desc') || 0);
   fd.append('cupon',      v('ev-cupon'));
   fd.append('cupon_pct',  v('ev-cupon-pct') || 0);
+  fd.append('tema',       v('ev-tema'));
+  fd.append('fechas_ext', v('ev-fechas-ext'));
+  fd.append('banners',    v('ev-banners'));
   // Ahora son selectores de tres estados ('0' | '1' | 'auto'), no checkboxes
   fd.append('promo_2x1',  v('ev-2x1'));
   fd.append('envio_caba', v('ev-envio-caba'));

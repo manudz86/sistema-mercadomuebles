@@ -409,13 +409,65 @@ def _filtro_precio_2x1(precio, sku):
         return None
 
 
+# ── Vista previa del evento (solo visual) ──────────────────────────────────
+# El admin genera desde Configuración un link firmado (/productos/evento-preview);
+# /tienda/evento-preview deja una cookie firmada con la fecha a simular. Solo cambia
+# lo que pintan las plantillas (inject_hot_event): precios, cupón, 2x1 y envío
+# siguen saliendo de get_hot_event() real, así que nadie compra con el evento simulado.
+_PREVIEW_SALT = 'evento-preview'
+_PREVIEW_MAX_AGE = 7 * 24 * 3600
+
+
+def _preview_serializer():
+    from flask import current_app
+    from itsdangerous import URLSafeTimedSerializer
+    return URLSafeTimedSerializer(current_app.secret_key, salt=_PREVIEW_SALT)
+
+
+def evento_preview_token(fecha_iso):
+    return _preview_serializer().dumps({'f': fecha_iso})
+
+
+def _fecha_de_token(tok):
+    try:
+        d = _preview_serializer().loads(tok, max_age=_PREVIEW_MAX_AGE)
+        return datetime.strptime(d['f'], '%Y-%m-%d').date()
+    except Exception:
+        return None
+
+
+def evento_preview_fecha():
+    """Fecha simulada si el navegador tiene la cookie de vista previa válida."""
+    from flask import has_request_context
+    if not has_request_context():
+        return None
+    tok = request.cookies.get('ev_preview')
+    return _fecha_de_token(tok) if tok else None
+
+
+@tienda_bp.route('/evento-preview')
+def evento_preview():
+    if request.args.get('salir'):
+        resp = redirect('/tienda/')
+        resp.delete_cookie('ev_preview', path='/tienda')
+        return resp
+    tok = request.args.get('t', '')
+    if not _fecha_de_token(tok):
+        return redirect('/tienda/')
+    resp = redirect('/tienda/')
+    resp.set_cookie('ev_preview', tok, max_age=_PREVIEW_MAX_AGE, path='/tienda',
+                    secure=True, httponly=True, samesite='Lax')
+    return resp
+
+
 @tienda_bp.context_processor
 def inject_hot_event():
     """Evento y promo 2x1, disponibles en todos los templates de la tienda.
     `skus_2x1` va vacío si la promo está apagada, así las plantillas pueden
     preguntar `item.sku in skus_2x1` sin chequear antes si está activa."""
+    simular = evento_preview_fecha()
     return {
-        'hot_event': get_hot_event(),
+        'hot_event': get_hot_event(simular) if simular else get_hot_event(),
         'skus_2x1': SKUS_ALMOHADA if promo_2x1_activa() else set(),
         # Tope del campo "fecha de nacimiento del titular" en el checkout.
         # Se calcula acá y no se escribe fijo en la plantilla para que no
@@ -2784,8 +2836,35 @@ def get_demora_sin_stock():
         return 0
 
 
-def get_hot_event():
+def _banner_programado(texto, dia):
+    """Banner del día según evento_banners (una línea por banner):
+         2026-11-25,2026-11-27 | /static/img/banners/x_desktop.jpg | /static/img/banners/x_mobile.jpg
+         2026-11-29..2026-11-30 | ... | ...
+    Devuelve (desktop, mobile) o None si ninguna línea cubre `dia` (date)."""
+    from datetime import datetime as _dt
+    for linea in (texto or '').splitlines():
+        partes = [p.strip() for p in linea.split('|')]
+        if len(partes) != 3 or not all(partes):
+            continue
+        try:
+            for tramo in partes[0].split(','):
+                tramo = tramo.strip()
+                if '..' in tramo:
+                    a, b = (_dt.strptime(x.strip(), '%Y-%m-%d').date() for x in tramo.split('..', 1))
+                    if a <= dia <= b:
+                        return partes[1], partes[2]
+                elif _dt.strptime(tramo, '%Y-%m-%d').date() == dia:
+                    return partes[1], partes[2]
+        except ValueError:
+            continue
+    return None
+
+
+def get_hot_event(simular=None):
     """
+    `simular` (date): vista previa del evento como si fuera ese día (solo para
+    pintar las plantillas; ver inject_hot_event). Fuerza activo.
+
     Lee el flag del evento promocional desde la tabla configuracion.
     Valores soportados para 'hot_event_activo':
       - '1'    → forzado activo (override manual)
@@ -2810,6 +2889,7 @@ def get_hot_event():
         cur.execute("""
             SELECT clave, valor FROM configuracion
             WHERE clave LIKE 'hot_event_%' OR clave LIKE 'evento_%'
+               OR clave IN ('promo_2x1_almohadas', 'promo_3sin_activo', 'promo_3sin_dias')
         """)
         rows = cur.fetchall()
         cur.close()
@@ -2838,6 +2918,8 @@ def get_hot_event():
                     activo = False
     except Exception:
         activo = False
+    if simular is not None:
+        activo = True
 
     # Titulo, fechas, descuento maximo, extras y banners salen de
     # configuracion. Estaban escritos en el codigo, asi que cada evento
@@ -2860,9 +2942,41 @@ def get_hot_event():
     dt_corte = _a_fecha(_cfg('evento_fecha_corte'))
     dt_fin   = _a_fecha(config.get('hot_event_fecha_fin', ''))
     ahora_c  = datetime.now(TZ_AR) if TZ_AR is not None else datetime.now()
+    if simular is not None:
+        ahora_c = datetime(simular.year, simular.month, simular.day, 12, 0)
+        if TZ_AR is not None:
+            ahora_c = ahora_c.replace(tzinfo=TZ_AR)
 
     extendido = bool(activo and dt_corte and ahora_c > dt_corte)
     suf = '_ext' if extendido else ''
+
+    # Banners por día (evento_banners); si no hay línea para hoy, los de siempre.
+    programado = _banner_programado(_cfg('evento_banners'), ahora_c.date()) if activo else None
+    banner_desktop, banner_mobile = programado or (
+        _cfg('evento_banner_desktop', f'/static/img/banners/cybersale_desktop{suf}.jpg'),
+        _cfg('evento_banner_mobile', f'/static/img/banners/cybersale_mobile{suf}.jpg'))
+
+    # Promos del día, para los textos de la barra y el popup. Se resuelven acá
+    # con la configuración ya leída (llamar a promo_2x1_activa recursaría).
+    def _modo(clave):
+        m = (config.get(clave) or '0').lower()
+        return m == '1' or (m == 'auto' and activo)
+    f3 = (config.get('promo_3sin_activo') or 'auto').lower()
+    try:
+        dias3 = {int(d) for d in (config.get('promo_3sin_dias') or '2,5').split(',') if d.strip() != ''}
+    except ValueError:
+        dias3 = {2, 5}
+    cuotas_3sin = f3 == '1' or (f3 == 'auto' and ahora_c.weekday() in dias3)
+    promos = []
+    if cuotas_3sin:
+        promos.append('3 cuotas sin interés')
+    if _modo('evento_envio_gratis_caba'):
+        promos.append('Envío sin cargo en CABA')
+    if _modo('promo_2x1_almohadas'):
+        promos.append('2x1 en almohadas')
+    tema = _cfg('evento_tema', 'hot').lower()
+    if tema not in ('hot', 'black'):
+        tema = 'hot'
 
     # La cuenta regresiva apunta al final de la ETAPA en curso, no al final del
     # evento: en la primera etapa cuenta hasta el corte y en la segunda hasta
@@ -2878,16 +2992,18 @@ def get_hot_event():
     return {
         'activo': activo,
         'titulo': _cfg('evento_titulo', 'SEMANA DEL DESCANSO'),
-        'fechas': _cfg('evento_fechas', ''),
+        'fechas': (_cfg('evento_fechas_ext') if extendido and _cfg('evento_fechas_ext') else _cfg('evento_fechas', '')),
+        'tema': tema,
+        'cuotas_3sin': cuotas_3sin,
+        'promos': promos,
+        'simulado': simular is not None,
         'descuento_max': int(_cfg('evento_descuento_max', '15') or 15),
         'fecha_fin_iso': fecha_fin_iso,
         'descuento_extra_catalogo': int(_cfg('evento_extra_catalogo', '0') or 0) if activo else 0,
         'descuento_extra_oferta': int(_cfg('evento_extra_oferta', '0') or 0) if activo else 0,
         'extendido': extendido,
-        'banner_desktop': _cfg('evento_banner_desktop',
-                               f'/static/img/banners/cybersale_desktop{suf}.jpg'),
-        'banner_mobile': _cfg('evento_banner_mobile',
-                              f'/static/img/banners/cybersale_mobile{suf}.jpg'),
+        'banner_desktop': banner_desktop,
+        'banner_mobile': banner_mobile,
         'cupon': _cfg('evento_cupon', ''),
         'cupon_pct': int(_cfg('evento_cupon_pct', '0') or 0),
     }
@@ -4677,6 +4793,13 @@ def validar_cupon():
         cup = cursor.fetchone()
         if not cup:
             return jsonify({'ok': False, 'error': 'Cupón inválido o inactivo'})
+
+        # El cupón del evento (configuracion.evento_cupon) vale solo con el evento
+        # encendido: la tabla cupones no tiene fecha de inicio, y el vencimiento se
+        # compara contra la fecha del servidor (UTC), no la de Argentina.
+        _he = get_hot_event()
+        if _he.get('cupon') and codigo == _he['cupon'].upper() and not _he.get('activo'):
+            return jsonify({'ok': False, 'error': f"El cupón {codigo} vale solo durante {_he.get('titulo') or 'el evento'}"})
 
         from datetime import date
         if cup['fecha_vencimiento'] and cup['fecha_vencimiento'] < date.today():
