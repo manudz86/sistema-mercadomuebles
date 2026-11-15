@@ -179,6 +179,40 @@ def agencia_only(f):
         return f(*args, **kwargs)
     return decorated
 
+
+# ── Control de acceso central por ruta ─────────────────────────────────────
+# Cubre los blueprints que no traen decorador (bot de precios, competencia,
+# competencia v2, WhatsApp, push) y las rutas de debug/test. Se evalúa antes
+# que cualquier vista, así que una ruta nueva bajo estos prefijos nace protegida.
+_ACCESO_SOLO_ADMIN = ('/admin/', '/debug', '/test/', '/configuracion/resetear',
+                      '/tienda/test-payway', '/push/test', '/push/stats')
+# Endpoints del scraper de Windows: se autentican con X-Scraper-Token.
+_ACCESO_EXENTO = ('/admin/competencia-scraper/sondas/', '/admin/competencia-scraper/upload',
+                  '/admin/competencia-scraper/alert')
+_ACCESO_CON_LOGIN = ('/push/subscribe', '/push/unsubscribe')
+
+
+@app.before_request
+def _control_acceso_rutas():
+    p = request.path
+    if p.startswith(_ACCESO_EXENTO):
+        return None
+    solo_admin = p.startswith(_ACCESO_SOLO_ADMIN)
+    if not solo_admin and not p.startswith(_ACCESO_CON_LOGIN):
+        return None
+    quiere_json = (request.method != 'GET' or request.is_json
+                   or 'application/json' in (request.headers.get('Accept') or ''))
+    if not current_user.is_authenticated:
+        if quiere_json:
+            return jsonify({'ok': False, 'error': 'Sesión vencida: volvé a iniciar sesión'}), 401
+        return redirect(url_for('login', next=p))
+    if solo_admin and current_user.rol != 'admin':
+        if quiere_json:
+            return jsonify({'ok': False, 'error': 'No tenés permisos para esta acción'}), 403
+        flash('❌ No tenés permisos para acceder a esta sección', 'danger')
+        return redirect(url_for('index'))
+    return None
+
 # Configuración de base de datos
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'localhost'),
@@ -12214,13 +12248,6 @@ def _construir_payload_desde_hermana(item_hermana, tipo, precio):
         'pictures':           pictures,
     }
     return payload
-
-
-@app.route('/debug-token-temp')
-@login_required
-def debug_token_temp():
-    token = cargar_ml_token()
-    return f"<pre>{token}</pre>"
 
 
 @app.route('/publicar-catalogo-cuota', methods=['POST'])
