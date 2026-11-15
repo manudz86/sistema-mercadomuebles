@@ -25,7 +25,7 @@ ads_bp = Blueprint('ads', __name__)
 INICIO_VALIDO = date(2026, 11, 12)
 DIAS_SYNC = 14
 WINDSOR = 'https://connectors.windsor.ai/'
-CAMPOS_META = ('date,campaign_id,campaign,adset_id,adset_name,impressions,actions_link_click,spend,'
+CAMPOS_META = ('date,campaign_id,campaign,adset_id,adset_name,ad_id,ad_name,impressions,actions_link_click,spend,'
                'actions_offsite_conversion_fb_pixel_purchase,action_values_offsite_conversion_fb_pixel_purchase')
 CAMPOS_GOOGLE = 'date,campaign_id,campaign,ad_group_id,ad_group_name,impressions,clicks,spend,conversions,conversions_value'
 CAMPOS_CLICS = 'date,click_view_gclid,campaign_id,campaign,ad_group_id,ad_group_name'
@@ -93,20 +93,21 @@ def sincronizar(dias=DIAS_SYNC):
             db.close()
         raise
 
-    filas = {}  # (fecha, plataforma, campana_id, grupo_id) → dict
+    filas = {}  # (fecha, plataforma, campana_id, grupo_id, anuncio_id) → dict
 
-    def sumar(plat, f, grupo_id, grupo, clic, compras, valor):
-        k = (f.get('date'), plat, _s(f.get('campaign_id'), 40), _s(grupo_id, 40))
+    def sumar(plat, f, grupo_id, grupo, clic, compras, valor, anuncio_id='', anuncio=''):
+        k = (f.get('date'), plat, _s(f.get('campaign_id'), 40), _s(grupo_id, 40), _s(anuncio_id, 40))
         if not k[0] or not k[2]:
             return
-        a = filas.setdefault(k, {'campana': _s(f.get('campaign'), 255), 'grupo': _s(grupo, 255),
+        a = filas.setdefault(k, {'campana': _s(f.get('campaign'), 255), 'grupo': _s(grupo, 255), 'anuncio': _s(anuncio, 255),
                                  'imp': 0, 'clics': 0, 'gasto': 0.0, 'compras': 0.0, 'valor': 0.0})
         a['imp'] += int(_n(f.get('impressions'))); a['clics'] += int(_n(clic)); a['gasto'] += _n(f.get('spend'))
         a['compras'] += _n(compras); a['valor'] += _n(valor)
 
     for f in meta:
         sumar('meta', f, f.get('adset_id'), f.get('adset_name'), f.get('actions_link_click'),
-              f.get('actions_offsite_conversion_fb_pixel_purchase'), f.get('action_values_offsite_conversion_fb_pixel_purchase'))
+              f.get('actions_offsite_conversion_fb_pixel_purchase'), f.get('action_values_offsite_conversion_fb_pixel_purchase'),
+              f.get('ad_id'), f.get('ad_name'))
     for f in google:
         sumar('google', f, f.get('ad_group_id'), f.get('ad_group_name'), f.get('clicks'),
               f.get('conversions'), f.get('conversions_value'))
@@ -119,8 +120,9 @@ def sincronizar(dias=DIAS_SYNC):
                             (plat, desde, hasta))
             cur.executemany(
                 """INSERT INTO ads_metricas_diarias (fecha, plataforma, campana_id, campana, grupo_id, grupo,
-                       impresiones, clics, gasto, compras, valor_compras) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                [(k[0], k[1], k[2], a['campana'], k[3], a['grupo'], a['imp'], a['clics'], round(a['gasto'], 2),
+                       anuncio_id, anuncio, impresiones, clics, gasto, compras, valor_compras)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                [(k[0], k[1], k[2], a['campana'], k[3], a['grupo'], k[4], a['anuncio'], a['imp'], a['clics'], round(a['gasto'], 2),
                   round(a['compras'], 2), round(a['valor'], 2)) for k, a in filas.items()])
             g = [(_s(f.get('click_view_gclid'), 300), f.get('date'), _s(f.get('campaign_id'), 40), _s(f.get('campaign'), 255),
                   _s(f.get('ad_group_id'), 40), _s(f.get('ad_group_name'), 255))
@@ -180,11 +182,13 @@ def _lunes(d):
 
 
 def _vacio():
-    return {'gasto': 0.0, 'clics': 0, 'compras': 0.0, 'valor': 0.0,
+    return {'gasto': 0.0, 'imp': 0, 'clics': 0, 'compras': 0.0, 'valor': 0.0,
             'ult_n': 0, 'ult_v': 0.0, 'c7_n': 0, 'c7_v': 0.0}
 
 
 def _derivar(a):
+    a['cpc'] = a['gasto'] / a['clics'] if a['clics'] else None
+    a['ctr'] = 100.0 * a['clics'] / a['imp'] if a['imp'] else None
     a['roas_plat'] = a['valor'] / a['gasto'] if a['gasto'] else None
     a['roas_real'] = a['ult_v'] / a['gasto'] if a['gasto'] else None
     a['cpa_real'] = a['gasto'] / a['ult_n'] if a['ult_n'] else None
@@ -214,7 +218,7 @@ def comparar(desde, hasta):
         db = _db()
         try:
             with db.cursor() as cur:
-                cur.execute(f"SELECT gclid, campana_id, campana FROM ads_google_clics WHERE gclid IN ({','.join(['%s'] * len(gclids))})",
+                cur.execute(f"SELECT gclid, campana_id, campana, grupo_id, grupo FROM ads_google_clics WHERE gclid IN ({','.join(['%s'] * len(gclids))})",
                             gclids)
                 camp_gclid = {x['gclid']: x for x in cur.fetchall()}
         finally:
@@ -223,6 +227,7 @@ def comparar(desde, hasta):
     total = {p: _vacio() for p in PLATAFORMAS}
     semanas = defaultdict(lambda: {p: _vacio() for p in PLATAFORMAS})
     campanas = {}
+    anuncios = {}  # Meta: por anuncio; Google: por grupo de anuncios
     nombres = {}
     meta_sin_valor = defaultdict(float)
 
@@ -232,13 +237,24 @@ def comparar(desde, hasta):
             a['campana'] = nombre
         return a
 
+    def anun(p, cid, gid, aid, campana='', grupo='', anuncio=''):
+        a = anuncios.setdefault((p, cid, gid, aid), dict(_vacio(), plataforma=p, campana_id=cid, grupo_id=gid, anuncio_id=aid,
+                                                         campana=campana, grupo=grupo, anuncio=anuncio, ventas=[]))
+        for k, v in (('campana', campana), ('grupo', grupo), ('anuncio', anuncio)):
+            if v and not a[k]:
+                a[k] = v
+        return a
+
     for r in plat_rows:
         p = r['plataforma']
         if p not in total:
             continue
         nombres[(p, r['campana_id'])] = r['campana']
-        for a in (total[p], semanas[_lunes(r['fecha'])][p], camp(p, r['campana_id'], r['campana'])):
-            a['gasto'] += float(r['gasto']); a['clics'] += r['clics']
+        clave_a = (p, r['campana_id'], r['grupo_id'] or '', r.get('anuncio_id') or '')
+        nombres[clave_a] = (r['grupo'], r.get('anuncio'))
+        for a in (total[p], semanas[_lunes(r['fecha'])][p], camp(p, r['campana_id'], r['campana']),
+                  anun(*clave_a, r['campana'], r['grupo'], r.get('anuncio'))):
+            a['gasto'] += float(r['gasto']); a['clics'] += r['clics']; a['imp'] += r['impresiones']
             a['compras'] += float(r['compras']); a['valor'] += float(r['valor_compras'])
         if p == 'meta' and float(r['compras']) > 0 and float(r['valor_compras']) == 0:
             meta_sin_valor[r['fecha']] += float(r['compras'])
@@ -253,18 +269,25 @@ def comparar(desde, hasta):
                 continue
             if p == 'meta':
                 cid = v.get('meta_campana') or '(sin identificar)'
+                gid, aid = (v.get('meta_adset') or '', v.get('meta_ad') or '') if v.get('meta_campana') else ('', '')
             else:
-                cid = (camp_gclid.get(v.get('google_gclid')) or {}).get('campana_id') or '(sin identificar)'
-            for a in (total[p], semanas[_lunes(dia)][p], camp(p, cid, nombres.get((p, cid), ''))):
+                gc = camp_gclid.get(v.get('google_gclid')) or {}
+                cid = gc.get('campana_id') or '(sin identificar)'
+                gid, aid = gc.get('grupo_id') or '', ''
+            g_n, a_n = nombres.get((p, cid, gid, aid)) or ('', '')
+            for a in (total[p], semanas[_lunes(dia)][p], camp(p, cid, nombres.get((p, cid), '')),
+                      anun(p, cid, gid, aid, nombres.get((p, cid), ''), g_n, a_n)):
                 if ult:
                     a['ult_n'] += 1; a['ult_v'] += v['importe']
                 if c7:
                     a['c7_n'] += 1; a['c7_v'] += v['importe']
             camp(p, cid)['ventas'].append(v['numero_venta'])
+            anun(p, cid, gid, aid)['ventas'].append(v['numero_venta'])
         if v.get('meta_clic_7d') and v.get('google_ads_7d'):
             ambas.append(v)
 
-    for a in list(total.values()) + [x for s in semanas.values() for x in s.values()] + list(campanas.values()):
+    for a in (list(total.values()) + [x for s in semanas.values() for x in s.values()] + list(campanas.values())
+              + list(anuncios.values())):
         _derivar(a)
 
     alertas = []
@@ -297,6 +320,8 @@ def comparar(desde, hasta):
         'total': total,
         'semanas': [(l, semanas[l]) for l in sorted(semanas)],
         'campanas': sorted(campanas.values(), key=lambda a: (a['plataforma'], -a['gasto'])),
+        'anuncios': sorted((a for a in anuncios.values() if a['gasto'] or a['ult_n'] or a['c7_n']),
+                           key=lambda a: (a['plataforma'], a['campana'] or '', -a['gasto'])),
         'ambas': ambas,
         'alertas': alertas,
         'estado': estado,

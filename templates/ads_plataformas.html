@@ -6,6 +6,7 @@
 {% macro fila(a) %}
   <td class="text-end">{{ pesos(a.gasto) }}</td>
   <td class="text-end">{{ a.clics }}</td>
+  <td class="text-end">{{ pesos(a.cpc) }}</td>
   <td class="text-end">{{ "%.1f"|format(a.compras) }}</td>
   <td class="text-end">{{ pesos(a.valor) }}</td>
   <td class="text-end table-success">{{ a.ult_n }}</td>
@@ -17,7 +18,7 @@
   <td class="text-end {% if a.veces and a.veces > 2 %}text-danger fw-bold{% endif %}">{{ x(a.veces) }}</td>
 {% endmacro %}
 {% set cab %}
-  <th class="text-end">Gasto</th><th class="text-end">Clics</th>
+  <th class="text-end">Gasto</th><th class="text-end">Clics</th><th class="text-end" title="Gasto ÷ clics">Costo por clic</th>
   <th class="text-end" title="Compras que la plataforma se adjudica">Compras (dice)</th><th class="text-end">$ (dice)</th>
   <th class="text-end" title="Ventas cuyo último contacto no directo fue esta plataforma">Ventas nuestras</th><th class="text-end">$ nuestro</th>
   <th class="text-end" title="Ventas con al menos un clic en esta plataforma en los 7 días previos (aunque el último contacto sea otro)">Con clic 7d</th>
@@ -79,7 +80,7 @@
       <tr><td>{% if loop.first %}{{ lunes.strftime('%d/%m') }}{% endif %}</td><td>{{ nombres[p][0] }}</td>{{ fila(a) }}</tr>
       {% endfor %}
     {% else %}
-      <tr><td colspan="13" class="text-center text-muted">Sin datos</td></tr>
+      <tr><td colspan="14" class="text-center text-muted">Sin datos</td></tr>
     {% endfor %}
     </tbody>
   </table>
@@ -95,7 +96,41 @@
         <td class="small">{{ a.campana or '' }} <code class="text-muted">{{ a.campana_id }}</code></td>
         {{ fila(a) }}<td class="small">{{ a.ventas | join(' · ') }}</td></tr>
     {% else %}
-      <tr><td colspan="14" class="text-center text-muted">Sin datos</td></tr>
+      <tr><td colspan="15" class="text-center text-muted">Sin datos</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <h6 class="mt-4">Por anuncio (Meta) y grupo de anuncios (Google)</h6>
+  <div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle">
+    <thead class="table-dark"><tr><th>Plataforma</th><th>Campaña</th><th>Conjunto / grupo</th><th>Anuncio</th>
+      <th class="text-end">Gasto</th><th class="text-end">Impresiones</th><th class="text-end">Clics</th>
+      <th class="text-end" title="Clics ÷ impresiones">CTR</th><th class="text-end">Costo por clic</th>
+      <th class="text-end">Compras (dice)</th><th class="text-end">$ (dice)</th>
+      <th class="text-end">Ventas nuestras</th><th class="text-end">$ nuestro</th><th class="text-end">Con clic 7d</th>
+      <th class="text-end">Costo por venta real</th><th>Pedidos nuestros</th></tr></thead>
+    <tbody>
+    {% for a in d.anuncios %}
+      <tr><td>{{ nombres[a.plataforma][0] }}</td>
+        <td class="small">{{ a.campana or a.campana_id }}</td>
+        <td class="small">{{ a.grupo or a.grupo_id or '—' }}</td>
+        <td class="small">{{ a.anuncio or a.anuncio_id or '—' }}</td>
+        <td class="text-end">{{ pesos(a.gasto) }}</td>
+        <td class="text-end">{{ "{:,}".format(a.imp).replace(",",".") }}</td>
+        <td class="text-end">{{ a.clics }}</td>
+        <td class="text-end">{{ '—' if a.ctr is none else "%.2f"|format(a.ctr) ~ '%' }}</td>
+        <td class="text-end">{{ pesos(a.cpc) }}</td>
+        <td class="text-end">{{ "%.1f"|format(a.compras) }}</td>
+        <td class="text-end">{{ pesos(a.valor) }}</td>
+        <td class="text-end table-success">{{ a.ult_n }}</td>
+        <td class="text-end table-success">{{ pesos(a.ult_v) }}</td>
+        <td class="text-end">{{ a.c7_n }}</td>
+        <td class="text-end">{{ pesos(a.cpa_real) }}</td>
+        <td class="small">{{ a.ventas | join(' · ') }}</td></tr>
+    {% else %}
+      <tr><td colspan="16" class="text-center text-muted">Sin datos</td></tr>
     {% endfor %}
     </tbody>
   </table>

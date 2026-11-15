@@ -53,12 +53,12 @@ class Cur:
     def executemany(self, sql, filas):
         if 'ads_metricas_diarias' in sql:
             for f in filas:
-                MEM['metricas'].append(dict(zip(['fecha', 'plataforma', 'campana_id', 'campana', 'grupo_id', 'grupo', 'impresiones',
-                                                 'clics', 'gasto', 'compras', 'valor_compras'], f)))
+                MEM['metricas'].append(dict(zip(['fecha', 'plataforma', 'campana_id', 'campana', 'grupo_id', 'grupo', 'anuncio_id',
+                                                 'anuncio', 'impresiones', 'clics', 'gasto', 'compras', 'valor_compras'], f)))
                 MEM['metricas'][-1]['fecha'] = datetime.strptime(f[0], '%Y-%m-%d').date()
         else:
             for f in filas:
-                MEM['clics'][f[0]] = {'gclid': f[0], 'campana_id': f[2], 'campana': f[3]}
+                MEM['clics'][f[0]] = {'gclid': f[0], 'campana_id': f[2], 'campana': f[3], 'grupo_id': f[4], 'grupo': f[5]}
 
     def fetchall(self):
         return self.res
@@ -106,6 +106,11 @@ print('campañas:')
 for a in d['campanas']:
     print(f"  {a['plataforma']:<7} {(a['campana'] or '')[:45]:<45} gasto {B._pesos(a['gasto']):>10} dice {a['compras']:>4.1f} "
           f"nuestras {a['ult_n']} clic7d {a['c7_n']}")
+print('anuncios / grupos:')
+for a in d['anuncios']:
+    print(f"  {a['plataforma']:<7} {(a['grupo'] or a['grupo_id'] or '')[:22]:<22} {(a['anuncio'] or a['anuncio_id'] or '')[:24]:<24} "
+          f"gasto {B._pesos(a['gasto']):>9} clics {a['clics']:>4} CPC {B._pesos(a['cpc']):>6} dice {a['compras']:.1f} nuestras {a['ult_n']}")
+chequear(len(d['anuncios']) > 0 and all('cpc' in a for a in d['anuncios']), f"detalle por anuncio: {len(d['anuncios'])} filas")
 print(f"ventas con clic en ambas: {len(d['ambas'])}")
 print('alertas:')
 for n, t in d['alertas']:
