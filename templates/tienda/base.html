@@ -239,6 +239,20 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
                   box-shadow: 0 0 12px rgba(232,18,46,0.35); }
   .ev-cupon-box * { color: #fff !important; }
   .ev-cupon-box .ev-cupon-btn { background: #e8122e !important; border-color: #e8122e !important; }
+  /* Catálogo: el inverso de las ofertas de arriba (gris clarito → negro). Las tarjetas,
+     el filtro y la paginación son blancos, así que se leen sobre el negro. */
+  .catalogo-wrap {
+    display: flow-root;
+    background: linear-gradient(180deg, #f3f3f4 0%, #d9d9dc 30%, #4a4a4f 72%, #070708 100%);
+    padding-bottom: 40px;
+  }
+  /* Bloque de confianza y pie de página en negro, para que siga el degradé sin cortes. */
+  .trust-banner-v2 { background: #070708 !important; border-color: #1c1c20 !important; }
+  .trust-banner-v2 .trust-icon-v2, .trust-banner-v2 .trust-title-v2 { color: #fff !important; }
+  .trust-banner-v2 .trust-icon-v2 { color: #e8122e !important; }
+  .trust-banner-v2 .trust-desc-v2 { color: rgba(255,255,255,0.6) !important; }
+  .site-footer { background: #070708 !important; border-top: 2px solid #e8122e; }
+  body:has(.trust-banner-v2) .site-footer { margin-top: 0; }
 </style>
 {% endif %}
 {% if hot_event.simulado %}
