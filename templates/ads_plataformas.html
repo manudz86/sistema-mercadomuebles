@@ -1,0 +1,120 @@
+{% extends 'base.html' %}
+{% block title %}Plataformas vs nosotros{% endblock %}
+
+{% block content %}
+{% macro x(v, d=1) %}{{ '—' if v is none else ("%." ~ d ~ "f")|format(v) ~ 'x' }}{% endmacro %}
+{% macro fila(a) %}
+  <td class="text-end">{{ pesos(a.gasto) }}</td>
+  <td class="text-end">{{ a.clics }}</td>
+  <td class="text-end">{{ "%.1f"|format(a.compras) }}</td>
+  <td class="text-end">{{ pesos(a.valor) }}</td>
+  <td class="text-end table-success">{{ a.ult_n }}</td>
+  <td class="text-end table-success">{{ pesos(a.ult_v) }}</td>
+  <td class="text-end">{{ a.c7_n }}</td>
+  <td class="text-end">{{ x(a.roas_plat) }}</td>
+  <td class="text-end table-success fw-semibold">{{ x(a.roas_real) }}</td>
+  <td class="text-end">{{ pesos(a.cpa_real) }}</td>
+  <td class="text-end {% if a.veces and a.veces > 2 %}text-danger fw-bold{% endif %}">{{ x(a.veces) }}</td>
+{% endmacro %}
+{% set cab %}
+  <th class="text-end">Gasto</th><th class="text-end">Clics</th>
+  <th class="text-end" title="Compras que la plataforma se adjudica">Compras (dice)</th><th class="text-end">$ (dice)</th>
+  <th class="text-end" title="Ventas cuyo último contacto no directo fue esta plataforma">Ventas nuestras</th><th class="text-end">$ nuestro</th>
+  <th class="text-end" title="Ventas con al menos un clic en esta plataforma en los 7 días previos (aunque el último contacto sea otro)">Con clic 7d</th>
+  <th class="text-end">ROAS (dice)</th><th class="text-end">ROAS real</th><th class="text-end">Costo por venta real</th>
+  <th class="text-end" title="Compras que dice ÷ las que vemos nosotros">Se adjudica</th>
+{% endset %}
+<div class="container-fluid py-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <h4 class="mb-0"><i class="bi bi-bar-chart-steps"></i> Plataformas vs nosotros</h4>
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      <a class="btn btn-sm btn-outline-secondary" href="/tienda/admin/atribucion"><i class="bi bi-diagram-3"></i> Recorrido de ventas</a>
+      <form class="d-flex flex-wrap gap-2 align-items-center" method="get">
+        <input type="date" class="form-control form-control-sm" name="desde" value="{{ desde }}" min="{{ inicio }}">
+        <input type="date" class="form-control form-control-sm" name="hasta" value="{{ hasta }}">
+        <button class="btn btn-sm btn-primary">Ver</button>
+      </form>
+      {% if puede('atribucion', 'editar') %}
+      <form method="post" action="{{ url_for('ads.plataformas_actualizar') }}">
+        <input type="hidden" name="desde" value="{{ desde }}"><input type="hidden" name="hasta" value="{{ hasta }}">
+        <button class="btn btn-sm btn-outline-primary"><i class="bi bi-arrow-repeat"></i> Actualizar datos</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+  {% if d %}
+  <div class="alert alert-light border small mb-3">
+    <b>Cómo leer:</b> "dice" es lo que Meta / Google se adjudican (vía Windsor). <b>Ventas nuestras</b> = último contacto no
+    directo de la persona (el mismo criterio que Estadísticas). Las plataformas fechan la compra por el día del <b>clic o anuncio</b>,
+    no de la venta: compará por semana o período, no por día. Datos válidos desde el {{ inicio.strftime('%d/%m/%Y') }}.
+    Ventas de la tienda en el período (sin canceladas): <b>{{ d.n_ventas }}</b> por <b>{{ pesos(d.v_ventas) }}</b>.
+    {% if d.estado %}<span class="text-muted">· Última actualización: {{ d.estado.ts }} UTC{% if not d.estado.ok %} (con error){% endif %}</span>{% endif %}
+  </div>
+
+  {% for nivel, txt in d.alertas %}
+  <div class="alert alert-{{ nivel }} py-2 mb-2 small">{{ txt }}</div>
+  {% endfor %}
+
+  <h6 class="mt-3">Total del período</h6>
+  <div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle">
+    <thead class="table-dark"><tr><th>Plataforma</th>{{ cab }}</tr></thead>
+    <tbody>
+    {% for p, a in d.total.items() %}
+      <tr><td><b>{{ nombres[p][0] }}</b></td>{{ fila(a) }}</tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <h6 class="mt-4">Por semana (lunes a domingo)</h6>
+  <div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle">
+    <thead class="table-dark"><tr><th>Semana</th><th>Plataforma</th>{{ cab }}</tr></thead>
+    <tbody>
+    {% for lunes, por_p in d.semanas %}
+      {% for p, a in por_p.items() %}
+      <tr><td>{% if loop.first %}{{ lunes.strftime('%d/%m') }}{% endif %}</td><td>{{ nombres[p][0] }}</td>{{ fila(a) }}</tr>
+      {% endfor %}
+    {% else %}
+      <tr><td colspan="13" class="text-center text-muted">Sin datos</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <h6 class="mt-4">Por campaña</h6>
+  <div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle">
+    <thead class="table-dark"><tr><th>Plataforma</th><th>Campaña</th>{{ cab }}<th>Pedidos nuestros</th></tr></thead>
+    <tbody>
+    {% for a in d.campanas %}
+      <tr><td>{{ nombres[a.plataforma][0] }}</td>
+        <td class="small">{{ a.campana or '' }} <code class="text-muted">{{ a.campana_id }}</code></td>
+        {{ fila(a) }}<td class="small">{{ a.ventas | join(' · ') }}</td></tr>
+    {% else %}
+      <tr><td colspan="14" class="text-center text-muted">Sin datos</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+
+  <h6 class="mt-4">Ventas con clic en las dos plataformas (7 días) — ambas se las adjudican</h6>
+  <div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle">
+    <thead class="table-dark"><tr><th>Fecha</th><th>Pedido</th><th class="text-end">Cobrado</th><th>Origen atribuido (nuestro)</th></tr></thead>
+    <tbody>
+    {% for v in d.ambas %}
+      <tr><td class="small">{{ v.fecha }}</td><td class="small">{{ v.numero_venta }}</td>
+        <td class="text-end">{{ pesos(v.importe) }}</td><td>{{ v.canal_ultimo }}</td></tr>
+    {% else %}
+      <tr><td colspan="4" class="text-center text-muted">Ninguna en el período</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

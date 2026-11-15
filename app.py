@@ -14659,6 +14659,9 @@ app.register_blueprint(zipnova_bp)
 
 app.register_blueprint(_permisos.permisos_bp)
 
+from ads_bp import ads_bp  # Plataformas vs nosotros (Meta/Google Ads vía Windsor)
+app.register_blueprint(ads_bp)
+
 
 # ============================================================================
 # FLETES
@@ -20195,6 +20198,19 @@ def iniciar_scheduler():
             print("[CATALOGO-MLA] Refresco del índice agendado: 6:40 (hora AR)")
         except Exception as e:
             print(f"[CATALOGO-MLA] Error registrando el refresco: {e}")
+
+        # Meta/Google Ads vía Windsor: reescribe los últimos 14 días, una vez por día
+        # (candado en configuracion['ads_sync_dia']). 9:10 hora AR.
+        try:
+            import ads_bp as _ads
+            from zoneinfo import ZoneInfo as _ZI_ads
+            scheduler.add_job(_ads.job_ads_diario, 'cron', hour=9, minute=10,
+                              timezone=_ZI_ads('America/Argentina/Buenos_Aires'),
+                              id='ads_windsor_diario', replace_existing=True,
+                              max_instances=1, misfire_grace_time=3600)
+            print("[ADS] Sincronización con Windsor agendada: 9:10 (hora AR)")
+        except Exception as e:
+            print(f"[ADS] Error registrando la sincronización: {e}")
 
         return scheduler
     except Exception as e:

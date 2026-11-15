@@ -147,6 +147,11 @@
             <i class="bi bi-diagram-3"></i> Atribución web
         </a>
     </li>
+    <li class="nav-item">
+        <a class="nav-link {% if request.endpoint == 'ads.plataformas' %}active{% endif %}" href="/tienda/admin/atribucion/plataformas">
+            <i class="bi bi-bar-chart-steps"></i> Plataformas vs nosotros
+        </a>
+    </li>
     {% endif %}
     {% if puede('costos') %}
     <li class="nav-item">

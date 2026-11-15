@@ -11960,7 +11960,7 @@ def _touches_de_venta(cur, numero_venta, f_utc, email, telefono):
     touches = []
     if conds:
         cur.execute(f"""SELECT ts, canal, utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-                               fbclid IS NOT NULL AND fbclid<>'' AS con_fbclid, gclid IS NOT NULL AS con_gclid,
+                               fbclid IS NOT NULL AND fbclid<>'' AS con_fbclid, gclid IS NOT NULL AS con_gclid, gclid,
                                referrer_host, dispositivo, vid
                         FROM tienda_touchpoints
                         WHERE ({' OR '.join(conds)}) AND ts <= %s AND ts >= %s - INTERVAL {ATRIB_VENTANA_DIAS} DAY
@@ -12074,6 +12074,7 @@ def _atribucion_datos(desde, hasta):
             'meta_clic_1d': bool(ult_meta and h_antes(ult_meta['ts']) <= 24),
             'meta_clic_7d': bool(ult_meta and h_antes(ult_meta['ts']) <= 168),
             'google_ads_7d': any(h_antes(t['ts']) <= 168 for t in gads),
+            'google_gclid': next((t['gclid'] for t in reversed(gads) if t.get('gclid') and h_antes(t['ts']) <= 168), ''),
             'wa_anuncio': ', '.join(sorted({r['source_id'] for r in refs_wa if r['source_id']})),
             'recorrido': recorrido,
             'con_registro': bool(va),
