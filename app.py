@@ -7757,10 +7757,9 @@ def ejecutar_reseteo():
     password = request.form.get('password', '')
     confirmar = request.form.get('confirmar', '')
     
-    # Contraseña configurada (CAMBIAR ESTO por tu contraseña)
-    PASSWORD_CORRECTA = '32267845'
-    
-    if password != PASSWORD_CORRECTA:
+    # Se pide la contraseña de ingreso del usuario logueado (la ruta ya es solo admin)
+    _fila_u = query_one('SELECT password_hash FROM usuarios WHERE id = %s AND activo = TRUE', (current_user.id,))
+    if not password or not _fila_u or not check_password_hash(_fila_u['password_hash'], password):
         flash('❌ Contraseña incorrecta', 'error')
         return redirect(url_for('resetear_sistema'))
     

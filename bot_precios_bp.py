@@ -33,7 +33,7 @@ bot_precios_bp = Blueprint('bot_precios', __name__)
 def _db():
     return mysql.connector.connect(
         host='localhost', user='cannon',
-        password=os.getenv('DB_PASSWORD', 'Sistema@32267845'),
+        password=os.getenv('DB_PASSWORD', ''),
         database='inventario_cannon'
     )
 

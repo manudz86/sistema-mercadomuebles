@@ -10186,15 +10186,17 @@ def webhook_getnet():
             print(f'[webhook_getnet] AUTH FAIL: cannot decode credentials: {e}', flush=True)
             return jsonify(ok=False, error='unauthorized'), 401
 
-        if recv_user != expected_user or recv_pass != expected_pass:
+        import hmac as _hmac
+        if not (_hmac.compare_digest(recv_user, expected_user) and _hmac.compare_digest(recv_pass, expected_pass)):
             print(f'[webhook_getnet] AUTH FAIL: credentials mismatch (recv_user={recv_user})', flush=True)
             return jsonify(ok=False, error='unauthorized'), 401
 
         print(f'[webhook_getnet] AUTH OK: user={recv_user}', flush=True)
     else:
-        # Si las vars no están configuradas, loggear warning pero permitir
-        # (modo desarrollo / UAT donde no se configuró Basic Auth)
-        print(f'[webhook_getnet] WARNING: GETNET_WEBHOOK_USER/PASS no configurados — sin validación de auth', flush=True)
+        # Sin credenciales configuradas se rechaza: el webhook da ventas por pagadas
+        # con lo que dice el cuerpo, no se puede aceptar de cualquiera.
+        print(f'[webhook_getnet] ERROR: GETNET_WEBHOOK_USER/PASS no configurados — webhook rechazado', flush=True)
+        return jsonify(ok=False, error='unauthorized'), 401
 
     data = request.get_json() or {}
     print(f'[webhook_getnet] Payload completo: {json.dumps(data, ensure_ascii=False, default=str)}', flush=True)

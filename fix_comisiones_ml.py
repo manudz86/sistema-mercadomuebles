@@ -6,6 +6,9 @@ Correr en el VPS: python3 fix_comisiones_ml.py
 """
 
 import pymysql
+import os
+from dotenv import load_dotenv
+load_dotenv('/home/cannon/app/config/.env')
 import requests
 import time
 import re
@@ -14,7 +17,7 @@ import json as _json
 # ── Config DB ──────────────────────────────────────────────────────────────
 DB_HOST = 'localhost'
 DB_USER = 'cannon'
-DB_PASS = 'Sistema@32267845'
+DB_PASS = os.getenv('DB_PASSWORD', '')
 DB_NAME = 'inventario_cannon'
 
 # ── Config ─────────────────────────────────────────────────────────────────

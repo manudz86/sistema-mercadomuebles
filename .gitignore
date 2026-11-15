@@ -20,6 +20,7 @@ data/
 
 # Backups de la app
 app_backup*.py
+/*_backup *.py
 app_[0-9]*.py
 
 # Carpeta scratch de cambios

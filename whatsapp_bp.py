@@ -13,7 +13,7 @@ whatsapp_bp = Blueprint('whatsapp', __name__)
 # ── Config ────────────────────────────────────────────────────────
 WA_TOKEN      = os.getenv('WA_ACCESS_TOKEN')
 WA_PHONE_ID   = os.getenv('WA_PHONE_NUMBER_ID')
-WA_VERIFY_TOKEN = os.getenv('WA_VERIFY_TOKEN', 'mercadomuebles2025')
+WA_VERIFY_TOKEN = os.getenv('WA_VERIFY_TOKEN')
 # Lista de números a los que se deriva (todos reciben la notificación)
 NUMEROS_DERIVAR = ['+5491126275185', '+5491136696113']
 # Nombre del template aprobado en WhatsApp Manager (Utility, Spanish ARG)
@@ -46,7 +46,7 @@ def _aplica_demora(linea, tipo, modelo=None):
 def _db():
     db = mysql.connector.connect(
         host='localhost', user='cannon',
-        password=os.getenv('DB_PASSWORD', 'Sistema@32267845'),
+        password=os.getenv('DB_PASSWORD', ''),
         database='inventario_cannon'
     )
     cur = db.cursor()
@@ -1293,10 +1293,33 @@ def webhook_verify():
     token     = request.args.get('hub.verify_token')
     challenge = request.args.get('hub.challenge')
 
-    if mode == 'subscribe' and token == WA_VERIFY_TOKEN:
+    if WA_VERIFY_TOKEN and mode == 'subscribe' and token == WA_VERIFY_TOKEN:
         print("[WA] Webhook verificado OK")
         return challenge, 200
     return 'Forbidden', 403
+
+_aviso_sin_app_secret = []
+
+
+def _firma_meta_ok():
+    """Valida X-Hub-Signature-256 (HMAC-SHA256 del cuerpo con el App Secret de Meta).
+    Sin WA_APP_SECRET en config/.env deja pasar (avisa una vez por worker) para no cortar
+    el bot hasta que se cargue el secreto."""
+    secreto = os.getenv('WA_APP_SECRET', '').strip()
+    if not secreto:
+        if not _aviso_sin_app_secret:
+            _aviso_sin_app_secret.append(1)
+            print('[whatsapp] WARNING: falta WA_APP_SECRET — webhook sin validar firma', flush=True)
+        return True
+    import hmac, hashlib
+    firma = request.headers.get('X-Hub-Signature-256', '')
+    esperada = 'sha256=' + hmac.new(secreto.encode(), request.get_data(), hashlib.sha256).hexdigest()
+    if firma and hmac.compare_digest(firma, esperada):
+        return True
+    ip = request.headers.get('x-forwarded-for', request.remote_addr or '').split(',')[0].strip()
+    print(f'[whatsapp] webhook con firma inválida o ausente ip={ip}', flush=True)
+    return False
+
 
 def _marcar_links_wa(texto, phone):
     """Agrega wa=<marca del chat> a los links de la tienda que manda el bot, para unir la
@@ -1331,6 +1354,8 @@ def _guardar_referral_wa(phone, ref):
 @whatsapp_bp.route('/webhook/whatsapp', methods=['POST'])
 def webhook_message():
     """Recibe mensajes entrantes."""
+    if not _firma_meta_ok():
+        return 'invalid signature', 401
     data = request.get_json(silent=True)
     if not data:
         return 'OK', 200

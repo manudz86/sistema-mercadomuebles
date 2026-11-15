@@ -3,6 +3,9 @@
 Actualiza nombre_cliente desde ML para ventas donde nombre = apodo o está vacío.
 """
 import requests
+import os
+from dotenv import load_dotenv
+load_dotenv('/home/cannon/app/config/.env')
 import json
 import pymysql
 import time
@@ -11,7 +14,7 @@ import time
 conn = pymysql.connect(
     host='localhost',
     user='cannon',
-    password='Sistema@32267845',
+    password=os.getenv('DB_PASSWORD', ''),
     db='inventario_cannon',
     charset='utf8mb4',
     cursorclass=pymysql.cursors.DictCursor

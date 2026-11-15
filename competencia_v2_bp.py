@@ -98,7 +98,7 @@ def _pc(base, pct):
 
 def _db():
     return pymysql.connect(host='localhost', user='cannon',
-        password=os.environ.get('DB_PASSWORD', 'Sistema@32267845'),
+        password=os.getenv('DB_PASSWORD', ''),
         db='inventario_cannon', charset='utf8mb4', cursorclass=pymysql.cursors.DictCursor)
 
 def _price(v):

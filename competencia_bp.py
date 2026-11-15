@@ -74,7 +74,7 @@ def _sku_meta(sku):
 def _db():
     return mysql.connector.connect(
         host='localhost', user='cannon',
-        password=os.getenv('DB_PASSWORD', 'Sistema@32267845'),
+        password=os.getenv('DB_PASSWORD', ''),
         database='inventario_cannon'
     )
 
