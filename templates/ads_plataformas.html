@@ -77,7 +77,7 @@
     <tbody>
     {% for lunes, por_p in d.semanas %}
       {% for p, a in por_p.items() %}
-      <tr><td>{% if loop.first %}{{ lunes.strftime('%d/%m') }}{% endif %}</td><td>{{ nombres[p][0] }}</td>{{ fila(a) }}</tr>
+      <tr><td data-v="{{ lunes.isoformat() }}">{{ lunes.strftime('%d/%m') }}</td><td>{{ nombres[p][0] }}</td>{{ fila(a) }}</tr>
       {% endfor %}
     {% else %}
       <tr><td colspan="14" class="text-center text-muted">Sin datos</td></tr>
@@ -152,4 +152,49 @@
   </div>
   {% endif %}
 </div>
+<style>
+  th.th-orden{cursor:pointer;user-select:none;white-space:nowrap}
+  th.th-orden::after{content:" ⇅";opacity:.35;font-size:.8em}
+  th.th-orden[data-dir="asc"]::after{content:" ▲";opacity:1}
+  th.th-orden[data-dir="desc"]::after{content:" ▼";opacity:1}
+</style>
+<script>
+// Ordenar columnas: clic en el encabezado alterna ▼ (mayor a menor) / ▲ (menor a mayor).
+// Vacíos y "—" quedan siempre al final.
+(function () {
+  function valor(td) {
+    if (!td) return null;
+    var t = (td.dataset.v !== undefined ? td.dataset.v : td.textContent).trim();
+    if (!t || t === '—') return null;
+    var f = t.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/);  // dd/mm[/aaaa]
+    if (f) return (f[3] || '0000').padStart(4, '20') + f[2].padStart(2, '0') + f[1].padStart(2, '0') + t;
+    var n = t.replace(/^\$\s*/, '').replace(/[%x]$/, '');
+    if (/^-?\d{1,3}(\.\d{3})+$/.test(n) || (t[0] === '$' && /^-?[\d.]+$/.test(n))) n = n.replace(/\./g, '');
+    if (/^-?\d+(\.\d+)?$/.test(n)) return parseFloat(n);
+    return t.toLowerCase();
+  }
+  document.querySelectorAll('table thead tr').forEach(function (tr) {
+    var tabla = tr.closest('table'), tbody = tabla.tBodies[0];
+    if (!tbody) return;
+    Array.prototype.forEach.call(tr.children, function (th, col) {
+      th.classList.add('th-orden');
+      th.addEventListener('click', function () {
+        var filas = Array.prototype.filter.call(tbody.rows, function (r) { return r.cells.length > 1; });
+        if (filas.length < 2) return;
+        var dir = th.dataset.dir === 'desc' ? 'asc' : 'desc';
+        Array.prototype.forEach.call(tr.children, function (o) { delete o.dataset.dir; });
+        th.dataset.dir = dir;
+        filas.map(function (r, i) { return {r: r, v: valor(r.cells[col]), i: i}; })
+          .sort(function (a, b) {
+            if (a.v === null || b.v === null) return a.v === b.v ? a.i - b.i : (a.v === null ? 1 : -1);
+            var c = (typeof a.v === 'number' && typeof b.v === 'number') ? a.v - b.v
+                  : String(a.v).localeCompare(String(b.v), 'es', {numeric: true});
+            return (dir === 'asc' ? c : -c) || a.i - b.i;
+          })
+          .forEach(function (o) { tbody.appendChild(o.r); });
+      });
+    });
+  });
+})();
+</script>
 {% endblock %}
