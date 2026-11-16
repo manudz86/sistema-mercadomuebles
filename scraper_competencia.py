@@ -24,6 +24,15 @@ VPS_BASE = 'https://sistema.mercadomuebles.com.ar'
 # Listado de tiendas a scrapear (igual que antes)
 # ============================================================================
 TIENDAS = [
+    # GPV (tienda oficial "Colchones Cannon", nickname GPV_ML): filtro categoría + marca Cannon
+    {'nombre':'GPV',  'categoria':'sommiers',
+     'url_p1':'https://listado.mercadolibre.com.ar/tienda/colchones-cannon/listado/hogar-muebles-jardin/camas-colchones-accesorios/juegos-sommier-colchon/cannon/',
+     'url_p2':'https://listado.mercadolibre.com.ar/tienda/colchones-cannon/listado/hogar-muebles-jardin/camas-colchones-accesorios/juegos-sommier-colchon/cannon/_Desde_{offset}_NoIndex_True',
+     'archivo':'gpv_sommiers.csv'},
+    {'nombre':'GPV',  'categoria':'colchones',
+     'url_p1':'https://listado.mercadolibre.com.ar/tienda/colchones-cannon/listado/hogar-muebles-jardin/camas-colchones-accesorios/colchones/cannon/',
+     'url_p2':'https://listado.mercadolibre.com.ar/tienda/colchones-cannon/listado/hogar-muebles-jardin/camas-colchones-accesorios/colchones/cannon/_Desde_{offset}_NoIndex_True',
+     'archivo':'gpv_colchones.csv'},
     {'nombre':'TMS',  'categoria':'sommiers',
      'url_p1':'https://listado.mercadolibre.com.ar/tienda/tu-mejor-sommier/listado/hogar-muebles-jardin/camas-colchones-accesorios/juegos-sommier-colchon/cannon/',
      'url_p2':'https://listado.mercadolibre.com.ar/tienda/tu-mejor-sommier/listado/hogar-muebles-jardin/camas-colchones-accesorios/juegos-sommier-colchon/cannon/_Desde_{offset}_NoIndex_True',

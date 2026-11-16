@@ -43,8 +43,10 @@ VENDOR_META = {
     'Mercadomuebles': {'nombre': 'Mercadomuebles (vos)', 'alias': 'MERCADOMUEBLES (YO)', 'seller_id': MY_ID,   'tienda': None},
     'Milesi':    {'nombre': 'Milesi Hogar',         'alias': 'MILESI HOGAR',          'seller_id': None,      'tienda': None},
     'DescansoWeb': {'nombre': 'Descanso Web',       'alias': 'DESCANSO WEB',          'seller_id': 3434911863, 'tienda': 'DescansoWeb'},
+    # GPV = tienda "Colchones Cannon" en ML (nickname GPV_ML). #1 del ranking RT.
+    'GPV':       {'nombre': 'GPV',                  'alias': 'GPV',                   'seller_id': 344410835, 'tienda': 'GPV'},
 }
-VENDORS_ORDEN = ['TMS', 'Ivana', 'Lanus', 'Ballester', 'Bedpoint', 'Metymas', 'SanMartin', 'DescansoWeb', 'Mercadomuebles']
+VENDORS_ORDEN = ['GPV', 'TMS', 'Ivana', 'Lanus', 'Ballester', 'Bedpoint', 'Metymas', 'SanMartin', 'DescansoWeb', 'Mercadomuebles']
 # Alias propios para vendedores que Real Trends trae sin alias ('-'): nickname RT → alias.
 # (En RT, DESCANSOWEB figura con un nickname viejo; verificado por precio×catálogo.)
 NICK_ALIAS = {'TEMA.HILO.PASEO': 'DESCANSO WEB'}
