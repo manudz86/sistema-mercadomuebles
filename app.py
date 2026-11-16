@@ -8049,6 +8049,23 @@ def normalizar_sku_ml(sku_ml):
     return sku_ml, 0
 
 
+def _sku_por_mla(mla_id):
+    """SKU para un item de ML que llega SIN seller_sku (publicación sin SKU cargado,
+    p. ej. el pack x2 Doral). Sale de sku_mla_mapeo, solo si esa publicación apunta
+    a UN único SKU activo; si no, '' y queda el mapeo manual como siempre."""
+    if not mla_id:
+        return ''
+    try:
+        filas = query_db("SELECT DISTINCT sku FROM sku_mla_mapeo WHERE mla_id=%s AND activo=TRUE",
+                         (mla_id,)) or []
+    except Exception:
+        return ''
+    if len(filas) == 1:
+        print(f"[ML] {mla_id} sin seller_sku → {filas[0]['sku']} (por sku_mla_mapeo)")
+        return filas[0]['sku']
+    return ''
+
+
 # REEMPLAZAR la función procesar_orden_ml completa
 def procesar_orden_ml(orden):
     """
@@ -8065,7 +8082,7 @@ def procesar_orden_ml(orden):
     items = []
     for item in orden['order_items']:
         items.append({
-            'sku': item['item'].get('seller_sku', ''),
+            'sku': item['item'].get('seller_sku') or _sku_por_mla(item['item'].get('id')),
             'titulo': item['item']['title'],
             'cantidad': item['quantity'],
             'precio': item['unit_price']
