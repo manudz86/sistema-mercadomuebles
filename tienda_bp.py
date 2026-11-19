@@ -8189,13 +8189,17 @@ def pago_payway():
                 tel = '54' + tel[1:]
             elif not tel.startswith('54'):
                 tel = '549' + tel
-            enviar_whatsapp(tel, 'tienda_confirmacion', componentes=[{
-                "type": "body",
-                "parameters": [
-                    {"type": "text", "text": nombre_cliente or 'Cliente'},
-                    {"type": "text", "text": str(numero_venta)}
-                ]
-            }])
+            # En modo ClearSale '1' el comprador ya recibe "en proceso" y después
+            # "confirmado"/"rechazado" (avisar_estado_pago); este "gracias por tu
+            # compra" quedaba de más y salía junto a esos dos.
+            if _cs_modo != '1':
+                enviar_whatsapp(tel, 'tienda_confirmacion', componentes=[{
+                    "type": "body",
+                    "parameters": [
+                        {"type": "text", "text": nombre_cliente or 'Cliente'},
+                        {"type": "text", "text": str(numero_venta)}
+                    ]
+                }])
     except Exception:
         pass
 

@@ -19464,9 +19464,20 @@ def preguntas():
     # Hora Argentina (UTC-3): el VPS corre en UTC, así que datetime.now() daría +3h de atraso.
     from datetime import timezone as _tz, timedelta as _td
     ahora = datetime.now(_tz(_td(hours=-3))).replace(tzinfo=None)
+    _norm_cache = {}
     for r in rows:
         fp = r.get('fecha_pregunta')
         r['atraso'] = _humanizar_atraso(ahora - fp) if fp else None
+        # SKU del sistema para el botón "Cotizar envío" (SREP160Z→SREP160, CLASICAX2→2×CLASICA)
+        sku_ml = r.get('sku')
+        if sku_ml and sku_ml not in _norm_cache:
+            try:
+                _norm_cache[sku_ml] = normalizar_sku_ml(sku_ml)
+            except Exception:
+                _norm_cache[sku_ml] = (sku_ml, 0)
+        if sku_ml:
+            r['cotizar_sku'], _c = _norm_cache[sku_ml]
+            r['cotizar_cant'] = _c or 1
         try:
             r['historial_list'] = json.loads(r['historial']) if r.get('historial') else []
         except Exception:

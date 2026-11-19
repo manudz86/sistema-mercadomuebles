@@ -55,7 +55,14 @@
             {% if p.cuotas %}<span class="badge bg-light text-dark border">{{ p.cuotas }}</span>{% endif %}
             {% if p.precio is not none %}<span class="ms-1">💲{{ "{:,.0f}".format(p.precio|float).replace(',', '.') }}</span>{% endif %}
             {% if p.stock is not none %}<span class="ms-2">📦 {{ p.stock }} en publi</span>{% endif %}
-            <a class="ms-2" href="https://articulo.mercadolibre.com.ar/{{ p.item_id }}" target="_blank" rel="noopener">ver publicación ↗</a>
+            {% set _iid = (p.item_id or '')|upper %}
+            <a class="ms-2" href="https://articulo.mercadolibre.com.ar/{{ _iid[:3] ~ '-' ~ _iid[3:] if _iid[:3] == 'MLA' else _iid }}-_JM" target="_blank" rel="noopener">ver publicación ↗</a>
+            {% if p.sku %}
+            <a class="btn btn-sm btn-outline-secondary py-0 px-2 ms-2"
+               href="{{ url_for('cotizador_envio', sku=(p.cotizar_sku or p.sku), cant=(p.cotizar_cant or 1), valor=(p.precio|float|round|int if p.precio is not none else '')) }}"
+               target="_blank" rel="noopener"
+               onclick="if (window.innerWidth < 768) { this.removeAttribute('target'); }">🚚 Cotizar envío</a>
+            {% endif %}
           </div>
         </div>
         <div class="text-end small text-muted">

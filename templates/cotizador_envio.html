@@ -339,6 +339,20 @@ function copiar(texto) {
 
 // Inicializar
 renderSkus();
+
+// Precarga desde otra pantalla (ej. Preguntas ML): ?sku=SEX140&cant=1&valor=500000
+(function () {
+  const qs = new URLSearchParams(window.location.search);
+  const sku = (qs.get('sku') || '').trim().toUpperCase();
+  const valor = parseInt(qs.get('valor'));
+  if (!isNaN(valor) && valor > 0) document.getElementById('declared-input').value = valor;
+  if (sku) {
+    const cant = parseInt(qs.get('cant')) || 1;
+    document.getElementById('sku-input').value = sku;
+    document.getElementById('sku-cantidad').value = cant;
+    agregarSku();  // si el SKU no existe, queda en el input con el aviso de error
+  }
+})();
 </script>
 
 <style>
