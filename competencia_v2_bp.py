@@ -647,13 +647,82 @@ def _rt_login():
     r = s.post(f'{RT_BASE}/api/auth/login/', json={'key': llave}, headers=h, timeout=30)
     if r.status_code == 409 and 'key_has_email' in (r.text or ''):
         # Desde 11/2026 la llave está vinculada a un mail: el login es mail + código.
-        raise RuntimeError('Sesión de Real Trends vencida: hay que re-loguear con mail + código '
-                           '(scripts/rt_login_otp.py pedir / verificar <código>).')
+        return _rt_login_por_mail(s, h)
     if r.status_code != 200:
         raise RuntimeError(f'No pude re-loguear en Real Trends (HTTP {r.status_code}). Revisá RT_LLAVE_USUARIO.')
     new_sid = s.cookies.get('sessionid')
     if not new_sid:
         raise RuntimeError('Real Trends no devolvió sessionid al loguear con la llave.')
+    _rt_guardar_sessionid(new_sid)
+    return new_sid
+
+
+def _rt_codigo_mail(desde_utc, espera_seg=150):
+    """Busca en contacto@ (IMAP de Hostinger, mismas credenciales que Zipnova) el código
+    de login que mandó Real Trends DESPUÉS de `desde_utc`. Solo lectura (BODY.PEEK).
+    Reintenta cada 10 s hasta `espera_seg`. Devuelve el código o None."""
+    import email, imaplib, time
+    from email.utils import parsedate_to_datetime
+    from datetime import timezone as _tz
+    host = os.getenv('ZIPNOVA_IMAP_HOST', 'imap.hostinger.com')
+    user = os.getenv('ZIPNOVA_IMAP_USER', '')
+    pwd = os.getenv('ZIPNOVA_IMAP_PASS', '')
+    if not user or not pwd:
+        return None
+    fin = time.time() + espera_seg
+    while time.time() < fin:
+        time.sleep(10)
+        try:
+            M = imaplib.IMAP4_SSL(host, 993, timeout=30)
+            try:
+                M.login(user, pwd)
+                M.select('INBOX', readonly=True)
+                typ, data = M.search(None, 'FROM', '"real-trends.com"', 'SINCE',
+                                     desde_utc.strftime('%d-%b-%Y'))
+                for num in reversed((data[0] or b'').split()):
+                    typ, full = M.fetch(num, '(BODY.PEEK[])')
+                    msg = email.message_from_bytes(full[0][1])
+                    try:
+                        recibido = parsedate_to_datetime(msg.get('Date')).astimezone(_tz.utc).replace(tzinfo=None)
+                    except Exception:
+                        continue
+                    if recibido < desde_utc - datetime.timedelta(seconds=30):
+                        continue
+                    for p in msg.walk():
+                        if p.get_content_type() in ('text/plain', 'text/html'):
+                            t = (p.get_payload(decode=True) or b'').decode(p.get_content_charset() or 'utf-8', 'replace')
+                            m = re.search(r'Market Pro es:\D{0,40}?(\d{6})', re.sub(r'<[^>]+>', ' ', t))
+                            if m:
+                                return m.group(1)
+            finally:
+                try:
+                    M.logout()
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f'[RT] IMAP código: {e}', flush=True)
+    return None
+
+
+def _rt_login_por_mail(s, h):
+    """Login nuevo (desde 11/2026): pide el código al mail vinculado a la llave,
+    lo lee de la casilla por IMAP y lo verifica. Persiste el sessionid."""
+    email_rt = os.getenv('RT_EMAIL', 'contacto@mercadomuebles.com.ar').strip()
+    desde = datetime.datetime.utcnow()
+    r = s.post(f'{RT_BASE}/api/auth/login/email/', json={'email': email_rt}, headers=h, timeout=30)
+    if r.status_code != 200:
+        raise RuntimeError(f'Real Trends: no pude pedir el código por mail (HTTP {r.status_code} {r.text[:120]}).')
+    codigo = _rt_codigo_mail(desde)
+    if not codigo:
+        raise RuntimeError(f'Real Trends: no llegó el código de login a {email_rt} '
+                           '(re-loguear a mano: scripts/rt_login_otp.py pedir / verificar <código>).')
+    if s.cookies.get('csrftoken'):
+        h['X-CSRFToken'] = s.cookies.get('csrftoken')
+    r = s.post(f'{RT_BASE}/api/auth/otp/verify/', json={'code': codigo}, headers=h, timeout=30)
+    new_sid = s.cookies.get('sessionid')
+    if r.status_code != 200 or not new_sid:
+        raise RuntimeError(f'Real Trends: el código no fue aceptado (HTTP {r.status_code} {r.text[:120]}).')
+    print('[RT] re-login por mail + código OK', flush=True)
     _rt_guardar_sessionid(new_sid)
     return new_sid
 
