@@ -645,6 +645,10 @@ def _rt_login():
     if s.cookies.get('csrftoken'):
         h['X-CSRFToken'] = s.cookies.get('csrftoken')
     r = s.post(f'{RT_BASE}/api/auth/login/', json={'key': llave}, headers=h, timeout=30)
+    if r.status_code == 409 and 'key_has_email' in (r.text or ''):
+        # Desde 11/2026 la llave está vinculada a un mail: el login es mail + código.
+        raise RuntimeError('Sesión de Real Trends vencida: hay que re-loguear con mail + código '
+                           '(scripts/rt_login_otp.py pedir / verificar <código>).')
     if r.status_code != 200:
         raise RuntimeError(f'No pude re-loguear en Real Trends (HTTP {r.status_code}). Revisá RT_LLAVE_USUARIO.')
     new_sid = s.cookies.get('sessionid')
@@ -672,6 +676,15 @@ def _rt_fetch(cat_id, d0, d1):
             'application/json' not in (resp.headers.get('content-type') or '')
 
     sid = os.getenv('RT_SESSIONID', '').strip()
+    # El .env manda: si se re-logueó por fuera (scripts/rt_login_otp.py), el
+    # proceso toma el sessionid nuevo sin reiniciar.
+    try:
+        with open(os.path.join(APP_DIR, 'config', '.env')) as _f:
+            for _l in _f:
+                if _l.startswith('RT_SESSIONID='):
+                    sid = _l.split('=', 1)[1].strip() or sid
+    except Exception:
+        pass
     r = _do(sid) if sid else None
     if _vencida(r):
         # Sesión vencida (o sin sessionid) → re-loguear con la llave y reintentar
