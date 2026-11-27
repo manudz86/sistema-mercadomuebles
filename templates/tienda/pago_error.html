@@ -5,7 +5,12 @@
   <div class="pago-card pago-error">
     <div class="pago-icon">❌</div>
     <h1>Hubo un problema con tu pago</h1>
+    {% if motivo %}
+    <p><strong>{{ motivo[0] }}.</strong> {{ motivo[1] }}</p>
+    <p>No se procesó el cobro.</p>
+    {% else %}
     <p>No se procesó el cobro. Podés intentarlo de nuevo o consultarnos por WhatsApp.</p>
+    {% endif %}
     <div class="pago-acciones">
       <a href="/tienda/carrito" class="btn-primary">Reintentar</a>
       <a href="https://wa.me/5491131890519" class="btn-outline" target="_blank">Contactar por WhatsApp</a>

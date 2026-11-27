@@ -7801,8 +7801,12 @@ def pago_payway():
                        f"dni={cli.get('dni')} dir={str(cli.get('direccion'))[:60]!r}")
         _fraude_registrar_bloqueo(cli, _blk_motivo, bin_numero, session.get('pw_last4', ''), pedido_ref)
         _base_url = os.getenv('APP_BASE_URL', 'https://sistema.mercadomuebles.com.ar')
-        # Misma respuesta que un rechazo del banco (indistinguible para el atacante)
-        return jsonify({'status': 'rejected', 'redirect_url': f"{_base_url}/tienda/pago/error"}), 400
+        # Velocidad: avisamos que es una pausa por seguridad (sin decir qué dato
+        # la disparó) para que el comprador legítimo nos escriba en vez de seguir
+        # reintentando. Blocklist: mensaje genérico, indistinguible de un rechazo.
+        _mot = 'seguridad' if str(_blk_motivo).startswith('velocidad') else 'generico'
+        return jsonify({'status': 'rejected',
+                        'redirect_url': f"{_base_url}/tienda/pago/error?motivo={_mot}"}), 400
 
     # ── Calcular monto con coeficiente de cuotas y cupón ─────────────────────
     coef_3, coef_6    = get_coeficientes_cuotas()
@@ -7999,7 +8003,8 @@ def pago_payway():
 
     if pw_status != 'approved':
         logger.warning(f"[pago_payway] No aprobado: {pw_data}")
-        return jsonify({'status': pw_status, 'redirect_url': f"{base_url}/tienda/pago/error"}), 400
+        return jsonify({'status': pw_status,
+                        'redirect_url': f"{base_url}/tienda/pago/error?motivo={_payway_motivo_publico(pw_data)}"}), 400
 
     # ── Evitar duplicados ─────────────────────────────────────────────────────
     numero_venta = f"PW-{pw_id}"
@@ -8891,9 +8896,53 @@ def verificar_pago():
         return jsonify({'status': 'error'}), 500
 
 
+def _payway_motivo_publico(pw_data):
+    """Código de rechazo del emisor (status_details.error.reason.id) → clave de
+    PAGO_ERROR_MOTIVOS. 43 (retener tarjeta) cae en genérico a propósito."""
+    try:
+        rid = int((((pw_data.get('status_details') or {}).get('error') or {})
+                   .get('reason') or {}).get('id'))
+    except (TypeError, ValueError, AttributeError):
+        return 'generico'
+    if rid == 51:
+        return 'fondos'
+    if rid in (1, 5):
+        return 'autorizar'
+    if rid in (45, 56, 57):
+        return 'no_habilitada'
+    if rid in (12, 14, 53):
+        return 'datos'
+    if rid in (-1, 58, 91, 12035):
+        return 'tecnico'
+    return 'generico'
+
+
+PAGO_ERROR_MOTIVOS = {
+    'fondos': ('Fondos o límite insuficiente',
+               'Tu tarjeta no tiene saldo o límite disponible para este importe. '
+               'Probá con otra tarjeta u otro medio de pago.'),
+    'autorizar': ('Tu banco no autorizó el pago',
+                  'Suele pasar con compras online de montos altos. Llamá a tu banco para '
+                  'autorizar la compra y después volvé a intentar.'),
+    'no_habilitada': ('Tarjeta no habilitada para esta operación',
+                      'Tu tarjeta no está habilitada para este tipo de compra (por ejemplo, '
+                      'en cuotas o por internet). Consultá con tu banco o probá con otra tarjeta.'),
+    'datos': ('Datos de la tarjeta inválidos',
+              'Revisá el número, el vencimiento y el código de seguridad, y volvé a intentar.'),
+    'tecnico': ('El banco no respondió',
+                'Hubo un problema de comunicación con el emisor de la tarjeta. '
+                'Esperá unos minutos y volvé a intentar.'),
+    'seguridad': ('Pagos pausados por seguridad',
+                  'Por seguridad pausamos los pagos con estos datos después de varios intentos '
+                  'rechazados. Escribinos por WhatsApp y te ayudamos a completar la compra.'),
+}
+
+
 @tienda_bp.route('/pago/error')
 def pago_error():
-    return render_template('tienda/pago_error.html', carrito_count=0)
+    # Solo claves conocidas: el texto nunca sale de la URL.
+    motivo = PAGO_ERROR_MOTIVOS.get(request.args.get('motivo', ''))
+    return render_template('tienda/pago_error.html', carrito_count=0, motivo=motivo)
 
 
 
